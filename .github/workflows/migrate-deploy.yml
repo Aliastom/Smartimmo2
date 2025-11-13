@@ -1,0 +1,51 @@
+name: 🚀 Deploy with Migrations
+
+on:
+  push:
+    branches: [main, staging]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  deploy:
+    name: 🗄️ Deploy Application with Migrations
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📥 Install dependencies
+        run: npm ci
+
+      - name: 🔧 Generate Prisma Client
+        run: npm run prisma:generate
+
+      - name: 🗄️ Run Prisma Migrations
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        continue-on-error: false
+
+      - name: ✅ Healthcheck Database
+        run: |
+          echo "Checking database connection..."
+          npx prisma db execute --stdin <<< "SELECT 1;"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: 🏗️ Build Application
+        run: npm run build
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: 🎉 Deploy Success
+        run: echo "✅ Application deployed successfully with migrations"

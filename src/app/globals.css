@@ -1,0 +1,1873 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Import du design system */
+@import '../styles/tokens.css';
+
+/* === VARIABLES CSS PERSONNALISÉES === */
+:root {
+  --smartimmo-primary: #3b82f6;
+  --smartimmo-success: #10b981;
+  --smartimmo-warning: #f59e0b;
+  --smartimmo-danger: #ef4444;
+  --smartimmo-gray-50: #f9fafb;
+  --smartimmo-gray-100: #f3f4f6;
+  --smartimmo-gray-200: #e5e7eb;
+  --smartimmo-gray-300: #d1d5db;
+  --smartimmo-gray-400: #9ca3af;
+  --smartimmo-gray-500: #6b7280;
+  --smartimmo-gray-600: #4b5563;
+  --smartimmo-gray-700: #374151;
+  --smartimmo-gray-800: #1f2937;
+  --smartimmo-gray-900: #111827;
+}
+
+/* === ANIMATIONS SHIMMER POUR SKELETONS === */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+}
+
+/* Respecter prefers-reduced-motion pour les animations shimmer */
+@media (prefers-reduced-motion: reduce) {
+  .animate-shimmer {
+    animation: none;
+  }
+  
+  .motion-reduce\:animate-none {
+    animation: none !important;
+  }
+}
+
+/* === MICRO-INTERACTIONS TACTILES === */
+
+/* Classes globales pour éléments cliquables */
+.clickable {
+  transition: transform 0.05s ease-out, box-shadow 0.05s ease-out;
+  cursor: pointer;
+}
+
+.clickable:active {
+  transform: scale(0.98);
+}
+
+.clickable:hover:not(:active) {
+  transform: scale(1.02);
+}
+
+/* États pour boutons et liens tactiles */
+.btn-tactile {
+  transition: all 0.1s ease-out;
+  will-change: transform, box-shadow;
+}
+
+.btn-tactile:active {
+  transform: scale(0.95);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.btn-tactile:hover:not(:active) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Cartes cliquables avec effet plus marqué */
+.card-tactile {
+  transition: all 0.15s ease-out;
+  will-change: transform, box-shadow;
+}
+
+.card-tactile:active {
+  transform: scale(0.96);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.card-tactile:hover:not(:active) {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+}
+
+/* Liens de navigation avec feedback subtil */
+.nav-tactile {
+  transition: all 0.08s ease-out;
+  position: relative;
+}
+
+.nav-tactile:active {
+  transform: scale(0.98);
+}
+
+.nav-tactile:hover::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: 8px;
+  z-index: -1;
+}
+
+/* Support de prefers-reduced-motion pour micro-interactions */
+@media (prefers-reduced-motion: reduce) {
+  .clickable,
+  .btn-tactile,
+  .card-tactile,
+  .nav-tactile {
+    transition: none !important;
+    transform: none !important;
+  }
+  
+  .clickable:active,
+  .clickable:hover,
+  .btn-tactile:active,
+  .btn-tactile:hover,
+  .card-tactile:active,
+  .card-tactile:hover,
+  .nav-tactile:active {
+    transform: none !important;
+  }
+  
+  .nav-tactile:hover::before {
+    display: none;
+  }
+}
+
+/* === VIEW TRANSITIONS SUPPORT === */
+
+/* Transitions racine */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.25s;
+  animation-timing-function: ease-out;
+}
+
+/* Transitions pour cartes */
+::view-transition-old(card-transition),
+::view-transition-new(card-transition) {
+  transform-origin: center center;
+  animation-duration: 0.3s;
+}
+
+/* Transitions pour navigation */
+::view-transition-old(nav-transition),
+::view-transition-new(nav-transition) {
+  animation-duration: 0.2s;
+}
+
+/* Transitions pour éléments de liste */
+::view-transition-old(list-item-transition),
+::view-transition-new(list-item-transition) {
+  transform-origin: left center;
+  animation-duration: 0.25s;
+}
+
+/* Réduction des animations pour prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  ::view-transition-old(card-transition),
+  ::view-transition-new(card-transition),
+  ::view-transition-old(nav-transition),
+  ::view-transition-new(nav-transition),
+  ::view-transition-old(list-item-transition),
+  ::view-transition-new(list-item-transition) {
+    animation-duration: 0.05s !important;
+  }
+}
+
+/* === ÉTATS DE NAVIGATION === */
+
+/* Indicateur de navigation active */
+.navigation-active {
+  position: relative;
+}
+
+.navigation-active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, 
+    var(--smartimmo-primary) 0%, 
+    rgba(59, 130, 246, 0.6) 50%, 
+    var(--smartimmo-primary) 100%);
+  animation: navigation-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes navigation-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* === FOCUS VISIBLE AMÉLIORÉ === */
+
+/* Focus pour éléments tactiles */
+.clickable:focus-visible,
+.btn-tactile:focus-visible,
+.card-tactile:focus-visible,
+.nav-tactile:focus-visible {
+  outline: 2px solid var(--smartimmo-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* === LIENS GLOBAUX MODERNISÉS === */
+a { 
+  @apply text-blue-600 no-underline transition-all duration-150 ease-in-out; 
+}
+
+a:hover { 
+  @apply underline underline-offset-4 decoration-2; 
+}
+
+.prose a { 
+  @apply text-blue-600 no-underline; 
+}
+
+.prose a:hover { 
+  @apply underline underline-offset-4 decoration-2; 
+}
+
+.link-muted { 
+  @apply text-gray-500 hover:text-blue-600 hover:underline underline-offset-4 decoration-1 transition-all duration-150; 
+}
+
+/* === FOCUS RINGS MODERNISÉS === */
+.focus-ring { 
+  @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white; 
+}
+
+/* Focus rings automatiques pour les éléments interactifs */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  @apply focus-ring;
+}
+
+/* === MICRO-INTERACTIONS === */
+.hover-lift {
+  @apply transition-all duration-150 ease-out;
+}
+
+.hover-lift:hover {
+  @apply shadow-md -translate-y-px;
+}
+
+.hover-scale {
+  @apply transition-transform duration-150 ease-out;
+}
+
+.hover-scale:hover {
+  @apply scale-105;
+}
+
+.hover-scale:active {
+  @apply scale-95;
+}
+
+/* === TABLES === */
+.table {
+  @apply w-full;
+}
+
+.table thead {
+  @apply bg-base-200 text-base-content;
+}
+
+.table thead th {
+  @apply text-base-content font-semibold;
+}
+
+.table tbody tr:hover {
+  @apply bg-base-200;
+  opacity: 0.6;
+}
+
+.table tbody tr.active,
+.table tbody tr.selected {
+  @apply bg-primary text-primary-content;
+  opacity: 0.1;
+}
+
+.table td,
+.table th {
+  @apply border-base-300;
+}
+
+/* Boutons d'action dans les tables */
+.table .btn {
+  @apply btn-xs;
+}
+
+/* Hover pour les lignes de table */
+.table tbody tr {
+  @apply transition-colors duration-150;
+}
+
+/* Styles pour les actions dans les tables */
+.table-actions {
+  @apply flex gap-1;
+}
+
+.table-actions .btn {
+  @apply btn-ghost btn-xs focus-ring;
+}
+
+/* === COMPOSANTS OBLIGATOIRES === */
+
+/* Cards */
+.card {
+  @apply bg-base-100 border border-base-300 shadow-sm hover:shadow-md transition-shadow duration-150;
+}
+
+.card-body {
+  @apply p-6;
+}
+
+/* Badges - Utilisation directe des classes daisyUI */
+
+/* Composants - Utilisation directe des classes daisyUI */
+
+/* Topbar/Sidebar */
+.topbar {
+  @apply bg-base-100 border-base-300;
+}
+
+.sidebar {
+  @apply bg-base-200 text-base-content border-base-300;
+}
+
+:root {
+  --sidebar-bg: rgba(17, 24, 39, 0.6);
+}
+
+/* Force la hauteur de la sidebar pour assurer la visibilité complète */
+.sidebar {
+  height: 100vh !important;
+  min-height: 100vh !important;
+}
+
+/* Règle spécifique pour la sidebar de l'app */
+aside.sidebar {
+  height: 100vh !important;
+  min-height: 100vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* Variables CSS pour le thème smartimmo */
+[data-theme="smartimmo"] {
+  --p: #2563eb;
+  --pc: #ffffff;
+  --s: #22c55e;
+  --sc: #ffffff;
+  --a: #f59e0b;
+  --ac: #ffffff;
+  --n: #1f2937;
+  --nc: #ffffff;
+  --b1: #ffffff;
+  --b2: #f3f4f6;
+  --b3: #e5e7eb;
+  --bc: #1f2937;
+  --in: #38bdf8;
+  --inc: #ffffff;
+  --su: #16a34a;
+  --suc: #ffffff;
+  --wa: #fbbf24;
+  --wac: #ffffff;
+  --er: #ef4444;
+  --erc: #ffffff;
+}
+
+/* Variables CSS pour le thème smartimmo-warm */
+[data-theme="smartimmo-warm"] {
+  --p: #d97706;
+  --pc: #ffffff;
+  --s: #22c55e;
+  --sc: #ffffff;
+  --a: #f43f5e;
+  --ac: #ffffff;
+  --n: #1f2937;
+  --nc: #ffffff;
+  --b1: #fffaf5;
+  --b2: #fff3e7;
+  --b3: #fde2c7;
+  --bc: #1f2937;
+  --in: #38bdf8;
+  --inc: #ffffff;
+  --su: #10b981;
+  --suc: #ffffff;
+  --wa: #f59e0b;
+  --wac: #ffffff;
+  --er: #ef4444;
+  --erc: #ffffff;
+}
+
+/* Variables CSS pour le thème smartimmo-cool */
+[data-theme="smartimmo-cool"] {
+  --p: #60a5fa;
+  --pc: #0f172a;
+  --s: #34d399;
+  --sc: #0f172a;
+  --a: #22d3ee;
+  --ac: #0f172a;
+  --n: #0b1020;
+  --nc: #ffffff;
+  --b1: #0f172a;
+  --b2: #111827;
+  --b3: #1f2937;
+  --bc: #f8fafc;
+  --in: #38bdf8;
+  --inc: #0f172a;
+  --su: #22c55e;
+  --suc: #0f172a;
+  --wa: #fbbf24;
+  --wac: #0f172a;
+  --er: #ef4444;
+  --erc: #ffffff;
+}
+
+/* Variables CSS pour les thèmes daisyUI standard */
+[data-theme="light"] {
+  --p: #570df8;
+  --pc: #ffffff;
+  --s: #f000b8;
+  --sc: #ffffff;
+  --a: #37cdbe;
+  --ac: #ffffff;
+  --n: #2b3440;
+  --nc: #d7dde4;
+  --b1: #ffffff;
+  --b2: #f2f2f2;
+  --b3: #e5e6e6;
+  --bc: #1f2937;
+  --in: #3abff8;
+  --inc: #ffffff;
+  --su: #36d399;
+  --suc: #ffffff;
+  --wa: #fbbd23;
+  --wac: #ffffff;
+  --er: #f87272;
+  --erc: #ffffff;
+}
+
+[data-theme="dark"] {
+  --p: #661ae6;
+  --pc: #ffffff;
+  --s: #d926aa;
+  --sc: #ffffff;
+  --a: #1fb2a5;
+  --ac: #ffffff;
+  --n: #2a2e37;
+  --nc: #a6adbb;
+  --b1: #1d232a;
+  --b2: #191e24;
+  --b3: #15191e;
+  --bc: #a6adbb;
+  --in: #0ea5e9;
+  --inc: #ffffff;
+  --su: #10b981;
+  --suc: #ffffff;
+  --wa: #f59e0b;
+  --wac: #ffffff;
+  --er: #ef4444;
+  --erc: #ffffff;
+}
+
+[data-theme="corporate"] {
+  --p: #1e40af;
+  --pc: #ffffff;
+  --s: #059669;
+  --sc: #ffffff;
+  --a: #dc2626;
+  --ac: #ffffff;
+  --n: #374151;
+  --nc: #f3f4f6;
+  --b1: #f8fafc;
+  --b2: #e2e8f0;
+  --b3: #cbd5e1;
+  --bc: #1e293b;
+  --in: #0ea5e9;
+  --inc: #ffffff;
+  --su: #059669;
+  --suc: #ffffff;
+  --wa: #d97706;
+  --wac: #ffffff;
+  --er: #dc2626;
+  --erc: #ffffff;
+}
+
+/* Forcer l'application des couleurs pour les thèmes personnalisés */
+[data-theme="smartimmo"] .bg-primary { background-color: var(--p) !important; }
+[data-theme="smartimmo"] .text-primary-content { color: var(--pc) !important; }
+[data-theme="smartimmo"] .bg-secondary { background-color: var(--s) !important; }
+[data-theme="smartimmo"] .text-secondary-content { color: var(--sc) !important; }
+[data-theme="smartimmo"] .bg-accent { background-color: var(--a) !important; }
+[data-theme="smartimmo"] .text-accent-content { color: var(--ac) !important; }
+[data-theme="smartimmo"] .bg-base-100 { background-color: var(--b1) !important; }
+[data-theme="smartimmo"] .bg-base-200 { background-color: var(--b2) !important; }
+[data-theme="smartimmo"] .bg-base-300 { background-color: var(--b3) !important; }
+[data-theme="smartimmo"] .text-base-content { color: var(--bc) !important; }
+[data-theme="smartimmo"] .bg-info { background-color: var(--in) !important; }
+[data-theme="smartimmo"] .text-info-content { color: var(--inc) !important; }
+[data-theme="smartimmo"] .bg-success { background-color: var(--su) !important; }
+[data-theme="smartimmo"] .text-success-content { color: var(--suc) !important; }
+[data-theme="smartimmo"] .bg-warning { background-color: var(--wa) !important; }
+[data-theme="smartimmo"] .text-warning-content { color: var(--wac) !important; }
+[data-theme="smartimmo"] .bg-error { background-color: var(--er) !important; }
+[data-theme="smartimmo"] .text-error-content { color: var(--erc) !important; }
+
+[data-theme="smartimmo-warm"] .bg-primary { background-color: var(--p) !important; }
+[data-theme="smartimmo-warm"] .text-primary-content { color: var(--pc) !important; }
+[data-theme="smartimmo-warm"] .bg-secondary { background-color: var(--s) !important; }
+[data-theme="smartimmo-warm"] .text-secondary-content { color: var(--sc) !important; }
+[data-theme="smartimmo-warm"] .bg-accent { background-color: var(--a) !important; }
+[data-theme="smartimmo-warm"] .text-accent-content { color: var(--ac) !important; }
+[data-theme="smartimmo-warm"] .bg-base-100 { background-color: var(--b1) !important; }
+[data-theme="smartimmo-warm"] .bg-base-200 { background-color: var(--b2) !important; }
+[data-theme="smartimmo-warm"] .bg-base-300 { background-color: var(--b3) !important; }
+[data-theme="smartimmo-warm"] .text-base-content { color: var(--bc) !important; }
+[data-theme="smartimmo-warm"] .bg-info { background-color: var(--in) !important; }
+[data-theme="smartimmo-warm"] .text-info-content { color: var(--inc) !important; }
+[data-theme="smartimmo-warm"] .bg-success { background-color: var(--su) !important; }
+[data-theme="smartimmo-warm"] .text-success-content { color: var(--suc) !important; }
+[data-theme="smartimmo-warm"] .bg-warning { background-color: var(--wa) !important; }
+[data-theme="smartimmo-warm"] .text-warning-content { color: var(--wac) !important; }
+[data-theme="smartimmo-warm"] .bg-error { background-color: var(--er) !important; }
+[data-theme="smartimmo-warm"] .text-error-content { color: var(--erc) !important; }
+
+[data-theme="smartimmo-cool"] .bg-primary { background-color: var(--p) !important; }
+[data-theme="smartimmo-cool"] .text-primary-content { color: var(--pc) !important; }
+[data-theme="smartimmo-cool"] .bg-secondary { background-color: var(--s) !important; }
+[data-theme="smartimmo-cool"] .text-secondary-content { color: var(--sc) !important; }
+[data-theme="smartimmo-cool"] .bg-accent { background-color: var(--a) !important; }
+[data-theme="smartimmo-cool"] .text-accent-content { color: var(--ac) !important; }
+[data-theme="smartimmo-cool"] .bg-base-100 { background-color: var(--b1) !important; }
+[data-theme="smartimmo-cool"] .bg-base-200 { background-color: var(--b2) !important; }
+[data-theme="smartimmo-cool"] .bg-base-300 { background-color: var(--b3) !important; }
+[data-theme="smartimmo-cool"] .text-base-content { color: var(--bc) !important; }
+[data-theme="smartimmo-cool"] .bg-info { background-color: var(--in) !important; }
+[data-theme="smartimmo-cool"] .text-info-content { color: var(--inc) !important; }
+[data-theme="smartimmo-cool"] .bg-success { background-color: var(--su) !important; }
+[data-theme="smartimmo-cool"] .text-success-content { color: var(--suc) !important; }
+[data-theme="smartimmo-cool"] .bg-warning { background-color: var(--wa) !important; }
+[data-theme="smartimmo-cool"] .text-warning-content { color: var(--wac) !important; }
+[data-theme="smartimmo-cool"] .bg-error { background-color: var(--er) !important; }
+[data-theme="smartimmo-cool"] .text-error-content { color: var(--erc) !important; }
+
+/* Alertes et autres composants daisyUI */
+[data-theme="smartimmo"] .alert-info { background-color: var(--in) !important; color: var(--inc) !important; }
+[data-theme="smartimmo"] .alert-success { background-color: var(--su) !important; color: var(--suc) !important; }
+[data-theme="smartimmo"] .alert-warning { background-color: var(--wa) !important; color: var(--wac) !important; }
+[data-theme="smartimmo"] .alert-error { background-color: var(--er) !important; color: var(--erc) !important; }
+
+[data-theme="smartimmo-warm"] .alert-info { background-color: var(--in) !important; color: var(--inc) !important; }
+[data-theme="smartimmo-warm"] .alert-success { background-color: var(--su) !important; color: var(--suc) !important; }
+[data-theme="smartimmo-warm"] .alert-warning { background-color: var(--wa) !important; color: var(--wac) !important; }
+[data-theme="smartimmo-warm"] .alert-error { background-color: var(--er) !important; color: var(--erc) !important; }
+
+[data-theme="smartimmo-cool"] .alert-info { background-color: var(--in) !important; color: var(--inc) !important; }
+[data-theme="smartimmo-cool"] .alert-success { background-color: var(--su) !important; color: var(--suc) !important; }
+[data-theme="smartimmo-cool"] .alert-warning { background-color: var(--wa) !important; color: var(--wac) !important; }
+[data-theme="smartimmo-cool"] .alert-error { background-color: var(--er) !important; color: var(--erc) !important; }
+
+/* Boutons */
+[data-theme="smartimmo"] .btn-primary { background-color: var(--p) !important; color: var(--pc) !important; }
+[data-theme="smartimmo"] .btn-secondary { background-color: var(--s) !important; color: var(--sc) !important; }
+[data-theme="smartimmo"] .btn-accent { background-color: var(--a) !important; color: var(--ac) !important; }
+
+[data-theme="smartimmo-warm"] .btn-primary { background-color: var(--p) !important; color: var(--pc) !important; }
+[data-theme="smartimmo-warm"] .btn-secondary { background-color: var(--s) !important; color: var(--sc) !important; }
+[data-theme="smartimmo-warm"] .btn-accent { background-color: var(--a) !important; color: var(--ac) !important; }
+
+[data-theme="smartimmo-cool"] .btn-primary { background-color: var(--p) !important; color: var(--pc) !important; }
+[data-theme="smartimmo-cool"] .btn-secondary { background-color: var(--s) !important; color: var(--sc) !important; }
+[data-theme="smartimmo-cool"] .btn-accent { background-color: var(--a) !important; color: var(--ac) !important; }
+
+/* Forcer l'application des couleurs pour les thèmes standard */
+[data-theme="light"] .bg-primary { background-color: var(--p) !important; color: var(--pc) !important; }
+[data-theme="light"] .bg-secondary { background-color: var(--s) !important; color: var(--sc) !important; }
+[data-theme="light"] .bg-accent { background-color: var(--a) !important; color: var(--ac) !important; }
+[data-theme="light"] .bg-base-100 { background-color: var(--b1) !important; }
+[data-theme="light"] .bg-base-200 { background-color: var(--b2) !important; }
+[data-theme="light"] .bg-base-300 { background-color: var(--b3) !important; }
+[data-theme="light"] .text-base-content { color: var(--bc) !important; }
+[data-theme="light"] .alert-info { background-color: var(--in) !important; color: var(--inc) !important; }
+[data-theme="light"] .alert-success { background-color: var(--su) !important; color: var(--suc) !important; }
+[data-theme="light"] .alert-warning { background-color: var(--wa) !important; color: var(--wac) !important; }
+[data-theme="light"] .alert-error { background-color: var(--er) !important; color: var(--erc) !important; }
+
+[data-theme="dark"] .bg-primary { background-color: var(--p) !important; color: var(--pc) !important; }
+[data-theme="dark"] .bg-secondary { background-color: var(--s) !important; color: var(--sc) !important; }
+[data-theme="dark"] .bg-accent { background-color: var(--a) !important; color: var(--ac) !important; }
+[data-theme="dark"] .bg-base-100 { background-color: var(--b1) !important; }
+[data-theme="dark"] .bg-base-200 { background-color: var(--b2) !important; }
+[data-theme="dark"] .bg-base-300 { background-color: var(--b3) !important; }
+[data-theme="dark"] .text-base-content { color: var(--bc) !important; }
+[data-theme="dark"] .alert-info { background-color: var(--in) !important; color: var(--inc) !important; }
+[data-theme="dark"] .alert-success { background-color: var(--su) !important; color: var(--suc) !important; }
+[data-theme="dark"] .alert-warning { background-color: var(--wa) !important; color: var(--wac) !important; }
+[data-theme="dark"] .alert-error { background-color: var(--er) !important; color: var(--erc) !important; }
+
+[data-theme="corporate"] .bg-primary { background-color: var(--p) !important; color: var(--pc) !important; }
+[data-theme="corporate"] .bg-secondary { background-color: var(--s) !important; color: var(--sc) !important; }
+[data-theme="corporate"] .bg-accent { background-color: var(--a) !important; color: var(--ac) !important; }
+[data-theme="corporate"] .bg-base-100 { background-color: var(--b1) !important; }
+[data-theme="corporate"] .bg-base-200 { background-color: var(--b2) !important; }
+[data-theme="corporate"] .bg-base-300 { background-color: var(--b3) !important; }
+[data-theme="corporate"] .text-base-content { color: var(--bc) !important; }
+[data-theme="corporate"] .alert-info { background-color: var(--in) !important; color: var(--inc) !important; }
+[data-theme="corporate"] .alert-success { background-color: var(--su) !important; color: var(--suc) !important; }
+[data-theme="corporate"] .alert-warning { background-color: var(--wa) !important; color: var(--wac) !important; }
+[data-theme="corporate"] .alert-error { background-color: var(--er) !important; color: var(--erc) !important; }
+
+/* Règles CSS pour TOUS les composants - Navbar, Sidebar, Menus, etc. */
+
+/* Navbar et header - Sélecteurs plus génériques */
+[data-theme="smartimmo"] .navbar,
+[data-theme="smartimmo"] .navbar-start,
+[data-theme="smartimmo"] .navbar-center,
+[data-theme="smartimmo"] .navbar-end,
+[data-theme="smartimmo"] header,
+[data-theme="smartimmo"] nav,
+[data-theme="smartimmo"] .top-nav {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-warm"] .navbar,
+[data-theme="smartimmo-warm"] .navbar-start,
+[data-theme="smartimmo-warm"] .navbar-center,
+[data-theme="smartimmo-warm"] .navbar-end,
+[data-theme="smartimmo-warm"] header,
+[data-theme="smartimmo-warm"] nav,
+[data-theme="smartimmo-warm"] .top-nav {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-cool"] .navbar,
+[data-theme="smartimmo-cool"] .navbar-start,
+[data-theme="smartimmo-cool"] .navbar-center,
+[data-theme="smartimmo-cool"] .navbar-end,
+[data-theme="smartimmo-cool"] header,
+[data-theme="smartimmo-cool"] nav,
+[data-theme="smartimmo-cool"] .top-nav {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="light"] .navbar,
+[data-theme="light"] .navbar-start,
+[data-theme="light"] .navbar-center,
+[data-theme="light"] .navbar-end,
+[data-theme="light"] header,
+[data-theme="light"] nav,
+[data-theme="light"] .top-nav {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="dark"] .navbar,
+[data-theme="dark"] .navbar-start,
+[data-theme="dark"] .navbar-center,
+[data-theme="dark"] .navbar-end,
+[data-theme="dark"] header,
+[data-theme="dark"] nav,
+[data-theme="dark"] .top-nav {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="corporate"] .navbar,
+[data-theme="corporate"] .navbar-start,
+[data-theme="corporate"] .navbar-center,
+[data-theme="corporate"] .navbar-end,
+[data-theme="corporate"] header,
+[data-theme="corporate"] nav,
+[data-theme="corporate"] .top-nav {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+/* Sidebar et drawer */
+[data-theme="smartimmo"] .sidebar,
+[data-theme="smartimmo"] .drawer-side {
+  background-color: var(--b2) !important;
+}
+
+[data-theme="smartimmo-warm"] .sidebar,
+[data-theme="smartimmo-warm"] .drawer-side {
+  background-color: var(--b2) !important;
+}
+
+[data-theme="smartimmo-cool"] .sidebar,
+[data-theme="smartimmo-cool"] .drawer-side {
+  background-color: var(--b2) !important;
+}
+
+[data-theme="light"] .sidebar,
+[data-theme="light"] .drawer-side {
+  background-color: var(--b2) !important;
+}
+
+[data-theme="dark"] .sidebar,
+[data-theme="dark"] .drawer-side {
+  background-color: var(--b2) !important;
+}
+
+[data-theme="corporate"] .sidebar,
+[data-theme="corporate"] .drawer-side {
+  background-color: var(--b2) !important;
+}
+
+/* Menu items */
+[data-theme="smartimmo"] .menu-item,
+[data-theme="smartimmo"] .sidebar .menu-item,
+[data-theme="smartimmo"] .drawer-side .menu-item {
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-warm"] .menu-item,
+[data-theme="smartimmo-warm"] .sidebar .menu-item,
+[data-theme="smartimmo-warm"] .drawer-side .menu-item {
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-cool"] .menu-item,
+[data-theme="smartimmo-cool"] .sidebar .menu-item,
+[data-theme="smartimmo-cool"] .drawer-side .menu-item {
+  color: var(--bc) !important;
+}
+
+[data-theme="light"] .menu-item,
+[data-theme="light"] .sidebar .menu-item,
+[data-theme="light"] .drawer-side .menu-item {
+  color: var(--bc) !important;
+}
+
+[data-theme="dark"] .menu-item,
+[data-theme="dark"] .sidebar .menu-item,
+[data-theme="dark"] .drawer-side .menu-item {
+  color: var(--bc) !important;
+}
+
+[data-theme="corporate"] .menu-item,
+[data-theme="corporate"] .sidebar .menu-item,
+[data-theme="corporate"] .drawer-side .menu-item {
+  color: var(--bc) !important;
+}
+
+/* Hover states */
+[data-theme="smartimmo"] .menu-item:hover,
+[data-theme="smartimmo"] .sidebar .menu-item:hover,
+[data-theme="smartimmo"] .drawer-side .menu-item:hover {
+  background-color: var(--b3) !important;
+}
+
+[data-theme="smartimmo-warm"] .menu-item:hover,
+[data-theme="smartimmo-warm"] .sidebar .menu-item:hover,
+[data-theme="smartimmo-warm"] .drawer-side .menu-item:hover {
+  background-color: var(--b3) !important;
+}
+
+[data-theme="smartimmo-cool"] .menu-item:hover,
+[data-theme="smartimmo-cool"] .sidebar .menu-item:hover,
+[data-theme="smartimmo-cool"] .drawer-side .menu-item:hover {
+  background-color: var(--b3) !important;
+}
+
+[data-theme="light"] .menu-item:hover,
+[data-theme="light"] .sidebar .menu-item:hover,
+[data-theme="light"] .drawer-side .menu-item:hover {
+  background-color: var(--b3) !important;
+}
+
+[data-theme="dark"] .menu-item:hover,
+[data-theme="dark"] .sidebar .menu-item:hover,
+[data-theme="dark"] .drawer-side .menu-item:hover {
+  background-color: var(--b3) !important;
+}
+
+[data-theme="corporate"] .menu-item:hover,
+[data-theme="corporate"] .sidebar .menu-item:hover,
+[data-theme="corporate"] .drawer-side .menu-item:hover {
+  background-color: var(--b3) !important;
+}
+
+/* Dropdown et menu */
+[data-theme="smartimmo"] .dropdown-content,
+[data-theme="smartimmo"] .menu {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-warm"] .dropdown-content,
+[data-theme="smartimmo-warm"] .menu {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-cool"] .dropdown-content,
+[data-theme="smartimmo-cool"] .menu {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="light"] .dropdown-content,
+[data-theme="light"] .menu {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="dark"] .dropdown-content,
+[data-theme="dark"] .menu {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="corporate"] .dropdown-content,
+[data-theme="corporate"] .menu {
+  background-color: var(--b1) !important;
+  color: var(--bc) !important;
+}
+
+/* Éléments spécifiques de la navbar */
+[data-theme="smartimmo"] .navbar .btn,
+[data-theme="smartimmo"] .navbar .btn-ghost,
+[data-theme="smartimmo"] .navbar .btn-circle,
+[data-theme="smartimmo"] .navbar .avatar,
+[data-theme="smartimmo"] .navbar .badge {
+  background-color: transparent !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-warm"] .navbar .btn,
+[data-theme="smartimmo-warm"] .navbar .btn-ghost,
+[data-theme="smartimmo-warm"] .navbar .btn-circle,
+[data-theme="smartimmo-warm"] .navbar .avatar,
+[data-theme="smartimmo-warm"] .navbar .badge {
+  background-color: transparent !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-cool"] .navbar .btn,
+[data-theme="smartimmo-cool"] .navbar .btn-ghost,
+[data-theme="smartimmo-cool"] .navbar .btn-circle,
+[data-theme="smartimmo-cool"] .navbar .avatar,
+[data-theme="smartimmo-cool"] .navbar .badge {
+  background-color: transparent !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="light"] .navbar .btn,
+[data-theme="light"] .navbar .btn-ghost,
+[data-theme="light"] .navbar .btn-circle,
+[data-theme="light"] .navbar .avatar,
+[data-theme="light"] .navbar .badge {
+  background-color: transparent !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="dark"] .navbar .btn,
+[data-theme="dark"] .navbar .btn-ghost,
+[data-theme="dark"] .navbar .btn-circle,
+[data-theme="dark"] .navbar .avatar,
+[data-theme="dark"] .navbar .badge {
+  background-color: transparent !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="corporate"] .navbar .btn,
+[data-theme="corporate"] .navbar .btn-ghost,
+[data-theme="corporate"] .navbar .btn-circle,
+[data-theme="corporate"] .navbar .avatar,
+[data-theme="corporate"] .navbar .badge {
+  background-color: transparent !important;
+  color: var(--bc) !important;
+}
+
+/* Hover states pour les boutons navbar */
+[data-theme="smartimmo"] .navbar .btn:hover,
+[data-theme="smartimmo"] .navbar .btn-ghost:hover {
+  background-color: var(--b2) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-warm"] .navbar .btn:hover,
+[data-theme="smartimmo-warm"] .navbar .btn-ghost:hover {
+  background-color: var(--b2) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-cool"] .navbar .btn:hover,
+[data-theme="smartimmo-cool"] .navbar .btn-ghost:hover {
+  background-color: var(--b2) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="light"] .navbar .btn:hover,
+[data-theme="light"] .navbar .btn-ghost:hover {
+  background-color: var(--b2) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="dark"] .navbar .btn:hover,
+[data-theme="dark"] .navbar .btn-ghost:hover {
+  background-color: var(--b2) !important;
+  color: var(--bc) !important;
+}
+
+[data-theme="corporate"] .navbar .btn:hover,
+[data-theme="corporate"] .navbar .btn-ghost:hover {
+  background-color: var(--b2) !important;
+  color: var(--bc) !important;
+}
+
+/* Textes et liens dans la navbar */
+[data-theme="smartimmo"] .navbar a,
+[data-theme="smartimmo"] .navbar span,
+[data-theme="smartimmo"] .navbar div {
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-warm"] .navbar a,
+[data-theme="smartimmo-warm"] .navbar span,
+[data-theme="smartimmo-warm"] .navbar div {
+  color: var(--bc) !important;
+}
+
+[data-theme="smartimmo-cool"] .navbar a,
+[data-theme="smartimmo-cool"] .navbar span,
+[data-theme="smartimmo-cool"] .navbar div {
+  color: var(--bc) !important;
+}
+
+[data-theme="light"] .navbar a,
+[data-theme="light"] .navbar span,
+[data-theme="light"] .navbar div {
+  color: var(--bc) !important;
+}
+
+[data-theme="dark"] .navbar a,
+[data-theme="dark"] .navbar span,
+[data-theme="dark"] .navbar div {
+  color: var(--bc) !important;
+}
+
+[data-theme="corporate"] .navbar a,
+[data-theme="corporate"] .navbar span,
+[data-theme="corporate"] .navbar div {
+  color: var(--bc) !important;
+}
+
+/* Règles CSS ultra-spécifiques pour forcer l'application */
+[data-theme="smartimmo"] * {
+  --fallback-b1: #ffffff;
+  --fallback-bc: #1f2937;
+}
+
+[data-theme="smartimmo-warm"] * {
+  --fallback-b1: #fffaf5;
+  --fallback-bc: #1f2937;
+}
+
+[data-theme="smartimmo-cool"] * {
+  --fallback-b1: #0f172a;
+  --fallback-bc: #f8fafc;
+}
+
+[data-theme="light"] * {
+  --fallback-b1: #ffffff;
+  --fallback-bc: #1f2937;
+}
+
+[data-theme="dark"] * {
+  --fallback-b1: #1d232a;
+  --fallback-bc: #a6adbb;
+}
+
+[data-theme="corporate"] * {
+  --fallback-b1: #f8fafc;
+  --fallback-bc: #1e293b;
+}
+
+/* Force sur TOUS les éléments de navigation */
+[data-theme="smartimmo-cool"] .navbar,
+[data-theme="smartimmo-cool"] .navbar *,
+[data-theme="smartimmo-cool"] header,
+[data-theme="smartimmo-cool"] header *,
+[data-theme="smartimmo-cool"] nav,
+[data-theme="smartimmo-cool"] nav *,
+[data-theme="smartimmo-cool"] .top-nav,
+[data-theme="smartimmo-cool"] .top-nav * {
+  background-color: var(--b1, var(--fallback-b1)) !important;
+  color: var(--bc, var(--fallback-bc)) !important;
+}
+
+[data-theme="smartimmo-cool"] .sidebar,
+[data-theme="smartimmo-cool"] .sidebar *,
+[data-theme="smartimmo-cool"] .drawer-side,
+[data-theme="smartimmo-cool"] .drawer-side * {
+  background-color: var(--b2, #111827) !important;
+  color: var(--bc, var(--fallback-bc)) !important;
+}
+
+/* Force sur tous les autres thèmes aussi */
+[data-theme="smartimmo"] .navbar,
+[data-theme="smartimmo"] .navbar *,
+[data-theme="smartimmo"] header,
+[data-theme="smartimmo"] header *,
+[data-theme="smartimmo"] nav,
+[data-theme="smartimmo"] nav * {
+  background-color: var(--b1, var(--fallback-b1)) !important;
+  color: var(--bc, var(--fallback-bc)) !important;
+}
+
+[data-theme="smartimmo-warm"] .navbar,
+[data-theme="smartimmo-warm"] .navbar *,
+[data-theme="smartimmo-warm"] header,
+[data-theme="smartimmo-warm"] header *,
+[data-theme="smartimmo-warm"] nav,
+[data-theme="smartimmo-warm"] nav * {
+  background-color: var(--b1, var(--fallback-b1)) !important;
+  color: var(--bc, var(--fallback-bc)) !important;
+}
+
+[data-theme="light"] .navbar,
+[data-theme="light"] .navbar *,
+[data-theme="light"] header,
+[data-theme="light"] header *,
+[data-theme="light"] nav,
+[data-theme="light"] nav * {
+  background-color: var(--b1, var(--fallback-b1)) !important;
+  color: var(--bc, var(--fallback-bc)) !important;
+}
+
+[data-theme="dark"] .navbar,
+[data-theme="dark"] .navbar *,
+[data-theme="dark"] header,
+[data-theme="dark"] header *,
+[data-theme="dark"] nav,
+[data-theme="dark"] nav * {
+  background-color: var(--b1, var(--fallback-b1)) !important;
+  color: var(--bc, var(--fallback-bc)) !important;
+}
+
+[data-theme="corporate"] .navbar,
+[data-theme="corporate"] .navbar *,
+[data-theme="corporate"] header,
+[data-theme="corporate"] header *,
+[data-theme="corporate"] nav,
+[data-theme="corporate"] nav * {
+  background-color: var(--b1, var(--fallback-b1)) !important;
+  color: var(--bc, var(--fallback-bc)) !important;
+}
+
+/* Transitions douces pour les changements de thème */
+* {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Éviter les transitions sur les éléments qui ne doivent pas en avoir */
+*:focus,
+*:focus-visible,
+input,
+textarea,
+select,
+button,
+[role="button"],
+[role="tab"],
+[role="menuitem"] {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.2s ease;
+}
+
+body {
+  @apply bg-base-100 text-base-content antialiased;
+}
+
+/* Micro-animations utilitaires */
+@layer utilities {
+  /* Animation hover-float : légère élévation au survol */
+  .hover-float {
+    @apply transition-transform duration-150 ease-out;
+  }
+  
+  .hover-float:hover {
+    transform: translateY(-2px);
+  }
+  
+  /* Animation hover-pop : légère mise à l'échelle au survol */
+  .hover-pop {
+    @apply transition-transform duration-200 ease-out;
+  }
+  
+  .hover-pop:hover {
+    transform: scale(1.05);
+  }
+  
+  /* Animation press : compression au clic */
+  .press {
+    @apply transition-transform duration-100 ease-out;
+  }
+  
+  .press:active {
+    transform: scale(0.98);
+  }
+  
+  /* Animation hover-glow : effet de lueur au survol */
+  .hover-glow {
+    @apply transition-shadow duration-200 ease-out;
+  }
+  
+  .hover-glow:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(59, 130, 246, 0.25);
+  }
+  
+  /* Animation hover-bounce : rebond léger au survol */
+  .hover-bounce {
+    @apply transition-transform duration-200 ease-out;
+  }
+  
+  .hover-bounce:hover {
+    transform: translateY(-4px);
+  }
+  
+  /* Animation hover-slide : glissement horizontal au survol */
+  .hover-slide {
+    @apply transition-transform duration-200 ease-out;
+  }
+  
+  .hover-slide:hover {
+    transform: translateX(4px);
+  }
+  
+  /* Animation hover-rotate : rotation légère au survol */
+  .hover-rotate {
+    @apply transition-transform duration-200 ease-out;
+  }
+  
+  .hover-rotate:hover {
+    transform: rotate(3deg);
+  }
+  
+  /* Animation hover-scale : mise à l'échelle au survol */
+  .hover-scale {
+    @apply transition-transform duration-200 ease-out;
+  }
+  
+  .hover-scale:hover {
+    transform: scale(1.10);
+  }
+  
+  /* Animation fade-in : apparition en fondu */
+  .fade-in {
+    @apply transition-opacity duration-300 ease-out;
+  }
+  
+  .fade-in:hover {
+    @apply opacity-90;
+  }
+  
+  /* Animation pulse : pulsation continue */
+  .pulse-gentle {
+    @apply animate-pulse;
+    animation-duration: 2s;
+    animation-iteration-count: infinite;
+  }
+  
+  /* Animation spin : rotation continue */
+  .spin-slow {
+    @apply animate-spin;
+    animation-duration: 3s;
+  }
+  
+  /* Animation wiggle : oscillation au survol */
+  .wiggle {
+    @apply transition-transform duration-200 ease-out;
+  }
+  
+  .wiggle:hover {
+    @apply animate-pulse;
+    animation-duration: 0.5s;
+  }
+}
+
+/* Classes composées pour des effets combinés */
+@layer components {
+  /* Card interactive avec hover-float et hover-glow */
+  .card-interactive {
+    @apply hover-float hover-glow press;
+  }
+  
+  /* Bouton primaire avec hover-pop et press */
+  .btn-primary-animated {
+    @apply hover-pop press;
+  }
+  
+  /* Item de menu avec hover-slide et fade-in */
+  .menu-item-animated {
+    @apply hover-slide fade-in press;
+  }
+  
+  /* Badge avec hover-bounce */
+  .badge-animated {
+    @apply hover-bounce;
+  }
+  
+  /* Icône avec hover-rotate */
+  .icon-animated {
+    @apply hover-rotate;
+  }
+  
+  /* Lien avec hover-scale */
+  .link-animated {
+    @apply hover-scale press;
+  }
+}
+
+/* === HEXAGONAL NAVIGATION (inspired by CodePen) === */
+
+/* Animation focus-in-contract pour le texte */
+@keyframes focus-in-contract {
+  0% {
+    letter-spacing: 1em;
+    filter: blur(12px);
+    opacity: 0;
+  }
+  100% {
+    letter-spacing: 0;
+    filter: blur(0px);
+    opacity: 1;
+  }
+}
+
+/* Clear helper */
+.clear:before, 
+.clear:after {
+  content: " ";
+  display: table;
+}
+
+.clear:after {
+  clear: both;
+}
+
+/* Menu container */
+.hexagon-menu {
+  display: block;
+  margin: 0 auto;
+  padding: 0;
+}
+
+/* Container hexagone */
+.hexagon-item {
+  cursor: pointer;
+  width: 200px;
+  height: 173.20508px;
+  float: left;
+  margin-left: -29px;
+  z-index: 0;
+  position: relative;
+  transform: rotate(30deg);
+  transition: all 0.3s ease;
+}
+
+.hexagon-item:first-child {
+  margin-left: 0;
+}
+
+.hexagon-item:hover {
+  z-index: 10;
+}
+
+.hexagon-item:hover .hex-item:last-child {
+  opacity: 1;
+  transform: scale(1.3);
+}
+
+.hexagon-item:hover .hex-item:first-child {
+  opacity: 1;
+  transform: scale(1.2);
+}
+
+.hexagon-item:hover .hex-item:first-child div:before,
+.hexagon-item:hover .hex-item:first-child div:after {
+  height: 5px;
+}
+
+.hexagon-item:hover .hex-item div::before,
+.hexagon-item:hover .hex-item div::after {
+  background-color: #93c5fd;
+}
+
+.hexagon-item:hover .hex-content svg {
+  transform: scale(0.97);
+}
+
+.hexagon-item:hover .icon i,
+.hexagon-item:hover .hex-content .icon {
+  color: #3b82f6;
+  transition: 0.6s;
+}
+
+.hexagon-item:hover .hex-content .title {
+  animation: focus-in-contract 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
+/* Hex items (bordures) */
+.hex-item {
+  position: absolute;
+  top: 0;
+  left: 50px;
+  width: 100px;
+  height: 173.20508px;
+}
+
+.hex-item:first-child {
+  z-index: 0;
+  transform: scale(0.9);
+  transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+.hex-item:last-child {
+  transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
+  z-index: 1;
+}
+
+.hex-item div {
+  box-sizing: border-box;
+  position: absolute;
+  top: 0;
+  width: 100px;
+  height: 173.20508px;
+  transform-origin: center center;
+}
+
+.hex-item div::before,
+.hex-item div::after {
+  background-color: #d1d5db;
+  content: "";
+  position: absolute;
+  width: 100%;
+  height: 3px;
+  transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1) 0s;
+}
+
+.hex-item div:before {
+  top: 0;
+}
+
+.hex-item div:after {
+  bottom: 0;
+}
+
+.hex-item div:nth-child(1) {
+  transform: rotate(0deg);
+}
+
+.hex-item div:nth-child(2) {
+  transform: rotate(60deg);
+}
+
+.hex-item div:nth-child(3) {
+  transform: rotate(120deg);
+}
+
+/* Contenu hexagone */
+.hex-content {
+  color: #1e2530;
+  display: block;
+  height: 180px;
+  margin: 0 auto;
+  position: relative;
+  text-align: center;
+  transform: rotate(-30deg);
+  width: 156px;
+}
+
+.hex-content .hex-content-inner {
+  left: 50%;
+  margin: -3px 0 0 2px;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.hex-content .icon {
+  display: block;
+  font-size: 36px;
+  line-height: 30px;
+  margin-bottom: 11px;
+  color: #6b7280;
+}
+
+.hex-content .title {
+  display: block;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  line-height: 24px;
+  text-transform: uppercase;
+  color: #1e2530;
+}
+
+.hex-content svg {
+  left: -7px;
+  position: absolute;
+  top: -13px;
+  transform: scale(0.87);
+  z-index: -1;
+  transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1) 0s;
+}
+
+.hex-content:hover {
+  color: #1e2530;
+}
+
+/* Positionnement 2e ligne (3 derniers comme CodePen original) */
+.page-home .hexagon-item:nth-last-child(1),
+.page-home .hexagon-item:nth-last-child(2),
+.page-home .hexagon-item:nth-last-child(3) {
+  transform: rotate(30deg) translate(87px, -80px);
+}
+
+/* Responsive mobile */
+@media only screen and (max-width: 767px) {
+  .hexagon-item {
+    float: none;
+    margin: 0 auto 50px;
+  }
+  
+  .hexagon-item:first-child {
+    margin-left: auto;
+  }
+  
+  .page-home .hexagon-item:nth-last-child(1),
+  .page-home .hexagon-item:nth-last-child(2),
+  .page-home .hexagon-item:nth-last-child(3) {
+    transform: rotate(30deg) translate(0px, 0px);
+  }
+}
+
+/* ========================================
+   MINI HEXAGONES - Navigation horizontale
+   ======================================== */
+
+.hexagon-menu-mini {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0;
+  margin: 0 auto;
+  padding: 0;
+}
+
+/* Container hexagone mini */
+.hexagon-item-mini {
+  cursor: pointer;
+  width: 100px; /* 50% de 200px */
+  height: 86.60254px; /* 50% de 173.20508px */
+  margin-left: -15px; /* 50% de -29px */
+  z-index: 0;
+  position: relative;
+  transform: rotate(30deg);
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.hexagon-item-mini:first-child {
+  margin-left: 0;
+}
+
+.hexagon-item-mini:hover {
+  z-index: 10;
+}
+
+.hexagon-item-mini:hover .hex-item-mini:last-child,
+.hexagon-item-mini-active .hex-item-mini:last-child {
+  opacity: 1;
+  transform: scale(1.2);
+}
+
+.hexagon-item-mini:hover .hex-item-mini:first-child,
+.hexagon-item-mini-active .hex-item-mini:first-child {
+  opacity: 1;
+  transform: scale(1.15);
+}
+
+.hexagon-item-mini:hover .hex-item-mini:first-child div:before,
+.hexagon-item-mini:hover .hex-item-mini:first-child div:after,
+.hexagon-item-mini-active .hex-item-mini:first-child div:before,
+.hexagon-item-mini-active .hex-item-mini:first-child div:after {
+  height: 3px;
+}
+
+.hexagon-item-mini:hover .hex-item-mini div::before,
+.hexagon-item-mini:hover .hex-item-mini div::after,
+.hexagon-item-mini-active .hex-item-mini div::before,
+.hexagon-item-mini-active .hex-item-mini div::after {
+  background-color: #93c5fd;
+}
+
+/* Couleurs spécifiques pour chaque type de mini hexagone */
+.hexagon-item-mini-prets:hover .hex-item-mini div::before,
+.hexagon-item-mini-prets:hover .hex-item-mini div::after,
+.hexagon-item-mini-prets.hexagon-item-mini-active .hex-item-mini div::before,
+.hexagon-item-mini-prets.hexagon-item-mini-active .hex-item-mini div::after {
+  background-color: #67e8f9 !important;
+}
+
+.hexagon-item-mini-prets:hover .icon-mini i,
+.hexagon-item-mini-prets:hover .hex-content-mini .icon-mini,
+.hexagon-item-mini-prets.hexagon-item-mini-active .icon-mini i,
+.hexagon-item-mini-prets.hexagon-item-mini-active .hex-content-mini .icon-mini {
+  color: #06b6d4 !important;
+}
+
+.hexagon-item-mini:hover .hex-content-mini svg,
+.hexagon-item-mini-active .hex-content-mini svg {
+  transform: scale(0.97);
+}
+
+.hexagon-item-mini:hover .icon-mini i,
+.hexagon-item-mini:hover .hex-content-mini .icon-mini,
+.hexagon-item-mini-active .icon-mini i,
+.hexagon-item-mini-active .hex-content-mini .icon-mini {
+  color: #3b82f6;
+  transition: 0.6s;
+}
+
+.hexagon-item-mini:hover .hex-content-mini .title-mini {
+  animation: focus-in-contract 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
+/* Pour l'hexagone actif, on garde juste le style final sans animation répétée */
+.hexagon-item-mini-active .hex-content-mini .title-mini {
+  letter-spacing: 0;
+  filter: blur(0px);
+  opacity: 1;
+}
+
+/* Style permanent pour l'hexagone actif */
+.hexagon-item-mini-active {
+  z-index: 10;
+}
+
+/* Hex items mini (bordures) */
+.hex-item-mini {
+  position: absolute;
+  top: 0;
+  left: 25px; /* 50% de 50px */
+  width: 50px; /* 50% de 100px */
+  height: 86.60254px; /* 50% de 173.20508px */
+}
+
+.hex-item-mini:first-child {
+  z-index: 0;
+  transform: scale(0.9);
+  transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+.hex-item-mini:last-child {
+  transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
+  z-index: 1;
+}
+
+.hex-item-mini div {
+  box-sizing: border-box;
+  position: absolute;
+  top: 0;
+  width: 50px; /* 50% de 100px */
+  height: 86.60254px; /* 50% de 173.20508px */
+  transform-origin: center center;
+}
+
+.hex-item-mini div::before,
+.hex-item-mini div::after {
+  background-color: #d1d5db;
+  content: "";
+  position: absolute;
+  width: 100%;
+  height: 2px;
+  transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1) 0s;
+}
+
+.hex-item-mini div:before {
+  top: 0;
+}
+
+.hex-item-mini div:after {
+  bottom: 0;
+}
+
+.hex-item-mini div:nth-child(1) {
+  transform: rotate(0deg);
+}
+
+.hex-item-mini div:nth-child(2) {
+  transform: rotate(60deg);
+}
+
+.hex-item-mini div:nth-child(3) {
+  transform: rotate(120deg);
+}
+
+/* Contenu hexagone mini */
+.hex-content-mini {
+  color: #1e2530;
+  display: block;
+  height: 90px; /* 50% de 180px */
+  margin: 0 auto;
+  position: relative;
+  text-align: center;
+  transform: rotate(-30deg);
+  width: 78px; /* 50% de 156px */
+}
+
+.hex-content-mini .hex-content-inner-mini {
+  left: 50%;
+  margin: -2px 0 0 1px;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.hex-content-mini .icon-mini {
+  display: block;
+  font-size: 20px; /* réduit de 36px */
+  line-height: 20px;
+  margin-bottom: 5px;
+  color: #6b7280;
+}
+
+.hex-content-mini .title-mini {
+  display: block;
+  font-family: inherit;
+  font-size: 9px; /* réduit de 14px */
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  line-height: 12px;
+  text-transform: uppercase;
+  color: #1e2530;
+}
+
+.hex-content-mini svg {
+  left: -3.5px;
+  position: absolute;
+  top: -6.5px;
+  transform: scale(0.87);
+  z-index: -1;
+  transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1) 0s;
+}
+
+.hex-content-mini:hover {
+  color: #1e2530;
+}
+
+/* Masquer la scrollbar pour la sous-nav */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari, Opera */
+}
+
+/* Responsive mobile pour mini */
+@media only screen and (max-width: 767px) {
+  .hexagon-menu-mini {
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+  }
+  
+  .hexagon-item-mini {
+    margin: 0 5px;
+  }
+  
+  .hexagon-item-mini:first-child {
+    margin-left: 5px;
+  }
+}
+
+/* ========================================
+   PROPERTY GLASSMORPHISM NAVIGATION
+   Neutraliser les styles DaisyUI forcés
+   ======================================== */
+
+/* Neutraliser DaisyUI pour ce composant spécifique */
+[data-theme] .property-glass-nav,
+[data-theme] .property-glass-nav *,
+.property-glass-nav,
+.property-glass-nav * {
+  background-color: unset !important;
+  color: unset !important;
+  background: unset !important;
+}
+
+/* Styles Glassmorphism */
+.property-glass-nav {
+  display: grid !important;
+  grid-auto-flow: column !important;
+  place-self: center !important;
+  padding: 0 0.2em 0 !important;
+  background: transparent !important;
+  font: clamp(0.5em, 4vw, 1em) / 1.25 ubuntu, sans-serif !important;
+  gap: 1.5em !important;
+}
+
+.property-glass-nav .glass-item {
+  --hl: 0;
+  display: grid !important;
+  width: 6em !important;
+  color: hsl(var(--hue), calc(var(--hl) * 100%), 65%) !important;
+  text-align: center !important;
+  text-decoration: none !important;
+  transition: color 0.3s !important;
+  cursor: pointer !important;
+  font-size: 0.9em !important;
+  position: relative !important;
+}
+
+.property-glass-nav .glass-item:focus {
+  outline: none !important;
+}
+
+.property-glass-nav .glass-item:hover,
+.property-glass-nav .glass-item:focus {
+  --hl: 1;
+}
+
+/* Force la coloration de l'icône active */
+.property-glass-nav .glass-item-active .glass-mono,
+.property-glass-nav .glass-item-active .glass-midl,
+.property-glass-nav .glass-item-active .glass-grey {
+  filter: hue-rotate(var(--hue)) saturate(2) brightness(1.2) drop-shadow(0 0 10px hsla(var(--hue), 70%, 50%, 0.8)) !important;
+}
+
+/* COULEURS HEXAGONES AU HOVER - LES DEUX CONTOURS (Teintes atténuées) */
+
+/* Transactions - Rouge pastel */
+.hexagon-transactions:hover .hex-item div::before,
+.hexagon-transactions:hover .hex-item div::after {
+  background-color: #fca5a5 !important;
+}
+
+/* Documents - Bleu pastel */
+.hexagon-documents:hover .hex-item div::before,
+.hexagon-documents:hover .hex-item div::after {
+  background-color: #93c5fd !important;
+}
+
+/* Échéances - Vert pastel doux */
+.hexagon-echeances:hover .hex-item div::before,
+.hexagon-echeances:hover .hex-item div::after {
+  background-color: #86efac !important;
+}
+
+/* Photos - Violet pastel */
+.hexagon-photos:hover .hex-item div::before,
+.hexagon-photos:hover .hex-item div::after {
+  background-color: #c4b5fd !important;
+}
+
+/* Baux - Jaune pastel */
+.hexagon-baux:hover .hex-item div::before,
+.hexagon-baux:hover .hex-item div::after {
+  background-color: #fde68a !important;
+}
+
+/* Rentabilité - Rose pastel */
+.hexagon-rentabilite:hover .hex-item div::before,
+.hexagon-rentabilite:hover .hex-item div::after {
+  background-color: #f9a8d4 !important;
+}
+
+/* Prêts - Cyan/Turquoise pastel */
+.hexagon-prets:hover .hex-item div::before,
+.hexagon-prets:hover .hex-item div::after {
+  background-color: #67e8f9 !important;
+}
+
+/* Paramètres - Cyan pastel */
+.hexagon-parametres:hover .hex-item div::before,
+.hexagon-parametres:hover .hex-item div::after {
+  background-color: #67e8f9 !important;
+}
+
+/* À venir - Vert clair pastel */
+.hexagon-a-venir:hover .hex-item div::before,
+.hexagon-a-venir:hover .hex-item div::after {
+  background-color: #bef264 !important;
+}
+
+.property-glass-nav .glass-icon {
+  grid-area: 1 / 1 !important;
+  place-self: center !important;
+  font-size: 2.5em !important;
+}
+
+.property-glass-nav .glass-mono {
+  z-index: 1 !important;
+  transform: translate(calc(var(--hl) * 0.375em), calc(var(--hl) * -0.25em)) rotate(calc(var(--hl) * 22.5deg)) !important;
+  opacity: var(--hl) !important;
+  filter: sepia(1) hue-rotate(calc(var(--hue) - 50deg)) saturate(3) blur(var(--r, 0)) !important;
+  transition: 0.3s !important;
+}
+
+.property-glass-nav .glass-mono[id*='blur'] {
+  --r: 4px;
+  position: fixed !important;
+  bottom: 100vh !important;
+}
+
+.property-glass-nav .glass-midl {
+  z-index: 2 !important;
+  color: transparent !important;
+  backdrop-filter: blur(4px) !important;
+  -webkit-mask: linear-gradient(red 0 0) text !important;
+  -webkit-mask-clip: text !important;
+}
+
+@supports (background: -moz-element(#hl)) {
+  .property-glass-nav .glass-midl {
+    background-color: #fff !important;
+    background-clip: text !important;
+    backdrop-filter: none !important;
+  }
+}
+
+.property-glass-nav .glass-grey {
+  z-index: 3 !important;
+  filter: grayscale(1) opacity(0.35) !important;
+}
+
+.property-glass-nav .glass-count {
+  position: absolute !important;
+  top: 0.5em !important;
+  right: 0.5em !important;
+  padding: 0.15em 0.45em !important;
+  background-color: hsl(var(--hue), 80%, 50%) !important;
+  color: white !important;
+  font-size: 0.65em !important;
+  border-radius: 10px !important;
+  font-weight: bold !important;
+  line-height: 1 !important;
+  z-index: 10 !important;
+}

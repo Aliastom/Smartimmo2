@@ -1,0 +1,77 @@
+'use client';
+
+import React, { useState } from 'react';
+import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { AlertCircle } from 'lucide-react';
+import { notify2 } from '@/lib/notify2';
+
+interface ConfirmDeleteMultipleLoansModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  loanIds: string[];
+}
+
+export function ConfirmDeleteMultipleLoansModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  loanIds,
+}: ConfirmDeleteMultipleLoansModalProps) {
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleConfirm = async () => {
+    setIsDeleting(true);
+    try {
+      const promises = loanIds.map((id) =>
+        fetch(`/api/loans/${id}`, { method: 'DELETE' })
+      );
+
+      const results = await Promise.all(promises);
+      const failed = results.filter((r) => !r.ok);
+
+      if (failed.length > 0) {
+        notify2.error(`${failed.length} prêt(s) n'ont pas pu être archivés`);
+      } else {
+        notify2.success(`${loanIds.length} prêt(s) archivé(s) avec succès`);
+      }
+
+      onConfirm();
+      onClose();
+    } catch (error) {
+      console.error('Erreur:', error);
+      notify2.error('Erreur lors de l\'archivage des prêts');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Archiver plusieurs prêts" size="xs">
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+          <AlertCircle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm text-orange-900">
+              Êtes-vous sûr de vouloir archiver {loanIds.length} prêt(s) ?
+            </p>
+            <p className="text-xs text-orange-700 mt-2">
+              Les prêts seront marqués comme inactifs et n'apparaîtront plus dans les calculs.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isDeleting}>
+            Annuler
+          </Button>
+          <Button variant="destructive" onClick={handleConfirm} disabled={isDeleting}>
+            {isDeleting ? 'Archivage...' : `Archiver ${loanIds.length} prêt(s)`}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+

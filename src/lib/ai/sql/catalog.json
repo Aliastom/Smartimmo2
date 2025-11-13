@@ -1,0 +1,641 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2025-11-05T11:09:50.842Z",
+  "tables": [
+    {
+      "name": "Property",
+      "aliasFr": "Bien immobilier",
+      "description": "Biens immobiliers (appartements, maisons, etc.)",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false,
+          "aliasFr": "identifiant"
+        },
+        {
+          "name": "name",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "nom"
+        },
+        {
+          "name": "address",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "adresse"
+        },
+        {
+          "name": "postalCode",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "code postal"
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "ville"
+        },
+        {
+          "name": "type",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "type"
+        },
+        {
+          "name": "surface",
+          "type": "Float",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "surface"
+        },
+        {
+          "name": "rooms",
+          "type": "Int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "pièces"
+        },
+        {
+          "name": "acquisitionPrice",
+          "type": "Float",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "prix acquisition"
+        },
+        {
+          "name": "currentValue",
+          "type": "Float",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "valeur actuelle"
+        },
+        {
+          "name": "status",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "statut"
+        }
+      ],
+      "relations": [
+        {
+          "name": "leases",
+          "type": "one-to-many",
+          "relatedTable": "Lease"
+        },
+        {
+          "name": "loans",
+          "type": "one-to-many",
+          "relatedTable": "Loan"
+        },
+        {
+          "name": "transactions",
+          "type": "one-to-many",
+          "relatedTable": "Transaction"
+        }
+      ]
+    },
+    {
+      "name": "Lease",
+      "aliasFr": "Bail",
+      "description": "Baux de location",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "propertyId",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "aliasFr": "bien"
+        },
+        {
+          "name": "tenantId",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "aliasFr": "locataire"
+        },
+        {
+          "name": "type",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "type"
+        },
+        {
+          "name": "startDate",
+          "type": "DateTime",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "date début"
+        },
+        {
+          "name": "endDate",
+          "type": "DateTime",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "date fin"
+        },
+        {
+          "name": "rentAmount",
+          "type": "Float",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "loyer"
+        },
+        {
+          "name": "deposit",
+          "type": "Float",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "dépôt de garantie"
+        },
+        {
+          "name": "chargesRecupMensuelles",
+          "type": "Float",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "charges récupérables"
+        },
+        {
+          "name": "status",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "statut"
+        },
+        {
+          "name": "indexationType",
+          "type": "String",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "type indexation"
+        }
+      ],
+      "relations": [
+        {
+          "name": "property",
+          "type": "many-to-one",
+          "relatedTable": "Property",
+          "foreignKey": "propertyId"
+        },
+        {
+          "name": "tenant",
+          "type": "many-to-one",
+          "relatedTable": "Tenant",
+          "foreignKey": "tenantId"
+        },
+        {
+          "name": "transactions",
+          "type": "one-to-many",
+          "relatedTable": "Transaction"
+        }
+      ]
+    },
+    {
+      "name": "Tenant",
+      "aliasFr": "Locataire",
+      "description": "Locataires",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "firstName",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "prénom"
+        },
+        {
+          "name": "lastName",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "nom"
+        },
+        {
+          "name": "email",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "email"
+        },
+        {
+          "name": "phone",
+          "type": "String",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "téléphone"
+        },
+        {
+          "name": "monthlyIncome",
+          "type": "Float",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "revenu mensuel"
+        },
+        {
+          "name": "status",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "statut"
+        }
+      ],
+      "relations": [
+        {
+          "name": "leases",
+          "type": "one-to-many",
+          "relatedTable": "Lease"
+        }
+      ]
+    },
+    {
+      "name": "Transaction",
+      "aliasFr": "Transaction",
+      "description": "Transactions financières",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "propertyId",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true
+        },
+        {
+          "name": "leaseId",
+          "type": "String",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true
+        },
+        {
+          "name": "label",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "libellé"
+        },
+        {
+          "name": "amount",
+          "type": "Float",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "montant"
+        },
+        {
+          "name": "date",
+          "type": "DateTime",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "date"
+        },
+        {
+          "name": "paidAt",
+          "type": "DateTime",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "date paiement"
+        },
+        {
+          "name": "nature",
+          "type": "String",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "nature"
+        },
+        {
+          "name": "month",
+          "type": "Int",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "mois"
+        },
+        {
+          "name": "year",
+          "type": "Int",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "année"
+        }
+      ],
+      "relations": [
+        {
+          "name": "property",
+          "type": "many-to-one",
+          "relatedTable": "Property",
+          "foreignKey": "propertyId"
+        },
+        {
+          "name": "lease",
+          "type": "many-to-one",
+          "relatedTable": "Lease",
+          "foreignKey": "leaseId"
+        }
+      ]
+    },
+    {
+      "name": "Loan",
+      "aliasFr": "Prêt",
+      "description": "Prêts immobiliers",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "propertyId",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true
+        },
+        {
+          "name": "label",
+          "type": "String",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "libellé"
+        },
+        {
+          "name": "principal",
+          "type": "Decimal",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "capital initial"
+        },
+        {
+          "name": "annualRatePct",
+          "type": "Decimal",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "taux annuel"
+        },
+        {
+          "name": "durationMonths",
+          "type": "Int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "durée en mois"
+        },
+        {
+          "name": "startDate",
+          "type": "DateTime",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "date début"
+        },
+        {
+          "name": "endDate",
+          "type": "DateTime",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "date fin"
+        },
+        {
+          "name": "isActive",
+          "type": "Boolean",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "aliasFr": "actif"
+        }
+      ],
+      "relations": [
+        {
+          "name": "property",
+          "type": "many-to-one",
+          "relatedTable": "Property",
+          "foreignKey": "propertyId"
+        }
+      ]
+    }
+  ],
+  "views": [
+    {
+      "name": "v_loyers_encaissements_mensuels",
+      "columns": [],
+      "description": "Encaissements de loyers par mois, bien et bail"
+    },
+    {
+      "name": "v_loyers_a_encaisser_courant",
+      "columns": [],
+      "description": "Loyers dus vs payés pour le mois courant"
+    },
+    {
+      "name": "v_echeances_3_mois",
+      "columns": [],
+      "description": "Échéances à venir sur 90 jours (indexations + prêts)"
+    },
+    {
+      "name": "v_prets_statut",
+      "columns": [],
+      "description": "Statut des prêts (CRD, mensualités, échéances)"
+    },
+    {
+      "name": "v_documents_statut",
+      "columns": [],
+      "description": "Suivi des documents par type et période"
+    },
+    {
+      "name": "v_cashflow_global",
+      "columns": [],
+      "description": "Cashflow global (entrées vs sorties)"
+    }
+  ],
+  "aliasesFr": {
+    "tables": {
+      "bien": "Property",
+      "biens": "Property",
+      "propriété": "Property",
+      "propriétés": "Property",
+      "immeuble": "Property",
+      "appartement": "Property",
+      "locataire": "Tenant",
+      "locataires": "Tenant",
+      "bail": "Lease",
+      "baux": "Lease",
+      "location": "Lease",
+      "transaction": "Transaction",
+      "transactions": "Transaction",
+      "mouvement": "Transaction",
+      "prêt": "Loan",
+      "prêts": "Loan",
+      "emprunt": "Loan",
+      "emprunts": "Loan",
+      "crédit": "Loan",
+      "document": "Document",
+      "documents": "Document",
+      "fichier": "Document",
+      "paiement": "Payment",
+      "règlement": "Payment",
+      "catégorie": "Category",
+      "échéance": "EcheanceRecurrente",
+      "écheances": "EcheanceRecurrente"
+    },
+    "columns": {
+      "Property": {
+        "nom": "name",
+        "adresse": "address",
+        "code postal": "postalCode",
+        "ville": "city",
+        "type": "type",
+        "surface": "surface",
+        "pièces": "rooms",
+        "date acquisition": "acquisitionDate",
+        "prix acquisition": "acquisitionPrice",
+        "frais notaire": "notaryFees",
+        "valeur actuelle": "currentValue",
+        "statut": "status"
+      },
+      "Tenant": {
+        "prénom": "firstName",
+        "nom": "lastName",
+        "email": "email",
+        "téléphone": "phone",
+        "date naissance": "birthDate",
+        "nationalité": "nationality",
+        "profession": "occupation",
+        "employeur": "employer",
+        "revenu mensuel": "monthlyIncome",
+        "statut": "status"
+      },
+      "Lease": {
+        "type": "type",
+        "date début": "startDate",
+        "date fin": "endDate",
+        "loyer": "rentAmount",
+        "montant loyer": "rentAmount",
+        "charges": "chargesRecupMensuelles",
+        "charges récupérables": "chargesRecupMensuelles",
+        "charges non récupérables": "chargesNonRecupMensuelles",
+        "dépôt": "deposit",
+        "dépôt de garantie": "deposit",
+        "caution": "deposit",
+        "statut": "status",
+        "jour paiement": "paymentDay",
+        "indexation": "indexationType",
+        "type indexation": "indexationType"
+      },
+      "Transaction": {
+        "montant": "amount",
+        "date": "date",
+        "date paiement": "paidAt",
+        "payé le": "paidAt",
+        "nature": "nature",
+        "catégorie": "categoryId",
+        "libellé": "label",
+        "référence": "reference",
+        "statut": "rapprochementStatus",
+        "mois": "month",
+        "année": "year"
+      },
+      "Loan": {
+        "libellé": "label",
+        "capital": "principal",
+        "capital initial": "principal",
+        "taux": "annualRatePct",
+        "taux annuel": "annualRatePct",
+        "durée": "durationMonths",
+        "durée mois": "durationMonths",
+        "mensualité": "monthlyPayment",
+        "date début": "startDate",
+        "date fin": "endDate",
+        "actif": "isActive"
+      },
+      "Document": {
+        "nom": "fileName",
+        "nom fichier": "fileName",
+        "type": "documentTypeId",
+        "statut": "status",
+        "statut ocr": "ocrStatus",
+        "texte ocr": "extractedText",
+        "date upload": "uploadedAt",
+        "uploadé le": "uploadedAt"
+      }
+    },
+    "synonyms": {
+      "baux actifs": "status IN ('ACTIF', 'SIGNE', 'EN_COURS')",
+      "baux en cours": "status IN ('ACTIF', 'SIGNE', 'EN_COURS')",
+      "loyers encaissés": "nature = 'LOYER' AND \"paidAt\" IS NOT NULL",
+      "loyers payés": "nature = 'LOYER' AND \"paidAt\" IS NOT NULL",
+      "loyers reçus": "nature = 'LOYER' AND \"paidAt\" IS NOT NULL",
+      "loyers dus": "nature = 'LOYER' AND \"paidAt\" IS NULL",
+      "loyers impayés": "nature = 'LOYER' AND \"paidAt\" IS NULL",
+      "en retard": "\"paidAt\" IS NULL AND date < CURRENT_DATE - INTERVAL '5 days'",
+      "documents à classer": "status = 'pending'",
+      "prêts actifs": "\"isActive\" = true",
+      "capital restant dû": "remainingPrincipal",
+      "crd": "remainingPrincipal"
+    }
+  }
+}

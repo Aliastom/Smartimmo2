@@ -1,0 +1,134 @@
+# ============================================================================
+# Docker Compose — OpenFisca-France pour SmartImmo (sans DNS)
+# ============================================================================
+#
+# NOTES D'UTILISATION :
+# ---------------------
+# 
+# 1. DÉMARRER LE SERVICE :
+#    docker compose -f docker-compose.openfisca.yml up -d
+#
+# 2. VÉRIFIER LE STATUT :
+#    docker compose -f docker-compose.openfisca.yml ps
+#    docker compose -f docker-compose.openfisca.yml logs -f
+#
+# 3. TESTER L'API (localhost) :
+#    curl -s "http://127.0.0.1:2000/spec" | jq .info.title
+#    curl -s "http://127.0.0.1:2000/parameters?year=2025" | jq '.impot_revenu.bareme' | head
+#
+# 4. METTRE À JOUR L'IMAGE :
+#    docker compose -f docker-compose.openfisca.yml pull
+#    docker compose -f docker-compose.openfisca.yml up -d --force-recreate
+#
+# 5. ARRÊTER LE SERVICE :
+#    docker compose -f docker-compose.openfisca.yml down
+#
+# 6. ACCÈS DEPUIS LE LAN :
+#    - Option A : Modifier "127.0.0.1:2000:2000" en "0.0.0.0:2000:2000" ci-dessous
+#    - Option B : Utiliser l'IP du serveur dans SmartImmo:
+#                 OPENFISCA_BASE_URL=http://192.168.1.100:2000
+#    - Puis tester: curl -s "http://IP_SERVEUR:2000/spec"
+#
+# ============================================================================
+
+version: '3.8'
+
+services:
+  openfisca:
+    # Image depuis votre Docker Hub (remplacer <USER> par votre username)
+    # Exemples : johndoe/openfisca-france:stable
+    #            mycompany/openfisca-france:2025-11-08
+    image: aliastom/openfisca-france:stable
+    
+    container_name: openfisca-france
+    
+    # Commande explicite (optionnelle car déjà dans Dockerfile CMD)
+    # Mais utile pour override si besoin (ex: changer le nombre de workers)
+    # Note : Le port interne est 8000 (défaut OpenFisca), mappé vers 2000 en externe
+    command: 
+      - openfisca
+      - serve
+      - --bind
+      - "0.0.0.0"
+      - --workers
+      - "3"
+      - --country-package
+      - openfisca_france
+    
+    # Redémarrage automatique
+    restart: always
+    
+    # PORTS :
+    # - Par défaut : accessible UNIQUEMENT depuis localhost (127.0.0.1)
+    # - Pour accès LAN : remplacer par "0.0.0.0:2000:8000"
+    # Note : OpenFisca écoute sur le port 8000 en interne, mappé vers 2000 en externe
+    ports:
+      - "127.0.0.1:2000:8000"
+      # Alternative pour accès LAN (décommenter si besoin) :
+      # - "0.0.0.0:2000:8000"
+    
+    # Variables d'environnement (optionnelles)
+    environment:
+      # Niveau de log : debug, info, warning, error
+      - LOG_LEVEL=info
+      
+      # Nombre de workers Gunicorn (ajuster selon CPU disponibles)
+      # Par défaut : 1, augmenter si charge importante
+      # - WORKERS=2
+    
+    # Health check (identique au Dockerfile mais peut être override)
+    # Note : Utilise le port interne 8000 (pas 2000 qui est le port externe)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/spec"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Limites de ressources (optionnel mais recommandé en production)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'      # Maximum 1 CPU
+          memory: 1G        # Maximum 1 Go RAM
+        reservations:
+          cpus: '0.5'      # Minimum 0.5 CPU
+          memory: 512M     # Minimum 512 Mo RAM
+    
+    # Logs rotatifs (éviter remplissage disque)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"   # Taille max par fichier
+        max-file: "3"     # Nombre de fichiers à conserver
+    
+    # Labels pour monitoring/documentation
+    labels:
+      - "com.smartimmo.service=openfisca-france"
+      - "com.smartimmo.environment=production"
+      - "com.smartimmo.description=OpenFisca France API pour calculs fiscaux"
+      - "com.smartimmo.docs=https://openfisca.org/doc/"
+
+# ============================================================================
+# EXEMPLES D'INTÉGRATION SMARTIMMO
+# ============================================================================
+#
+# 1. MÊME MACHINE (SmartImmo et OpenFisca sur le même serveur) :
+#    Dans .env.local de SmartImmo :
+#      OPENFISCA_BASE_URL=http://localhost:2000
+#      OPENFISCA_TIMEOUT_MS=15000
+#      OPENFISCA_CACHE_TTL_H=24
+#
+# 2. MACHINES DIFFÉRENTES (SmartImmo sur un serveur, OpenFisca sur un autre) :
+#    - Modifier ports ci-dessus en "0.0.0.0:2000:2000"
+#    - Dans .env.local de SmartImmo :
+#      OPENFISCA_BASE_URL=http://192.168.1.100:2000
+#      OPENFISCA_TIMEOUT_MS=15000
+#      OPENFISCA_CACHE_TTL_H=24
+#    - Remplacer 192.168.1.100 par l'IP réelle du serveur OpenFisca
+#
+# 3. TESTER DEPUIS SMARTIMMO :
+#    curl -s "http://localhost:3000/api/admin/tax/openfisca/health?year=2025" | jq .
+#
+# ============================================================================
+

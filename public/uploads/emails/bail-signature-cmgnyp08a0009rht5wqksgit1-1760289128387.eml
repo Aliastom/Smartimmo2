@@ -1,0 +1,59 @@
+From: noreply@smartimmo.fr
+To: jasminstephanie@msn.com
+Subject: =?UTF-8?B?QmFpbCDDoCBzaWduZXIgLSB0ZXN0NjY2?=
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="boundary123"
+
+--boundary123
+Content-Type: multipart/alternative; boundary="boundary456"
+
+--boundary456
+Content-Type: text/plain; charset=UTF-8
+
+Bonjour Stephanie Jasmin,
+
+Veuillez trouver ci-joint votre bail à signer pour le bien test666.
+
+Adresse : 42 chaussée brunehaut 02700
+Loyer : 750€/mois
+Charges : 50€/mois
+Début du bail : 07/10/2025
+Fin du bail : 24/10/2025
+Caution : 750€
+
+Merci de signer le document PDF ci-joint et de nous le retourner.
+
+Cordialement,
+L'équipe Smartimmo
+
+--boundary456
+Content-Type: text/html; charset=UTF-8
+
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <h2 style="color: #2563eb;">Bail à signer - test666</h2>
+  <p>Bonjour <strong>Stephanie Jasmin</strong>,</p>
+  <p>Veuillez trouver ci-joint votre bail à signer pour le bien :</p>
+  <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 15px 0;">
+    <p><strong>Adresse :</strong> 42 chaussée brunehaut 02700</p>
+    <p><strong>Loyer :</strong> 750€/mois</p>
+    <p><strong>Charges :</strong> 50€/mois</p>
+    <p><strong>Début du bail :</strong> 07/10/2025</p>
+    <p><strong>Fin du bail :</strong> 24/10/2025</p>
+    <p><strong>Caution :</strong> 750€</p>
+  </div>
+  <p><strong>📎 Pièce jointe :</strong> Le bail à signer est disponible en pièce jointe (PDF)</p>
+  <p>Merci de signer le document et de nous le retourner.</p>
+  <br>
+  <p>Cordialement,<br><strong>L'équipe Smartimmo</strong></p>
+</div>
+
+--boundary456--
+
+--boundary123
+Content-Type: application/pdf; name="bail-cmgnyp08a0009rht5wqksgit1-1760289128386.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="bail-cmgnyp08a0009rht5wqksgit1-1760289128386.pdf"
+
+JVBERi0xLjQKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIKPj4KZW5kb2JqCgoyIDAgb2JqCjw8Ci9UeXBlIC9QYWdlcwovS2lkcyBbMyAwIFJdCi9Db3VudCAxCj4+CmVuZG9iagoKMyAwIG9iago8PAovVHlwZSAvUGFnZQovUGFyZW50IDIgMCBSCi9NZWRpYUJveCBbMCAwIDYxMiA3OTJdCi9Db250ZW50cyA0IDAgUgo+PgplbmRvYmoKCjQgMCBvYmoKPDwKL0xlbmd0aCAxMDAKPj4Kc3RyZWFtCkJUCi9GMSAxMiBUZgo3MiA3MjAgVGQKKEJhaWwgw6Agc2lnbmVyIC0gdGVzdDY2NikgVGoKMCAtMjAgVGQKKExvY2F0YWlyZTogU3RlcGhhbmllIEphc21pbikgVGoKMCAtMjAgVGQKKExveWVyOiA3NTDigqwvbW9pcykgVGoKMCAtMjAgVGQKKEFkcmVzc2U6IDQyIGNoYXVzc8OpZSBicnVuZWhhdXQgMDI3MDApIFRqCkVUCmVuZHN0cmVhbQplbmRvYmoKCnhyZWYKMCA1CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAxMCAwMDAwMCBuIAowMDAwMDAwMDUzIDAwMDAwIG4gCjAwMDAwMDAxMTAgMDAwMDAgbiAKMDAwMDAwMDE4NiAwMDAwMCBuIAp0cmFpbGVyCjw8Ci9TaXplIDUKL1Jvb3QgMSAwIFIKPj4Kc3RhcnR4cmVmCjMzNgolJUVPRg==
+
+--boundary123--

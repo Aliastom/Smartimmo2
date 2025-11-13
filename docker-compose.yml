@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: smartimmo-postgres
+    environment:
+      POSTGRES_USER: smartimmo
+      POSTGRES_PASSWORD: smartimmo
+      POSTGRES_DB: smartimmo
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartimmo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -1,0 +1,21 @@
+{
+  "year": 2025,
+  "bareme_ir": {
+    "parts": "[À VALIDER]",
+    "tranches": [
+      { "min": 0, "max": 11394, "taux": 0.0 },
+      { "min": 11395, "max": 29008, "taux": 0.11 },
+      { "min": 29009, "max": 82964, "taux": 0.30 },
+      { "min": 82965, "max": 177403, "taux": 0.41 },
+      { "min": 177404, "max": null, "taux": 0.45 }
+    ]
+  },
+  "decote": {
+    "celibataire": { "seuil": 1964, "forfait": 889 },
+    "couple": { "seuil": 3054, "forfait": 1486 }
+  },
+  "prelevements_sociaux": 0.172,
+  "micro_foncier_seuil": 15000,
+  "placeholders": "[À VALIDER]"
+}
+

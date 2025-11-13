@@ -1,0 +1,47 @@
+[
+  {
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "linkedType": "transaction",
+    "linkedId": "cmgy04ptz0008jygpqmn7sq8x"
+  },
+  {
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "linkedType": "property",
+    "linkedId": "cmgux9cmk002mn85499oq25bc"
+  },
+  {
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "linkedType": "lease",
+    "linkedId": "cmgxy8ary0001qjxvndwcnve9"
+  },
+  {
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "linkedType": "transaction",
+    "linkedId": "cmgy0ahq2001ajygpbyvgt0zz"
+  },
+  {
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "linkedType": "property",
+    "linkedId": "cmgukdq6d0009n8t832pse8yl"
+  },
+  {
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "linkedType": "lease",
+    "linkedId": "cmgv2xegk000nn8wwezd7buvk"
+  },
+  {
+    "documentId": "cmgy14zr40001b5wbi0kgv4py",
+    "linkedType": "transaction",
+    "linkedId": "cmgy154g40004b5wbzl4crp5t"
+  },
+  {
+    "documentId": "cmgy14zr40001b5wbi0kgv4py",
+    "linkedType": "property",
+    "linkedId": "cmgukdq6d0009n8t832pse8yl"
+  },
+  {
+    "documentId": "cmgy14zr40001b5wbi0kgv4py",
+    "linkedType": "lease",
+    "linkedId": "cmgv2xegk000nn8wwezd7buvk"
+  }
+]

@@ -1,0 +1,417 @@
+{
+  "timestamp": "2025-10-09T22:51:57.098Z",
+  "natures": [
+    {
+      "code": "LOYER",
+      "label": "Loyer"
+    },
+    {
+      "code": "CHARGES",
+      "label": "Charges locatives"
+    },
+    {
+      "code": "DEPOT_GARANTIE_RECU",
+      "label": "Dépôt de garantie reçu"
+    },
+    {
+      "code": "DEPOT_GARANTIE_RENDU",
+      "label": "Dépôt de garantie rendu"
+    },
+    {
+      "code": "AVOIR_REGULARISATION",
+      "label": "Avoir / Régularisation"
+    },
+    {
+      "code": "PENALITE_RETENUE",
+      "label": "Pénalité / Retenue"
+    },
+    {
+      "code": "AUTRE",
+      "label": "Autre"
+    }
+  ],
+  "rules": [
+    {
+      "id": "cmgk0g2pb0001tvtl2nnytu0i",
+      "natureCode": "LOYER",
+      "allowedType": "REVENU",
+      "createdAt": "2025-10-09T22:50:01.008Z",
+      "updatedAt": "2025-10-09T22:51:31.694Z"
+    },
+    {
+      "id": "cmgk0g2pe0003tvtlmrt20aa3",
+      "natureCode": "LOYER",
+      "allowedType": "NON_DEFINI",
+      "createdAt": "2025-10-09T22:50:01.011Z",
+      "updatedAt": "2025-10-09T22:51:31.697Z"
+    },
+    {
+      "id": "cmgk0g2ph0005tvtl7zw274nr",
+      "natureCode": "CHARGES",
+      "allowedType": "DEPENSE",
+      "createdAt": "2025-10-09T22:50:01.013Z",
+      "updatedAt": "2025-10-09T22:51:31.699Z"
+    },
+    {
+      "id": "cmgk0g2pk0007tvtls31t7ok2",
+      "natureCode": "CHARGES",
+      "allowedType": "NON_DEFINI",
+      "createdAt": "2025-10-09T22:50:01.016Z",
+      "updatedAt": "2025-10-09T22:51:31.702Z"
+    },
+    {
+      "id": "cmgk0g2pn0009tvtlocgmoxac",
+      "natureCode": "DEPOT_GARANTIE_RECU",
+      "allowedType": "REVENU",
+      "createdAt": "2025-10-09T22:50:01.019Z",
+      "updatedAt": "2025-10-09T22:51:31.705Z"
+    },
+    {
+      "id": "cmgk0g2pq000btvtl44rx32up",
+      "natureCode": "DEPOT_GARANTIE_RECU",
+      "allowedType": "NON_DEFINI",
+      "createdAt": "2025-10-09T22:50:01.022Z",
+      "updatedAt": "2025-10-09T22:51:31.708Z"
+    },
+    {
+      "id": "cmgk0g2ps000dtvtlvixdn86y",
+      "natureCode": "DEPOT_GARANTIE_RENDU",
+      "allowedType": "DEPENSE",
+      "createdAt": "2025-10-09T22:50:01.025Z",
+      "updatedAt": "2025-10-09T22:51:31.711Z"
+    },
+    {
+      "id": "cmgk0g2pv000ftvtlaf7mz0me",
+      "natureCode": "DEPOT_GARANTIE_RENDU",
+      "allowedType": "NON_DEFINI",
+      "createdAt": "2025-10-09T22:50:01.027Z",
+      "updatedAt": "2025-10-09T22:51:31.714Z"
+    },
+    {
+      "id": "cmgk0g2px000htvtl8az0ohhr",
+      "natureCode": "AVOIR_REGULARISATION",
+      "allowedType": "REVENU",
+      "createdAt": "2025-10-09T22:50:01.030Z",
+      "updatedAt": "2025-10-09T22:51:31.717Z"
+    },
+    {
+      "id": "cmgk0g2q0000jtvtl8a1dcb3k",
+      "natureCode": "AVOIR_REGULARISATION",
+      "allowedType": "DEPENSE",
+      "createdAt": "2025-10-09T22:50:01.033Z",
+      "updatedAt": "2025-10-09T22:51:31.719Z"
+    },
+    {
+      "id": "cmgk0g2q3000ltvtltcmbplzk",
+      "natureCode": "AVOIR_REGULARISATION",
+      "allowedType": "NON_DEFINI",
+      "createdAt": "2025-10-09T22:50:01.035Z",
+      "updatedAt": "2025-10-09T22:51:31.723Z"
+    },
+    {
+      "id": "cmgk0g2q6000ntvtlarcxnbzv",
+      "natureCode": "PENALITE_RETENUE",
+      "allowedType": "DEPENSE",
+      "createdAt": "2025-10-09T22:50:01.039Z",
+      "updatedAt": "2025-10-09T22:51:31.726Z"
+    },
+    {
+      "id": "cmgk0g2q9000ptvtld5ltsboy",
+      "natureCode": "PENALITE_RETENUE",
+      "allowedType": "NON_DEFINI",
+      "createdAt": "2025-10-09T22:50:01.041Z",
+      "updatedAt": "2025-10-09T22:51:31.729Z"
+    },
+    {
+      "id": "cmgk0g2qc000rtvtlhnmhm4v1",
+      "natureCode": "AUTRE",
+      "allowedType": "REVENU",
+      "createdAt": "2025-10-09T22:50:01.044Z",
+      "updatedAt": "2025-10-09T22:51:31.731Z"
+    },
+    {
+      "id": "cmgk0g2qe000ttvtl0opv39d5",
+      "natureCode": "AUTRE",
+      "allowedType": "DEPENSE",
+      "createdAt": "2025-10-09T22:50:01.046Z",
+      "updatedAt": "2025-10-09T22:51:31.734Z"
+    },
+    {
+      "id": "cmgk0g2qh000vtvtlayl1ulw3",
+      "natureCode": "AUTRE",
+      "allowedType": "NON_DEFINI",
+      "createdAt": "2025-10-09T22:50:01.049Z",
+      "updatedAt": "2025-10-09T22:51:31.737Z"
+    }
+  ],
+  "defaults": [
+    {
+      "natureCode": "LOYER",
+      "defaultCategoryId": "cmgk0g2qk000wtvtlvag8qrhs",
+      "createdAt": "2025-10-09T22:50:01.060Z",
+      "updatedAt": "2025-10-09T22:51:31.740Z",
+      "nature": {
+        "code": "LOYER",
+        "label": "Loyer"
+      },
+      "defaultCategory": {
+        "id": "cmgk0g2qk000wtvtlvag8qrhs",
+        "slug": "loyer",
+        "label": "Loyer",
+        "type": "REVENU",
+        "deductible": false,
+        "capitalizable": false,
+        "system": false,
+        "actif": true,
+        "createdAt": "2025-10-09T22:50:01.053Z",
+        "updatedAt": "2025-10-09T22:51:31.640Z"
+      }
+    },
+    {
+      "natureCode": "CHARGES",
+      "defaultCategoryId": "cmgk0g2qn000xtvtl8cym2dps",
+      "createdAt": "2025-10-09T22:50:01.063Z",
+      "updatedAt": "2025-10-09T22:51:31.744Z",
+      "nature": {
+        "code": "CHARGES",
+        "label": "Charges locatives"
+      },
+      "defaultCategory": {
+        "id": "cmgk0g2qn000xtvtl8cym2dps",
+        "slug": "charges-locatives",
+        "label": "Charges locatives",
+        "type": "DEPENSE",
+        "deductible": true,
+        "capitalizable": false,
+        "system": false,
+        "actif": true,
+        "createdAt": "2025-10-09T22:50:01.055Z",
+        "updatedAt": "2025-10-09T22:51:31.650Z"
+      }
+    },
+    {
+      "natureCode": "DEPOT_GARANTIE_RECU",
+      "defaultCategoryId": "cmgk0g2qp000ytvtle5vzkb58",
+      "createdAt": "2025-10-09T22:50:01.065Z",
+      "updatedAt": "2025-10-09T22:51:31.748Z",
+      "nature": {
+        "code": "DEPOT_GARANTIE_RECU",
+        "label": "Dépôt de garantie reçu"
+      },
+      "defaultCategory": {
+        "id": "cmgk0g2qp000ytvtle5vzkb58",
+        "slug": "depot-garantie",
+        "label": "Dépôt de garantie",
+        "type": "REVENU",
+        "deductible": false,
+        "capitalizable": false,
+        "system": false,
+        "actif": true,
+        "createdAt": "2025-10-09T22:50:01.058Z",
+        "updatedAt": "2025-10-09T22:51:31.645Z"
+      }
+    },
+    {
+      "natureCode": "DEPOT_GARANTIE_RENDU",
+      "defaultCategoryId": null,
+      "createdAt": "2025-10-09T22:50:01.068Z",
+      "updatedAt": "2025-10-09T22:51:31.751Z",
+      "nature": {
+        "code": "DEPOT_GARANTIE_RENDU",
+        "label": "Dépôt de garantie rendu"
+      },
+      "defaultCategory": null
+    },
+    {
+      "natureCode": "AVOIR_REGULARISATION",
+      "defaultCategoryId": null,
+      "createdAt": "2025-10-09T22:50:01.071Z",
+      "updatedAt": "2025-10-09T22:51:31.755Z",
+      "nature": {
+        "code": "AVOIR_REGULARISATION",
+        "label": "Avoir / Régularisation"
+      },
+      "defaultCategory": null
+    },
+    {
+      "natureCode": "PENALITE_RETENUE",
+      "defaultCategoryId": null,
+      "createdAt": "2025-10-09T22:50:01.073Z",
+      "updatedAt": "2025-10-09T22:51:31.760Z",
+      "nature": {
+        "code": "PENALITE_RETENUE",
+        "label": "Pénalité / Retenue"
+      },
+      "defaultCategory": null
+    },
+    {
+      "natureCode": "AUTRE",
+      "defaultCategoryId": null,
+      "createdAt": "2025-10-09T22:50:01.076Z",
+      "updatedAt": "2025-10-09T22:51:31.764Z",
+      "nature": {
+        "code": "AUTRE",
+        "label": "Autre"
+      },
+      "defaultCategory": null
+    }
+  ],
+  "categories": [
+    {
+      "id": "cmgk0g2qk000wtvtlvag8qrhs",
+      "slug": "loyer",
+      "label": "Loyer",
+      "type": "REVENU",
+      "deductible": false,
+      "capitalizable": false,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:01.053Z",
+      "updatedAt": "2025-10-09T22:51:31.640Z"
+    },
+    {
+      "id": "cmgk0g2qn000xtvtl8cym2dps",
+      "slug": "charges-locatives",
+      "label": "Charges locatives",
+      "type": "DEPENSE",
+      "deductible": true,
+      "capitalizable": false,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:01.055Z",
+      "updatedAt": "2025-10-09T22:51:31.650Z"
+    },
+    {
+      "id": "cmgk0g2qp000ytvtle5vzkb58",
+      "slug": "depot-garantie",
+      "label": "Dépôt de garantie",
+      "type": "REVENU",
+      "deductible": false,
+      "capitalizable": false,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:01.058Z",
+      "updatedAt": "2025-10-09T22:51:31.645Z"
+    },
+    {
+      "id": "cmgk0gnbe0002qh85b82zdsd0",
+      "slug": "avoir-locataire",
+      "label": "Avoir locataire",
+      "type": "REVENU",
+      "deductible": false,
+      "capitalizable": false,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:27.723Z",
+      "updatedAt": "2025-10-09T22:51:31.648Z"
+    },
+    {
+      "id": "cmgk0gnbk0004qh85ui8fshe0",
+      "slug": "taxe-fonciere",
+      "label": "Taxe foncière",
+      "type": "DEPENSE",
+      "deductible": true,
+      "capitalizable": false,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:27.728Z",
+      "updatedAt": "2025-10-09T22:51:31.653Z"
+    },
+    {
+      "id": "cmgk0gnbn0005qh856928ib53",
+      "slug": "interets-emprunt",
+      "label": "Intérêts d'emprunt",
+      "type": "DEPENSE",
+      "deductible": true,
+      "capitalizable": false,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:27.731Z",
+      "updatedAt": "2025-10-09T22:51:31.655Z"
+    },
+    {
+      "id": "cmgk0gnbp0006qh85zjqkd69s",
+      "slug": "frais-gestion",
+      "label": "Frais de gestion",
+      "type": "DEPENSE",
+      "deductible": true,
+      "capitalizable": false,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:27.734Z",
+      "updatedAt": "2025-10-09T22:51:31.658Z"
+    },
+    {
+      "id": "cmgk0gnbs0007qh85pp6u812h",
+      "slug": "assurance-pno",
+      "label": "Assurance PNO",
+      "type": "DEPENSE",
+      "deductible": true,
+      "capitalizable": false,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:27.736Z",
+      "updatedAt": "2025-10-09T22:51:31.661Z"
+    },
+    {
+      "id": "cmgk0gnbw0008qh85edlv75xf",
+      "slug": "travaux-entretien",
+      "label": "Travaux d'entretien",
+      "type": "DEPENSE",
+      "deductible": true,
+      "capitalizable": false,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:27.740Z",
+      "updatedAt": "2025-10-09T22:51:31.664Z"
+    },
+    {
+      "id": "cmgk0gnc00009qh85588ycgd0",
+      "slug": "travaux-amélioration",
+      "label": "Travaux d'amélioration",
+      "type": "DEPENSE",
+      "deductible": false,
+      "capitalizable": true,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:27.744Z",
+      "updatedAt": "2025-10-09T22:50:27.744Z"
+    },
+    {
+      "id": "cmgk0gnc4000aqh859la5d3j6",
+      "slug": "penalite-retard",
+      "label": "Pénalité de retard",
+      "type": "DEPENSE",
+      "deductible": false,
+      "capitalizable": false,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:27.748Z",
+      "updatedAt": "2025-10-09T22:51:31.669Z"
+    },
+    {
+      "id": "cmgk0gnc7000bqh85uwu6kkxj",
+      "slug": "divers",
+      "label": "Divers",
+      "type": "NON_DEFINI",
+      "deductible": false,
+      "capitalizable": false,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:50:27.752Z",
+      "updatedAt": "2025-10-09T22:51:31.671Z"
+    },
+    {
+      "id": "cmgk0hj8600095a7hxxvb0k7e",
+      "slug": "travaux-amelioration",
+      "label": "Travaux d'amélioration",
+      "type": "DEPENSE",
+      "deductible": false,
+      "capitalizable": true,
+      "system": false,
+      "actif": true,
+      "createdAt": "2025-10-09T22:51:09.079Z",
+      "updatedAt": "2025-10-09T22:51:31.666Z"
+    }
+  ]
+}

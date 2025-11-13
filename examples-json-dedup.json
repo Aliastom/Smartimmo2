@@ -1,0 +1,455 @@
+{
+  "examples": {
+    "1_exact_duplicate": {
+      "description": "Doublon exact - Checksum identique",
+      "input": {
+        "newFile": {
+          "tempId": "tmp_abc123",
+          "name": "quittance_juin_2025_Jasmin.pdf",
+          "mime": "application/pdf",
+          "size": 328900,
+          "pages": 1,
+          "checksum": "sha256:abc123def456789...",
+          "ocr": {
+            "chars": 892,
+            "quality": 0.70,
+            "text": "Quittance de loyer pour le mois de juin 2025. Locataire: M. Jasmin. Montant: 850 euros..."
+          },
+          "extracted": {
+            "typePredictions": [
+              { "label": "Quittance de Loyer", "score": 0.61 }
+            ],
+            "period": {
+              "from": "2025-05-05",
+              "to": "2025-06-05"
+            }
+          },
+          "context": {
+            "propertyId": "prop_123",
+            "tenant": "Jasmin"
+          }
+        },
+        "candidates": [
+          {
+            "id": "doc_abc",
+            "name": "quittance_juin_2025_Jasmin.pdf",
+            "uploadedAt": "2025-06-15T18:42:00Z",
+            "mime": "application/pdf",
+            "size": 329120,
+            "pages": 1,
+            "checksum": "sha256:abc123def456789...",
+            "ocr": {
+              "quality": 0.68,
+              "textPreview": "Quittance de loyer pour le mois de juin 2025. Locataire: M. Jasmin..."
+            },
+            "extracted": {
+              "type": "Quittance de Loyer",
+              "period": {
+                "from": "2025-05-05",
+                "to": "2025-06-05"
+              }
+            },
+            "context": {
+              "propertyId": "prop_123",
+              "tenant": "Jasmin"
+            },
+            "url": "/documents/doc_abc/preview"
+          }
+        ]
+      },
+      "output": {
+        "status": "exact_duplicate",
+        "matchedDocument": {
+          "id": "doc_abc",
+          "name": "quittance_juin_2025_Jasmin.pdf",
+          "url": "/documents/doc_abc/preview"
+        },
+        "signals": {
+          "checksumMatch": true,
+          "textSimilarity": 1.0,
+          "samePeriod": true,
+          "sameContext": true,
+          "qualityComparison": "new_better",
+          "differences": [
+            "Pages: 1 vs 1",
+            "Qualité OCR: 0.70 vs 0.68 (nouveau meilleur)",
+            "Taille: 328.9 KB vs 329.1 KB",
+            "Similarité textuelle: 100.0%"
+          ]
+        },
+        "suggestedAction": "cancel",
+        "modal": {
+          "level": "danger",
+          "title": "Doublon exact détecté",
+          "message": "Ce fichier est identique à « quittance_juin_2025_Jasmin.pdf » (uploadé le 15/06/2025).",
+          "primaryCta": {
+            "action": "cancel",
+            "label": "Annuler"
+          },
+          "secondaryCta": {
+            "action": "keep_both",
+            "label": "Conserver les deux (avancé)"
+          },
+          "showComparison": true
+        },
+        "metadata": {
+          "decisionReason": "Checksum identique - fichier exactement identique",
+          "timestamp": "2025-10-15T14:32:45.123Z",
+          "processingTimeMs": 8
+        }
+      }
+    },
+    "2_probable_duplicate_new_better": {
+      "description": "Quasi-doublon - Nouveau fichier de meilleure qualité",
+      "input": {
+        "newFile": {
+          "tempId": "tmp_456def",
+          "name": "contrat_bail_2025_HD.pdf",
+          "mime": "application/pdf",
+          "size": 1250000,
+          "pages": 8,
+          "checksum": "sha256:xyz789...",
+          "ocr": {
+            "chars": 4200,
+            "quality": 0.92,
+            "text": "CONTRAT DE LOCATION Article 1: Les parties conviennent que..."
+          },
+          "extracted": {
+            "typePredictions": [
+              { "label": "Bail", "score": 0.85 }
+            ],
+            "period": {
+              "from": "2025-01-01",
+              "to": "2028-01-01"
+            }
+          },
+          "context": {
+            "propertyId": "prop_456",
+            "leaseId": "lease_789"
+          }
+        },
+        "candidates": [
+          {
+            "id": "doc_xyz",
+            "name": "contrat_bail_2025_SD.pdf",
+            "uploadedAt": "2025-01-10T09:15:00Z",
+            "mime": "application/pdf",
+            "size": 850000,
+            "pages": 8,
+            "checksum": "sha256:different123...",
+            "ocr": {
+              "quality": 0.75,
+              "textPreview": "CONTRAT DE LOCATION Article 1: Les parties conviennent que..."
+            },
+            "extracted": {
+              "type": "Bail",
+              "period": {
+                "from": "2025-01-01",
+                "to": "2028-01-01"
+              }
+            },
+            "context": {
+              "propertyId": "prop_456",
+              "leaseId": "lease_789"
+            },
+            "url": "/documents/doc_xyz/preview"
+          }
+        ]
+      },
+      "output": {
+        "status": "probable_duplicate",
+        "matchedDocument": {
+          "id": "doc_xyz",
+          "name": "contrat_bail_2025_SD.pdf",
+          "url": "/documents/doc_xyz/preview"
+        },
+        "signals": {
+          "checksumMatch": false,
+          "textSimilarity": 0.952,
+          "samePeriod": true,
+          "sameContext": true,
+          "qualityComparison": "new_better",
+          "differences": [
+            "Pages: 8 vs 8",
+            "Qualité OCR: 0.92 vs 0.75 (nouveau meilleur)",
+            "Taille: 1250.0 KB vs 850.0 KB (nouveau meilleur)",
+            "Similarité textuelle: 95.2%"
+          ]
+        },
+        "suggestedAction": "replace",
+        "modal": {
+          "level": "warning",
+          "title": "Doublon probable détecté",
+          "message": "Ce fichier semble très similaire à « contrat_bail_2025_SD.pdf » (uploadé le 10/01/2025).",
+          "primaryCta": {
+            "action": "replace",
+            "label": "Remplacer le fichier existant"
+          },
+          "secondaryCta": {
+            "action": "cancel",
+            "label": "Annuler"
+          },
+          "showComparison": true
+        },
+        "metadata": {
+          "decisionReason": "Quasi-doublon détecté : similarité textuelle élevée (95.2%), même période",
+          "timestamp": "2025-10-15T14:33:12.456Z",
+          "processingTimeMs": 15
+        }
+      }
+    },
+    "3_not_duplicate": {
+      "description": "Pas de doublon - Périodes différentes",
+      "input": {
+        "newFile": {
+          "tempId": "tmp_789ghi",
+          "name": "facture_electricite_juillet_2025.pdf",
+          "mime": "application/pdf",
+          "size": 185000,
+          "pages": 2,
+          "checksum": "sha256:unique123...",
+          "ocr": {
+            "chars": 1200,
+            "quality": 0.88,
+            "text": "EDF - Facture électricité Juillet 2025 Montant TTC: 125.50 euros..."
+          },
+          "extracted": {
+            "typePredictions": [
+              { "label": "Facture", "score": 0.92 }
+            ],
+            "period": {
+              "from": "2025-07-01",
+              "to": "2025-07-31"
+            }
+          },
+          "context": {
+            "propertyId": "prop_789"
+          }
+        },
+        "candidates": [
+          {
+            "id": "doc_old",
+            "name": "facture_electricite_juin_2025.pdf",
+            "uploadedAt": "2025-06-20T14:30:00Z",
+            "mime": "application/pdf",
+            "size": 182000,
+            "pages": 2,
+            "checksum": "sha256:different456...",
+            "ocr": {
+              "quality": 0.86,
+              "textPreview": "EDF - Facture électricité Juin 2025 Montant TTC: 118.90 euros..."
+            },
+            "extracted": {
+              "type": "Facture",
+              "period": {
+                "from": "2025-06-01",
+                "to": "2025-06-30"
+              }
+            },
+            "context": {
+              "propertyId": "prop_789"
+            },
+            "url": "/documents/doc_old/preview"
+          }
+        ]
+      },
+      "output": {
+        "status": "not_duplicate",
+        "signals": {
+          "checksumMatch": false,
+          "textSimilarity": 0.78,
+          "samePeriod": false,
+          "sameContext": true,
+          "qualityComparison": "equal",
+          "differences": []
+        },
+        "suggestedAction": "keep_both",
+        "modal": {
+          "level": "info",
+          "title": "Aucun doublon détecté",
+          "message": "Ce document ne semble pas être un doublon.",
+          "primaryCta": {
+            "action": "keep_both",
+            "label": "Continuer"
+          },
+          "secondaryCta": {
+            "action": "cancel",
+            "label": "Annuler"
+          },
+          "showComparison": false
+        },
+        "metadata": {
+          "decisionReason": "Pas de doublon détecté",
+          "timestamp": "2025-10-15T14:34:22.789Z",
+          "processingTimeMs": 9
+        }
+      }
+    },
+    "4_different_contexts": {
+      "description": "Quasi-doublon - Contextes différents (propriétés différentes)",
+      "input": {
+        "newFile": {
+          "tempId": "tmp_abc999",
+          "name": "etat_des_lieux.pdf",
+          "mime": "application/pdf",
+          "size": 750000,
+          "pages": 5,
+          "checksum": "sha256:context123...",
+          "ocr": {
+            "chars": 3500,
+            "quality": 0.80,
+            "text": "État des lieux d'entrée Appartement 3 pièces Cuisine équipée..."
+          },
+          "extracted": {
+            "typePredictions": [
+              { "label": "État des Lieux", "score": 0.77 }
+            ]
+          },
+          "context": {
+            "propertyId": "prop_AAA",
+            "leaseId": "lease_111"
+          }
+        },
+        "candidates": [
+          {
+            "id": "doc_similar",
+            "name": "etat_des_lieux.pdf",
+            "uploadedAt": "2024-12-01T10:00:00Z",
+            "mime": "application/pdf",
+            "size": 755000,
+            "pages": 5,
+            "checksum": "sha256:different789...",
+            "ocr": {
+              "quality": 0.81,
+              "textPreview": "État des lieux d'entrée Appartement 3 pièces Cuisine équipée..."
+            },
+            "extracted": {
+              "type": "État des Lieux"
+            },
+            "context": {
+              "propertyId": "prop_BBB",
+              "leaseId": "lease_222"
+            },
+            "url": "/documents/doc_similar/preview"
+          }
+        ]
+      },
+      "output": {
+        "status": "probable_duplicate",
+        "matchedDocument": {
+          "id": "doc_similar",
+          "name": "etat_des_lieux.pdf",
+          "url": "/documents/doc_similar/preview"
+        },
+        "signals": {
+          "checksumMatch": false,
+          "textSimilarity": 0.91,
+          "samePeriod": false,
+          "sameContext": false,
+          "qualityComparison": "existing_better",
+          "differences": [
+            "Pages: 5 vs 5",
+            "Qualité OCR: 0.80 vs 0.81 (existant meilleur)",
+            "Taille: 750.0 KB vs 755.0 KB",
+            "Similarité textuelle: 91.0%"
+          ]
+        },
+        "suggestedAction": "keep_both",
+        "modal": {
+          "level": "warning",
+          "title": "Doublon probable détecté",
+          "message": "Ce fichier semble très similaire à « etat_des_lieux.pdf » (uploadé le 01/12/2024).",
+          "primaryCta": {
+            "action": "keep_both",
+            "label": "Conserver les deux (avancé)"
+          },
+          "secondaryCta": {
+            "action": "cancel",
+            "label": "Annuler"
+          },
+          "showComparison": true
+        },
+        "metadata": {
+          "decisionReason": "Quasi-doublon détecté : similarité textuelle élevée (91.0%)",
+          "timestamp": "2025-10-15T14:35:45.321Z",
+          "processingTimeMs": 12
+        }
+      }
+    }
+  },
+  "api_request_example": {
+    "url": "POST /api/documents/dedup",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "newFile": {
+        "tempId": "tmp_example",
+        "name": "document.pdf",
+        "mime": "application/pdf",
+        "size": 500000,
+        "pages": 3,
+        "checksum": "sha256:example...",
+        "ocr": {
+          "chars": 1500,
+          "quality": 0.85,
+          "text": "Contenu du document..."
+        },
+        "extracted": {
+          "typePredictions": [
+            { "label": "Facture", "score": 0.9 }
+          ],
+          "period": {
+            "from": "2025-01-01",
+            "to": "2025-01-31"
+          }
+        },
+        "context": {
+          "propertyId": "prop_123"
+        }
+      },
+      "candidates": [],
+      "config": {
+        "textSimilarityThreshold": 0.9,
+        "typePredictionMinScore": 0.6,
+        "enableDebugLogs": false,
+        "locale": "fr"
+      }
+    }
+  },
+  "api_response_example": {
+    "success": true,
+    "data": {
+      "status": "not_duplicate",
+      "signals": {
+        "checksumMatch": false,
+        "textSimilarity": 0,
+        "samePeriod": false,
+        "sameContext": false,
+        "qualityComparison": "equal",
+        "differences": []
+      },
+      "suggestedAction": "keep_both",
+      "modal": {
+        "level": "info",
+        "title": "Aucun doublon détecté",
+        "message": "Ce document ne semble pas être un doublon.",
+        "primaryCta": {
+          "action": "keep_both",
+          "label": "Continuer"
+        },
+        "secondaryCta": {
+          "action": "cancel",
+          "label": "Annuler"
+        },
+        "showComparison": false
+      },
+      "metadata": {
+        "decisionReason": "Aucun candidat ou aucun match trouvé",
+        "timestamp": "2025-10-15T14:36:12.123Z",
+        "processingTimeMs": 5
+      }
+    }
+  }
+}
+

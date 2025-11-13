@@ -1,0 +1,114 @@
+{
+  "defaults_by_context": {
+    "transaction": "MISC",
+    "lease": "SIGNED_LEASE",
+    "property": "PHOTO",
+    "tenant": "RIB",
+    "loan": "MISC",
+    "global": "MISC"
+  },
+  "regex_overrides": [
+    {
+      "pattern": "(avis[\\s_\\-]*d[\\s_\\-]*imposition|avis[\\s_\\-]*imp[oô]t?s?|imp[oô]t?s?\\.gouv|impots?\\.gouv|taxe[\\s_\\-]*fonci[èe]re|fonci[èe]re|\\b2042\\b|\\b2044\\b|\\bIFU\\b|\\bIFI\\b|\\bCFE\\b|pr[ée]l[èe]vement[\\s_\\-]*[àa][\\s_\\-]*la[\\s_\\-]*source|revenu[\\s_\\-]*fiscal[\\s_\\-]*de[\\s_\\-]*r[ée]f[ée]rence|num[ée]ro[\\s_\\-]*fiscal)",
+      "type_code": "TAX",
+      "apply_in": ["property", "tenant", "global"],
+      "mime_in": ["application/pdf", "image/*"],
+      "ocr_keywords": ["avis d imposition", "taxe fonciere", "impot", "impots gouv", "2042", "2044", "IFU", "IFI", "CFE", "revenu fiscal de reference"],
+      "weight": 10,
+      "lock": false
+    },
+    {
+      "pattern": "(quittance|reçu.?\\s*loyer|receipt|rent[_\\s-]?receipt)",
+      "type_code": "RENT_RECEIPT",
+      "apply_in": ["transaction", "lease", "global"],
+      "mime_in": ["application/pdf", "image/*"],
+      "ocr_keywords": ["quittance", "loyer", "mois de", "mois d'"],
+      "weight": 9.8,
+      "lock": false
+    },
+    {
+      "pattern": "(bail|contrat).*(sign[é|e]|signed)",
+      "type_code": "SIGNED_LEASE",
+      "apply_in": ["lease", "property", "global"],
+      "mime_in": ["application/pdf"],
+      "ocr_keywords": ["bail signé", "contrat de location", "loi 89", "signature"],
+      "weight": 9.6,
+      "lock": false
+    },
+    {
+      "pattern": "(bail|contrat).*(brouillon|draft|mod[èe]le|template)",
+      "type_code": "LEASE_DRAFT",
+      "apply_in": ["lease", "property", "global"],
+      "mime_in": ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+      "ocr_keywords": ["brouillon", "modèle", "draft", "template"],
+      "weight": 8.5,
+      "lock": false
+    },
+    {
+      "pattern": "(état.?\\s*des.?\\s*lieux|\\bEDL\\b).*(entr[ée|ee]|entree|\\bin\\b|entrant)",
+      "type_code": "EDL_IN",
+      "apply_in": ["property", "lease", "global"],
+      "mime_in": ["application/pdf", "image/*"],
+      "ocr_keywords": ["état des lieux", "entrée", "compteurs", "inventaire"],
+      "weight": 8.3,
+      "lock": false
+    },
+    {
+      "pattern": "(état.?\\s*des.?\\s*lieux|\\bEDL\\b).*(sortie|\\bout\\b|sortant)",
+      "type_code": "EDL_OUT",
+      "apply_in": ["property", "lease", "global"],
+      "mime_in": ["application/pdf", "image/*"],
+      "ocr_keywords": ["état des lieux", "sortie", "rendu", "exit"],
+      "weight": 8.3,
+      "lock": false
+    },
+    {
+      "pattern": "(\\biban\\b|\\bbic\\b|\\brib\\b|relev[é|e]|virement|transfer|banking)",
+      "type_code": "RIB",
+      "apply_in": ["tenant", "lease", "global", "transaction"],
+      "mime_in": ["application/pdf", "image/*"],
+      "ocr_keywords": ["IBAN", "BIC", "RIB", "relevé", "virement", "identité bancaire"],
+      "weight": 8.0,
+      "lock": false
+    },
+    {
+      "pattern": "(assurance|attestation|police|insurance|garantie)",
+      "type_code": "INSURANCE",
+      "apply_in": ["property", "lease", "tenant", "global"],
+      "mime_in": ["application/pdf", "image/*"],
+      "ocr_keywords": ["assurance", "attestation", "police", "garantie", "couverture"],
+      "weight": 7.6,
+      "lock": false
+    },
+    {
+      "pattern": "(contrat|contract).*(vente|achat|sale|purchase)",
+      "type_code": "CONTRACT",
+      "apply_in": ["property", "global"],
+      "mime_in": ["application/pdf"],
+      "ocr_keywords": ["contrat de vente", "acte de vente", "achat", "vente"],
+      "weight": 6.5,
+      "lock": false
+    },
+    {
+      "pattern": "(photo|image|picture|visuel|appartement|maison|bien)",
+      "type_code": "PHOTO",
+      "apply_in": ["property", "global"],
+      "mime_in": ["image/*"],
+      "ocr_keywords": ["photo", "image", "visuel"],
+      "weight": 6.0,
+      "lock": false
+    }
+  ],
+  "mime_overrides": {
+    "image/jpeg": "PHOTO",
+    "image/jpg": "PHOTO",
+    "image/png": "PHOTO",
+    "image/gif": "PHOTO",
+    "image/webp": "PHOTO",
+    "image/*": "PHOTO"
+  },
+  "postprocess": {
+    "min_confidence_for_autoselect": 0.8,
+    "ask_top3_below": 0.5
+  }
+}

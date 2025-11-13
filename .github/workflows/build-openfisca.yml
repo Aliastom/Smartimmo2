@@ -1,0 +1,151 @@
+# ============================================================================
+# GitHub Actions Workflow — Build & Push OpenFisca-France Image
+# ============================================================================
+#
+# Ce workflow :
+# 1. Build l'image Docker OpenFisca-France depuis le Dockerfile
+# 2. Tag avec "stable" + date (YYYY-MM-DD)
+# 3. Push vers Docker Hub
+#
+# PRÉREQUIS :
+# -----------
+# Configurer les secrets dans GitHub (Settings > Secrets and variables > Actions) :
+#   - DOCKERHUB_USER     : Votre username Docker Hub
+#   - DOCKERHUB_TOKEN    : Token d'accès Docker Hub (pas votre mot de passe!)
+#
+# CRÉER UN TOKEN DOCKER HUB :
+#   1. Aller sur https://hub.docker.com/settings/security
+#   2. Cliquer "New Access Token"
+#   3. Name: "github-actions-smartimmo"
+#   4. Permissions: Read & Write
+#   5. Copier le token et l'ajouter dans les secrets GitHub
+#
+# DÉCLENCHER MANUELLEMENT :
+#   - Aller dans Actions > Build OpenFisca Image > Run workflow
+#   - Optionnel : spécifier des versions précises pour openfisca-france et web-api
+#
+# DÉCLENCHER AUTOMATIQUEMENT :
+#   - Chaque dimanche à 3h du matin (UTC)
+#
+# ============================================================================
+
+name: Build OpenFisca Image
+
+on:
+  # Déclenchement manuel avec paramètres optionnels
+  workflow_dispatch:
+    inputs:
+      openfisca_france_version:
+        description: 'Version openfisca-france (vide = latest)'
+        required: false
+        default: ''
+  
+  # Déclenchement automatique hebdomadaire (dimanche 3h UTC)
+  schedule:
+    - cron: '0 3 * * 0'
+
+jobs:
+  build-and-push:
+    name: Build and Push to Docker Hub
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Étape 1 : Checkout du code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      # Étape 2 : Préparer les tags
+      - name: Set build metadata
+        id: vars
+        run: |
+          # Tag de date (YYYY-MM-DD)
+          DATE_TAG=$(date +'%Y-%m-%d')
+          echo "DATE_TAG=${DATE_TAG}" >> $GITHUB_OUTPUT
+          
+          # Afficher la version (si spécifiée)
+          echo "OpenFisca France version: ${{ github.event.inputs.openfisca_france_version || 'latest' }}"
+      
+      # Étape 3 : Login Docker Hub
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      # Étape 4 : Set up Docker Buildx (pour multi-platform si besoin)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      # Étape 5 : Build et Push l'image
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./infra/openfisca
+          file: ./infra/openfisca/Dockerfile
+          push: true
+          
+          # Tags multiples :
+          # - stable : toujours la dernière version buildée
+          # - YYYY-MM-DD : snapshot de la date du build
+          tags: |
+            ${{ secrets.DOCKERHUB_USER }}/openfisca-france:stable
+            ${{ secrets.DOCKERHUB_USER }}/openfisca-france:${{ steps.vars.outputs.DATE_TAG }}
+          
+          # Build argument (version épinglée si fournie)
+          build-args: |
+            OPENFISCA_FRANCE_VERSION=${{ github.event.inputs.openfisca_france_version }}
+          
+          # Cache pour accélérer les builds suivants
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          
+          # Labels pour metadata
+          labels: |
+            org.opencontainers.image.title=OpenFisca-France
+            org.opencontainers.image.description=OpenFisca France API for SmartImmo
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.vars.outputs.DATE_TAG }}
+      
+      # Étape 6 : Afficher les informations de l'image
+      - name: Image digest
+        run: |
+          echo "✅ Image pushed successfully!"
+          echo "📦 Docker Hub: https://hub.docker.com/r/${{ secrets.DOCKERHUB_USER }}/openfisca-france"
+          echo "🏷️ Tags:"
+          echo "  - ${{ secrets.DOCKERHUB_USER }}/openfisca-france:stable"
+          echo "  - ${{ secrets.DOCKERHUB_USER }}/openfisca-france:${{ steps.vars.outputs.DATE_TAG }}"
+          echo ""
+          echo "🚀 Pour utiliser cette image :"
+          echo "  docker pull ${{ secrets.DOCKERHUB_USER }}/openfisca-france:stable"
+          echo "  docker compose -f docker-compose.openfisca.yml pull"
+          echo "  docker compose -f docker-compose.openfisca.yml up -d --force-recreate"
+
+# ============================================================================
+# NOTES AVANCÉES
+# ============================================================================
+#
+# 1. PINNER UNE VERSION SPÉCIFIQUE :
+#    - Aller dans Actions > Build OpenFisca Image > Run workflow
+#    - Remplir :
+#      openfisca_france_version: 174.2.8
+#    - Lancer le workflow
+#    Note : L'API web est incluse dans openfisca-core (pas de package séparé)
+#
+# 2. MULTI-PLATFORM (ARM + AMD64) :
+#    Décommenter dans l'étape "Build and push" :
+#      platforms: linux/amd64,linux/arm64
+#
+# 3. VÉRIFIER LES VERSIONS DISPONIBLES :
+#    - OpenFisca France : https://pypi.org/project/OpenFisca-France/#history
+#    - OpenFisca Web API : https://pypi.org/project/OpenFisca-Web-API/#history
+#
+# 4. ROLLBACK VERS UNE ANCIENNE VERSION :
+#    Dans docker-compose.openfisca.yml, modifier :
+#      image: <USER>/openfisca-france:2025-11-01
+#    Puis :
+#      docker compose -f docker-compose.openfisca.yml pull
+#      docker compose -f docker-compose.openfisca.yml up -d --force-recreate
+#
+# ============================================================================
+

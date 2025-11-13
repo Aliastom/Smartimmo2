@@ -1,0 +1,45 @@
+{
+  "deletion": {
+    "title": "Suppression impossible",
+    "subtitle": "Cet élément ne peut pas être supprimé tant que des éléments bloquants existent.",
+    "sections": {
+      "blocking": {
+        "title": "À faire pour supprimer",
+        "badge": "Bloquant"
+      },
+      "info": {
+        "title": "Informations (aucune action requise)",
+        "badge": "Info",
+        "help": "Ces éléments n'empêchent pas la suppression. Ils seront supprimés/détachés avec l'élément."
+      }
+    },
+    "actions": {
+      "ok": "OK",
+      "seeLeases": "Voir les baux",
+      "seeLoans": "Voir les prêts",
+      "seePayments": "Voir les paiements",
+      "seeInstallments": "Voir les échéances"
+    },
+    "blockers": {
+      "leases": {
+        "label": "Baux",
+        "hint": "Terminer ou supprimer"
+      },
+      "loans": {
+        "label": "Prêts actifs",
+        "hint": "Clôturer ou supprimer les prêts actifs"
+      },
+      "installments": {
+        "label": "Échéances restantes",
+        "hint": "Clôturer toutes les échéances avant suppression"
+      }
+    },
+    "info": {
+      "occupants": "Occupants",
+      "transactions": "Transactions",
+      "documents": "Documents",
+      "photos": "Photos",
+      "payments": "Paiements"
+    }
+  }
+}

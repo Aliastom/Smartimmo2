@@ -1,0 +1,55 @@
+# Docker Compose pour OpenFisca-France
+# Production-ready configuration
+
+services:
+  openfisca:
+    image: openfisca/france:latest
+    container_name: openfisca-france
+    command: openfisca serve --port 2000 --bind 0.0.0.0
+    restart: always
+    
+    # Port exposé UNIQUEMENT sur localhost (sécurité)
+    ports:
+      - "127.0.0.1:2000:2000"
+    
+    # Variables d'environnement
+    environment:
+      - LOG_LEVEL=info
+      - WORKERS=2  # Ajuster selon les CPU disponibles
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2000/spec"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Logs rotatifs (éviter remplissage disque)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Limites de ressources (optionnel mais recommandé)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    
+    # Labels pour monitoring (ex: Prometheus, Portainer)
+    labels:
+      - "com.example.service=openfisca"
+      - "com.example.environment=production"
+      - "com.example.description=OpenFisca France API"
+
+# Réseau (optionnel, pour isoler si plusieurs services)
+# networks:
+#   openfisca-net:
+#     driver: bridge
+

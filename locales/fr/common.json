@@ -1,0 +1,41 @@
+{
+  "actions": {
+    "add": "Ajouter",
+    "edit": "Modifier",
+    "delete": "Supprimer",
+    "save": "Sauvegarder",
+    "cancel": "Annuler",
+    "close": "Fermer",
+    "confirm": "Confirmer",
+    "back": "Retour",
+    "next": "Suivant",
+    "search": "Rechercher",
+    "filter": "Filtrer",
+    "export": "Exporter",
+    "import": "Importer",
+    "download": "Télécharger",
+    "upload": "Upload",
+    "view": "Voir",
+    "details": "Détails"
+  },
+  "status": {
+    "active": "Actif",
+    "inactive": "Inactif",
+    "draft": "Brouillon",
+    "signed": "Signé",
+    "terminated": "Résilié",
+    "pending": "En attente",
+    "completed": "Terminé",
+    "cancelled": "Annulé"
+  },
+  "messages": {
+    "loading": "Chargement...",
+    "saving": "Sauvegarde...",
+    "success": "Succès",
+    "error": "Erreur",
+    "noData": "Aucune donnée",
+    "confirmDelete": "Êtes-vous sûr de vouloir supprimer cet élément ?"
+  }
+}
+
+

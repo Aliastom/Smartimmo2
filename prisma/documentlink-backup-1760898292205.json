@@ -1,0 +1,56 @@
+[
+  {
+    "id": "cmgy04pvx000ajygp765eic2j",
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "targetType": "TRANSACTION",
+    "targetId": "cmgy04ptz0008jygpqmn7sq8x"
+  },
+  {
+    "id": "cmgy04pvy000cjygpzb4qrxz2",
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "targetType": "PROPERTY",
+    "targetId": "cmgux9cmk002mn85499oq25bc"
+  },
+  {
+    "id": "cmgy04pvz000ejygpt4soc0bn",
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "targetType": "LEASE",
+    "targetId": "cmgxy8ary0001qjxvndwcnve9"
+  },
+  {
+    "id": "cmgy0ahq5001cjygp1swg634l",
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "targetType": "TRANSACTION",
+    "targetId": "cmgy0ahq2001ajygpbyvgt0zz"
+  },
+  {
+    "id": "cmgy0ahq6001ejygp91riiyo4",
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "targetType": "PROPERTY",
+    "targetId": "cmgukdq6d0009n8t832pse8yl"
+  },
+  {
+    "id": "cmgy0ahq6001gjygpmyfuzeog",
+    "documentId": "cmgy01nzc0005jygpen2fut1c",
+    "targetType": "LEASE",
+    "targetId": "cmgv2xegk000nn8wwezd7buvk"
+  },
+  {
+    "id": "cmgy154i00006b5wb28hcapg0",
+    "documentId": "cmgy14zr40001b5wbi0kgv4py",
+    "targetType": "TRANSACTION",
+    "targetId": "cmgy154g40004b5wbzl4crp5t"
+  },
+  {
+    "id": "cmgy154i00008b5wbyt6kc6b9",
+    "documentId": "cmgy14zr40001b5wbi0kgv4py",
+    "targetType": "PROPERTY",
+    "targetId": "cmgukdq6d0009n8t832pse8yl"
+  },
+  {
+    "id": "cmgy154i2000ab5wbkly8a4pk",
+    "documentId": "cmgy14zr40001b5wbi0kgv4py",
+    "targetType": "LEASE",
+    "targetId": "cmgv2xegk000nn8wwezd7buvk"
+  }
+]

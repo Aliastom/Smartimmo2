@@ -1,0 +1,1050 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  User              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model AppConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
+}
+
+model AppSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([key])
+}
+
+model Category {
+  id                      String                    @id @default(cuid())
+  slug                    String                    @unique
+  label                   String
+  type                    String
+  deductible              Boolean                   @default(false)
+  capitalizable           Boolean                   @default(false)
+  system                  Boolean                   @default(false)
+  actif                   Boolean                   @default(true)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  NatureDefault           NatureDefault[]
+  Payment                 Payment[]
+  Transaction             Transaction[]
+  nature_category_default nature_category_default[]
+}
+
+model Document {
+  id                     String              @id @default(cuid())
+  ownerId                String              @default("default")
+  bucketKey              String
+  filenameOriginal       String
+  filenameNormalized     String?
+  fileName               String
+  mime                   String
+  size                   Int
+  url                    String
+  previewUrl             String?
+  fileSha256             String?             @unique
+  textSha256             String?
+  simHash                String?
+  documentTypeId         String?
+  detectedTypeId         String?
+  typeConfidence         Float?
+  typeAlternatives       String?
+  ocrStatus              String              @default("pending")
+  ocrError               String?
+  ocrVendor              String?
+  ocrConfidence          Float?
+  extractedText          String?
+  indexed                Boolean             @default(false)
+  status                 String              @default("pending")
+  source                 String              @default("upload")
+  uploadedBy             String?
+  uploadedAt             DateTime            @default(now())
+  tagsJson               String?
+  tags                   String?
+  metadata               String?
+  linkedTo               String?
+  linkedId               String?
+  uploadSessionId        String?
+  intendedContextType    String?
+  intendedContextTempKey String?
+  propertyId             String?
+  transactionId          String?
+  leaseId                String?
+  loanId                 String?
+  tenantId               String?
+  version                Int                 @default(1)
+  replacesDocumentId     String?
+  deletedAt              DateTime?
+  deletedBy              String?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  userReason             String?
+  DocumentType           DocumentType?       @relation(fields: [documentTypeId], references: [id])
+  Lease                  Lease?              @relation(fields: [leaseId], references: [id])
+  Loan                   Loan?               @relation(fields: [loanId], references: [id])
+  Property               Property?           @relation(fields: [propertyId], references: [id])
+  Tenant                 Tenant?             @relation(fields: [tenantId], references: [id])
+  Transaction            Transaction?        @relation(fields: [transactionId], references: [id])
+  UploadSession          UploadSession?      @relation(fields: [uploadSessionId], references: [id])
+  DocumentField          DocumentField[]
+  DocumentLink           DocumentLink[]
+  DocumentTextIndex      DocumentTextIndex[]
+  Reminder               Reminder[]
+  UploadStagedItem       UploadStagedItem[]
+
+  @@index([deletedAt])
+  @@index([detectedTypeId])
+  @@index([documentTypeId])
+  @@index([fileSha256])
+  @@index([leaseId])
+  @@index([linkedTo, linkedId])
+  @@index([loanId])
+  @@index([ocrStatus])
+  @@index([ownerId])
+  @@index([propertyId])
+  @@index([replacesDocumentId])
+  @@index([source])
+  @@index([status])
+  @@index([tenantId])
+  @@index([textSha256])
+  @@index([transactionId])
+  @@index([version])
+}
+
+model DocumentExtractionRule {
+  id             String       @id @default(cuid())
+  documentTypeId String
+  fieldName      String
+  pattern        String
+  postProcess    String?
+  priority       Int          @default(100)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  DocumentType   DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+
+  @@index([documentTypeId])
+}
+
+model DocumentField {
+  id           String    @id @default(cuid())
+  documentId   String
+  fieldName    String
+  valueText    String?
+  valueNum     Float?
+  valueDate    DateTime?
+  confidence   Float?
+  sourceRuleId String?
+  metadata     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  Document     Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([fieldName])
+}
+
+model DocumentKeyword {
+  id             String       @id @default(cuid())
+  documentTypeId String
+  keyword        String
+  weight         Float        @default(1.0)
+  context        String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  DocumentType   DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+
+  @@index([documentTypeId])
+  @@index([keyword])
+}
+
+model DocumentLink {
+  documentId String
+  linkedType String
+  linkedId   String
+  entityName String?
+  Document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, linkedType, linkedId])
+  @@index([documentId])
+  @@index([linkedType, linkedId])
+}
+
+model DocumentTextIndex {
+  documentId String
+  page       Int
+  content    String
+  metadata   String?
+  createdAt  DateTime @default(now())
+  Document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, page])
+}
+
+model DocumentType {
+  id                     String                   @id @default(cuid())
+  code                   String                   @unique
+  label                  String
+  description            String?
+  icon                   String?
+  scope                  String                   @default("global")
+  isSystem               Boolean                  @default(false)
+  isRequired             Boolean                  @default(false)
+  order                  Int                      @default(0)
+  isActive               Boolean                  @default(true)
+  isSensitive            Boolean                  @default(false)
+  autoAssignThreshold    Float?
+  regexFilename          String?
+  validExtensions        String?
+  validMimeTypes         String?
+  ocrProfileKey          String?
+  versioningEnabled      Boolean                  @default(true)
+  defaultContexts        String?
+  suggestionsConfig      String?
+  flowLocks              String?
+  metaSchema             String?
+  openTransaction        Boolean                  @default(false)
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  Document               Document[]
+  DocumentExtractionRule DocumentExtractionRule[]
+  DocumentKeyword        DocumentKeyword[]
+  DocumentTypeField      DocumentTypeField[]
+  TypeSignal             TypeSignal[]
+
+  @@index([code])
+  @@index([isActive, order])
+  @@index([isRequired])
+  @@index([scope])
+}
+
+model DocumentTypeField {
+  id             String       @id @default(cuid())
+  documentTypeId String
+  name           String
+  dataType       String
+  isRequired     Boolean      @default(false)
+  label          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  DocumentType   DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+
+  @@index([documentTypeId])
+}
+
+model EcheanceRecurrente {
+  id          String       @id @default(cuid())
+  propertyId  String?
+  leaseId     String?
+  label       String
+  type        EcheanceType
+  periodicite Periodicite
+  montant     Decimal      @db.Decimal(10, 2)
+  recuperable Boolean      @default(false)
+  sens        SensEcheance
+  startAt     DateTime
+  endAt       DateTime?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  Lease       Lease?       @relation(fields: [leaseId], references: [id])
+  Property    Property?    @relation(fields: [propertyId], references: [id])
+
+  @@index([isActive, startAt])
+  @@index([leaseId])
+  @@index([periodicite])
+  @@index([propertyId])
+  @@index([type])
+}
+
+model EmailLog {
+  id       String   @id @default(cuid())
+  leaseId  String?
+  tenantId String?
+  type     String
+  mode     String
+  to       String
+  subject  String
+  sentAt   DateTime @default(now())
+
+  @@index([leaseId])
+  @@index([tenantId])
+}
+
+model Landlord {
+  id           Int      @id @default(autoincrement())
+  fullName     String   @default("")
+  address1     String   @default("")
+  address2     String?
+  postalCode   String   @default("")
+  city         String   @default("")
+  email        String   @default("")
+  phone        String?
+  siret        String?
+  iban         String?
+  bic          String?
+  signatureUrl String?
+  updatedAt    DateTime @updatedAt
+}
+
+model Lease {
+  id                                     String               @id @default(cuid())
+  propertyId                             String
+  tenantId                               String
+  type                                   String
+  startDate                              DateTime
+  endDate                                DateTime?
+  rentAmount                             Float
+  deposit                                Float?
+  paymentDay                             Int?
+  notes                                  String?
+  noticeMonths                           Int?
+  indexationType                         String?
+  furnishedType                          String?
+  overridesJson                          String?
+  status                                 String               @default("BROUILLON")
+  signedPdfUrl                           String?
+  chargesRecupMensuelles                 Float?
+  chargesNonRecupMensuelles              Float?
+  createdAt                              DateTime             @default(now())
+  updatedAt                              DateTime             @updatedAt
+  Document                               Document[]
+  EcheanceRecurrente                     EcheanceRecurrente[]
+  Property                               Property             @relation(fields: [propertyId], references: [id])
+  Tenant                                 Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  LeaseVersion                           LeaseVersion[]
+  Payment                                Payment[]
+  Transaction_Transaction_bailIdToLease  Transaction[]        @relation("Transaction_bailIdToLease")
+  Transaction_Transaction_leaseIdToLease Transaction[]        @relation("Transaction_leaseIdToLease")
+}
+
+model LeaseVersion {
+  id        Int      @id @default(autoincrement())
+  leaseId   String
+  url       String
+  kind      String
+  createdAt DateTime @default(now())
+  Lease     Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@index([leaseId, createdAt])
+}
+
+model Loan {
+  id              String       @id @default(cuid())
+  propertyId      String
+  label           String
+  principal       Decimal      @db.Decimal(12, 2)
+  annualRatePct   Decimal      @db.Decimal(6, 3)
+  durationMonths  Int
+  defermentMonths Int          @default(0)
+  insurancePct    Decimal?     @db.Decimal(6, 3)
+  feesUpfront     Decimal?     @db.Decimal(12, 2)
+  startDate       DateTime
+  endDate         DateTime?
+  rateType        LoanRateType @default(FIXED)
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  property        Property     @relation(fields: [propertyId], references: [id])
+  Document        Document[]
+
+  @@index([propertyId])
+  @@index([isActive])
+}
+
+enum LoanRateType {
+  FIXED
+}
+
+model ManagementCompany {
+  id                  String     @id @default(cuid())
+  nom                 String
+  contact             String?
+  email               String?
+  telephone           String?
+  modeCalcul          String     @default("LOYERS_UNIQUEMENT")
+  taux                Float
+  fraisMin            Float?
+  baseSurEncaissement Boolean    @default(true)
+  tvaApplicable       Boolean    @default(false)
+  tauxTva             Float?
+  actif               Boolean    @default(true)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  Property            Property[]
+}
+
+model NatureDefault {
+  natureCode        String       @id
+  defaultCategoryId String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  Category          Category?    @relation(fields: [defaultCategoryId], references: [id])
+  NatureEntity      NatureEntity @relation(fields: [natureCode], references: [code], onDelete: Cascade)
+}
+
+model NatureEntity {
+  code          String         @id
+  label         String
+  flow          String?
+  NatureDefault NatureDefault?
+  NatureRule    NatureRule[]
+}
+
+model NatureRule {
+  id           String       @id @default(cuid())
+  natureCode   String
+  allowedType  String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  NatureEntity NatureEntity @relation(fields: [natureCode], references: [code], onDelete: Cascade)
+
+  @@unique([natureCode, allowedType])
+}
+
+model OccupancyHistory {
+  id          String    @id @default(cuid())
+  propertyId  String
+  tenantId    String
+  leaseId     String?
+  startDate   DateTime
+  endDate     DateTime?
+  monthlyRent Float
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  Property    Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  Tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId, startDate])
+  @@index([propertyId, tenantId])
+}
+
+model Payment {
+  id                 String              @id @default(cuid())
+  propertyId         String
+  leaseId            String?
+  periodYear         Int
+  periodMonth        Int
+  date               DateTime
+  amount             Float
+  nature             String              @default("AUTRE")
+  categoryId         String?
+  snapshotAccounting String?
+  label              String
+  method             String?
+  reference          String?
+  notes              String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  Category           Category?           @relation(fields: [categoryId], references: [id])
+  Lease              Lease?              @relation(fields: [leaseId], references: [id])
+  Property           Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  PaymentAttachment  PaymentAttachment[]
+
+  @@index([categoryId])
+  @@index([leaseId, periodYear, periodMonth])
+  @@index([propertyId, periodYear, periodMonth])
+}
+
+model PaymentAttachment {
+  id        String   @id @default(cuid())
+  paymentId String
+  filename  String
+  mimeType  String
+  size      Int
+  url       String
+  createdAt DateTime @default(now())
+  Payment   Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+}
+
+model Photo {
+  id         String   @id @default(cuid())
+  fileName   String
+  mime       String
+  url        String
+  size       Int
+  propertyId String
+  room       String?
+  tag        String?
+  metadata   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  Property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([propertyId, room])
+}
+
+model Property {
+  id                  String               @id @default(cuid())
+  name                String
+  type                String
+  address             String
+  postalCode          String
+  city                String
+  surface             Float
+  rooms               Int
+  acquisitionDate     DateTime
+  acquisitionPrice    Float
+  notaryFees          Float
+  currentValue        Float
+  status              String
+  statusMode          String               @default("AUTO")
+  statusManual        String?
+  occupation          String               @default("VACANT")
+  evalSource          String?
+  evalDate            DateTime?
+  exitFeesRate        Float?
+  notes               String?
+  managementCompanyId String?
+  fiscalTypeId        String?
+  fiscalRegimeId      String?
+  isArchived          Boolean              @default(false)
+  archivedAt          DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  Document            Document[]
+  EcheanceRecurrente  EcheanceRecurrente[]
+  Lease               Lease[]
+  Loan                Loan[]
+  OccupancyHistory    OccupancyHistory[]
+  Payment             Payment[]
+  Photo               Photo[]
+  ManagementCompany   ManagementCompany?   @relation(fields: [managementCompanyId], references: [id])
+  FiscalType          FiscalType?          @relation("PropertyFiscalType", fields: [fiscalTypeId], references: [id])
+  FiscalRegime        FiscalRegime?        @relation("PropertyFiscalRegime", fields: [fiscalRegimeId], references: [id])
+  Transaction         Transaction[]
+
+  @@index([isArchived])
+  @@index([fiscalTypeId])
+  @@index([fiscalRegimeId])
+}
+
+model Reminder {
+  id           String    @id @default(cuid())
+  ownerId      String    @default("default")
+  documentId   String?
+  kind         String
+  title        String
+  description  String?
+  dueDate      DateTime
+  alertDays    String?
+  autoCreated  Boolean   @default(true)
+  status       String    @default("open")
+  snoozedUntil DateTime?
+  metadata     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  Document     Document? @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([dueDate])
+  @@index([ownerId, status])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  User         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Signal {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  label       String
+  regex       String
+  flags       String       @default("iu")
+  description String?
+  protected   Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+  TypeSignal  TypeSignal[]
+
+  @@index([code])
+  @@index([deletedAt])
+}
+
+model TaxConfig {
+  id        String   @id @default(cuid())
+  year      Int      @unique
+  json      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// MODÈLES FISCAUX ADMIN ÉTENDU
+// ============================================
+
+model FiscalVersion {
+  id          String        @id @default(cuid())
+  code        String        @unique // ex: "2025.1"
+  year        Int
+  source      String
+  status      String // "draft" | "published" | "archived"
+  validatedBy String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  notes       String?
+  params      FiscalParams?
+
+  @@index([year])
+  @@index([status])
+  @@index([code])
+}
+
+model FiscalParams {
+  id        String        @id @default(cuid())
+  versionId String        @unique
+  version   FiscalVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  jsonData  String // Barèmes, taux, plafonds (JSON)
+  overrides String? // Champs manuellement modifiés (JSON)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([versionId])
+}
+
+model FiscalType {
+  id          String         @id // "NU", "MEUBLE", "SCI_IS", etc.
+  label       String
+  category    String // "FONCIER" | "BIC" | "IS"
+  description String?
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  regimes     FiscalRegime[]
+  properties  Property[]     @relation("PropertyFiscalType")
+
+  @@index([category])
+  @@index([isActive])
+}
+
+model FiscalRegime {
+  id              String      @id // "MICRO", "REEL", "MICRO_BIC", etc.
+  label           String
+  appliesToIds    String // JSON array ["NU", "MEUBLE"]
+  engagementYears Int?
+  eligibility     String? // JSON
+  calcProfile     String
+  description     String?
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  properties      Property[]  @relation("PropertyFiscalRegime")
+  FiscalType      FiscalType? @relation(fields: [fiscalTypeId], references: [id])
+  fiscalTypeId    String?
+
+  @@index([isActive])
+}
+
+model FiscalCompatibility {
+  id        String   @id @default(cuid())
+  scope     String // "category" | "type"
+  left      String
+  right     String
+  rule      String // "CAN_MIX" | "GLOBAL_SINGLE_CHOICE" | "MUTUALLY_EXCLUSIVE"
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([scope, left, right])
+  @@index([scope])
+}
+
+model TaxSourceSnapshot {
+  id        String   @id @default(cuid())
+  year      Int
+  section   String // "IR" | "IR_DECOTE" | "PS" | "MICRO" | "DEFICIT" | "PER" | "SCI_IS"
+  source    String // "BOFIP" | "DGFIP" | "SERVICE_PUBLIC" | "LEGIFRANCE"
+  url       String
+  fetchedAt DateTime
+  hash      String // SHA256 du contenu
+  payload   String // JSON du contenu brut
+  createdAt DateTime @default(now())
+
+  @@index([year, section])
+  @@index([source])
+  @@index([hash])
+}
+
+model TaxSourceConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique // "OPENFISCA" | "BOFIP" | "DGFIP" | "SERVICE_PUBLIC" | "ECONOMIE_GOUV" | "LEGIFRANCE"
+  name        String // Nom affiché
+  baseUrl     String // URL de base
+  status      String   @default("active") // "active" | "inactive"
+  configJson  String // Configuration complète en JSON (urls, parameters, etc.)
+  updatedBy   String? // Utilisateur qui a modifié
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
+  @@index([status])
+}
+
+model FiscalSimulation {
+  id               String   @id @default(cuid())
+  userId           String   @default("demo-user") // ID de l'utilisateur
+  name             String? // Nom personnalisé (ex: "Simulation 2025 - Scénario A")
+  year             Int // Année de déclaration
+  fiscalVersionId  String? // Code de la version fiscale utilisée (ex: "2025.1")
+  
+  // Résultats de simulation (JSON)
+  inputsJson       String // FiscalInputs sérialisé
+  resultJson       String // SimulationResult sérialisé
+  
+  // Métadonnées
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  createdBy        String? // Email ou nom de l'utilisateur
+  
+  @@index([userId])
+  @@index([year])
+  @@index([fiscalVersionId])
+  @@index([createdAt])
+}
+
+model Tenant {
+  id               String             @id @default(cuid())
+  firstName        String
+  lastName         String
+  email            String             @unique
+  phone            String?
+  birthDate        DateTime?
+  nationality      String?
+  address          String?
+  postalCode       String?
+  city             String?
+  country          String?
+  occupation       String?
+  employer         String?
+  monthlyIncome    Float?
+  emergencyContact String?
+  emergencyPhone   String?
+  status           String             @default("ACTIVE")
+  tags             String?
+  notes            String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  Document         Document[]
+  Lease            Lease[]
+  OccupancyHistory OccupancyHistory[]
+}
+
+model Transaction {
+  id                               String     @id @default(cuid())
+  propertyId                       String
+  leaseId                          String?
+  bailId                           String?
+  categoryId                       String?
+  label                            String
+  amount                           Float
+  date                             DateTime
+  reference                        String?
+  month                            Int?
+  year                             Int?
+  accounting_month                 String?
+  isRecurring                      Boolean?
+  nature                           String?
+  paidAt                           DateTime?
+  method                           String?
+  notes                            String?
+  source                           String     @default("MANUAL")
+  idempotencyKey                   String?    @unique
+  monthsCovered                    String?
+  parentTransactionId              String?
+  moisIndex                        Int?
+  moisTotal                        Int?
+  rapprochementStatus              String     @default("non_rapprochee")
+  dateRapprochement                DateTime?
+  bankRef                          String?
+  montantLoyer                     Float?
+  chargesRecup                     Float?
+  chargesNonRecup                  Float?
+  isAutoAmount                     Boolean?
+  managementCompanyId              String?
+  isAuto                           Boolean    @default(false)
+  autoSource                       String?
+  createdAt                        DateTime   @default(now())
+  updatedAt                        DateTime   @updatedAt
+  Document                         Document[]
+  Lease_Transaction_bailIdToLease  Lease?     @relation("Transaction_bailIdToLease", fields: [bailId], references: [id])
+  Category                         Category?  @relation(fields: [categoryId], references: [id])
+  Lease_Transaction_leaseIdToLease Lease?     @relation("Transaction_leaseIdToLease", fields: [leaseId], references: [id])
+  Property                         Property   @relation(fields: [propertyId], references: [id])
+
+  @@index([bailId])
+  @@index([date])
+  @@index([leaseId, amount, paidAt])
+  @@index([managementCompanyId])
+  @@index([parentTransactionId])
+  @@index([propertyId, date])
+  @@index([rapprochementStatus])
+}
+
+model TypeSignal {
+  id             String       @id @default(cuid())
+  documentTypeId String
+  signalId       String
+  weight         Float        @default(1.0)
+  enabled        Boolean      @default(true)
+  order          Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  DocumentType   DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+  Signal         Signal       @relation(fields: [signalId], references: [id], onDelete: Cascade)
+
+  @@unique([documentTypeId, signalId])
+  @@index([documentTypeId])
+  @@index([signalId])
+}
+
+model UploadSession {
+  id               String             @id @default(cuid())
+  createdAt        DateTime           @default(now())
+  createdById      String?
+  expiresAt        DateTime           @default(now())
+  scope            String?
+  transactionId    String?            @unique
+  Document         Document[]
+  UploadStagedItem UploadStagedItem[]
+
+  @@index([createdById])
+  @@index([expiresAt])
+  @@index([scope])
+  @@index([transactionId])
+}
+
+model UploadStagedItem {
+  id                     String        @id @default(cuid())
+  uploadSessionId        String
+  kind                   String
+  existingDocumentId     String?
+  intendedContextType    String?
+  intendedContextTempKey String?
+  intendedRefId          String?
+  createdAt              DateTime      @default(now())
+  Document               Document?     @relation(fields: [existingDocumentId], references: [id])
+  UploadSession          UploadSession @relation(fields: [uploadSessionId], references: [id], onDelete: Cascade)
+
+  @@index([existingDocumentId])
+  @@index([kind])
+  @@index([uploadSessionId])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  role          Role      @default(USER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  Account       Account[]
+  Session       Session[]
+}
+
+model UserProfile {
+  id         String   @id @default(cuid())
+  firstName  String   @default("")
+  lastName   String   @default("")
+  email      String   @default("")
+  phone      String?
+  address    String?
+  city       String?
+  postalCode String?
+  company    String?
+  siret      String?
+  signature  String?
+  logo       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model nature_category_allowed {
+  id           String   @id @default(cuid())
+  natureKey    String
+  categoryType String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([natureKey, categoryType])
+}
+
+model nature_category_default {
+  id                String   @id @default(cuid())
+  natureKey         String   @unique
+  defaultCategoryId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  Category          Category @relation(fields: [defaultCategoryId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// MODÈLES ADMIN BACKUP
+// ============================================
+
+model AdminBackupRecord {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  createdById String
+  scope       String   // "admin"
+  fileUrl     String   // chemin S3/local
+  checksum    String
+  sizeBytes   Int
+  note        String?
+  meta        Json     // manifest complet
+
+  @@index([createdAt])
+  @@index([scope])
+  @@map("admin_backup_records")
+}
+
+model AdminBackupSchedule {
+  id          String   @id @default(cuid())
+  isActive    Boolean  @default(true)
+  frequency   String   // "daily" | "weekly" | "monthly"
+  hour        Int      @default(3)
+  dayOfWeek   Int?     // 0-6 pour hebdomadaire
+  dayOfMonth  Int?     // 1-31 pour mensuel
+  retentionDays Int    @default(30)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("admin_backup_schedules")
+}
+
+// ============================================
+// MODÈLES AGENT IA
+// ============================================
+
+model AiChatSession {
+  id           String      @id @default(cuid())
+  userId       String      @default("default") @map("user_id")
+  contextJson  String?     @map("context_json")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  lastActivity DateTime    @default(now()) @map("last_activity")
+  metaJson     String?     @map("meta_json")
+  AiMessage    AiMessage[]
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("ai_chat_sessions")
+}
+
+model AiMessage {
+  id              String        @id @default(cuid())
+  sessionId       String        @map("session_id")
+  role            String
+  content         String
+  toolCallsJson   String?       @map("tool_calls_json")
+  toolResultsJson String?       @map("tool_results_json")
+  tokensUsed      Int?          @map("tokens_used")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  correlationId   String?       @map("correlation_id")
+  Session         AiChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  AiToolLog       AiToolLog[]
+
+  @@index([sessionId])
+  @@index([createdAt])
+  @@index([correlationId])
+  @@map("ai_messages")
+}
+
+model AiToolLog {
+  id            String     @id @default(cuid())
+  messageId     String?    @map("message_id")
+  toolName      String     @map("tool_name")
+  argsJson      String     @map("args_json")
+  resultJson    String?    @map("result_json")
+  durationMs    Int?       @map("duration_ms")
+  ok            Boolean    @default(true)
+  errorMessage  String?    @map("error_message")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  correlationId String?    @map("correlation_id")
+  Message       AiMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([toolName])
+  @@index([createdAt])
+  @@index([correlationId])
+  @@map("ai_tool_logs")
+}
+
+enum EcheanceType {
+  PRET
+  COPRO
+  PNO
+  ASSURANCE
+  IMPOT
+  CFE
+  ENTRETIEN
+  AUTRE
+  LOYER_ATTENDU
+  CHARGE_RECUP
+}
+
+enum Periodicite {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+  ONCE
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum SensEcheance {
+  DEBIT
+  CREDIT
+}

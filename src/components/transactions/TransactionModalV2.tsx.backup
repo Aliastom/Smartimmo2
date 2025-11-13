@@ -1,0 +1,1273 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { X, RotateCcw, Info, ChevronDown, Search, Upload, FileText, Eye, Link } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Label } from '@/components/ui/Label';
+import { Tabs } from '@/components/ui/Tabs';
+import { Badge } from '@/components/ui/Badge';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { transactionFormSchema, TransactionFormData } from '@/lib/validations/transaction';
+import { useAutoFillTransaction } from '@/hooks/useAutoFillTransaction';
+import { useNatureLabels } from '@/hooks/useNatureLabels';
+import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
+import { useUploadStaging } from '@/hooks/useUploadStaging';
+import { StagedUploadModal } from '@/components/documents/StagedUploadModal';
+import { UploadReviewModal } from '@/components/documents/UploadReviewModal';
+import { DuplicateDetectedModal } from '@/components/documents/DuplicateDetectedModal';
+
+// Configuration des natures avec libellés clairs et groupes
+const getNatureOptions = (getNatureLabel: (key: string) => string) => [
+  {
+    group: 'Recettes',
+    icon: '⬆️',
+    options: [
+      { value: 'RECETTE_LOYER', label: getNatureLabel('RECETTE_LOYER') || 'Loyer', description: 'Loyers et charges locatives' },
+      { value: 'RECETTE_AUTRE', label: getNatureLabel('RECETTE_AUTRE') || 'Autre recette', description: 'Autres revenus locatifs' }
+    ]
+  },
+  {
+    group: 'Dépenses',
+    icon: '⬇️',
+    options: [
+      { value: 'DEPENSE_ENTRETIEN', label: getNatureLabel('DEPENSE_ENTRETIEN') || 'Entretien', description: 'Réparations et maintenance' },
+      { value: 'DEPENSE_ASSURANCE', label: getNatureLabel('DEPENSE_ASSURANCE') || 'Assurance', description: 'Assurances propriétaire' },
+      { value: 'DEPENSE_TAXE', label: getNatureLabel('DEPENSE_TAXE') || 'Taxe foncière', description: 'Taxes et impôts fonciers' },
+      { value: 'DEPENSE_BANQUE', label: getNatureLabel('DEPENSE_BANQUE') || 'Frais bancaires', description: 'Frais bancaires et financiers' }
+    ]
+  }
+];
+
+interface TransactionModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (data: TransactionFormData) => Promise<void>;
+  context: {
+    type: 'property' | 'global';
+    propertyId?: string;
+    isFromLease?: boolean;
+  };
+  mode: 'create' | 'edit';
+  transactionId?: string;
+  title?: string;
+}
+
+export const TransactionModal: React.FC<TransactionModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  context,
+  mode,
+  transactionId,
+  title
+}) => {
+  const [activeTab, setActiveTab] = useState('essentielles');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // États pour les données
+  const [properties, setProperties] = useState<any[]>([]);
+  const [leases, setLeases] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  
+  // États pour la combobox Nature
+  const [isNatureOpen, setIsNatureOpen] = useState(false);
+  const [natureSearch, setNatureSearch] = useState('');
+  
+  // États pour la modale de review-draft
+  const [showReviewDraftModal, setShowReviewDraftModal] = useState(false);
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+
+  // Hook pour récupérer les libellés personnalisés des natures
+  const { getNatureLabel, loading: natureLabelsLoading } = useNatureLabels();
+  
+  // Hook pour l'upload de documents
+  const { openModalWithFileSelection } = useUploadReviewModal();
+  
+  // Hook pour le staging des documents
+  const {
+    uploadSessionId,
+    stagedDocuments,
+    setStagedDocuments,
+    loading: stagingLoading,
+    error: stagingError,
+    createUploadSession,
+    loadStagedDocuments,
+    addStagedDocument,
+    removeStagedDocument,
+    clearStaging
+  } = useUploadStaging();
+  
+  // État pour les documents liés à la transaction (en mode édition)
+  const [linkedDocuments, setLinkedDocuments] = useState<any[]>([]);
+  
+  // État pour les liens vers documents existants
+  const [stagedLinks, setStagedLinks] = useState<any[]>([]);
+  
+  // État pour la modal d'upload avec staging
+  const [showStagedUploadModal, setShowStagedUploadModal] = useState(false);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  
+  // État pour la modale de doublon détecté
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateData, setDuplicateData] = useState<any>(null);
+  
+  // Fonction pour gérer l'upload avec détection de doublons
+  const handleFileUpload = async (files: File[]) => {
+    console.log('[TransactionModal] handleFileUpload appelé avec:', files.length, 'fichiers');
+    
+    if (!uploadSessionId) {
+      toast.error('Session d\'upload non disponible');
+      return;
+    }
+    
+    console.log('[TransactionModal] Session ID:', uploadSessionId);
+
+    for (const file of files) {
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('uploadSessionId', uploadSessionId);
+        formData.append('intendedContextType', 'transaction');
+        formData.append('intendedContextTempKey', mode === 'create' ? 'transaction:new' : 'transaction:edit');
+
+        const response = await fetch('/api/uploads/staged', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (response.status === 409) {
+          // Doublon détecté
+          const duplicateInfo = await response.json();
+          setDuplicateData(duplicateInfo);
+          setShowDuplicateModal(true);
+          return; // Arrêter l'upload des autres fichiers
+        } else if (response.ok) {
+          // Upload réussi
+          const result = await response.json();
+          if (result.success) {
+            // Recharger la liste des documents et liens
+            console.log('[TransactionModal] Rechargement des documents...');
+            await loadStagedDocuments(uploadSessionId);
+            
+            // Recharger aussi les liens vers documents existants
+            try {
+              const sessionResponse = await fetch(`/api/uploads/session/${uploadSessionId}`);
+              if (sessionResponse.ok) {
+                const sessionData = await sessionResponse.json();
+                if (sessionData.success) {
+                  setStagedLinks(sessionData.links || []);
+                  console.log('[TransactionModal] Liens rechargés:', sessionData.links?.length || 0);
+                }
+              }
+            } catch (error) {
+              console.error('[TransactionModal] Erreur lors du rechargement des liens:', error);
+            }
+            
+            console.log('[TransactionModal] Upload terminé avec succès');
+            toast.success(`Document "${file.name}" ajouté en brouillon`);
+          }
+        } else {
+          toast.error(`Erreur lors de l'upload de "${file.name}"`);
+        }
+      } catch (error) {
+        console.error('Erreur lors de l\'upload:', error);
+        toast.error(`Erreur lors de l'upload de "${file.name}"`);
+      }
+    }
+  };
+  
+  // Fonction pour lier un document existant
+  const handleLinkExisting = async () => {
+    if (!duplicateData || !uploadSessionId) return;
+
+    try {
+      const response = await fetch('/api/uploads/staged/link-existing', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          uploadSessionId,
+          existingDocumentId: duplicateData.existing.id,
+          context: {
+            type: 'transaction',
+            tempKey: mode === 'create' ? 'transaction:new' : 'transaction:edit',
+            refId: mode === 'edit' ? transactionId : undefined
+          }
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          // Ajouter le lien à la liste locale
+          setStagedLinks(prev => [...prev, result.item]);
+          setShowDuplicateModal(false);
+          setDuplicateData(null);
+          toast.success('Document existant lié avec succès');
+        }
+      } else {
+        toast.error('Erreur lors de la liaison du document');
+      }
+    } catch (error) {
+      console.error('Erreur lors de la liaison:', error);
+      toast.error('Erreur lors de la liaison du document');
+    }
+  };
+  
+  // Fonction pour charger les documents liés à la transaction
+  const loadLinkedDocuments = async () => {
+    if (!transactionId) return;
+    
+    try {
+      const response = await fetch(`/api/transactions/${transactionId}/documents`);
+      if (response.ok) {
+        const data = await response.json();
+        setLinkedDocuments(data.documents || []);
+      }
+    } catch (error) {
+      console.error('Erreur lors du chargement des documents:', error);
+    }
+  };
+  
+  // Charger les documents au montage du composant si en mode édition
+  useEffect(() => {
+    if (mode === 'edit' && transactionId) {
+      loadLinkedDocuments();
+    }
+  }, [mode, transactionId]);
+
+  // Fonctions utilitaires pour la combobox Nature
+  const getSelectedNatureLabel = () => {
+    const selectedValue = watch('nature');
+    if (!selectedValue) return 'Sélectionner une nature';
+    
+    return String(getNatureLabel(selectedValue) || selectedValue);
+  };
+
+  const getFilteredNatureOptions = () => {
+    const natureOptions = getNatureOptions(getNatureLabel);
+    if (!natureSearch) return natureOptions;
+    
+    return natureOptions.map(group => ({
+      ...group,
+      options: group.options.filter(option => 
+        option.label.toLowerCase().includes(natureSearch.toLowerCase()) ||
+        option.description.toLowerCase().includes(natureSearch.toLowerCase())
+      )
+    })).filter(group => group.options.length > 0);
+  };
+
+  const handleNatureSelect = (value: string) => {
+    setValue('nature', value);
+    setIsNatureOpen(false);
+    setNatureSearch('');
+  };
+
+  // Configuration du formulaire avec react-hook-form et zod
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    getValues,
+    formState: { errors },
+    reset
+  } = useForm<TransactionFormData>({
+    resolver: zodResolver(transactionFormSchema),
+    defaultValues: {
+      propertyId: context.propertyId || '',
+      leaseId: '',
+      tenantId: '',
+      date: new Date().toISOString().split('T')[0],
+      nature: '',
+      categoryId: '',
+      label: '',
+      amount: 0,
+      reference: '',
+      paymentDate: '',
+      paymentMethod: '',
+      notes: '',
+      periodStart: '',
+      monthsCovered: 1,
+      autoDistribution: false
+    }
+  });
+
+  // Hook pour la logique de pré-remplissage automatique
+  const {
+    autoFillState,
+    markAsManual,
+    resetToAuto,
+    filteredLeases,
+    filteredCategories,
+    mappingLoading
+  } = useAutoFillTransaction({
+    watch,
+    setValue,
+    getValues,
+    properties: properties || [],
+    leases: leases || [],
+    categories: categories || []
+  });
+
+  // Fermer la combobox Nature quand on clique ailleurs
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isNatureOpen && !(event.target as Element).closest('.nature-combobox')) {
+        setIsNatureOpen(false);
+        setNatureSearch('');
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isNatureOpen]);
+
+  // Chargement des données initiales
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const loadData = async () => {
+      // TOUJOURS nettoyer l'état au début, peu importe le mode
+      await clearStaging();
+      
+      // VIDER COMPLÈTEMENT l'état local du composant
+      setLinkedDocuments([]);
+      setShowStagedUploadModal(false);
+      
+      setIsLoading(true);
+      try {
+        // Charger les propriétés
+        const propertiesResponse = await fetch('/api/properties');
+        const propertiesData = await propertiesResponse.json();
+        setProperties(propertiesData.data || []);
+
+        // Charger les baux
+        const leasesResponse = await fetch('/api/leases');
+        const leasesData = await leasesResponse.json();
+        const leasesArray = leasesData.data || leasesData || [];
+        console.log('Modal Debug - Leases loaded:', leasesArray);
+        setLeases(leasesArray);
+
+        // Charger les catégories
+        const categoriesResponse = await fetch('/api/accounting/categories');
+        const categoriesData = await categoriesResponse.json();
+        setCategories(categoriesData || []);
+
+        // Si mode édition, charger la transaction + initialiser session + charger drafts
+        if (mode === 'edit' && transactionId) {
+          // Charger en parallèle : transaction + session + drafts
+          const [transactionResponse, sessionId] = await Promise.all([
+            fetch(`/api/transactions/${transactionId}`),
+            createUploadSession({ scope: 'transaction:edit', transactionId })
+          ]);
+          
+          const transactionData = await transactionResponse.json();
+          console.log('[TransactionModal] Données chargées:', transactionData);
+          console.log('[TransactionModal] Nature:', transactionData.nature);
+          console.log('[TransactionModal] CategoryId:', transactionData.categoryId);
+          console.log('[TransactionModal] Amount:', transactionData.amount);
+          
+          // Pré-remplir le formulaire avec les bonnes clés
+          if (transactionData.propertyId) setValue('propertyId', transactionData.propertyId);
+          if (transactionData.leaseId) setValue('leaseId', transactionData.leaseId);
+          if (transactionData.date) setValue('date', transactionData.date);
+          if (transactionData.nature) setValue('nature', transactionData.nature);
+          if (transactionData.categoryId) setValue('categoryId', transactionData.categoryId);
+          if (transactionData.amount) setValue('amount', transactionData.amount);
+          if (transactionData.label) setValue('label', transactionData.label);
+          if (transactionData.reference) setValue('reference', transactionData.reference);
+          if (transactionData.paymentDate) setValue('paymentDate', transactionData.paymentDate);
+          if (transactionData.paymentMethod) setValue('paymentMethod', transactionData.paymentMethod);
+          if (transactionData.notes) setValue('notes', transactionData.notes);
+          if (transactionData.periodStart) setValue('periodStart', transactionData.periodStart);
+          if (transactionData.monthsCovered) setValue('monthsCovered', transactionData.monthsCovered);
+          
+          // Charger les documents liés actifs
+          if (transactionData.documents) {
+            setLinkedDocuments(transactionData.documents);
+            console.log('[TransactionModal] Documents actifs chargés:', transactionData.documents);
+          }
+
+          // Charger les drafts et liens de la session
+          if (sessionId) {
+            await loadStagedDocuments(sessionId);
+            
+            // Charger aussi les liens vers documents existants
+            try {
+              const sessionResponse = await fetch(`/api/uploads/session/${sessionId}`);
+              if (sessionResponse.ok) {
+                const sessionData = await sessionResponse.json();
+                if (sessionData.success) {
+                  setStagedLinks(sessionData.links || []);
+                  console.log('[TransactionModal] Liens vers documents existants chargés:', sessionData.links?.length || 0);
+                }
+              }
+            } catch (error) {
+              console.error('[TransactionModal] Erreur lors du chargement des liens:', error);
+            }
+            
+            console.log('[TransactionModal] Session chargée et drafts récupérés');
+          }
+        } 
+        // Si mode création, initialiser session pour nouveau
+        else if (mode === 'create') {
+          // FORCER le nettoyage complet pour une nouvelle transaction
+          await clearStaging();
+          setLinkedDocuments([]);
+          setStagedDocuments([]);
+          setStagedLinks([]); // Clear staged links
+          await createUploadSession({ scope: 'transaction:new' });
+        }
+
+        // Initialiser la période
+        const currentDate = new Date();
+        const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        setValue('periodStart', firstDayOfMonth.toISOString().split('T')[0]);
+
+      } catch (error) {
+        console.error('Erreur lors du chargement des données:', error);
+        toast.error('Erreur lors du chargement des données');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, [isOpen, mode, transactionId, setValue]);
+
+  // Gestion de la soumission
+  const onSubmitForm = async (data: TransactionFormData) => {
+    setIsSubmitting(true);
+    try {
+      // Ajouter les documents en staging et les liens (création ET édition)
+      const stagedDocumentIds = stagedDocuments.map(doc => doc.id);
+      const stagedLinkItemIds = stagedLinks.map(link => link.id);
+      
+      const dataWithStagedDocuments = {
+        ...data,
+        stagedDocumentIds,
+        stagedLinkItemIds
+      };
+      
+      const result = await onSubmit(dataWithStagedDocuments);
+      
+      // Gérer la réponse avec les transactions multiples
+      if (result && typeof result === 'object' && 'totalCreated' in result) {
+        const { totalCreated } = result;
+        if (totalCreated > 1) {
+          toast.success(`${totalCreated} transactions créées avec succès (période multi-mois)`);
+        } else {
+          toast.success('Transaction créée avec succès');
+        }
+      } else {
+        toast.success(mode === 'create' ? 'Transaction créée avec succès' : 'Transaction modifiée avec succès');
+      }
+      
+      // Nettoyer les brouillons après création réussie
+      if (mode === 'create') {
+        await clearStaging();
+      }
+      
+      onClose();
+      reset();
+    } catch (error) {
+      console.error('Erreur lors de la soumission:', error);
+      toast.error('Erreur lors de la sauvegarde');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Gestion de la fermeture
+  const handleClose = async () => {
+    // Nettoyer le staging quand on ferme la modal
+    await clearStaging();
+    reset();
+    onClose();
+  };
+
+  // Retourner null si la modal n'est pas ouverte
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 my-8">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b">
+          <h2 className="text-xl font-semibold text-gray-900">
+            {title || (mode === 'create' ? 'Nouvelle transaction' : 'Modifier la transaction')}
+          </h2>
+          <button
+            onClick={handleClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X className="h-6 w-6" />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="border-b">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <div className="flex">
+              <button
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'essentielles'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setActiveTab('essentielles')}
+              >
+                Informations essentielles
+              </button>
+              <button
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'paiement'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setActiveTab('paiement')}
+              >
+                € Paiement
+              </button>
+              <button
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'periode'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setActiveTab('periode')}
+              >
+                Période
+              </button>
+              <button
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'documents'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setActiveTab('documents')}
+              >
+                Documents
+              </button>
+            </div>
+          </Tabs>
+        </div>
+
+        {/* Contenu du formulaire */}
+        <form onSubmit={handleSubmit(onSubmitForm)} className="p-6 relative">
+          {/* Overlay de chargement */}
+          {isLoading && (
+            <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50">
+              <div className="text-center">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+                <p className="text-gray-600 font-medium">Chargement en cours...</p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'essentielles' && (
+            <div className="space-y-6">
+              {/* Bien */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="propertyId" className="text-sm font-medium text-gray-700">
+                    Bien *
+                  </Label>
+                  <div className="relative">
+                    <select
+                      {...register('propertyId')}
+                      disabled={context.type === 'property' || mode === 'edit'}
+                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        errors.propertyId ? 'border-red-500' : 'border-gray-300'
+                      } ${context.type === 'property' || mode === 'edit' ? 'bg-gray-100' : ''}`}
+                    >
+                      <option value="">Sélectionner un bien</option>
+                      {(properties || []).map((property) => (
+                        <option key={property.id} value={property.id}>
+                          {property.name} - {property.address}
+                        </option>
+                      ))}
+                    </select>
+                    {context.type === 'property' && (
+                      <Badge variant="secondary" className="absolute right-2 top-2">
+                        Verrouillé
+                      </Badge>
+                    )}
+                  </div>
+                  {errors.propertyId && (
+                    <p className="text-red-500 text-sm mt-1">{errors.propertyId.message}</p>
+                  )}
+                </div>
+
+                {/* Bail */}
+                <div>
+                  <Label htmlFor="leaseId" className="text-sm font-medium text-gray-700">
+                    Bail
+                  </Label>
+                  <select
+                    {...register('leaseId')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Aucun bail</option>
+                    {(filteredLeases || []).map((lease) => (
+                      <option key={lease.id} value={lease.id}>
+                        {lease.tenant?.firstName} {lease.tenant?.lastName} - {lease.rentAmount || lease.rent || 0}€
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Date et Nature */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="date" className="text-sm font-medium text-gray-700">
+                    Date *
+                  </Label>
+                  <Input
+                    type="date"
+                    {...register('date')}
+                    className={errors.date ? 'border-red-500' : ''}
+                  />
+                  {errors.date && (
+                    <p className="text-red-500 text-sm mt-1">{errors.date.message}</p>
+                  )}
+                </div>
+
+                <div>
+                  <Label htmlFor="nature" className="text-sm font-medium text-gray-700">
+                    Nature *
+                  </Label>
+                  <div className="relative nature-combobox">
+                    <button
+                      type="button"
+                      onClick={() => setIsNatureOpen(!isNatureOpen)}
+                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-left flex items-center justify-between ${
+                        errors.nature ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                    >
+                      <span className={watch('nature') ? 'text-gray-900' : 'text-gray-500'}>
+                        {getSelectedNatureLabel()}
+                      </span>
+                      <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${isNatureOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    
+                    {isNatureOpen && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-80 overflow-hidden">
+                        {/* Barre de recherche */}
+                        <div className="p-2 border-b border-gray-200">
+                          <div className="relative">
+                            <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
+                            <input
+                              type="text"
+                              placeholder="Rechercher une nature..."
+                              value={natureSearch}
+                              onChange={(e) => setNatureSearch(e.target.value)}
+                              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              autoFocus
+                            />
+                          </div>
+                        </div>
+                        
+                        {/* Liste des options */}
+                        <div className="max-h-64 overflow-y-auto">
+                          {getFilteredNatureOptions().map((group) => (
+                            <div key={group.group}>
+                              {/* En-tête de groupe */}
+                              <div className="px-3 py-2 text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+                                <span>{group.icon}</span>
+                                {group.group}
+                              </div>
+                              
+                              {/* Options du groupe */}
+                              {group.options.map((option) => (
+                                <button
+                                  key={option.value}
+                                  type="button"
+                                  onClick={() => handleNatureSelect(option.value)}
+                                  className={`w-full px-3 py-2 text-left hover:bg-blue-50 transition-colors ${
+                                    watch('nature') === option.value ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
+                                  }`}
+                                >
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{option.label}</span>
+                                    <span className="text-xs text-gray-500">{option.description}</span>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          ))}
+                          
+                          {getFilteredNatureOptions().length === 0 && (
+                            <div className="px-3 py-4 text-center text-gray-500 text-sm">
+                              Aucune nature trouvée
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {errors.nature && (
+                    <p className="text-red-500 text-sm mt-1">{errors.nature.message}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Catégorie */}
+              <div>
+                <Label htmlFor="categoryId" className="text-sm font-medium text-gray-700">
+                  Catégorie *
+                </Label>
+                <div className="relative">
+                  <select
+                    {...register('categoryId')}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      errors.categoryId ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                  >
+                    <option value="">Sélectionner une catégorie</option>
+                    {(filteredCategories || []).map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {String(category.label || 'Catégorie sans nom')}
+                      </option>
+                    ))}
+                  </select>
+                  {filteredCategories.length === 0 && watch('nature') && (
+                    <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-md">
+                      <p className="text-amber-800 text-sm mb-2">
+                        ⚠️ Aucune catégorie compatible pour cette nature
+                      </p>
+                      <div className="flex gap-2">
+                        <a 
+                          href="/admin/nature-mapping" 
+                          target="_blank"
+                          className="text-xs text-blue-600 hover:text-blue-800 underline"
+                        >
+                          🔧 Configurer le mapping
+                        </a>
+                        <span className="text-xs text-gray-500">•</span>
+                        <button
+                          type="button"
+                          onClick={() => window.location.reload()}
+                          className="text-xs text-blue-600 hover:text-blue-800 underline"
+                        >
+                          🔄 Recharger les catégories
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="absolute right-2 top-2 flex items-center gap-1">
+                    {mappingLoading && (
+                      <div className="loading loading-spinner loading-xs text-blue-500"></div>
+                    )}
+                    <Tooltip content="La liste est filtrée selon la nature">
+                      <Info className="h-4 w-4 text-gray-400" />
+                    </Tooltip>
+                  </div>
+                </div>
+                {errors.categoryId && (
+                  <p className="text-red-500 text-sm mt-1">{errors.categoryId.message}</p>
+                )}
+              </div>
+
+              {/* Montant */}
+              <div>
+                <Label htmlFor="amount" className="text-sm font-medium text-gray-700">
+                  Montant *
+                </Label>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    {...register('amount', { valueAsNumber: true })}
+                    className={errors.amount ? 'border-red-500' : ''}
+                    onChange={(e) => {
+                      register('amount').onChange(e);
+                      markAsManual('amount');
+                    }}
+                  />
+                  {!autoFillState.isManual.amount && autoFillState.autoSuggestions.amount && (
+                    <div className="absolute right-2 top-2 flex items-center gap-1">
+                      <Badge variant="secondary" className="text-xs">auto</Badge>
+                      <Tooltip content="Proposé d'après le bail">
+                        <Info className="h-3 w-3 text-gray-400" />
+                      </Tooltip>
+                    </div>
+                  )}
+                  {autoFillState.isManual.amount && (
+                    <button
+                      type="button"
+                      onClick={() => resetToAuto('amount')}
+                      className="absolute right-2 top-2 text-blue-500 hover:text-blue-700"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                {errors.amount && (
+                  <p className="text-red-500 text-sm mt-1">{errors.amount.message}</p>
+                )}
+              </div>
+
+              {/* Libellé */}
+              <div>
+                <Label htmlFor="label" className="text-sm font-medium text-gray-700">
+                  Libellé
+                </Label>
+                <div className="relative">
+                  <Input
+                    {...register('label')}
+                    placeholder="Libellé de la transaction"
+                    onChange={(e) => {
+                      register('label').onChange(e);
+                      markAsManual('label');
+                    }}
+                  />
+                  {!autoFillState.isManual.label && autoFillState.autoSuggestions.label && (
+                    <div className="absolute right-2 top-2 flex items-center gap-1">
+                      <Badge variant="secondary" className="text-xs">auto</Badge>
+                    </div>
+                  )}
+                  {autoFillState.isManual.label && (
+                    <button
+                      type="button"
+                      onClick={() => resetToAuto('label')}
+                      className="absolute right-2 top-2 text-blue-500 hover:text-blue-700"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Référence */}
+              <div>
+                <Label htmlFor="reference" className="text-sm font-medium text-gray-700">
+                  Référence
+                </Label>
+                <Input
+                  {...register('reference')}
+                  placeholder="Référence (optionnel)"
+                />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'paiement' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="paymentDate" className="text-sm font-medium text-gray-700">
+                    Date de paiement
+                  </Label>
+                  <Input type="date" {...register('paymentDate')} />
+                </div>
+                <div>
+                  <Label htmlFor="paymentMethod" className="text-sm font-medium text-gray-700">
+                    Mode de paiement
+                  </Label>
+                  <select
+                    {...register('paymentMethod')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Sélectionner un mode</option>
+                    <option value="VIREMENT">Virement</option>
+                    <option value="CHEQUE">Chèque</option>
+                    <option value="ESPECES">Espèces</option>
+                    <option value="CARTE">Carte bancaire</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="notes" className="text-sm font-medium text-gray-700">
+                  Notes
+                </Label>
+                <textarea
+                  {...register('notes')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={3}
+                  placeholder="Notes additionnelles..."
+                />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'periode' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="periodStart" className="text-sm font-medium text-gray-700">
+                    Début de période
+                  </Label>
+                  <Input type="date" {...register('periodStart')} />
+                </div>
+                <div>
+                  <Label htmlFor="monthsCovered" className="text-sm font-medium text-gray-700">
+                    Mois couverts
+                  </Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    {...register('monthsCovered', { valueAsNumber: true })}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'documents' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">Documents liés</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Ajoutez des documents justificatifs à cette transaction
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    // Utiliser notre fonction d'upload avec détection de doublons
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx';
+                    input.multiple = true;
+                    
+                    input.onchange = (e) => {
+                      const files = Array.from((e.target as HTMLInputElement).files || []);
+                      if (files.length > 0) {
+                        handleFileUpload(files);
+                      }
+                    };
+                    
+                    input.click();
+                  }}
+                  className="flex items-center gap-2"
+                  disabled={stagingLoading}
+                >
+                  <Upload className="h-4 w-4" />
+                  {stagingLoading ? 'Chargement...' : 'Ajouter des documents'}
+                </Button>
+              </div>
+
+              {/* Liste des documents */}
+              {(stagedDocuments.length > 0 || stagedLinks.length > 0 || linkedDocuments.length > 0) ? (
+                <div className="space-y-3">
+                  {/* Documents en staging (brouillon) */}
+                  {stagedDocuments.map((doc) => (
+                    <div key={doc.id} className="flex items-center justify-between p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-5 w-5 text-yellow-600" />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-gray-900">{doc.fileName || doc.filename || doc.name}</p>
+                            <Badge variant="secondary" className="text-xs bg-yellow-100 text-yellow-800">
+                              Brouillon
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            {(() => {
+                              const documentType = String(doc.type || doc.documentType?.label || 'Type inconnu');
+                              const isUnclassified = documentType === 'Non classé' || documentType === 'Type inconnu';
+                              
+                              return (
+                                <>
+                                  {isUnclassified ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedDraftId(doc.id);
+                                        setShowReviewDraftModal(true);
+                                      }}
+                                      className="text-orange-600 hover:text-orange-800 font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid transition-all"
+                                      title="Cliquer pour classer le document"
+                                    >
+                                      {documentType}
+                                    </button>
+                                  ) : (
+                                    <span className="text-gray-600">{documentType}</span>
+                                  )}
+                                  <span className="text-gray-400"> • {new Date(doc.uploadedAt).toLocaleDateString('fr-FR')}</span>
+                                </>
+                              );
+                            })()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedDraftId(doc.id);
+                            setShowReviewDraftModal(true);
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            const success = await removeStagedDocument(doc.id);
+                            if (success) {
+                              console.log('Document en staging supprimé:', doc.id);
+                            }
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Liens vers documents existants */}
+                  {stagedLinks.map((link) => (
+                    <div key={link.id} className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <Link className="h-5 w-5 text-blue-600" />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-gray-900">{link.existingDocument.fileName}</p>
+                            <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                              Lien existant
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            {link.existingDocument.typeLabel} • {new Date(link.existingDocument.uploadedAt).toLocaleDateString('fr-FR')}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            // Ouvrir le document existant en preview
+                            window.open(`/api/documents/${link.existingDocument.id}/file`, '_blank');
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            if (confirm('Êtes-vous sûr de vouloir supprimer ce lien ?')) {
+                              try {
+                                const response = await fetch(`/api/uploads/staged-item/${link.id}`, {
+                                  method: 'DELETE'
+                                });
+                                
+                                if (response.ok) {
+                                  // Supprimer le lien de la liste locale
+                                  setStagedLinks(prev => prev.filter(l => l.id !== link.id));
+                                  toast.success('Lien supprimé avec succès');
+                                } else {
+                                  toast.error('Erreur lors de la suppression du lien');
+                                }
+                              } catch (error) {
+                                console.error('Erreur lors de la suppression du lien:', error);
+                                toast.error('Erreur lors de la suppression du lien');
+                              }
+                            }
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Documents liés (en mode édition) */}
+                  {linkedDocuments.map((doc) => (
+                    <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{doc.fileName || doc.filename}</p>
+                          <p className="text-xs text-gray-500">
+                            {(() => {
+                              const documentType = String(doc.documentType?.label || doc.type?.label || 'Type inconnu');
+                              const isUnclassified = documentType === 'Non classé' || documentType === 'Type inconnu';
+                              
+                              return (
+                                <>
+                                  {isUnclassified ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        // Pour les documents liés, on peut ouvrir la modal de modification du document
+                                        window.open(`/api/documents/${doc.id}/file`, '_blank');
+                                      }}
+                                      className="text-orange-600 hover:text-orange-800 font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid transition-all"
+                                      title="Cliquer pour voir le document"
+                                    >
+                                      {documentType}
+                                    </button>
+                                  ) : (
+                                    <span className="text-gray-600">{documentType}</span>
+                                  )}
+                                  <span className="text-gray-400"> • {new Date(doc.uploadedAt || doc.createdAt).toLocaleDateString('fr-FR')}</span>
+                                </>
+                              );
+                            })()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            // Ouvrir le document en preview
+                            window.open(`/api/documents/${doc.id}/file`, '_blank');
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            if (confirm('Êtes-vous sûr de vouloir supprimer ce document ?')) {
+                              try {
+                                const response = await fetch(`/api/documents/${doc.id}`, {
+                                  method: 'DELETE'
+                                });
+                                
+                                if (response.ok) {
+                                  // Recharger les documents liés
+                                  await loadLinkedDocuments();
+                                  toast.success('Document supprimé avec succès');
+                                } else {
+                                  toast.error('Erreur lors de la suppression du document');
+                                }
+                              } catch (error) {
+                                console.error('Erreur lors de la suppression:', error);
+                                toast.error('Erreur lors de la suppression du document');
+                              }
+                            }
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                  <p className="text-sm">Aucun document lié à cette transaction</p>
+                  <p className="text-xs mt-1">Cliquez sur "Ajouter des documents" pour en associer</p>
+                </div>
+              )}
+
+              {/* Information sur le contexte */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <Info className="h-5 w-5 text-blue-600 mt-0.5" />
+                  <div>
+                    <p className="text-sm text-blue-900 font-medium">
+                      Contexte de liaison automatique
+                    </p>
+                    <p className="text-xs text-blue-700 mt-1">
+                      Les documents uploadés seront automatiquement liés à cette transaction.
+                      {context.type === 'property' && ' Ils seront également associés au bien sélectionné.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Boutons d'action */}
+          <div className="flex justify-end gap-3 mt-8 pt-6 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleClose}
+              disabled={isSubmitting}
+            >
+              Annuler
+            </Button>
+            <Button
+              type="submit"
+              disabled={isSubmitting || isLoading}
+            >
+              {isSubmitting ? 'Enregistrement...' : (mode === 'create' ? 'Créer' : 'Modifier')}
+            </Button>
+          </div>
+        </form>
+      </div>
+      
+      {/* Modal d'upload avec staging */}
+      <StagedUploadModal
+        isOpen={showStagedUploadModal}
+        onClose={() => {
+          setShowStagedUploadModal(false);
+          setUploadFiles([]);
+        }}
+        files={uploadFiles}
+        onStagedDocuments={(documents) => {
+          console.log('Documents ajoutés en staging:', documents);
+          documents.forEach(doc => addStagedDocument(doc));
+        }}
+        context={{
+          type: 'transaction',
+          tempKey: 'transaction:new'
+        }}
+      />
+
+      {/* Modale de review-draft pour modifier les documents en brouillon */}
+      <UploadReviewModal
+        isOpen={showReviewDraftModal}
+        onClose={() => {
+          setShowReviewDraftModal(false);
+          setSelectedDraftId(null);
+        }}
+        files={[]} // Pas de fichiers pour le mode review-draft
+        scope="global"
+        strategy={{
+          mode: 'review-draft',
+          draftId: selectedDraftId || undefined,
+          onStagedUpdate: () => {
+            // Recharger la liste des documents en staging
+            console.log('Document brouillon modifié, rechargement...');
+          }
+        }}
+      />
+
+      {/* Modale de doublon détecté */}
+      <DuplicateDetectedModal
+        isOpen={showDuplicateModal}
+        onClose={() => {
+          setShowDuplicateModal(false);
+          setDuplicateData(null);
+        }}
+        onLinkExisting={handleLinkExisting}
+        onCancel={() => {
+          setShowDuplicateModal(false);
+          setDuplicateData(null);
+        }}
+        duplicateData={duplicateData}
+      />
+      </div>
+    </div>
+  );
+};
