@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
+import { UserDisplay } from '@/components/auth/UserDisplay';
 
 interface SidebarProps {
   className?: string;
@@ -182,6 +183,18 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
         })}
 
       </nav>
+
+      {/* Utilisateur connecté */}
+      <div className="mt-auto border-t border-gray-200 p-4">
+        {!collapsed && <UserDisplay />}
+        {collapsed && (
+          <div className="flex justify-center">
+            <div className="w-10 h-10 rounded-full bg-primary text-primary-content flex items-center justify-center text-sm font-semibold">
+              👤
+            </div>
+          </div>
+        )}
+      </div>
     </aside>
   );
 }

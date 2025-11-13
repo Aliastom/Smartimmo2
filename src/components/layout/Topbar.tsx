@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Search, Bell, Menu, User } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
+import { LogoutButton } from '@/components/auth/LogoutButton';
 
 interface TopbarProps {
   onMenuClick?: () => void;
@@ -78,6 +79,13 @@ export function Topbar({
           <Bell className="h-5 w-5" />
           <span className="absolute -top-1 -right-1 w-3 h-3 bg-danger-500 rounded-full"></span>
         </Button>
+
+        {/* Déconnexion */}
+        <LogoutButton 
+          showIcon={true}
+          variant="ghost"
+          className="gap-2"
+        />
       </div>
     </header>
   );
