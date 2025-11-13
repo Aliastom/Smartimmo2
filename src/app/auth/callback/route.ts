@@ -100,10 +100,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL(redirectUrl, requestUrl.origin));
 
   } catch (error) {
-    console.error('[Auth Callback] Erreur:', error);
-    return NextResponse.redirect(
-      new URL('/login?error=callback_error', request.url)
-    );
+    console.error('[Auth Callback] Erreur complète:', error);
+    console.error('[Auth Callback] Stack trace:', error instanceof Error ? error.stack : 'N/A');
+    console.error('[Auth Callback] Message:', error instanceof Error ? error.message : String(error));
+    
+    // Rediriger avec plus de détails sur l'erreur
+    const errorMessage = error instanceof Error ? error.message : 'unknown';
+    const errorUrl = new URL('/login', request.url);
+    errorUrl.searchParams.set('error', 'callback_error');
+    errorUrl.searchParams.set('details', errorMessage.substring(0, 100));
+    
+    return NextResponse.redirect(errorUrl);
   }
 }
 
