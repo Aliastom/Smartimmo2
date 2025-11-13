@@ -12,10 +12,6 @@ import { PropertyRepo } from '@/lib/db/PropertyRepo';
 import { PropertyFilters } from '@/lib/db/PropertyRepo';
 import { prisma } from '@/lib/prisma';
 import { 
-
-// Force dynamic rendering - this page requires database access
-export const dynamic = 'force-dynamic';
-
   Plus, 
   Eye, 
   Edit, 
@@ -28,6 +24,9 @@ export const dynamic = 'force-dynamic';
 } from 'lucide-react';
 import Link from 'next/link';
 import BiensClient from './BiensClient';
+
+// Force dynamic rendering - this page requires database access
+export const dynamic = 'force-dynamic';
 
 export default async function BiensPage({
   searchParams,

@@ -2,10 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getGestionCodes } from '@/lib/settings/appSettings';
 import type {
-
-// Force dynamic rendering for Vercel deployment
-export const dynamic = 'force-dynamic';
-
   MonthlyDashboardData,
   MonthlyKPIs,
   LoyerNonEncaisse,
@@ -17,6 +13,9 @@ export const dynamic = 'force-dynamic';
   IntraMensuelDataPoint,
   CashflowCumuleDataPoint,
 } from '@/types/dashboard';
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/dashboard/monthly

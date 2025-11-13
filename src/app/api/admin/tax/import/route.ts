@@ -6,10 +6,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {
-
-// Force dynamic rendering for Vercel deployment
-export const dynamic = 'force-dynamic';
-
   FiscalExportBundleSchema,
   type FiscalExportBundle,
   type ImportOptions,
@@ -20,6 +16,9 @@ export const dynamic = 'force-dynamic';
   ImportStrategySchema,
 } from '@/types/fiscal-export';
 import crypto from 'crypto';
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
 
 /**
  * Dénormalise les valeurs calcProfile pour la BDD

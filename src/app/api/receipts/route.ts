@@ -2,15 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { 
-
-// Force dynamic rendering for Vercel deployment
-export const dynamic = 'force-dynamic';
-
   getSuggestedCategoryId, 
   generateRentLabel, 
   generateReceiptNote, 
   generateIdempotencyKey 
 } from '@/utils/categoryUtils';
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
 
 const receiptSchema = z.object({
   leaseId: z.string().min(1, 'Le bail est requis'),
