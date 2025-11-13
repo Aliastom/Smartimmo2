@@ -1,0 +1,48 @@
+# Base de données vectorielle locale (ne pas déployer)
+qdrant_storage/
+
+# Fichiers uploadés localement (utiliser S3/Vercel Blob en production)
+uploads/
+public/uploads/
+storage/
+
+# Fichiers Git (déjà exclus par défaut mais on s'assure)
+.git/
+
+# Backups locaux
+backups/
+*.backup
+
+# Fichiers de développement
+.env.local
+.env.*.local
+
+# Fichiers temporaires
+*.tmp
+*.temp
+temp/
+
+# Logs
+*.log
+logs/
+
+# Base de données locale SQLite (si utilisée)
+*.db
+*.sqlite
+prisma/dev.db
+
+# Documentation volumineuse
+docs/images/
+docs/videos/
+
+# Node modules (déjà géré mais on s'assure)
+node_modules/
+
+# Tests
+tests/fixtures/
+*.test.ts.snap
+
+# Exemples de fichiers volumineux
+examples/sample-data/
+scripts/openfisca-openapi.json
+
