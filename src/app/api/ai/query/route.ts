@@ -10,6 +10,10 @@ import { type AgentConfig } from '@/lib/ai/agent/react';
 import { aiConfig } from '@/lib/ai/config';
 import { randomUUID } from 'crypto';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   // Vérifier si l'IA est activée
   if (!aiConfig.isEnabled()) {

@@ -4,6 +4,10 @@ import { prisma } from '@/lib/prisma';
 /**
  * Endpoint de debug pour vérifier les accounting_month des transactions
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const transactions = await prisma.transaction.findMany({

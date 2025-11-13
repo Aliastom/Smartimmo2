@@ -4,6 +4,10 @@ import { addMonthsYYYYMM, formatMonthlyLabel, extractBaseLabel } from '@/lib/uti
 import { createManagementCommission } from '@/lib/services/managementCommissionService';
 
 // Fonction pour normaliser une chaîne (enlever les accents, minuscules)
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 function normalizeString(str: string): string {
   return str
     .normalize('NFD') // Décomposer les caractères accentués

@@ -10,6 +10,10 @@ import { prisma } from '@/lib/prisma';
  * GET /api/admin/tax/diff
  * Compare deux versions fiscales et retourne les différences
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);

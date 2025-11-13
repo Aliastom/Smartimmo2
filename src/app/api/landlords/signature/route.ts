@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const landlord = await prisma.landlord.findUnique({

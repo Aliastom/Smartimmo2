@@ -11,6 +11,10 @@ import { prisma } from '@/lib/prisma';
  * PATCH /api/admin/tax/versions/:id
  * Mettre à jour une version fiscale (uniquement en status "draft")
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }

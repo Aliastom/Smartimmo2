@@ -4,6 +4,10 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { z } from 'zod';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const photoUploadSchema = z.object({
   propertyId: z.string().min(1, 'Property ID is required'),
   room: z.string().optional(),

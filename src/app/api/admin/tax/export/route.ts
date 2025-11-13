@@ -13,6 +13,10 @@ import crypto from 'crypto';
  * BDD: micro_bic, reel_foncier, is_normal, etc.
  * Export: BIC_MICRO, FONCIER_REEL, IS, etc.
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 function normalizeCalcProfile(profile: string): string {
   const mapping: Record<string, string> = {
     'micro_foncier': 'FONCIER_MICRO',

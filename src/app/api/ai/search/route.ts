@@ -8,6 +8,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { retrieveContext } from '@/lib/ai/rag/retrieve';
 import { aiConfig } from '@/lib/ai/config';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   // Vérifier si l'IA est activée
   if (!aiConfig.isEnabled()) {

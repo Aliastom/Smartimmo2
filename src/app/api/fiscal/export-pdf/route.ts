@@ -7,6 +7,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateSimulationPDF } from '@/services/pdf/generateSimulationPDF';
 import type { SimulationResult, OptimizationSuggestion } from '@/types/fiscal';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

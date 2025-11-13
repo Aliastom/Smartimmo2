@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   // TODO: Ajouter protection authentification admin
   const body = await request.json();

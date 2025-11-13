@@ -7,6 +7,10 @@ import { tmpdir } from 'os';
  * GET /api/debug/temp-files
  * Endpoint de debug pour lister les fichiers temporaires
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const tempDir = join(tmpdir(), 'smartimmo', 'uploads');

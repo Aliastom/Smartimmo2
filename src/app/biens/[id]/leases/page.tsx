@@ -3,6 +3,10 @@ import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import PropertyLeasesClient from './PropertyLeasesClient';
 
+
+// Force dynamic rendering - this page requires database access
+export const dynamic = 'force-dynamic';
+
 interface PropertyLeasesPageProps {
   params: {
     id: string;

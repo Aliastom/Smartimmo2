@@ -3,6 +3,10 @@ import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 
 // Schéma de validation pour la création en bulk
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const createBulkTransactionsSchema = z.object({
   base: z.object({
     propertyId: z.string().min(1, 'L\'ID du bien est requis'),

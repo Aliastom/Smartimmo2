@@ -5,6 +5,10 @@ import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { documentRecognitionService } from '@/services/DocumentRecognitionService';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     console.log('[API] POST /api/uploads/staged - Début');

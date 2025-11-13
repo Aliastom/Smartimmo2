@@ -7,6 +7,10 @@ import { join } from 'path';
  * DELETE /api/documents/[id]/delete
  * Suppression (soft delete) d'un document avec vérification des liens
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }

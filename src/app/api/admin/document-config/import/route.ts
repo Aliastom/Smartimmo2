@@ -5,6 +5,10 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 
 // SchÃ©ma spÃ©cial pour l'import qui accepte 'term' ou 'keyword'
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const ImportDocumentKeywordSchema = z.object({
   id: z.string().optional(),
   term: z.string().min(1, 'Mot-clÃ© requis').optional(),

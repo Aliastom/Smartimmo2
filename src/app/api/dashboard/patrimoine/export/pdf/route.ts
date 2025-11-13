@@ -9,6 +9,10 @@ import { buildSchedule } from '@/lib/finance/amortization';
  * POST /api/dashboard/patrimoine/export/pdf
  * Export du dashboard patrimoine en PDF avec mise en page professionnelle
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

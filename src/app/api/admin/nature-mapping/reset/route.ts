@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { resetNatureMapping, seedNatureMapping } from '@/lib/seed/nature-mapping-seed';
 
 // POST /api/admin/nature-mapping/reset
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST() {
   try {
     console.log('🔄 Réinitialisation du mapping Nature ↔ Catégorie via API...');

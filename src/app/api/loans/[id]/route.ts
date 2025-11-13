@@ -5,6 +5,10 @@ import { buildSchedule, sliceSchedule, crdAtDate } from '@/lib/finance/amortizat
 import { Decimal } from '@prisma/client/runtime/library';
 
 // Schéma de validation pour la mise à jour d'un prêt
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const updateLoanSchema = z.object({
   propertyId: z.string().min(1).optional(),
   label: z.string().min(1).optional(),

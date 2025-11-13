@@ -7,6 +7,10 @@ import { tmpdir } from 'os';
  * GET /api/uploads/[tempId]
  * Sert un fichier temporaire pour prévisualisation
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { tempId: string } }

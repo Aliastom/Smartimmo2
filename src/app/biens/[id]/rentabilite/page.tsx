@@ -2,6 +2,10 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import PropertyProfitabilityClient from './PropertyProfitabilityClient';
 
+
+// Force dynamic rendering - this page requires database access
+export const dynamic = 'force-dynamic';
+
 interface PropertyProfitabilityPageProps {
   params: {
     id: string;

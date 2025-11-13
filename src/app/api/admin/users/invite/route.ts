@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   // TODO: Ajouter protection authentification admin
 

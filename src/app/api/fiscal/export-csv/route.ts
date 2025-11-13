@@ -7,6 +7,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import type { SimulationResult } from '@/types/fiscal';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     // TODO: Activer l'authentification en production

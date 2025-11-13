@@ -8,6 +8,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dedupAI } from '@/services/dedup-ai.service';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

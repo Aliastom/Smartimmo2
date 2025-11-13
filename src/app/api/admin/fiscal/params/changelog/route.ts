@@ -7,6 +7,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { TaxParamsService } from '@/services/tax/TaxParamsService';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     // TODO: Activer l'authentification en production

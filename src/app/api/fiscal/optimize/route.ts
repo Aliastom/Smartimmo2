@@ -10,6 +10,10 @@ import { FiscalAggregator } from '@/services/tax/FiscalAggregator';
 import { Optimizer } from '@/services/tax/Optimizer';
 import type { FiscalInputs } from '@/types/fiscal';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     // Vérifier l'authentification

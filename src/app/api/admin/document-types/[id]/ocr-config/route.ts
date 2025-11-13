@@ -5,6 +5,10 @@ import { prisma } from '@/lib/prisma';
  * PUT /api/admin/document-types/[id]/ocr-config
  * Met à jour la configuration OCR d'un type de document
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }

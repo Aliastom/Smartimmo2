@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { validateSuggestionConfig, validateMetadataSchema } from '@/services/validation';
 
 // Schémas de validation
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const suggestionRuleSchema = z.object({
   pattern: z.string().min(1, 'Pattern is required'),
   apply_in: z.array(z.string()).min(1, 'At least one context is required'),

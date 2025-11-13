@@ -14,6 +14,10 @@ import { prisma } from '@/lib/prisma';
  *   validatedBy: string  // Nom de l'admin qui valide le rollback
  * }
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }

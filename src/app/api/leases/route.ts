@@ -6,6 +6,10 @@ import { LeasesService, LeaseFilters } from '@/lib/services/leasesService';
 import { z } from 'zod';
 import { getLeaseRuntimeStatus } from '../../../domain/leases/status';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const leaseSchema = z.object({
   propertyId: z.string().min(1, 'L\'ID du bien est requis'),
   tenantId: z.string().min(1, 'L\'ID du locataire est requis'),

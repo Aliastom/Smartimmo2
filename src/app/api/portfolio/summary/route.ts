@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { computePortfolioSummary } from '@/domain/services/propertyMetricsService';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const summary = await computePortfolioSummary();

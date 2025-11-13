@@ -3,6 +3,10 @@ import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import PropertyDocumentsClient from './PropertyDocumentsClient';
 
+
+// Force dynamic rendering - this page requires database access
+export const dynamic = 'force-dynamic';
+
 interface PropertyDocumentsPageProps {
   params: {
     id: string;

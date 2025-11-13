@@ -6,6 +6,10 @@ import { getDocumentQueueService } from '@/services/jobs/document-queue.service'
 
 
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 interface RouteContext {
   params: {
     id: string;

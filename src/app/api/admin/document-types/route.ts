@@ -3,6 +3,10 @@ import { prisma } from '@/lib/prisma';
 import { DocumentTypeSchema } from '@/types/document-types';
 
 // GET /api/admin/document-types - Liste des types de documents avec métadonnées
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   // TODO: Ajouter protection authentification admin
   try {

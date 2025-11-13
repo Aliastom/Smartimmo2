@@ -8,6 +8,10 @@ import { Decimal } from '@prisma/client/runtime/library';
 /**
  * Schema de validation pour les query params
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const EcheancesQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}$/, 'Format attendu: YYYY-MM'),
   to: z.string().regex(/^\d{4}-\d{2}$/, 'Format attendu: YYYY-MM'),

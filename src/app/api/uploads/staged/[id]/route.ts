@@ -5,6 +5,10 @@ import { documentRecognitionService } from '@/services/DocumentRecognitionServic
 /**
  * Fonction pour obtenir de vraies prédictions via le service unifié
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 async function getRealPredictions(document: any) {
   try {
     console.log('[API] Génération des prédictions pour le document:', document.id);

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { classificationService } from '@/services/ClassificationService';
 
 // POST /api/admin/document-types/test-global - Tester la classification sur tous les types
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     // Gérer FormData (fichier) ou JSON (texte)

@@ -5,6 +5,10 @@ import { prisma } from '@/lib/prisma';
  * POST /api/documents/[id]/set-primary
  * Définit un document comme principal pour un contexte donné
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }

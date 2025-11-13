@@ -10,6 +10,10 @@ import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { aiConfig } from '@/lib/ai/config';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const prisma = new PrismaClient();
 
 export async function POST(request: NextRequest) {

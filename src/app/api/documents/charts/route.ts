@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // Palette de couleurs pour les types de documents (par code ET par label pour compatibilité)
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const TYPE_COLORS: Record<string, string> = {
   // Par code
   'QUITTANCE_LOYER': '#3b82f6', // blue

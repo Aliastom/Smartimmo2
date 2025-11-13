@@ -17,6 +17,10 @@ import { isGestionDelegueEnabled } from '@/lib/settings/appSettings';
  *   // Si un ID n'est pas dans la liste, la propriété sera désaffectée de cette société
  * }
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }

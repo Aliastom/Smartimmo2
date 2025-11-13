@@ -11,6 +11,10 @@ import { DedupInput } from '@/types/dedup';
 import { z } from 'zod';
 
 // Schéma de validation pour la requête
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const DedupRequestSchema = z.object({
   newFile: z.object({
     tempId: z.string(),

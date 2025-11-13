@@ -13,6 +13,10 @@ import { Periodicite, SensEcheance } from '@prisma/client';
  * - viewMode: 'monthly' | 'yearly'
  * - propertyId?: string (optionnel)
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

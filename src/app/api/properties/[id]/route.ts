@@ -3,6 +3,10 @@ import { PropertyRepo } from '@/lib/db/PropertyRepo';
 import { z } from 'zod';
 import { deletePropertySmart, getPropertyStats } from '@/services/deletePropertySmart';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const updatePropertySchema = z.object({
   name: z.string().min(1).optional(),
   type: z.enum(['house', 'apartment', 'garage', 'commercial', 'land']).optional(),

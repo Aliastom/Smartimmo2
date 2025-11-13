@@ -1,16 +1,17 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { writeFile, mkdir } from 'fs/promises';
+import { writeFile, mkdir, readFile, unlink } from 'fs/promises';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import crypto from 'crypto';
-import { tempUploads } from '../upload/route';
 import { prisma } from '@/lib/prisma';
 
-
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/documents/confirm
- * Finalise l'upload d'un document aprÃ¨s validation
+ * Finalise l'upload d'un document après validation
  */
 export async function POST(request: NextRequest) {
   try {
@@ -39,16 +40,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // RÃ©cupÃ©rer le fichier temporaire
-    const upload = tempUploads.get(tempId);
-    if (!upload) {
+    // Récupérer le fichier temporaire depuis le disque
+    const tempDir = join(tmpdir(), 'smartimmo', 'uploads');
+    const metaFilePath = join(tempDir, `${tempId}.meta.json`);
+    
+    let upload: any;
+    try {
+      const metaContent = await readFile(metaFilePath, 'utf-8');
+      upload = JSON.parse(metaContent);
+      
+      // Vérifier l'expiration
+      if (Date.now() > upload.expiresAt) {
+        return NextResponse.json(
+          { success: false, error: 'Fichier temporaire expiré' },
+          { status: 404 }
+        );
+      }
+    } catch (error) {
       return NextResponse.json(
-        { success: false, error: 'Fichier temporaire non trouvÃ© ou expirÃ©' },
+        { success: false, error: 'Fichier temporaire non trouvé ou expiré' },
         { status: 404 }
       );
     }
 
-    // VÃ©rifier que le type existe
+    // Vérifier que le type existe
     const documentType = await prisma.documentType.findUnique({
       where: { code: finalTypeCode },
       select: { id: true, code: true, label: true }
@@ -61,7 +76,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // VÃ©rifier si c'est un doublon sans action choisie
+    // Vérifier si c'est un doublon sans action choisie
     if (!keepDespiteDuplicate && !replaceDuplicateId) {
       const existingDoc = await prisma.document.findFirst({
         where: {
@@ -85,7 +100,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // GÃ©nÃ©rer le chemin de stockage
+    // Lire le fichier temporaire
+    const tempFilePath = upload.filePath;
+    const fileBuffer = await readFile(tempFilePath);
+
+    // Générer le chemin de stockage
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -94,18 +113,18 @@ export async function POST(request: NextRequest) {
     await mkdir(uploadDir, { recursive: true });
 
     // Nom du fichier (sanitize)
-    const sanitizedFilename = upload.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const sanitizedFilename = upload.originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const timestamp = Date.now();
     const filename = `${timestamp}_${sanitizedFilename}`;
     const filePath = join(uploadDir, filename);
     const relativeFilePath = `uploads/${year}/${month}/${filename}`;
 
-    // Ã‰crire le fichier sur disque
-    await writeFile(filePath, upload.file);
+    // Écrire le fichier sur disque
+    await writeFile(filePath, fileBuffer);
 
     // Si c'est un remplacement (versioning)
     if (replaceDuplicateId) {
-      // Marquer l'ancien comme remplacÃ©
+      // Marquer l'ancien comme remplacé
       await prisma.document.update({
         where: { id: replaceDuplicateId },
         data: {
@@ -115,13 +134,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 3) CrÃ©er le document en base SEULEMENT lors de la confirmation
+    // Créer le document en base SEULEMENT lors de la confirmation
     const document = await prisma.document.create({
       data: {
-        filenameOriginal: customName || upload.filename,
-        fileName: `${crypto.randomUUID()}_${upload.filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
+        filenameOriginal: customName || upload.originalName,
+        fileName: `${crypto.randomUUID()}_${upload.originalName.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
         mime: upload.mime,
-        size: upload.file.length,
+        size: upload.size,
         fileSha256: upload.sha256,
         status: 'classified',
         ocrStatus: 'success',
@@ -130,6 +149,9 @@ export async function POST(request: NextRequest) {
         documentTypeId: documentType.id,
         bucketKey: relativeFilePath,
         url: `/uploads/${year}/${month}/${filename}`,
+        // Texte OCR extrait lors de l'upload
+        extractedText: upload.extractedText || null,
+        extractionSource: upload.extractionSource || null,
         // Liaison selon le scope
         ...(scope === 'property' && linkedTo?.propertyId ? {
           propertyId: linkedTo.propertyId
@@ -159,8 +181,13 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Nettoyer le fichier temporaire
-    tempUploads.delete(tempId);
+    // Nettoyer les fichiers temporaires
+    try {
+      await unlink(tempFilePath);
+      await unlink(metaFilePath);
+    } catch (error) {
+      console.warn('[Confirm] Erreur lors du nettoyage des fichiers temporaires:', error);
+    }
 
     return NextResponse.json({
       success: true,
@@ -189,4 +216,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

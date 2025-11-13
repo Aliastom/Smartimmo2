@@ -7,6 +7,10 @@ import LeasePdf from '@/pdf/LeasePdf';
 import { getProfileData } from '@/lib/services/profileService';
 import React from 'react';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }

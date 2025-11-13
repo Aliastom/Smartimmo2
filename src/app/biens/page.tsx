@@ -12,6 +12,10 @@ import { PropertyRepo } from '@/lib/db/PropertyRepo';
 import { PropertyFilters } from '@/lib/db/PropertyRepo';
 import { prisma } from '@/lib/prisma';
 import { 
+
+// Force dynamic rendering - this page requires database access
+export const dynamic = 'force-dynamic';
+
   Plus, 
   Eye, 
   Edit, 

@@ -13,6 +13,10 @@ import type { SimulationResult, FiscalInputs } from '@/types/fiscal';
 // GET - Récupérer une simulation par ID
 // ============================================================================
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   context: { params: { id: string } }

@@ -15,6 +15,10 @@ import { isGestionDelegueEnabled } from '@/lib/settings/appSettings';
  * Récupère une société de gestion par son ID
  * Note: On permet la lecture même si la fonctionnalité est désactivée
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }

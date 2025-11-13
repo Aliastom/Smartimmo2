@@ -11,6 +11,10 @@ import { prisma } from '@/lib/prisma';
  * GET /api/admin/tax/compat
  * Liste toutes les compatibilités fiscales
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);

@@ -4,6 +4,10 @@ import { DocumentsService } from '@/lib/services/documents';
 /**
  * GET /api/documents/[id] - Récupérer un document par ID
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }

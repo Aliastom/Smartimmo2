@@ -7,6 +7,10 @@ import { prisma } from '@/lib/prisma';
 import BienOverviewClient from './BienOverviewClient';
 import PropertyDetailClient from './PropertyDetailClient';
 
+
+// Force dynamic rendering - this page requires database access
+export const dynamic = 'force-dynamic';
+
 interface PropertyPageProps {
   params: {
     id: string;

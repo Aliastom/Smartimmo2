@@ -7,6 +7,10 @@ import { join } from 'path';
  * GET /api/documents/[id]/file
  * Streame le fichier d'un document depuis le stockage
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }

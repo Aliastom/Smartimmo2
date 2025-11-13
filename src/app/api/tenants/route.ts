@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { TenantRepo, TenantFilters } from '@/lib/db/TenantRepo';
 import { z } from 'zod';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const createTenantSchema = z.object({
   firstName: z.string().min(1, 'Le prénom est requis'),
   lastName: z.string().min(1, 'Le nom est requis'),

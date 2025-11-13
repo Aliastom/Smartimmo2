@@ -2,6 +2,10 @@
 import { prisma } from '@/lib/prisma';
 
 // GET /api/admin/document-config/export - Exporter la configuration complÃ¨te
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     // RÃ©cupÃ©rer tous les types de documents avec leurs relations

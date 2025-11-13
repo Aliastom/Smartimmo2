@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const updateDocumentTypeSchema = z.object({
   label: z.string().min(1, 'Label is required').optional(),
   icon: z.string().optional(),

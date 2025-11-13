@@ -5,6 +5,10 @@ import { classificationService } from '@/services/ClassificationService';
 /**
  * POST /api/documents/[id]/classify - Relancer la classification d'un document
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }

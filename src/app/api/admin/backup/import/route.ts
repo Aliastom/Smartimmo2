@@ -13,6 +13,10 @@ import { prisma } from '@/lib/prisma';
  * 
  * Body: multipart/form-data avec fichier .zip
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     // TODO: Activer l'authentification en production

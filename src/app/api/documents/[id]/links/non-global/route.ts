@@ -6,6 +6,10 @@ import { listNonGlobalLinks, getLinkDisplayInfo } from '@/lib/docsSimple';
  * Récupère toutes les liaisons non-globales d'un document avec leurs informations lisibles
  * Utilisé pour afficher la liste dans la modal d'alerte avant suppression
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }

@@ -4,6 +4,10 @@ import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { z } from 'zod';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const replaceDocumentSchema = z.object({
   file: z.object({
     name: z.string().min(1, 'File name is required'),

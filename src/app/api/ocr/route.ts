@@ -6,6 +6,10 @@ import { DocxTextExtractor } from '@/services/DocxTextExtractor';
 /**
  * Normalisation du texte
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 function normalizeText(s: string): string {
   return s
     .toLowerCase()

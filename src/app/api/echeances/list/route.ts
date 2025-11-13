@@ -6,6 +6,10 @@ import { EcheanceType, Periodicite, SensEcheance } from '@prisma/client';
 /**
  * Schema de validation pour les query params de la liste
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const ListQuerySchema = z.object({
   search: z.string().optional(),
   type: z.string().optional(), // CSV de types

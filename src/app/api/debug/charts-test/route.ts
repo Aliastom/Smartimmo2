@@ -4,6 +4,10 @@ import { prisma } from '@/lib/prisma';
 /**
  * Endpoint de debug pour vérifier le calcul des graphiques
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

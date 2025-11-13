@@ -5,6 +5,10 @@ import { getStorageService } from '@/services/storage.service';
 
 
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 interface RouteContext {
   params: {
     id: string;

@@ -9,6 +9,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { taxScrapeWorker } from '@/services/tax/sources/TaxScrapeWorker';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   try {
     // TODO: Activer l'authentification en production

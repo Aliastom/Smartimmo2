@@ -3,6 +3,10 @@ import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const ScheduleSchema = z.object({
   frequency: z.enum(['daily', 'weekly', 'monthly']),
   hour: z.number().min(0).max(23).default(3),

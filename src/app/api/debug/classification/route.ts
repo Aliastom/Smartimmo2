@@ -8,6 +8,10 @@ import { prisma } from '@/lib/prisma';
 /**
  * POST /api/debug/classification - Debug classification comparison
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

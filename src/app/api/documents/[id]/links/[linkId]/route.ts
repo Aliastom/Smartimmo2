@@ -3,6 +3,10 @@ import { prisma } from '@/lib/prisma';
 
 // DELETE /api/documents/[id]/links/[linkId] - Supprimer un lien spécifique
 // linkId est maintenant au format "linkedType:linkedId"
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function DELETE(request: NextRequest, { params }: { params: { id: string; linkId: string } }) {
   try {
     const { id: documentId, linkId } = params;

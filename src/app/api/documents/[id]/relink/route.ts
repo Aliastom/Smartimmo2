@@ -4,6 +4,10 @@ import { DocumentsService } from '@/lib/services/documents';
 /**
  * POST /api/documents/[id]/relink - Modifier la liaison d'un document
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }

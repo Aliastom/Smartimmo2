@@ -9,6 +9,10 @@ import { detectIntent } from "@/server/kpi/intent";
 import { explain } from "@/server/kpi/explain";
 import { aiConfig } from "@/lib/ai/config";
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 type KpiRequest = {
   metricId?: string;
   question?: string;

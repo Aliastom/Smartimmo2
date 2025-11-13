@@ -6,6 +6,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
   FiscalExportBundleSchema,
   type FiscalExportBundle,
   type ImportOptions,

@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { suggestTypeGlobal } from '@/services/documentSuggestion';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const classifyRequestSchema = z.object({
   context: z.string().optional(),
   filename: z.string(),

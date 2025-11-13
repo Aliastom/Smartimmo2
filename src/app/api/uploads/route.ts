@@ -5,6 +5,10 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { createHash } from 'crypto';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const uploadSchema = z.object({
   docType: z.enum(['invoice', 'receipt', 'lease', 'loan', 'tax', 'photo', 'other']).default('other'),
   tagsJson: z.string().optional(),

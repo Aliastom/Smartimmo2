@@ -6,6 +6,10 @@
 
 import { NextResponse } from 'next/server';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const BASE = process.env.OPENFISCA_BASE_URL || '';
 
 async function ofGet(path: string, params: Record<string, any> = {}) {

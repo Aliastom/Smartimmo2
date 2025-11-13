@@ -25,6 +25,10 @@ import { DocumentAutoLinkingServiceServer, AutoLinkingContext } from '@/lib/serv
  * - keep_both: CrÃ©e un nouveau Document en parallÃ¨le (isPrimary=false par dÃ©faut)
  * - cancel: Annule l'opÃ©ration
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     console.log(`[Finalize] ðŸš€ API de finalisation appelÃ©e - ${new Date().toISOString()}`);

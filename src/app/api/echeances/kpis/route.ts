@@ -6,6 +6,10 @@ import { Periodicite, SensEcheance } from '@prisma/client';
  * GET /api/echeances/kpis
  * Calcule les KPIs des échéances récurrentes (montants annuels)
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     // Récupérer toutes les échéances actives

@@ -8,6 +8,10 @@ import { createHash } from 'crypto';
 import React from 'react';
 import LeasePdf from '../../../../../pdf/LeasePdf';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 function generateHash(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex');
 }

@@ -3,6 +3,10 @@ import { getSettingsByPrefix, setSetting, clearSettingsCache } from '@/lib/setti
 import { z } from 'zod';
 
 // Schema de validation pour SET
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const setSettingSchema = z.object({
   key: z.string().min(1),
   value: z.unknown(),

@@ -10,6 +10,10 @@ import { loadSourcesConfig, saveSourcesConfig } from '@/services/tax/sources/con
 import { DEFAULT_SOURCES } from '@/services/tax/sources/config';
 
 // GET : Récupérer la configuration des sources
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   try {
     // TODO: Activer l'authentification en production

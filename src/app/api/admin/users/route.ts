@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 // TODO: Ajouter protection authentification admin
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const users = await prisma.user.findMany({
     orderBy: { createdAt: 'desc' },

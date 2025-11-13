@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PropertyRepo, PropertyFilters } from '@/lib/db/PropertyRepo';
 import { z } from 'zod';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const createPropertySchema = z.object({
   name: z.string().min(1, 'Le nom est requis'),
   type: z.enum(['house', 'apartment', 'garage', 'commercial', 'land']),

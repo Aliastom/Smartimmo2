@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { landlordRepository } from '../../../infra/repositories/landlordRepository';
 import { z } from 'zod';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const landlordSchema = z.object({
   fullName: z.string().min(1, 'Le nom complet est requis'),
   address1: z.string().min(1, 'L\'adresse est requise'),

@@ -4,6 +4,10 @@ import { prisma } from '@/lib/prisma';
 /**
  * GET /api/document-types - RÃ©cupÃ©rer les types de documents
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;

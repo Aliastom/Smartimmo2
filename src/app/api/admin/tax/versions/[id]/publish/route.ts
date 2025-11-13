@@ -15,6 +15,10 @@ import { validateSection } from '@/services/tax/sources/utils';
  *   validatedBy: string  // Nom de l'admin qui valide
  * }
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(
   req: NextRequest,
   context: { params: { id: string } }

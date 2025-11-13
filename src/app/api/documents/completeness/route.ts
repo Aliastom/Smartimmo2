@@ -4,6 +4,10 @@ import { DocumentsService } from '@/lib/services/documents';
 /**
  * GET /api/documents/completeness - Vérifier la complétude des documents pour une entité
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;

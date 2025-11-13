@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getExtractionService } from '@/services/extraction.service';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 interface RouteContext {
   params: {
     id: string;

@@ -7,6 +7,10 @@ import { Decimal } from '@prisma/client/runtime/library';
 /**
  * Schema de validation pour PATCH (partial)
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const UpdateEcheanceSchema = z.object({
   label: z.string().min(1).optional(),
   type: z.nativeEnum(EcheanceType).optional(),

@@ -15,6 +15,10 @@ import { TaxParamsUpdater } from '@/services/TaxParamsUpdater';
  *   year: number  // Année pour laquelle récupérer les paramètres
  * }
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();

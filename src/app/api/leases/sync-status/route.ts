@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncLeaseStatuses, syncPropertyLeaseStatuses } from '../../../../domain/services/leaseStatusSyncService';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

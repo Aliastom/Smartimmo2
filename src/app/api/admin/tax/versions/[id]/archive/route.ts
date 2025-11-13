@@ -10,6 +10,10 @@ import { prisma } from '@/lib/prisma';
  * POST /api/admin/tax/versions/:id/archive
  * Archiver une version fiscale
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }

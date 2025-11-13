@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { checkAndUpdateLeaseStatuses } from '@/lib/services/leaseStatusService';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST() {
   try {
     const result = await checkAndUpdateLeaseStatuses();

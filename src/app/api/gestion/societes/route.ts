@@ -15,6 +15,10 @@ import { isGestionDelegueEnabled } from '@/lib/settings/appSettings';
  * Note: On permet la lecture même si la fonctionnalité est désactivée,
  * pour permettre la consultation et la gestion des sociétés existantes.
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     // Vérifier le statut d'activation (mais ne pas bloquer la lecture)

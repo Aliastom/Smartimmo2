@@ -6,6 +6,10 @@ import { DocumentExtractionRuleSchema } from '@/types/admin-documents';
 
 
 // GET /api/admin/document-types/[id]/extraction-rules - Liste des règles d'extraction d'un type
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }

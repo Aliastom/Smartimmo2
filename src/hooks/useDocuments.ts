@@ -1,5 +1,22 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DocumentSearchInput, DocumentDetail } from '@/types/documents';
+
+// Types pour l'administration des types de documents
+export interface AdminDocumentType {
+  id: string;
+  code: string;
+  label: string;
+  icon: string | null;
+  color: string | null;
+  description: string | null;
+  isSystem: boolean;
+  isSensitive: boolean;
+  isActive: boolean;
+  defaultContexts: string[];
+  suggestionConfig: any;
+  order: number;
+}
 
 interface UseDocumentsResult {
   documents: any[];
@@ -180,4 +197,93 @@ export function useDocument(id: string | null) {
     error,
     refetch,
   };
+}
+
+// Hooks pour l'administration des types de documents
+
+export function useAdminDocumentTypes({ includeInactive = false }: { includeInactive?: boolean } = {}) {
+  return useQuery({
+    queryKey: ['admin', 'document-types', { includeInactive }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (includeInactive) {
+        params.append('includeInactive', 'true');
+      }
+      const response = await fetch(`/api/admin/document-types?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch document types');
+      }
+      return response.json();
+    },
+  });
+}
+
+export function useCreateDocumentType() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (data: Partial<AdminDocumentType>) => {
+      const response = await fetch('/api/admin/document-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create document type');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'document-types'] });
+    },
+  });
+}
+
+export function useUpdateDocumentType() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<AdminDocumentType> }) => {
+      const response = await fetch(`/api/admin/document-types/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update document type');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'document-types'] });
+    },
+  });
+}
+
+export function useDeleteDocumentType() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/admin/document-types/${id}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete document type');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'document-types'] });
+    },
+  });
 }

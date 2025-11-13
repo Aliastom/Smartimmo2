@@ -11,6 +11,10 @@ import { prisma } from '@/lib/prisma';
  * PATCH /api/admin/tax/types/:id
  * Mettre à jour un type fiscal
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }

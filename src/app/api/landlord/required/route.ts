@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { landlordRepository } from '../../../../infra/repositories/landlordRepository';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const requiredFields = await landlordRepository.getRequiredFields();

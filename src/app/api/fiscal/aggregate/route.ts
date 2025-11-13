@@ -9,6 +9,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FiscalAggregator } from '@/services/tax/FiscalAggregator';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

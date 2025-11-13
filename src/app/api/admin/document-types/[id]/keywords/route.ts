@@ -6,6 +6,10 @@ import { DocumentKeywordSchema } from '@/types/document-types';
 
 
 // GET /api/admin/document-types/[id]/keywords - Récupérer les mots-clés d'un type
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }

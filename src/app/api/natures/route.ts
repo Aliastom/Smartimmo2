@@ -9,6 +9,10 @@ import { prisma } from '@/lib/prisma';
  * - limit: nombre de résultats (default 20)
  * - cursor: pagination cursor (optional)
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

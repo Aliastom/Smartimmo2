@@ -4,6 +4,10 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { validateNatureCategory } from '@/utils/transactionValidation';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const { base, periods, attachments } = await request.json();

@@ -12,6 +12,10 @@ import { hardDeleteDocument } from '@/lib/docsSimple';
  * 
  * Note : La modal d'alerte doit être gérée côté client AVANT d'appeler cette route
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }

@@ -13,6 +13,10 @@ import path from 'path';
  * - mode: "validate" | "dry-run" | "apply"
  * - strategy: "merge" | "replace"
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { backupId: string } }

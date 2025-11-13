@@ -3,6 +3,10 @@ import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 
 // Schéma de validation pour la mise à jour d'un bail
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const updateLeaseSchema = z.object({
   status: z.enum(['BROUILLON', 'ENVOYÉ', 'SIGNÉ', 'ACTIF', 'RÉSILIÉ', 'ARCHIVÉ']).optional(),
   propertyId: z.string().min(1).optional(),

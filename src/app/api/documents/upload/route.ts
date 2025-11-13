@@ -14,6 +14,10 @@ import { prisma } from '@/lib/prisma';
 /**
  * Utilitaire pour garantir qu'une valeur est une string
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 const ensureText = (v: unknown): string => {
   if (typeof v === "string") return v;
   if (v && typeof (v as any).toString === "function") return (v as any).toString();

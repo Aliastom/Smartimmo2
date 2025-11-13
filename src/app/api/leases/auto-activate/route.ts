@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { autoActivateLeases } from '@/domain/services/leaseActivationService';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const count = await autoActivateLeases();

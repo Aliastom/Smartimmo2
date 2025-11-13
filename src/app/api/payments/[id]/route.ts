@@ -5,6 +5,10 @@ import { join } from 'path';
 import { validateNatureCategoryType } from '@/utils/accountingStyles';
 
 // GET /api/payments/[id] - Récupérer un paiement
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const payment = await prisma.payment.findUnique({

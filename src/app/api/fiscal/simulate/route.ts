@@ -11,6 +11,10 @@ import { Simulator } from '@/services/tax/Simulator';
 import { FiscalCombinationGuard } from '@/services/FiscalCombinationGuard';
 import type { FiscalInputs } from '@/types/fiscal';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     // Vérifier l'authentification

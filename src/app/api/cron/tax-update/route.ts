@@ -9,6 +9,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TaxParamsUpdater } from '@/services/TaxParamsUpdater';
 
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   try {
     // ========== SÉCURITÉ : Vérifier le token de cron ==========

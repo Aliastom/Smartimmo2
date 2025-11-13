@@ -3,6 +3,10 @@ import { notFound } from 'next/navigation';
 import { PropertyRepo } from '@/lib/db/PropertyRepo';
 import PropertyEcheancesClient from './PropertyEcheancesClient';
 
+
+// Force dynamic rendering - this page requires database access
+export const dynamic = 'force-dynamic';
+
 interface PropertyEcheancesPageProps {
   params: {
     id: string;

@@ -7,6 +7,10 @@ import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
  * Génère les données pour les graphiques des prêts
  * Query params: ?from=YYYY-MM&to=YYYY-MM&propertyId=xxx
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

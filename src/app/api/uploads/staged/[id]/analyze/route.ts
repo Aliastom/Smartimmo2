@@ -6,6 +6,10 @@ import { documentRecognitionService } from '@/services/DocumentRecognitionServic
  * POST /api/uploads/staged/[id]/analyze
  * Analyser un document brouillon avec le vrai processus OCR/IA
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }

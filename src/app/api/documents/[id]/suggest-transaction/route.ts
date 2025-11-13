@@ -5,6 +5,10 @@ import { transactionSuggestionService } from '@/services/TransactionSuggestionSe
  * GET /api/documents/[id]/suggest-transaction
  * Analyse un document et retourne une suggestion de transaction
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }

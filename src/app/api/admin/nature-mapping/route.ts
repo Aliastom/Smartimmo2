@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // Types pour le mapping Nature ↔ Catégorie
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export interface NatureMappingRule {
   allowedTypes: string[];
   defaultCategoryId?: string;

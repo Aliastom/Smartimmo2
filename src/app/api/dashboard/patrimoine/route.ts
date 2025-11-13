@@ -8,6 +8,10 @@ import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
  * GET /api/dashboard/patrimoine
  * Agrège les données pour le dashboard Patrimoine Global
  */
+
+// Force dynamic rendering for Vercel deployment
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
