@@ -16,8 +16,13 @@ const nextConfig = {
     },
     serverComponentsExternalPackages: ['onnxruntime-node', '@xenova/transformers', 'sharp']
   },
-  // Configuration minimale pour Tesseract.js + Transformers.js
+  // Configuration webpack
   webpack: (config, { isServer }) => {
+    // Désactiver le cache webpack sur Vercel pour éviter problème de taille
+    if (process.env.VERCEL) {
+      config.cache = false;
+    }
+    
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
