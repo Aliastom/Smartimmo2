@@ -872,6 +872,7 @@ model UploadStagedItem {
 
 model User {
   id            String    @id @default(cuid())
+  supabaseId    String?   @unique // Liaison avec Supabase Auth
   name          String?
   email         String?   @unique
   emailVerified DateTime?
