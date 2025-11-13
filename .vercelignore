@@ -22,6 +22,9 @@ backups/
 *.temp
 temp/
 
+# Cache Next.js (ne pas inclure dans les fonctions serverless)
+.next/cache/
+
 # Logs
 *.log
 logs/
