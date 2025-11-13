@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // POST /api/admin/document-types/[id]/test - Tester la classification et l'extraction
 
@@ -10,6 +11,10 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const { id } = params;
     

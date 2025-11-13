@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // DELETE /api/admin/document-types/[id]/type-signals/[typeSignalId] - Retirer un signal d'un type
 
@@ -10,6 +11,10 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string; typeSignalId: string } }
 ) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const { typeSignalId } = params;
 
@@ -50,6 +55,10 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string; typeSignalId: string } }
 ) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const { typeSignalId } = params;
     const body = await request.json();

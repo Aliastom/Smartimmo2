@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -13,6 +14,10 @@ const execAsync = promisify(exec);
  * Lance Prisma Studio (nécessite ENABLE_PRISMA_STUDIO=true dans .env.local)
  */
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     // Vérifier que Prisma Studio est explicitement activé dans .env.local
     if (process.env.ENABLE_PRISMA_STUDIO !== 'true') {

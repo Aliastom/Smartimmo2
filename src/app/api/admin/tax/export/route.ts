@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { FiscalExportBundleSchema, type FiscalExportBundle } from '@/types/fiscal-export';
 import crypto from 'crypto';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 /**
  * Normalise les valeurs calcProfile de la BDD vers le format attendu
@@ -37,6 +38,10 @@ function normalizeCalcProfile(profile: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const { searchParams } = new URL(request.url);
     const versionCode = searchParams.get('version');

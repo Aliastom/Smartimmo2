@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -21,6 +22,10 @@ const ScheduleSchema = z.object({
  * Récupère la configuration de planification actuelle
  */
 export async function GET(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     // TODO: Activer l'authentification en production
     // const session = await getServerSession();
@@ -64,6 +69,10 @@ export async function GET(request: NextRequest) {
  * Crée ou met à jour la planification des backups automatiques
  */
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     // TODO: Activer l'authentification en production
     // const session = await getServerSession();
@@ -131,6 +140,10 @@ export async function POST(request: NextRequest) {
  * Désactive la planification automatique
  */
 export async function DELETE(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     // TODO: Activer l'authentification en production
     // const session = await getServerSession();

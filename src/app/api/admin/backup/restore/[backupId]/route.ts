@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
 import fs from 'fs/promises';
 import path from 'path';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 /**
  * POST /api/admin/backup/restore/:backupId
@@ -21,6 +22,10 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { backupId: string } }
 ) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     // TODO: Activer l'authentification en production
     // const session = await getServerSession();

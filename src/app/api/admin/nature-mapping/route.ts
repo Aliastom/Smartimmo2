@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // Types pour le mapping Nature ↔ Catégorie
 
@@ -17,6 +18,10 @@ export interface NatureMappingRules {
 
 // GET /api/admin/nature-mapping
 export async function GET() {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     console.log('=== API NATURE MAPPING DEBUG ===');
     console.log('Prisma client disponible:', !!prisma);
@@ -83,6 +88,10 @@ export async function GET() {
 
 // POST /api/admin/nature-mapping
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const body = await request.json();
     const { rules }: { rules: NatureMappingRules } = body;

@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   // TODO: Ajouter protection authentification admin
 
   try {

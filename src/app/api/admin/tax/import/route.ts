@@ -16,6 +16,7 @@ import {
   ImportStrategySchema,
 } from '@/types/fiscal-export';
 import crypto from 'crypto';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
@@ -45,6 +46,10 @@ function denormalizeCalcProfile(profile: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const { searchParams } = new URL(request.url);
     const mode = searchParams.get('mode') || 'validate';

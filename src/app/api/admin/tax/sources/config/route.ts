@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { loadSourcesConfig, saveSourcesConfig } from '@/services/tax/sources/configLoader';
 import { DEFAULT_SOURCES } from '@/services/tax/sources/config';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // GET : Récupérer la configuration des sources
 
@@ -15,6 +16,10 @@ import { DEFAULT_SOURCES } from '@/services/tax/sources/config';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     // TODO: Activer l'authentification en production
     // const session = await getServerSession();
@@ -41,6 +46,10 @@ export async function GET(req: NextRequest) {
 
 // POST : Sauvegarder la configuration des sources
 export async function POST(req: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     // TODO: Activer l'authentification en production
     // const session = await getServerSession();

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateSection } from '@/services/tax/sources/utils';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 /**
  * POST /api/admin/tax/versions/:id/publish
@@ -23,6 +24,10 @@ export async function POST(
   req: NextRequest,
   context: { params: { id: string } }
 ) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const { id } = context.params;
     const body = await req.json();

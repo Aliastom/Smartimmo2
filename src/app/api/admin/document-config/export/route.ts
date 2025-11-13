@@ -1,5 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // GET /api/admin/document-config/export - Exporter la configuration complÃ¨te
 
@@ -7,6 +8,10 @@ import { prisma } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     // RÃ©cupÃ©rer tous les types de documents avec leurs relations
     const documentTypes = await prisma.documentType.findMany({

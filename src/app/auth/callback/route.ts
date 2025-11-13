@@ -66,17 +66,33 @@ export async function GET(request: NextRequest) {
     } else {
       // Nouvel utilisateur : créer l'enregistrement
       console.log('[Auth Callback] Création d\'un nouvel utilisateur');
+      
+      // ⚠️ AUTO-PROMOTION ADMIN (décommentez et modifiez l'email pour votre premier admin)
+      // const ADMIN_EMAILS = ['votre-email@exemple.com'];
+      // const isFirstAdmin = ADMIN_EMAILS.includes(user.email);
+      
+      // Vérifier s'il existe déjà un admin (sinon, promouvoir le premier utilisateur)
+      const adminCount = await prisma.user.count({
+        where: { role: 'ADMIN' },
+      });
+      
+      const shouldBeAdmin = adminCount === 0; // Premier utilisateur = ADMIN
+      
       prismaUser = await prisma.user.create({
         data: {
           supabaseId: user.id,
           email: user.email,
           name: user.user_metadata?.name || user.email?.split('@')[0] || 'Utilisateur',
           emailVerified: new Date(),
-          role: 'USER', // Rôle par défaut
+          role: shouldBeAdmin ? 'ADMIN' : 'USER',
         },
       });
 
-      console.log('[Auth Callback] Utilisateur créé:', prismaUser.id);
+      if (shouldBeAdmin) {
+        console.log('🎉 [Auth Callback] Premier utilisateur créé en tant qu\'ADMIN:', prismaUser.id);
+      } else {
+        console.log('[Auth Callback] Utilisateur créé:', prismaUser.id);
+      }
     }
 
     // Rediriger vers la page principale

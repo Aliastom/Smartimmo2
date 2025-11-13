@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { resetNatureMapping, seedNatureMapping } from '@/lib/seed/nature-mapping-seed';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // POST /api/admin/nature-mapping/reset
 
@@ -7,6 +8,10 @@ import { resetNatureMapping, seedNatureMapping } from '@/lib/seed/nature-mapping
 export const dynamic = 'force-dynamic';
 
 export async function POST() {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     console.log('🔄 Réinitialisation du mapping Nature ↔ Catégorie via API...');
     

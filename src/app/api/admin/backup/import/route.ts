@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminBackupService } from '@/services/AdminBackupService';
 import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 /**
  * POST /api/admin/backup/import
@@ -18,6 +19,10 @@ import { prisma } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     // TODO: Activer l'authentification en production
     // const session = await getServerSession();

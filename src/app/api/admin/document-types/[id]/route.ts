@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { DocumentTypeSchema } from '@/types/document-types';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // GET /api/admin/document-types/[id] - Récupérer un type de document avec ses relations
 
@@ -11,6 +12,10 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const { id } = params;
 
@@ -68,6 +73,10 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const { id } = params;
     const body = await request.json();
@@ -162,6 +171,10 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const { id } = params;
 

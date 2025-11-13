@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { TaxParamsUpdater } from '@/services/TaxParamsUpdater';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 /**
  * POST /api/admin/tax/update-from-sources
@@ -20,6 +21,10 @@ import { TaxParamsUpdater } from '@/services/TaxParamsUpdater';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const body = await req.json();
     const { year } = body;

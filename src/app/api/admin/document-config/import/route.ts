@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { DocumentTypeSchema, DocumentKeywordSchema, DocumentSignalSchema, DocumentExtractionRuleSchema } from '@/types/document-types';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // SchÃ©ma spÃ©cial pour l'import qui accepte 'term' ou 'keyword'
 
@@ -148,6 +149,10 @@ function normalizeImportData(importData: any) {
 
 // POST /api/admin/document-config/import - Importer la configuration
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const body = await request.json();
     const { json, mode = 'merge' } = body;

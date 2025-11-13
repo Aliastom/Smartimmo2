@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateSuggestionConfig, validateMetadataSchema } from '@/services/validation';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // Schémas de validation
 
@@ -48,6 +49,10 @@ const validateSchemaRequestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const body = await request.json();
     const { type, data } = validateSchemaRequestSchema.parse(body);

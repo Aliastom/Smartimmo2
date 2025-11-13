@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { PrismaClient } from '@prisma/client';
 import { DocumentSignalSchema } from '@/types/document-types';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 
 
@@ -14,6 +15,10 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const { id } = params;
 
@@ -40,6 +45,10 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const { id } = params;
     const body = await request.json();

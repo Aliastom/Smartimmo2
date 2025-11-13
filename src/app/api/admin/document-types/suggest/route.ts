@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { suggestTypeGlobal, SuggestionInput } from '@/services/documentSuggestion';
 import { z } from 'zod';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -15,6 +16,10 @@ const suggestRequestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const body = await request.json();
     const { context, filename, mime, ocrText } = suggestRequestSchema.parse(body);

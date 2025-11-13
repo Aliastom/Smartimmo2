@@ -8,20 +8,26 @@ import { createServerClient } from '@supabase/ssr';
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   
-  // Routes publiques (pas de vérification d'auth)
+  // Routes TOUJOURS publiques (pas de vérification d'auth)
   const publicRoutes = [
     '/login',
     '/auth/callback',
-    '/api/auth',
+    '/auth/logout',
     '/_next',
     '/favicon.ico',
-    '/public',
+  ];
+  
+  // Routes API publiques (ne nécessitent pas d'auth)
+  const publicApiRoutes = [
+    '/api/auth/',
+    '/api/ocr', // Si utilisé pour les uploads publics
   ];
   
   // Vérifier si la route est publique
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
+  const isPublicApi = publicApiRoutes.some(route => pathname.startsWith(route));
   
-  if (isPublicRoute) {
+  if (isPublicRoute || isPublicApi) {
     return NextResponse.next();
   }
 
@@ -73,13 +79,12 @@ export const config = {
   matcher: [
     /*
      * Protéger toutes les routes sauf:
-     * - api (sauf /api/auth)
      * - _next/static (fichiers statiques)
      * - _next/image (optimisation d'images)
      * - favicon.ico
-     * - login et auth/callback
+     * La logique de routes publiques est gérée dans le middleware ci-dessus
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|login|auth/callback).*)',
+    '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
 

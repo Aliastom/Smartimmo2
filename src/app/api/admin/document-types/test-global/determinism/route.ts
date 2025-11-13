@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { classificationService } from '@/services/ClassificationService';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // GET /api/admin/document-types/test-global/determinism - Tester le déterminisme
 
@@ -7,6 +8,10 @@ import { classificationService } from '@/services/ClassificationService';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const url = new URL(request.url);
     const text = url.searchParams.get('text');

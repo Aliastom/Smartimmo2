@@ -5,6 +5,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -35,6 +36,10 @@ async function ofGet(path: string, params: Record<string, any> = {}) {
 }
 
 export async function GET(req: Request) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   const startTime = Date.now();
 
   try {

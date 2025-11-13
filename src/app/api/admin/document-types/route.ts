@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { DocumentTypeSchema } from '@/types/document-types';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // GET /api/admin/document-types - Liste des types de documents avec métadonnées
 
@@ -8,6 +9,10 @@ import { DocumentTypeSchema } from '@/types/document-types';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   // TODO: Ajouter protection authentification admin
   try {
     const { searchParams } = new URL(request.url);
@@ -61,6 +66,10 @@ export async function GET(request: NextRequest) {
 
 // POST /api/admin/document-types - Créer un nouveau type de document
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   // TODO: Ajouter protection authentification admin
   try {
     const body = await request.json();

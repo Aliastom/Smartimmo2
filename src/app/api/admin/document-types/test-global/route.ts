@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { classificationService } from '@/services/ClassificationService';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // POST /api/admin/document-types/test-global - Tester la classification sur tous les types
 
@@ -7,6 +8,10 @@ import { classificationService } from '@/services/ClassificationService';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     // Gérer FormData (fichier) ou JSON (texte)
     let testText = '';

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 // GET /api/admin/signals - Récupérer tous les signaux du catalogue
 
@@ -7,6 +8,10 @@ import { prisma } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   // TODO: Ajouter protection authentification admin
   try {
     const { searchParams } = new URL(request.url);
@@ -68,6 +73,10 @@ export async function GET(request: NextRequest) {
 
 // POST /api/admin/signals - Créer un nouveau signal
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   const guard = await requireAdmin(request as any);
   if (guard) return guard;
   try {
