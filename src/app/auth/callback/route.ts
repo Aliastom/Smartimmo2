@@ -148,7 +148,6 @@ export async function GET(request: NextRequest) {
         console.log('[Auth Callback] Utilisateur créé:', prismaUser.id);
       }
     }
-    }
 
     const organizationId = await ensureOrganizationForUser(
       prismaUser.id,

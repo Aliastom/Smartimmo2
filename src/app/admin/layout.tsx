@@ -1,6 +1,10 @@
 import { getCurrentUser } from '@/lib/auth/getCurrentUser';
 import { redirect } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 /**
  * Layout pour toutes les pages d'administration
  * Vérifie automatiquement que l'utilisateur est ADMIN
