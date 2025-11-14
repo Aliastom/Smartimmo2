@@ -2,6 +2,60 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase-server';
 import { prisma } from '@/lib/prisma';
 
+function decodeRedirectFromState(state: string | null): string | null {
+  if (!state) return null;
+  try {
+    const decoded = JSON.parse(
+      decodeURIComponent(Buffer.from(state, 'base64').toString('utf-8'))
+    );
+    const redirect = typeof decoded?.redirect === 'string' ? decoded.redirect : null;
+    if (redirect && redirect.startsWith('/')) {
+      return redirect;
+    }
+    return null;
+  } catch (error) {
+    console.warn('[Auth Callback] Impossible de décoder le state OAuth:', error);
+    return null;
+  }
+}
+
+function buildOrganizationSlug(seed: string) {
+  const base = seed
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 24);
+  const suffix = Math.random().toString(36).slice(2, 6);
+  return `org-${base || 'portfolio'}-${suffix}`;
+}
+
+async function ensureOrganizationForUser(userId: string, name?: string | null, email?: string | null) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { organizationId: true },
+  });
+
+  if (user?.organizationId) {
+    return user.organizationId;
+  }
+
+  const organization = await prisma.organization.create({
+    data: {
+      name: name || email || 'Portefeuille',
+      slug: buildOrganizationSlug(email || name || userId),
+      ownerUserId: userId,
+    },
+  });
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { organizationId: organization.id },
+  });
+
+  return organization.id;
+}
+
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
@@ -94,10 +148,22 @@ export async function GET(request: NextRequest) {
         console.log('[Auth Callback] Utilisateur créé:', prismaUser.id);
       }
     }
+    }
 
-    // Rediriger vers la page principale
-    const redirectUrl = requestUrl.searchParams.get('redirect') || '/dashboard';
-    return NextResponse.redirect(new URL(redirectUrl, requestUrl.origin));
+    const organizationId = await ensureOrganizationForUser(
+      prismaUser.id,
+      prismaUser.name,
+      prismaUser.email
+    );
+
+    // Déterminer l'URL finale (paramètre redirect ou state OAuth)
+    const redirectFromQuery = requestUrl.searchParams.get('redirect');
+    const redirectFromState = decodeRedirectFromState(requestUrl.searchParams.get('state'));
+    const safeRedirect =
+      redirectFromQuery && redirectFromQuery.startsWith('/')
+        ? redirectFromQuery
+        : redirectFromState || '/dashboard';
+    return NextResponse.redirect(new URL(safeRedirect, requestUrl.origin));
 
   } catch (error) {
     console.error('[Auth Callback] Erreur complète:', error);

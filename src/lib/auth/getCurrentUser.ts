@@ -14,6 +14,7 @@ export type CurrentUser = {
   name: string | null;
   role: string;
   emailVerified: Date | null;
+  organizationId: string;
 };
 
 /**
@@ -40,6 +41,15 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
           { email: user.email || undefined },
         ],
       },
+      select: {
+        id: true,
+        supabaseId: true,
+        email: true,
+        name: true,
+        role: true,
+        emailVerified: true,
+        organizationId: true,
+      },
     });
 
     if (!prismaUser) {
@@ -55,6 +65,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       name: prismaUser.name,
       role: prismaUser.role,
       emailVerified: prismaUser.emailVerified,
+      organizationId: prismaUser.organizationId,
     };
   } catch (error) {
     console.error('[getCurrentUser] Erreur:', error);

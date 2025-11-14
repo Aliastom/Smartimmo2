@@ -4,6 +4,7 @@ import { PropertyRepo } from '@/lib/db/PropertyRepo';
 import { TransactionRepo } from '@/lib/db/TransactionRepo';
 import { DocumentRepo } from '@/lib/db/DocumentRepo';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import BienOverviewClient from './BienOverviewClient';
 import PropertyDetailClient from './PropertyDetailClient';
 
@@ -21,6 +22,7 @@ interface PropertyPageProps {
 }
 
 export default async function PropertyPage({ params, searchParams }: PropertyPageProps) {
+  const user = await requireAuth();
   // Si pas de tab dans l'URL, rediriger vers la page transactions
   if (!searchParams?.tab) {
     redirect(`/biens/${params.id}/transactions`);
@@ -29,7 +31,7 @@ export default async function PropertyPage({ params, searchParams }: PropertyPag
   // Si on a un tab dans l'URL, utiliser l'ancienne interface à onglets
   if (searchParams?.tab) {
   const [property, transactionsResult, documentsResult] = await Promise.all([
-    PropertyRepo.findById(params.id),
+    PropertyRepo.findById(params.id, user.organizationId),
     TransactionRepo.findMany({ 
       propertyId: params.id, 
       limit: 10, 
@@ -81,7 +83,7 @@ export default async function PropertyPage({ params, searchParams }: PropertyPag
 
   // Sinon, afficher le nouveau HUB
   // Récupérer les données du bien
-  const property = await PropertyRepo.findById(params.id);
+  const property = await PropertyRepo.findById(params.id, user.organizationId);
 
   if (!property) {
     notFound();
@@ -154,7 +156,10 @@ export default async function PropertyPage({ params, searchParams }: PropertyPag
   const documentLinks = await prisma.documentLink.findMany({
     where: {
       linkedType: 'property',
-      linkedId: params.id
+      linkedId: params.id,
+      Document: {
+        organizationId: user.organizationId,
+      },
     },
     include: {
         Document: {

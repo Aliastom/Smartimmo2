@@ -12,46 +12,40 @@ import {
 import { createBrowserClient } from '@/lib/supabase';
 
 const STATE_MACHINE_NAME = 'Login Machine';
-const LOCAL_RIVE_SRC = '/rive/login-teddy.riv';
+const RIVE_SRC = '/rive/login-teddy.riv';
 const REMOTE_RIVE_SRC =
   'https://raw.githubusercontent.com/rive-app/rive-use-cases/main-archive/public/login-teddy.riv';
 
-export function LoginForm() {
+type LoginFormProps = {
+  redirectPath?: string;
+};
+
+export function LoginForm({ redirectPath }: LoginFormProps) {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [inputLookMultiplier, setInputLookMultiplier] = useState(0);
   const emailInputRef = useRef<HTMLInputElement | null>(null);
-  const [riveSrc, setRiveSrc] = useState<string>(REMOTE_RIVE_SRC);
+  const [riveSrc, setRiveSrc] = useState<string>(RIVE_SRC);
 
   useEffect(() => {
-    let isMounted = true;
-    let objectUrl: string | null = null;
+    let cancelled = false;
 
-    fetch(LOCAL_RIVE_SRC)
+    fetch(RIVE_SRC, { method: 'HEAD' })
       .then((res) => {
-        if (!res.ok) {
-          throw new Error('Local Rive not available');
-        }
-        return res.blob();
-      })
-      .then((blob) => {
-        objectUrl = URL.createObjectURL(blob);
-        if (isMounted) {
-          setRiveSrc(objectUrl);
+        if (!res.ok && !cancelled) {
+          setRiveSrc(REMOTE_RIVE_SRC);
         }
       })
       .catch(() => {
-        // On conserve la source distante
+        if (!cancelled) {
+          setRiveSrc(REMOTE_RIVE_SRC);
+        }
       });
 
     return () => {
-      isMounted = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
+      cancelled = true;
     };
   }, []);
 
@@ -74,7 +68,6 @@ export function LoginForm() {
   const numLookInput = useStateMachineInput(rive, STATE_MACHINE_NAME, 'numLook');
   const trigSuccessInput = useStateMachineInput(rive, STATE_MACHINE_NAME, 'trigSuccess');
   const trigFailInput = useStateMachineInput(rive, STATE_MACHINE_NAME, 'trigFail');
-  const isHandsUpInput = useStateMachineInput(rive, STATE_MACHINE_NAME, 'isHandsUp');
 
   useEffect(() => {
     if (emailInputRef.current && !inputLookMultiplier) {
@@ -109,18 +102,6 @@ export function LoginForm() {
     }
   };
 
-  const handlePasswordFocus = () => {
-    if (isHandsUpInput) {
-      isHandsUpInput.value = true;
-    }
-  };
-
-  const handlePasswordBlur = () => {
-    if (isHandsUpInput) {
-      isHandsUpInput.value = false;
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -135,10 +116,17 @@ export function LoginForm() {
 
     try {
       const supabase = createBrowserClient();
+      const safeRedirect =
+        redirectPath && redirectPath.startsWith('/') ? redirectPath : undefined;
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      const callbackBase = `${appUrl}/auth/callback`;
+      const callbackUrl = safeRedirect
+        ? `${callbackBase}?redirect=${encodeURIComponent(safeRedirect)}`
+        : callbackBase;
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/auth/callback`,
+          emailRedirectTo: callbackUrl,
         },
       });
 
@@ -152,7 +140,6 @@ export function LoginForm() {
       });
       trigSuccessInput?.fire();
       setEmail('');
-      setPassword('');
     } catch (error: any) {
       console.error("Erreur lors de l'envoi du magic link:", error);
       setMessage({
@@ -171,7 +158,13 @@ export function LoginForm() {
 
     try {
       const supabase = createBrowserClient();
-      const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/auth/callback`;
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      const redirectTo = `${appUrl}/auth/callback`;
+      const safeRedirect =
+        redirectPath && redirectPath.startsWith('/') ? redirectPath : undefined;
+      const statePayload = safeRedirect
+        ? btoa(encodeURIComponent(JSON.stringify({ redirect: safeRedirect })))
+        : undefined;
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -180,6 +173,7 @@ export function LoginForm() {
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
+            ...(statePayload ? { state: statePayload } : {}),
           },
         },
       });
@@ -204,60 +198,30 @@ export function LoginForm() {
     <div className="flex w-full justify-center">
       <div className="relative w-full max-w-4xl rounded-[40px] bg-[#E7F1FA] p-6 shadow-2xl shadow-slate-900/10">
         <div className="relative mx-auto flex flex-col items-center">
-          <div className="relative w-full max-w-3xl overflow-hidden rounded-[32px] bg-[#CFE4F9]">
-            <div className="h-[360px] w-full bg-gradient-to-b from-[#DFF1FF] to-[#CFE4F9]">
-              <RiveComponent key={riveSrc} className="h-full w-full" />
+          <div className="relative w-full max-w-4xl overflow-hidden rounded-[40px] bg-[#CFE4F9]">
+            <div className="h-[460px] w-full bg-gradient-to-b from-[#DFF1FF] to-[#CFE4F9]">
+              <RiveComponent className="h-full w-full" />
             </div>
           </div>
 
           <form
             onSubmit={handleSubmit}
-            className="relative -mt-24 w-full max-w-md rounded-[28px] bg-white p-8 shadow-2xl"
+            className="relative -mt-24 w-full max-w-md rounded-[32px] bg-white/70 p-8 shadow-2xl backdrop-blur-lg"
           >
-            <div className="mb-6 text-center">
-              <p className="text-sm font-semibold uppercase tracking-[0.3em] text-primary/80">
-                Auth sécurisée
-              </p>
-              <h1 className="mt-2 text-2xl font-bold text-base-content">Ravis de vous revoir 👋</h1>
-              <p className="text-sm text-base-content/60">
-                Envoi immédiat d&apos;un lien magique ou connexion Google.
-              </p>
-            </div>
-
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text text-base-content">Email professionnel</span>
-              </label>
+            <div className="space-y-6">
               <input
                 ref={emailInputRef}
                 type="email"
                 placeholder="tom.dub02@gmail.com"
-                className="input input-bordered w-full"
+                className="input input-bordered w-full bg-white/80 backdrop-blur"
                 value={email}
                 onChange={handleEmailChange}
                 onFocus={handleEmailFocus}
                 onBlur={handleEmailBlur}
                 disabled={loading || googleLoading}
                 required
+                aria-label="Email professionnel"
               />
-            </div>
-
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text text-base-content">Code de sécurité (optionnel)</span>
-                <span className="text-xs text-base-content/50">Pour la future connexion par mot de passe</span>
-              </label>
-              <input
-                type="password"
-                placeholder="******"
-                className="input input-bordered w-full"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onFocus={handlePasswordFocus}
-                onBlur={handlePasswordBlur}
-                disabled={loading || googleLoading}
-              />
-            </div>
 
             {message && (
               <div
@@ -269,7 +233,7 @@ export function LoginForm() {
 
             <button
               type="submit"
-              className={`btn btn-primary mt-6 w-full ${loading ? 'loading' : ''}`}
+              className={`btn btn-primary mt-2 w-full ${loading ? 'loading' : ''}`}
               disabled={loading || googleLoading}
             >
               {loading ? 'Envoi en cours...' : 'Envoyer le lien de connexion'}
@@ -300,6 +264,7 @@ export function LoginForm() {
             <p className="mt-6 text-center text-xs text-base-content/50">
               En continuant, vous acceptez nos conditions d&apos;utilisation et notre politique de confidentialité.
             </p>
+            </div>
           </form>
         </div>
       </div>

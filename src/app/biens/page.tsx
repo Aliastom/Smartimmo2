@@ -11,6 +11,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { PropertyRepo } from '@/lib/db/PropertyRepo';
 import { PropertyFilters } from '@/lib/db/PropertyRepo';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { 
   Plus, 
   Eye, 
@@ -33,6 +34,8 @@ export default async function BiensPage({
 }: {
   searchParams: { search?: string; page?: string; status?: string; type?: string; includeArchived?: string };
 }) {
+  const user = await requireAuth();
+
   // Récupérer les données depuis Prisma
   const filters: PropertyFilters = {
     search: searchParams.search,
@@ -46,12 +49,13 @@ export default async function BiensPage({
   };
 
   const [propertiesResult, stats] = await Promise.all([
-    PropertyRepo.findMany(filters),
-    PropertyRepo.getStats()
+    PropertyRepo.findMany(filters, user.organizationId),
+    PropertyRepo.getStats(user.organizationId)
   ]);
 
   // Récupérer toutes les propriétés pour les graphiques
   const allProperties = await prisma.property.findMany({
+    where: { organizationId: user.organizationId },
     select: {
       id: true,
       name: true,
@@ -75,6 +79,7 @@ export default async function BiensPage({
 
   const allTransactions = await prisma.transaction.findMany({
     where: {
+      organizationId: user.organizationId,
       date: { gte: twoYearsAgo }
     },
     select: {

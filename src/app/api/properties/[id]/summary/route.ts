@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../../lib/prisma';
 import { addYears } from 'date-fns';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -8,13 +9,14 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const user = await requireAuth();
     const propertyId = params.id;
     const today = new Date();
     const dateFrom = addYears(today, -1);
 
     // Récupérer la propriété pour les valeurs de base
-    const property = await prisma.property.findUnique({
-      where: { id: propertyId },
+    const property = await prisma.property.findFirst({
+      where: { id: propertyId, organizationId: user.organizationId },
       select: {
         id: true,
         name: true,
@@ -34,6 +36,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       _sum: { amount: true },
       where: {
         propertyId,
+        organizationId: user.organizationId,
         date: { gte: dateFrom, lte: today },
         accountingCategory: { type: 'REVENU' },
       },
@@ -44,6 +47,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       _sum: { amount: true },
       where: {
         propertyId,
+        organizationId: user.organizationId,
         date: { gte: dateFrom, lte: today },
         accountingCategory: { type: 'DEPENSE' },
       },
@@ -54,6 +58,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       _sum: { amount: true },
       where: {
         propertyId,
+        organizationId: user.organizationId,
         date: { gte: dateFrom, lte: today },
         nature: 'REMBOURSEMENT_EMPRUNT',
       },

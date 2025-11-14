@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/Pagination';
 import { TenantRepo } from '@/lib/db/TenantRepo';
 import { TenantFilters } from '@/lib/db/TenantRepo';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import LocatairesClient from './LocatairesClient';
 
 export default async function LocatairesPage({
@@ -17,6 +18,7 @@ export default async function LocatairesPage({
 }: {
   searchParams: { search?: string; page?: string; status?: string };
 }) {
+  const user = await requireAuth();
   // Récupérer les données depuis Prisma
   const filters: TenantFilters = {
     search: searchParams.search,
@@ -28,8 +30,8 @@ export default async function LocatairesPage({
   };
 
   const [tenantsResult, stats] = await Promise.all([
-    TenantRepo.findMany(filters),
-    TenantRepo.getStats()
+    TenantRepo.findMany(filters, user.organizationId),
+    TenantRepo.getStats(user.organizationId)
   ]);
 
   // Formater les stats pour les StatCards

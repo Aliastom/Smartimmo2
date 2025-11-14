@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PropertyRepo, PropertyFilters } from '@/lib/db/PropertyRepo';
 import { z } from 'zod';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -28,6 +29,7 @@ const createPropertySchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
     const { searchParams } = new URL(request.url);
     
     const filters: PropertyFilters = {
@@ -41,7 +43,7 @@ export async function GET(request: NextRequest) {
       sortOrder: (searchParams.get('sortOrder') as any) || 'asc'
     };
 
-    const result = await PropertyRepo.findMany(filters);
+    const result = await PropertyRepo.findMany(filters, user.organizationId);
     
     return NextResponse.json(result);
   } catch (error) {
@@ -55,6 +57,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
     const body = await request.json();
     const validatedData = createPropertySchema.parse(body);
     
@@ -70,7 +73,7 @@ export async function POST(request: NextRequest) {
       fiscalRegimeId: dataWithoutId.fiscalRegimeId || null,
     };
     
-    const property = await PropertyRepo.create(sanitizedData);
+    const property = await PropertyRepo.create(user.organizationId, sanitizedData);
     
     return NextResponse.json(property, { status: 201 });
   } catch (error) {

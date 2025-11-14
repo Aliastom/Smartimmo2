@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPropertyStats } from '@/services/deletePropertySmart';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -10,7 +11,8 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const stats = await getPropertyStats(params.id);
+    const user = await requireAuth();
+    const stats = await getPropertyStats(params.id, user.organizationId);
     
     return NextResponse.json(stats);
   } catch (error) {

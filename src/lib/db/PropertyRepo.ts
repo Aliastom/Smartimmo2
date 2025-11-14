@@ -54,7 +54,7 @@ export interface PropertyWithRelations {
 }
 
 export class PropertyRepo {
-  static async findMany(filters: PropertyFilters = {}) {
+  static async findMany(filters: PropertyFilters = {}, organizationId: string) {
     const {
       search,
       status,
@@ -69,7 +69,7 @@ export class PropertyRepo {
 
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { organizationId };
     
     // Filtre archivés : par défaut, exclure les biens archivés
     if (!includeArchived) {
@@ -155,9 +155,9 @@ export class PropertyRepo {
     };
   }
 
-  static async findById(id: string) {
-    return prisma.property.findUnique({
-      where: { id },
+  static async findById(id: string, organizationId: string) {
+    return prisma.property.findFirst({
+      where: { id, organizationId },
       include: {
         Lease: {
           include: {
@@ -179,7 +179,9 @@ export class PropertyRepo {
     });
   }
 
-  static async create(data: {
+  static async create(
+    organizationId: string,
+    data: {
     name: string;
     type: string;
     address: string;
@@ -199,6 +201,7 @@ export class PropertyRepo {
     return prisma.property.create({
       data: {
         ...data,
+        organizationId,
         currentValue: data.currentValue || data.acquisitionPrice,
         status: data.status || 'vacant',
         occupation: data.occupation || 'VACANT'
@@ -206,14 +209,22 @@ export class PropertyRepo {
     });
   }
 
-  static async update(id: string, data: any) {
+  static async update(id: string, organizationId: string, data: any) {
+    const existing = await prisma.property.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!existing) {
+      throw new Error('Property not found');
+    }
     return prisma.property.update({
       where: { id },
       data
     });
   }
 
-  static async delete(id: string) {
+  static async delete(id: string, organizationId: string) {
+    const existing = await prisma.property.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!existing) {
+      throw new Error('Property not found');
+    }
     // Vérifier les dépendances avant suppression
     const [leases, transactions, documents] = await Promise.all([
       prisma.lease.count({ where: { propertyId: id } }),
@@ -230,16 +241,17 @@ export class PropertyRepo {
     });
   }
 
-  static async getStats() {
+  static async getStats(organizationId: string) {
     const [
       total,
       occupied,
       vacant,
       monthlyRevenue
     ] = await Promise.all([
-      prisma.property.count(),
+      prisma.property.count({ where: { organizationId } }),
       prisma.property.count({
         where: {
+          organizationId,
           Lease: {
             some: {
               status: 'ACTIF'
@@ -249,6 +261,7 @@ export class PropertyRepo {
       }),
       prisma.property.count({
         where: {
+          organizationId,
           Lease: {
             none: {
               status: 'ACTIF'
@@ -258,6 +271,7 @@ export class PropertyRepo {
       }),
       prisma.transaction.aggregate({
         where: {
+          organizationId,
           nature: 'LOYER',
           date: {
             gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1)

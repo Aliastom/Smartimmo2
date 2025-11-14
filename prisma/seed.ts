@@ -16,6 +16,31 @@ async function main() {
   await prisma.tenant.deleteMany();
   await prisma.category.deleteMany();
   await prisma.taxConfig.deleteMany();
+  await prisma.organization.deleteMany();
+
+  const organization = await prisma.organization.create({
+    data: {
+      name: 'Portefeuille Démo',
+      slug: 'demo-org',
+    },
+  });
+
+  const demoUser = await prisma.user.upsert({
+    where: { email: 'demo@smartimmo.com' },
+    update: {
+      name: 'Compte Démo',
+      organizationId: organization.id,
+      role: 'ADMIN',
+    },
+    create: {
+      email: 'demo@smartimmo.com',
+      name: 'Compte Démo',
+      role: 'ADMIN',
+      organizationId: organization.id,
+    },
+  });
+
+  console.log('👤 Utilisateur de seed:', demoUser.email);
 
   // Categories
   const categoryLoyer = await prisma.category.create({
@@ -93,6 +118,7 @@ async function main() {
   // Properties
   const house = await prisma.property.create({
     data: {
+      organizationId: organization.id,
       name: 'Villa Familiale',
       type: 'house',
       address: '123 rue de la Paix',
@@ -110,6 +136,7 @@ async function main() {
 
   const apartment = await prisma.property.create({
     data: {
+      organizationId: organization.id,
       name: 'Appartement Centre Ville',
       type: 'apartment',
       address: '45 avenue des Champs-Élysées',
@@ -127,6 +154,7 @@ async function main() {
 
   const garage = await prisma.property.create({
     data: {
+      organizationId: organization.id,
       name: 'Garage Parking Sécurisé',
       type: 'garage',
       address: '12 rue du Parking',
@@ -145,6 +173,7 @@ async function main() {
   // Tenants
   const tenant1 = await prisma.tenant.create({
     data: {
+      organizationId: organization.id,
       firstName: 'Dupont',
       lastName: 'Famille',
       email: 'dupont.famille@example.com',
@@ -154,6 +183,7 @@ async function main() {
 
   const tenant2 = await prisma.tenant.create({
     data: {
+      organizationId: organization.id,
       firstName: 'Pierre',
       lastName: 'Martin',
       email: 'pierre.martin@example.com',
@@ -164,6 +194,7 @@ async function main() {
   // Leases
   const lease1 = await prisma.lease.create({
     data: {
+      organizationId: organization.id,
       propertyId: house.id,
       tenantId: tenant1.id,
       type: 'residential',
@@ -179,6 +210,7 @@ async function main() {
 
   const lease2 = await prisma.lease.create({
     data: {
+      organizationId: organization.id,
       propertyId: apartment.id,
       tenantId: tenant2.id,
       type: 'residential',
@@ -195,6 +227,7 @@ async function main() {
   // Loans
   const loan1 = await prisma.loan.create({
     data: {
+      organizationId: organization.id,
       propertyId: house.id,
       label: 'Prêt Crédit Agricole',
       principal: 320000,
@@ -214,6 +247,7 @@ async function main() {
   // Prêt mensuel (lié au bien house)
   await prisma.echeanceRecurrente.create({
     data: {
+      organizationId: organization.id,
       propertyId: house.id,
       label: 'Mensualité prêt immobilier',
       type: 'PRET',
@@ -229,6 +263,7 @@ async function main() {
   // Copropriété mensuelle (house)
   await prisma.echeanceRecurrente.create({
     data: {
+      organizationId: organization.id,
       propertyId: house.id,
       label: 'Charges de copropriété',
       type: 'COPRO',
@@ -244,6 +279,7 @@ async function main() {
   // Copropriété mensuelle (apartment)
   await prisma.echeanceRecurrente.create({
     data: {
+      organizationId: organization.id,
       propertyId: apartment.id,
       label: 'Charges de copropriété',
       type: 'COPRO',
@@ -259,6 +295,7 @@ async function main() {
   // PNO annuelle (house)
   await prisma.echeanceRecurrente.create({
     data: {
+      organizationId: organization.id,
       propertyId: house.id,
       label: 'Assurance PNO',
       type: 'PNO',
@@ -274,6 +311,7 @@ async function main() {
   // CFE annuelle (house)
   await prisma.echeanceRecurrente.create({
     data: {
+      organizationId: organization.id,
       propertyId: house.id,
       label: 'Contribution Foncière des Entreprises',
       type: 'CFE',
@@ -294,6 +332,7 @@ async function main() {
     // Rents for house
     await prisma.transaction.create({
       data: {
+        organizationId: organization.id,
         propertyId: house.id,
         leaseId: lease1.id,
         categoryId: categoryLoyer.id,
@@ -308,6 +347,7 @@ async function main() {
     // Rents for apartment
     await prisma.transaction.create({
       data: {
+        organizationId: organization.id,
         propertyId: apartment.id,
         leaseId: lease2.id,
         categoryId: categoryLoyer.id,
@@ -323,6 +363,7 @@ async function main() {
     if (i % 3 === 0) {
       await prisma.transaction.create({
         data: {
+          organizationId: organization.id,
           propertyId: house.id,
           label: 'Entretien jardin',
           amount: 80,
@@ -336,6 +377,7 @@ async function main() {
   // Annual expenses
   await prisma.transaction.create({
     data: {
+      organizationId: organization.id,
       propertyId: house.id,
       label: 'Taxe foncière',
       amount: 1200,
@@ -346,6 +388,7 @@ async function main() {
 
   await prisma.transaction.create({
     data: {
+      organizationId: organization.id,
       propertyId: apartment.id,
       label: 'Assurance PNO',
       amount: 480,
@@ -357,6 +400,7 @@ async function main() {
   // Additional Tenants
   const tenant3 = await prisma.tenant.create({
     data: {
+      organizationId: organization.id,
       firstName: 'Marie',
       lastName: 'Dupont',
       email: 'marie.dupont@email.com',
@@ -368,6 +412,7 @@ async function main() {
 
   const tenant4 = await prisma.tenant.create({
     data: {
+      organizationId: organization.id,
       firstName: 'Pierre',
       lastName: 'Martin',
       email: 'pierre.martin@email.com',
@@ -380,6 +425,7 @@ async function main() {
   // Active lease
   const lease = await prisma.lease.create({
     data: {
+      organizationId: organization.id,
       propertyId: house.id,
       tenantId: tenant3.id,
       type: 'residential',
@@ -397,6 +443,7 @@ async function main() {
   // Sample documents
   await prisma.document.create({
     data: {
+      organizationId: organization.id,
       bucketKey: 'docs/contrat-location.pdf',
       filenameOriginal: 'contrat-location.pdf',
       fileName: 'contrat-location.pdf',
@@ -411,6 +458,7 @@ async function main() {
 
   await prisma.document.create({
     data: {
+      organizationId: organization.id,
       fileName: 'quittance-janvier.pdf',
       mime: 'application/pdf',
       url: '/uploads/quittance-janvier.pdf',

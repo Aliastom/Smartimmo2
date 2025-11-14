@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PropertyRepo } from '@/lib/db/PropertyRepo';
 import { z } from 'zod';
 import { deletePropertySmart, getPropertyStats } from '@/services/deletePropertySmart';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -32,7 +33,8 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const property = await PropertyRepo.findById(params.id);
+    const user = await requireAuth();
+    const property = await PropertyRepo.findById(params.id, user.organizationId);
     
     if (!property) {
       return NextResponse.json(
@@ -56,6 +58,7 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
     const body = await request.json();
     
     const validatedData = updatePropertySchema.parse(body);
@@ -77,7 +80,7 @@ export async function PUT(
       sanitizedData.fiscalRegimeId = sanitizedData.fiscalRegimeId || null;
     }
     
-    const property = await PropertyRepo.update(params.id, sanitizedData);
+    const property = await PropertyRepo.update(params.id, user.organizationId, sanitizedData);
     
     return NextResponse.json(property);
   } catch (error) {
@@ -101,6 +104,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
     const body = await request.json().catch(() => ({}));
     const mode = body.mode || 'archive'; // Par défaut : archiver
     const targetPropertyId = body.targetPropertyId;
@@ -122,13 +126,14 @@ export async function DELETE(
     }
 
     // Récupérer les stats avant suppression (pour le retour)
-    const stats = await getPropertyStats(params.id);
+    const stats = await getPropertyStats(params.id, user.organizationId);
 
     // Exécuter la suppression intelligente
     await deletePropertySmart({
       propertyId: params.id,
       mode,
       targetPropertyId,
+      organizationId: user.organizationId,
     });
 
     return NextResponse.json({ 

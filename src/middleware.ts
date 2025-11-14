@@ -15,6 +15,7 @@ export async function middleware(request: NextRequest) {
     '/auth/logout',
     '/_next',
     '/favicon.ico',
+    '/rive',
   ];
   
   // Routes API publiques (ne nécessitent pas d'auth)
@@ -24,7 +25,28 @@ export async function middleware(request: NextRequest) {
   ];
   
   // Vérifier si la route est publique
-  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
+  const staticFileExtensions = [
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.webp',
+    '.svg',
+    '.ico',
+    '.css',
+    '.js',
+    '.txt',
+    '.json',
+    '.map',
+    '.woff',
+    '.woff2',
+    '.ttf',
+    '.otf',
+    '.riv',
+  ];
+
+  const isStaticAsset = staticFileExtensions.some((ext) => pathname.endsWith(ext));
+  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route)) || isStaticAsset;
   const isPublicApi = publicApiRoutes.some(route => pathname.startsWith(route));
   
   if (isPublicRoute || isPublicApi) {

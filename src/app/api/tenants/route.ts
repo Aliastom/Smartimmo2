@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TenantRepo, TenantFilters } from '@/lib/db/TenantRepo';
 import { z } from 'zod';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -38,6 +39,7 @@ const createTenantSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
     const { searchParams } = new URL(request.url);
     
     const filters: TenantFilters = {
@@ -49,7 +51,7 @@ export async function GET(request: NextRequest) {
       sortOrder: (searchParams.get('sortOrder') as any) || 'asc'
     };
 
-    const result = await TenantRepo.findMany(filters);
+    const result = await TenantRepo.findMany(filters, user.organizationId);
     
     return NextResponse.json(result);
   } catch (error) {
@@ -63,6 +65,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
     const body = await request.json();
     
     const validatedData = createTenantSchema.parse(body);
@@ -70,7 +73,7 @@ export async function POST(request: NextRequest) {
     // Exclure l'ID si présent (création, pas mise à jour)
     const { id, ...dataWithoutId } = validatedData as any;
     
-    const tenant = await TenantRepo.create({
+    const tenant = await TenantRepo.create(user.organizationId, {
       ...dataWithoutId,
       birthDate: validatedData.birthDate ? new Date(validatedData.birthDate) : undefined,
       tags: validatedData.tags ? JSON.stringify(validatedData.tags) : undefined

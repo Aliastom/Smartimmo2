@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TenantRepo } from '@/lib/db/TenantRepo';
 import { z } from 'zod';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -32,7 +33,8 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const tenant = await TenantRepo.findById(params.id);
+    const user = await requireAuth();
+    const tenant = await TenantRepo.findById(params.id, user.organizationId);
     
     if (!tenant) {
       return NextResponse.json(
@@ -56,6 +58,7 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
     const body = await request.json();
     
     const validatedData = updateTenantSchema.parse(body);
@@ -70,7 +73,7 @@ export async function PUT(
       validatedData.tags = JSON.stringify(validatedData.tags);
     }
     
-    const tenant = await TenantRepo.update(params.id, validatedData);
+    const tenant = await TenantRepo.update(params.id, user.organizationId, validatedData);
     
     return NextResponse.json(tenant);
   } catch (error) {
@@ -94,7 +97,8 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    await TenantRepo.delete(params.id);
+    const user = await requireAuth();
+    await TenantRepo.delete(params.id, user.organizationId);
     
     return NextResponse.json({ message: 'Locataire supprimé avec succès' });
   } catch (error: any) {

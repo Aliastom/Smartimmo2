@@ -69,7 +69,7 @@ export interface TenantWithRelations {
 }
 
 export class TenantRepo {
-  static async findMany(filters: TenantFilters = {}) {
+  static async findMany(filters: TenantFilters = {}, organizationId: string) {
     const {
       search,
       status = 'all',
@@ -81,7 +81,7 @@ export class TenantRepo {
 
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { organizationId };
     
     if (search) {
       where.OR = [
@@ -163,9 +163,9 @@ export class TenantRepo {
     };
   }
 
-  static async findById(id: string) {
-    return prisma.tenant.findUnique({
-      where: { id },
+  static async findById(id: string, organizationId: string) {
+    return prisma.tenant.findFirst({
+      where: { id, organizationId },
       include: {
         Lease: {
           include: {
@@ -181,7 +181,7 @@ export class TenantRepo {
     });
   }
 
-  static async create(data: {
+  static async create(organizationId: string, data: {
     firstName: string;
     lastName: string;
     email: string;
@@ -204,19 +204,28 @@ export class TenantRepo {
     return prisma.tenant.create({
       data: {
         ...data,
+        organizationId,
         id: undefined // Prisma générera l'ID si @default est défini dans le schéma
       }
     });
   }
 
-  static async update(id: string, data: any) {
+  static async update(id: string, organizationId: string, data: any) {
+    const existing = await prisma.tenant.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!existing) {
+      throw new Error('Tenant not found');
+    }
     return prisma.tenant.update({
       where: { id },
       data
     });
   }
 
-  static async delete(id: string) {
+  static async delete(id: string, organizationId: string) {
+    const existing = await prisma.tenant.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!existing) {
+      throw new Error('Tenant not found');
+    }
     // VÃ©rifier les dÃ©pendances avant suppression
     const [leases, documents] = await Promise.all([
       prisma.lease.count({ where: { tenantId: id } }),
@@ -232,16 +241,17 @@ export class TenantRepo {
     });
   }
 
-  static async getStats() {
+  static async getStats(organizationId: string) {
     const [
       total,
       withActiveLeases,
       withoutLeases,
       overduePayments
     ] = await Promise.all([
-      prisma.tenant.count(),
+      prisma.tenant.count({ where: { organizationId } }),
       prisma.tenant.count({
         where: {
+          organizationId,
           Lease: {
             some: {
               status: 'ACTIF'
@@ -251,14 +261,15 @@ export class TenantRepo {
       }),
       prisma.tenant.count({
         where: {
+          organizationId,
           Lease: {
             none: {}
           }
         }
       }),
-      // Pour les paiements en retard, on vÃ©rifie les transactions de loyer non payÃ©es
       prisma.transaction.count({
         where: {
+          organizationId,
           nature: 'LOYER',
           paidAt: null,
           date: {
