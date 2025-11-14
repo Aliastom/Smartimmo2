@@ -12,7 +12,9 @@ import {
 import { createBrowserClient } from '@/lib/supabase';
 
 const STATE_MACHINE_NAME = 'Login Machine';
-const RIVE_SRC = '/rive/login-teddy.riv';
+const LOCAL_RIVE_SRC = '/rive/login-teddy.riv';
+const REMOTE_RIVE_SRC =
+  'https://raw.githubusercontent.com/rive-app/rive-use-cases/main-archive/public/login-teddy.riv';
 
 export function LoginForm() {
   const [email, setEmail] = useState('');
@@ -22,9 +24,28 @@ export function LoginForm() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [inputLookMultiplier, setInputLookMultiplier] = useState(0);
   const emailInputRef = useRef<HTMLInputElement | null>(null);
+  const [riveSrc, setRiveSrc] = useState(LOCAL_RIVE_SRC);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(LOCAL_RIVE_SRC, { method: 'HEAD' })
+      .then((res) => {
+        if (!cancelled && !res.ok) {
+          setRiveSrc(REMOTE_RIVE_SRC);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRiveSrc(REMOTE_RIVE_SRC);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const { rive, RiveComponent } = useRive({
-    src: RIVE_SRC,
+    src: riveSrc,
     stateMachines: STATE_MACHINE_NAME,
     autoplay: true,
     layout: new Layout({
