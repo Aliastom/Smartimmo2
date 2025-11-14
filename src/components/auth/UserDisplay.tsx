@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Shield, LogOut, Settings, User, ChevronUp } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useRouter } from 'next/navigation';
+import { createBrowserClient } from '@/lib/supabase';
 
 interface UserInfo {
   name: string | null;
@@ -58,7 +59,10 @@ export function UserDisplay({ className }: { className?: string }) {
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      const supabase = createBrowserClient();
+      await supabase.auth.signOut();
+      setIsMenuOpen(false);
+      await fetch('/auth/logout', { method: 'POST' }).catch(() => {});
       router.push('/login');
       router.refresh();
     } catch (error) {
