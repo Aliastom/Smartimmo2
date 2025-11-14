@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Chrome, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Chrome } from 'lucide-react';
 import {
   useRive,
   useStateMachineInput,
@@ -24,35 +24,39 @@ export function LoginForm() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [inputLookMultiplier, setInputLookMultiplier] = useState(0);
   const emailInputRef = useRef<HTMLInputElement | null>(null);
-  const [riveSrc, setRiveSrc] = useState(LOCAL_RIVE_SRC);
+  const [riveSrc, setRiveSrc] = useState(REMOTE_RIVE_SRC);
 
   useEffect(() => {
     let cancelled = false;
     fetch(LOCAL_RIVE_SRC, { method: 'HEAD' })
       .then((res) => {
-        if (!cancelled && !res.ok) {
-          setRiveSrc(REMOTE_RIVE_SRC);
+        if (!cancelled && res.ok) {
+          setRiveSrc(LOCAL_RIVE_SRC);
         }
       })
       .catch(() => {
-        if (!cancelled) {
-          setRiveSrc(REMOTE_RIVE_SRC);
-        }
+        /* ignore: fallback already remote */
       });
+
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const { rive, RiveComponent } = useRive({
-    src: riveSrc,
-    stateMachines: STATE_MACHINE_NAME,
-    autoplay: true,
-    layout: new Layout({
-      fit: Fit.Cover,
-      alignment: Alignment.Center,
+  const riveParams = useMemo(
+    () => ({
+      src: riveSrc,
+      stateMachines: STATE_MACHINE_NAME,
+      autoplay: true,
+      layout: new Layout({
+        fit: Fit.Cover,
+        alignment: Alignment.Center,
+      }),
     }),
-  });
+    [riveSrc]
+  );
+
+  const { rive, RiveComponent } = useRive(riveParams, undefined, [riveSrc]);
 
   const isCheckingInput = useStateMachineInput(rive, STATE_MACHINE_NAME, 'isChecking');
   const numLookInput = useStateMachineInput(rive, STATE_MACHINE_NAME, 'numLook');
@@ -185,115 +189,108 @@ export function LoginForm() {
   };
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr]">
-      <div className="relative overflow-hidden rounded-[32px] bg-slate-900 text-white shadow-2xl">
-        <div className="absolute inset-0">
-          <RiveComponent className="h-full w-full" />
-        </div>
-        <div className="relative z-10 flex h-full flex-col justify-between p-10">
-          <div>
-            <p className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-widest text-white/80">
-              <Sparkles className="h-4 w-4" />
-              Auth sécurisée
-            </p>
-            <h2 className="mt-5 text-4xl font-bold leading-tight">Votre concierge digital vous attend</h2>
-            <p className="mt-4 text-base text-white/70">
-              Saisissez votre email ou utilisez Google pour recevoir instantanément un lien sécurisé.
-              Le compagnon Rive suit vos actions en temps réel.
-            </p>
+    <div className="flex w-full justify-center">
+      <div className="relative w-full max-w-4xl rounded-[40px] bg-[#E7F1FA] p-6 shadow-2xl shadow-slate-900/10">
+        <div className="relative mx-auto flex flex-col items-center">
+          <div className="relative w-full max-w-3xl overflow-hidden rounded-[32px] bg-[#CFE4F9]">
+            <div className="h-[360px] w-full bg-gradient-to-b from-[#DFF1FF] to-[#CFE4F9]">
+              <RiveComponent key={riveSrc} className="h-full w-full" />
+            </div>
           </div>
-          <div className="text-sm text-white/60">
-            Animations propulsées par Rive • Middleware Supabase & Prisma
-          </div>
+
+          <form
+            onSubmit={handleSubmit}
+            className="relative -mt-24 w-full max-w-md rounded-[28px] bg-white p-8 shadow-2xl"
+          >
+            <div className="mb-6 text-center">
+              <p className="text-sm font-semibold uppercase tracking-[0.3em] text-primary/80">
+                Auth sécurisée
+              </p>
+              <h1 className="mt-2 text-2xl font-bold text-base-content">Ravis de vous revoir 👋</h1>
+              <p className="text-sm text-base-content/60">
+                Envoi immédiat d&apos;un lien magique ou connexion Google.
+              </p>
+            </div>
+
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text text-base-content">Email professionnel</span>
+              </label>
+              <input
+                ref={emailInputRef}
+                type="email"
+                placeholder="tom.dub02@gmail.com"
+                className="input input-bordered w-full"
+                value={email}
+                onChange={handleEmailChange}
+                onFocus={handleEmailFocus}
+                onBlur={handleEmailBlur}
+                disabled={loading || googleLoading}
+                required
+              />
+            </div>
+
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text text-base-content">Code de sécurité (optionnel)</span>
+                <span className="text-xs text-base-content/50">Pour la future connexion par mot de passe</span>
+              </label>
+              <input
+                type="password"
+                placeholder="******"
+                className="input input-bordered w-full"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onFocus={handlePasswordFocus}
+                onBlur={handlePasswordBlur}
+                disabled={loading || googleLoading}
+              />
+            </div>
+
+            {message && (
+              <div
+                className={`alert mt-4 ${message.type === 'success' ? 'alert-success' : 'alert-error'}`}
+              >
+                <span>{message.text}</span>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className={`btn btn-primary mt-6 w-full ${loading ? 'loading' : ''}`}
+              disabled={loading || googleLoading}
+            >
+              {loading ? 'Envoi en cours...' : 'Envoyer le lien de connexion'}
+            </button>
+
+            <div className="my-4 flex items-center gap-4 text-base-content/40">
+              <div className="h-px flex-1 bg-base-200" />
+              <span className="text-xs uppercase tracking-widest">ou</span>
+              <div className="h-px flex-1 bg-base-200" />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              className={`btn btn-outline w-full ${googleLoading ? 'loading' : ''}`}
+              disabled={googleLoading || loading}
+            >
+              {googleLoading ? (
+                'Connexion...'
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Chrome className="w-4 h-4" />
+                  Continuer avec Google
+                </span>
+              )}
+            </button>
+
+            <p className="mt-6 text-center text-xs text-base-content/50">
+              En continuant, vous acceptez nos conditions d&apos;utilisation et notre politique de confidentialité.
+            </p>
+          </form>
         </div>
       </div>
-
-      <form onSubmit={handleSubmit} className="space-y-6 rounded-[32px] bg-white p-8 shadow-2xl shadow-slate-900/5">
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-primary">Connexion SmartImmo</p>
-          <h1 className="text-3xl font-bold text-base-content">Ravis de vous revoir 👋</h1>
-          <p className="text-sm text-base-content/60">
-            Envoi immédiat d&apos;un lien magique ou authentification Google.
-          </p>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text text-base-content">Email professionnel</span>
-          </label>
-          <input
-            ref={emailInputRef}
-            type="email"
-            placeholder="tom.dub02@gmail.com"
-            className="input input-bordered w-full"
-            value={email}
-            onChange={handleEmailChange}
-            onFocus={handleEmailFocus}
-            onBlur={handleEmailBlur}
-            disabled={loading || googleLoading}
-            required
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text text-base-content">Code de sécurité (optionnel)</span>
-            <span className="text-xs text-base-content/50">Pour la future connexion par mot de passe</span>
-          </label>
-          <input
-            type="password"
-            placeholder="******"
-            className="input input-bordered w-full"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onFocus={handlePasswordFocus}
-            onBlur={handlePasswordBlur}
-            disabled={loading || googleLoading}
-          />
-        </div>
-
-        {message && (
-          <div
-            className={`alert ${message.type === 'success' ? 'alert-success' : 'alert-error'}`}
-          >
-            <span>{message.text}</span>
-          </div>
-        )}
-
-        <button
-          type="submit"
-          className={`btn btn-primary w-full ${loading ? 'loading' : ''}`}
-          disabled={loading || googleLoading}
-        >
-          {loading ? 'Envoi en cours...' : 'Envoyer le lien de connexion'}
-        </button>
-
-        <div className="flex items-center gap-4 text-base-content/40">
-          <div className="h-px flex-1 bg-base-200" />
-          <span className="text-xs uppercase tracking-widest">ou</span>
-          <div className="h-px flex-1 bg-base-200" />
-        </div>
-
-        <button
-          type="button"
-          onClick={handleGoogleLogin}
-          className={`btn btn-outline w-full ${googleLoading ? 'loading' : ''}`}
-          disabled={googleLoading || loading}
-        >
-          {googleLoading ? (
-            'Connexion...'
-          ) : (
-            <span className="flex items-center gap-2">
-              <Chrome className="w-4 h-4" />
-              Continuer avec Google
-            </span>
-          )}
-        </button>
-
-        <p className="text-xs text-center text-base-content/50">
-          En continuant, vous acceptez nos conditions d&apos;utilisation et notre politique de confidentialité.
-        </p>
-      </form>
     </div>
   );
 }
