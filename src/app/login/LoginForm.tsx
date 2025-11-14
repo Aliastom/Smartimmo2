@@ -24,22 +24,34 @@ export function LoginForm() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [inputLookMultiplier, setInputLookMultiplier] = useState(0);
   const emailInputRef = useRef<HTMLInputElement | null>(null);
-  const [riveSrc, setRiveSrc] = useState(REMOTE_RIVE_SRC);
+  const [riveSrc, setRiveSrc] = useState<string>(REMOTE_RIVE_SRC);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch(LOCAL_RIVE_SRC, { method: 'HEAD' })
+    let isMounted = true;
+    let objectUrl: string | null = null;
+
+    fetch(LOCAL_RIVE_SRC)
       .then((res) => {
-        if (!cancelled && res.ok) {
-          setRiveSrc(LOCAL_RIVE_SRC);
+        if (!res.ok) {
+          throw new Error('Local Rive not available');
+        }
+        return res.blob();
+      })
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        if (isMounted) {
+          setRiveSrc(objectUrl);
         }
       })
       .catch(() => {
-        /* ignore: fallback already remote */
+        // On conserve la source distante
       });
 
     return () => {
-      cancelled = true;
+      isMounted = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
   }, []);
 
