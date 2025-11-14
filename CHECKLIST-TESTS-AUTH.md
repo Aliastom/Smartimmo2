@@ -43,6 +43,13 @@
 - [ ] Vérifier la redirection vers `/login`
 - [ ] Vérifier qu'on ne peut plus accéder à `/dashboard` (redirection vers `/login`)
 
+#### 2.4 Connexion Google
+- [ ] Sur `/login`, cliquer sur "Continuer avec Google"
+- [ ] Choisir un compte Google autorisé
+- [ ] Vérifier la redirection automatique vers `/dashboard`
+- [ ] Confirmer que le compte est synchronisé dans la table `User` (supabaseId rempli)
+- [ ] Vérifier la déconnexion après connexion Google
+
 ### 3. Protection des Routes
 
 #### 3.1 Routes Publiques (sans authentification)
@@ -157,6 +164,12 @@
 #### 2.3 Déconnexion
 - [ ] Cliquer sur "Déconnexion" dans la Topbar
 - [ ] Vérifier la redirection vers `/login`
+
+#### 2.4 Connexion Google
+- [ ] Cliquer sur "Continuer avec Google" sur `https://smartimmo2.vercel.app/login`
+- [ ] Confirmer que la fenêtre OAuth s'ouvre sans erreur
+- [ ] Vérifier l'arrivée sur `/dashboard` après validation
+- [ ] Vérifier la création/maj de l'utilisateur Prisma correspondant
 
 ### 3. Protection des Routes en Production
 

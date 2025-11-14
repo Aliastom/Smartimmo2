@@ -10,7 +10,7 @@ export default function LoginPage() {
               Connexion à SmartImmo
             </h1>
             <p className="text-center text-base-content/70 mb-6">
-              Entrez votre email pour recevoir un lien de connexion
+              Connectez-vous via un lien magique ou directement avec Google.
             </p>
             <LoginForm />
           </div>

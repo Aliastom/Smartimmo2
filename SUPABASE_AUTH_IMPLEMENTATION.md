@@ -61,6 +61,19 @@ CREATE UNIQUE INDEX "User_supabaseId_key" ON "User"("supabaseId");
 - ✅ Interface utilisateur propre avec DaisyUI
 - ✅ Gestion des erreurs et messages de succès
 - ✅ Redirection vers `/auth/callback` après clic sur le lien
+- ✅ Bouton dédié pour la connexion Google (OAuth)
+
+### 3bis. Connexion Google (OAuth)
+
+- **Fichier** : `src/app/login/LoginForm.tsx`
+- **Action** : Appelle `supabase.auth.signInWithOAuth({ provider: 'google' })`
+- **Redirection** : Utilise `NEXT_PUBLIC_APP_URL` (ou `window.location.origin`) pour retourner vers `/auth/callback`
+- **Options** :
+  - `access_type: 'offline'` pour récupérer un refresh token
+  - `prompt: 'consent'` pour forcer la sélection du compte
+- **Expérience utilisateur** :
+  - Bouton secondaire “Continuer avec Google”
+  - Loader et gestion des erreurs dédiés
 
 ---
 
@@ -184,6 +197,7 @@ export async function GET() {
 
 ### ✅ Fonctionnalités
 - [x] Connexion par magic link (email)
+- [x] Connexion via Google OAuth
 - [x] Synchronisation automatique Supabase ↔ Prisma
 - [x] Système de rôles fonctionnel (ADMIN/USER)
 - [x] Premier utilisateur auto-promu en ADMIN
@@ -225,8 +239,12 @@ DATABASE_URL=postgresql://...@db.xxxxx.supabase.co:5432/postgres
    - Ajouter : `http://localhost:3000/auth/callback` (développement)
 
 2. **Authentication** → **Providers**
-   - Activer "Email"
-   - Choisir "Magic Link"
+   - Activer **Email** et choisir *Magic Link*
+   - Activer **Google**
+     - Renseigner le **Client ID** et **Client Secret** OAuth 2.0 créés dans Google Cloud Console
+     - Déclarer les URL autorisées :
+       - `http://localhost:3000/auth/callback`
+       - `https://smartimmo2.vercel.app/auth/callback`
 
 3. **SQL Editor**
    - Appliquer la migration si pas déjà fait :
