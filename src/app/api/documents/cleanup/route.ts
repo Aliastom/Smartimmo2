@@ -1,8 +1,8 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 
@@ -17,6 +17,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');
     const dryRun = searchParams.get('dryRun') === 'true';
@@ -36,7 +38,8 @@ export async function GET(request: NextRequest) {
       documents = await prisma.document.findMany({
         where: {
           status: 'draft',
-          deletedAt: null
+          deletedAt: null,
+          organizationId,
         },
         select: {
           id: true,
@@ -58,7 +61,8 @@ export async function GET(request: NextRequest) {
       documents = await prisma.document.findMany({
         where: {
           deletedAt: null,
-          DocumentLink: { none: {} } // Aucun lien DocumentLink
+          organizationId,
+          DocumentLink: { none: {} }
         },
         select: {
           id: true,
@@ -99,6 +103,8 @@ export async function GET(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');
 
@@ -118,12 +124,14 @@ export async function DELETE(request: NextRequest) {
       // Documents brouillons
       whereClause = {
         status: 'draft',
-        deletedAt: null
+        deletedAt: null,
+        organizationId,
       };
     } else if (type === 'orphan') {
       // Documents orphelins (sans liaisons)
       whereClause = {
         deletedAt: null,
+        organizationId,
         DocumentLink: { none: {} }
       };
     }

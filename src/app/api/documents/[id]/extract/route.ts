@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getExtractionService } from '@/services/extraction.service';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { prisma } from '@/lib/prisma';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -19,7 +21,21 @@ export async function POST(
   context: RouteContext
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { id } = context.params;
+
+    const document = await prisma.document.findFirst({
+      where: { id, organizationId },
+      select: { id: true },
+    });
+
+    if (!document) {
+      return NextResponse.json(
+        { success: false, error: 'Document introuvable' },
+        { status: 404 }
+      );
+    }
     
     const extractionService = getExtractionService();
     const result = await extractionService.reextract(id);

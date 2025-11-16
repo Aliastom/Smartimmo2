@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { PrismaClient } from '@prisma/client';
 import { getStorageService } from '@/services/storage.service';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 
@@ -23,10 +23,11 @@ export async function GET(
   context: RouteContext
 ) {
   try {
+    const user = await requireAuth();
     const { id } = context.params;
 
-    const document = await prisma.document.findUnique({
-      where: { id },
+    const document = await prisma.document.findFirst({
+      where: { id, organizationId: user.organizationId },
     });
 
     if (!document) {

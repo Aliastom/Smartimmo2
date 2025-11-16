@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -7,6 +8,9 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     const body = await request.json();
     const { scope, transactionId } = body;
 
@@ -18,6 +22,20 @@ export async function POST(request: NextRequest) {
 
     let uploadSession;
 
+    // Vérifier que la transaction appartient à l'organisation si fournie
+    if (transactionId) {
+      const transaction = await prisma.transaction.findFirst({
+        where: { id: transactionId, organizationId },
+        select: { id: true },
+      });
+      if (!transaction) {
+        return NextResponse.json(
+          { success: false, error: 'Transaction non trouvée ou inaccessible' },
+          { status: 403 }
+        );
+      }
+    }
+
     // Si scope='transaction:edit' + transactionId → upsert (session unique par transaction)
     if (scope === 'transaction:edit' && transactionId) {
       uploadSession = await prisma.uploadSession.upsert({
@@ -25,7 +43,8 @@ export async function POST(request: NextRequest) {
         create: {
           scope,
           transactionId,
-          expiresAt
+          expiresAt,
+          organizationId
         },
         update: {
           expiresAt // Rafraîchir l'expiration
@@ -39,7 +58,8 @@ export async function POST(request: NextRequest) {
         data: {
           scope: scope || 'global',
           transactionId: scope === 'transaction:new' ? null : transactionId,
-          expiresAt
+          expiresAt,
+          organizationId
         }
       });
       console.log('[API] Nouvelle session créée:', uploadSession.id, 'scope:', scope);

@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { retrieveContext } from '@/lib/ai/rag/retrieve';
 import { aiConfig } from '@/lib/ai/config';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -20,6 +21,8 @@ export async function POST(request: NextRequest) {
       { status: 503 }
     );
   }
+
+  await requireAuth();
 
   try {
     const body = await request.json();
@@ -83,6 +86,7 @@ export async function POST(request: NextRequest) {
 
 // GET pour documentation
 export async function GET() {
+  await requireAuth();
   return NextResponse.json({
     endpoint: '/api/ai/search',
     method: 'POST',

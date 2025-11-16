@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { queryAgent } from '@/lib/ai/agent/dispatcher';
 import { type AgentConfig } from '@/lib/ai/agent/react';
 import { aiConfig } from '@/lib/ai/config';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { randomUUID } from 'crypto';
 
 
@@ -22,6 +23,8 @@ export async function POST(request: NextRequest) {
       { status: 503 }
     );
   }
+
+  const user = await requireAuth();
 
   try {
     const body = await request.json();
@@ -50,7 +53,7 @@ export async function POST(request: NextRequest) {
 
     // Configuration de l'agent
     const config: AgentConfig = {
-      sessionId: sessionId || randomUUID(),
+      sessionId: sessionId || `${user.id}-${randomUUID()}`,
       correlationId: randomUUID(),
       context: context || {},
       maxIterations,
@@ -93,6 +96,7 @@ export async function POST(request: NextRequest) {
 
 // GET pour documentation
 export async function GET() {
+  await requireAuth();
   return NextResponse.json({
     endpoint: '/api/ai/query',
     method: 'POST',

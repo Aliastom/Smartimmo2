@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     const searchParams = request.nextUrl.searchParams;
     
     // Récupérer les paramètres de filtre
@@ -20,6 +23,7 @@ export async function GET(request: NextRequest) {
 
     // Construire les filtres Prisma
     const where: any = {
+      organizationId, // Filtrer par organisation
       AND: [],
     };
 
@@ -100,11 +104,16 @@ export async function GET(request: NextRequest) {
     });
 
     // Récupérer les liens de documents pour filtrer si nécessaire
+    // Note: DocumentLink n'a pas organizationId, mais on filtre par les transactions déjà filtrées
     const transactionIds = transactions.map(t => t.id);
     const documentLinks = await prisma.documentLink.findMany({
       where: {
         linkedType: 'transaction',
-        linkedId: { in: transactionIds }
+        linkedId: { in: transactionIds },
+        // Filtrer aussi par document.organizationId pour sécurité
+        Document: {
+          organizationId, // Filtrer les documents par organisation
+        },
       },
       select: {
         linkedId: true

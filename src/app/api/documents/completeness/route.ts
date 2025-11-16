@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DocumentsService } from '@/lib/services/documents';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/documents/completeness - Vérifier la complétude des documents pour une entité
@@ -10,6 +11,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const searchParams = request.nextUrl.searchParams;
     const scope = searchParams.get('scope') as 'property' | 'lease' | 'transaction' | null;
     const entityId = searchParams.get('entityId');
@@ -21,7 +24,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const result = await DocumentsService.checkCompleteness(scope, entityId);
+    const result = await DocumentsService.checkCompleteness(scope, entityId, organizationId);
 
     return NextResponse.json(result);
   } catch (error: any) {

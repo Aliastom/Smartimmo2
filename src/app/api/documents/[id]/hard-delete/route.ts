@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { hardDeleteDocument } from '@/lib/docsSimple';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * DELETE /api/documents/[id]/hard-delete
@@ -21,6 +22,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
     const documentId = params.id;
 
     if (!documentId) {
@@ -31,7 +33,7 @@ export async function DELETE(
     }
 
     // Suppression hard delete (supprime le document + toutes les liaisons + fichier physique)
-    await hardDeleteDocument(documentId);
+    await hardDeleteDocument(documentId, user.organizationId);
 
     return NextResponse.json({ 
       success: true,

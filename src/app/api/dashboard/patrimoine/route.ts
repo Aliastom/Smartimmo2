@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { PatrimoineResponse, PatrimoineMode } from '@/types/dashboard';
 import { expandEcheances } from '@/lib/echeances/expandEcheances';
 import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/dashboard/patrimoine
@@ -14,6 +15,9 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    console.log('[Dashboard Patrimoine] User:', { id: user.id, email: user.email, organizationId });
     const { searchParams } = new URL(request.url);
     const from = searchParams.get('from') || getDefaultFrom();
     const to = searchParams.get('to') || getDefaultTo();
@@ -44,12 +48,12 @@ export async function GET(request: NextRequest) {
     // Calculer selon le mode
     let response: PatrimoineResponse;
     if (mode === 'realise') {
-      response = await calculateRealise(fromDate, toDate, months, propertyId, type, leaseStatus);
+      response = await calculateRealise(fromDate, toDate, months, organizationId, propertyId, type, leaseStatus);
     } else if (mode === 'prevision') {
-      response = await calculatePrevision(fromDate, toDate, months, propertyId, type, leaseStatus);
+      response = await calculatePrevision(fromDate, toDate, months, organizationId, propertyId, type, leaseStatus);
     } else {
       // Lissé : moyenne mobile 3 mois
-      const realiseData = await calculateRealise(fromDate, toDate, months, propertyId, type, leaseStatus);
+      const realiseData = await calculateRealise(fromDate, toDate, months, organizationId, propertyId, type, leaseStatus);
       response = smoothData(realiseData);
     }
 
@@ -70,6 +74,7 @@ async function calculateRealise(
   fromDate: Date,
   toDate: Date,
   months: string[],
+  organizationId: string,
   propertyId?: string,
   type?: string,
   leaseStatus?: string
@@ -80,8 +85,8 @@ async function calculateRealise(
 
   const where: any = {
     paidAt: { not: null },
-    // Filtrer par mois comptable (accounting_month) au lieu de date
     accounting_month: { gte: fromMonth, lte: toMonth },
+    organizationId,
   };
 
   if (propertyId) {
@@ -154,7 +159,7 @@ async function calculateRealise(
 
   // Calculer les KPIs avec les séries de cashflow
   const cashflowValues = cashflow.map(item => item.value);
-  const kpis = await calculateKPIs(fromDate, toDate, propertyId, 'realise', transactions, undefined, cashflowValues);
+  const kpis = await calculateKPIs(fromDate, toDate, organizationId, propertyId, 'realise', transactions, undefined, cashflowValues);
 
   // Répartition par bien
   const repartition = await calculateRepartitionParBien(transactions, type || 'loyers');
@@ -191,6 +196,7 @@ async function calculatePrevision(
   fromDate: Date,
   toDate: Date,
   months: string[],
+  organizationId: string,
   propertyId?: string,
   type?: string,
   leaseStatus?: string
@@ -202,6 +208,7 @@ async function calculatePrevision(
       { endDate: null },
       { endDate: { gte: fromDate } },
     ],
+    organizationId,
   };
 
   if (propertyId) {
@@ -269,6 +276,7 @@ async function calculatePrevision(
       { endAt: null },
       { endAt: { gte: fromDate } },
     ],
+    organizationId,
   };
 
   if (propertyId) {
@@ -325,7 +333,7 @@ async function calculatePrevision(
   });
 
   // Ajouter les mensualités de prêts aux charges prévisionnelles
-  const whereLoan: any = { isActive: true };
+  const whereLoan: any = { isActive: true, organizationId };
   if (propertyId) {
     whereLoan.propertyId = propertyId;
   }
@@ -396,7 +404,7 @@ async function calculatePrevision(
   
   // Calculer les KPIs avec les séries de cashflow
   const cashflowValues = cashflow.map(item => item.value);
-  const kpis = await calculateKPIs(fromDate, toDate, propertyId, 'prevision', undefined, leases, cashflowValues);
+  const kpis = await calculateKPIs(fromDate, toDate, organizationId, propertyId, 'prevision', undefined, leases, cashflowValues);
   // Override cashflowMois avec la valeur calculée depuis les séries
   kpis.cashflowMois = lastMonthCashflow;
 
@@ -502,6 +510,7 @@ function smoothData(data: PatrimoineResponse): PatrimoineResponse {
 async function calculateKPIs(
   fromDate: Date,
   toDate: Date,
+  organizationId: string,
   propertyId: string | undefined,
   mode: 'realise' | 'prevision',
   transactions?: any[],
@@ -509,7 +518,7 @@ async function calculateKPIs(
   cashflowSeries?: number[]
 ): Promise<PatrimoineResponse['kpis']> {
   // Valeur du parc
-  const whereProperty: any = {};
+  const whereProperty: any = { organizationId };
   if (propertyId) {
     whereProperty.id = propertyId;
   }
@@ -528,7 +537,7 @@ async function calculateKPIs(
   }, 0);
 
   // Encours / Dette - calculer le CRD total des prêts actifs
-  const whereLoan: any = { isActive: true };
+  const whereLoan: any = { isActive: true, organizationId };
   if (propertyId) {
     whereLoan.propertyId = propertyId;
   }

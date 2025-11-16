@@ -1,6 +1,7 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
 import { PropertyRepo } from '@/lib/db/PropertyRepo';
+import { getCurrentUser } from '@/lib/auth/getCurrentUser';
 import PropertyEcheancesClient from './PropertyEcheancesClient';
 
 
@@ -14,8 +15,13 @@ interface PropertyEcheancesPageProps {
 }
 
 export default async function PropertyEcheancesPage({ params }: PropertyEcheancesPageProps) {
+  const user = await getCurrentUser();
+  if (!user) {
+    notFound();
+  }
+
   // Récupérer le bien
-  const property = await PropertyRepo.findById(params.id);
+  const property = await PropertyRepo.findById(params.id, user.organizationId);
 
   if (!property) {
     notFound();

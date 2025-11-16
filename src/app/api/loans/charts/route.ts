@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/loans/charts
@@ -13,6 +14,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     
     const from = searchParams.get('from') || undefined;
@@ -22,6 +25,7 @@ export async function GET(request: NextRequest) {
     // Construire le where
     const where: any = {
       isActive: true,
+      organizationId,
     };
 
     if (propertyId) {

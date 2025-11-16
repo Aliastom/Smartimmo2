@@ -35,14 +35,17 @@ export function useEcheancesCharts({
         params.append('propertyId', propertyId);
       }
 
-      const response = await fetch(`/api/echeances/charts?${params.toString()}`);
+      const response = await fetch(`/api/echeances/charts?${params.toString()}`, {
+        credentials: 'include', // Inclure les cookies pour l'authentification
+      });
       if (!response.ok) {
         throw new Error('Erreur lors du chargement des graphiques');
       }
       return response.json();
     },
-    staleTime: 2 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    staleTime: 0, // Pas de cache pour éviter les problèmes de multi-tenancy
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
   });
 }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -10,11 +11,16 @@ export async function GET(
   { params }: { params: { sessionId: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { sessionId } = params;
 
-    // Vérifier que la session existe
-    const uploadSession = await prisma.uploadSession.findUnique({
-      where: { id: sessionId },
+    // Vérifier que la session existe et appartient à l'organisation
+    const uploadSession = await prisma.uploadSession.findFirst({
+      where: { 
+        id: sessionId,
+        organizationId
+      },
       include: {
         Document: {
           include: {
@@ -108,15 +114,30 @@ export async function DELETE(
   { params }: { params: { sessionId: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { sessionId } = params;
 
     console.log('[API] Suppression de la session:', sessionId);
+
+    // Vérifier que la session appartient à l'organisation
+    const session = await prisma.uploadSession.findFirst({
+      where: { id: sessionId, organizationId },
+      select: { id: true },
+    });
+    if (!session) {
+      return NextResponse.json(
+        { success: false, error: 'Session non trouvée ou inaccessible' },
+        { status: 403 }
+      );
+    }
 
     // D'abord, supprimer tous les documents brouillons de cette session
     const documentsToDelete = await prisma.document.findMany({
       where: {
         uploadSessionId: sessionId,
-        status: 'draft'
+        status: 'draft',
+        organizationId
       }
     });
 

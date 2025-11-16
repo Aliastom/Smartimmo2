@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { expandEcheances } from '@/lib/echeances/expandEcheances';
 import { Periodicite, SensEcheance } from '@prisma/client';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/echeances/charts
@@ -19,6 +20,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     const from = searchParams.get('from') || getDefaultFrom();
     const to = searchParams.get('to') || getDefaultTo();
@@ -40,6 +43,7 @@ export async function GET(request: NextRequest) {
     // Charger les échéances actives
     const where: any = {
       isActive: true,
+      organizationId,
       startAt: { lte: toDate },
       OR: [
         { endAt: null },

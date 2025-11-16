@@ -31,15 +31,23 @@ export function UserDisplay({ className }: { className?: string }) {
         if (response.ok) {
           const data = await response.json();
           setUser(data.user);
+        } else {
+          // Si l'utilisateur n'est pas authentifié, réinitialiser
+          setUser(null);
         }
       } catch (error) {
         console.error('Erreur lors de la récupération du profil:', error);
+        setUser(null);
       } finally {
         setLoading(false);
       }
     }
 
     fetchUser();
+    
+    // Vérifier périodiquement l'authentification (toutes les 5 secondes)
+    const interval = setInterval(fetchUser, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   // Fermer le menu au clic extérieur
@@ -163,7 +171,8 @@ export function UserDisplay({ className }: { className?: string }) {
           <div className="w-10 h-10 rounded-full bg-primary-500 text-white flex items-center justify-center font-semibold text-sm">
             {initials}
           </div>
-          {user.role === 'ADMIN' && (
+          {/* Badge Administrateur - toujours visible en bas du menu */}
+          {user && user.role === 'ADMIN' && (
             <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center border-2 border-white">
               <Shield className="w-2.5 h-2.5 text-white" />
             </div>

@@ -1,5 +1,6 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { documentConversionService } from '@/services/DocumentConversionService';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * POST /api/documents/convert
@@ -11,6 +12,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth();
     const formData = await request.formData();
     const file = formData.get('file') as File;
     
@@ -76,6 +78,7 @@ export async function POST(request: NextRequest) {
  */
 export async function GET() {
   try {
+    await requireAuth();
     const supportedFormats = documentConversionService.getSupportedFormats();
     const isLibreOfficeAvailable = await documentConversionService.checkLibreOfficeAvailability();
     

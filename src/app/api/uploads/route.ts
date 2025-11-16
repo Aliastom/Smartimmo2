@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { createHash } from 'crypto';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { prisma } from '@/lib/prisma';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -41,6 +43,9 @@ function generateHash(buffer: Buffer): string {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     const formData = await request.formData();
     const file = formData.get('file') as File;
     
@@ -68,6 +73,44 @@ export async function POST(request: NextRequest) {
     };
 
     const validatedFields = uploadSchema.parse(fields);
+
+    // Vérifier que les entités liées appartiennent à l'organisation
+    if (validatedFields.propertyId) {
+      const property = await prisma.property.findFirst({
+        where: { id: validatedFields.propertyId, organizationId },
+        select: { id: true },
+      });
+      if (!property) {
+        return NextResponse.json({ error: 'Bien non trouvé ou inaccessible' }, { status: 403 });
+      }
+    }
+    if (validatedFields.transactionId) {
+      const transaction = await prisma.transaction.findFirst({
+        where: { id: validatedFields.transactionId, organizationId },
+        select: { id: true },
+      });
+      if (!transaction) {
+        return NextResponse.json({ error: 'Transaction non trouvée ou inaccessible' }, { status: 403 });
+      }
+    }
+    if (validatedFields.leaseId) {
+      const lease = await prisma.lease.findFirst({
+        where: { id: validatedFields.leaseId, organizationId },
+        select: { id: true },
+      });
+      if (!lease) {
+        return NextResponse.json({ error: 'Bail non trouvé ou inaccessible' }, { status: 403 });
+      }
+    }
+    if (validatedFields.loanId) {
+      const loan = await prisma.loan.findFirst({
+        where: { id: validatedFields.loanId, organizationId },
+        select: { id: true },
+      });
+      if (!loan) {
+        return NextResponse.json({ error: 'Prêt non trouvé ou inaccessible' }, { status: 403 });
+      }
+    }
 
     // Lecture du fichier
     const buffer = Buffer.from(await file.arrayBuffer());

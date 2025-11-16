@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
 import { Decimal } from '@prisma/client/runtime/library';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // Schéma de validation pour la création d'un prêt
 
@@ -42,8 +43,8 @@ const querySchema = z.object({
  */
 export async function GET(request: NextRequest) {
   try {
-    // TODO: Ajouter protection authentification RBAC (ADMIN + USER lecture)
-    
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     
     // Validation
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest) {
     const skip = (pageNum - 1) * pageSizeNum;
 
     // Construire le where
-    const where: any = {};
+    const where: any = { organizationId };
 
     if (propertyId) {
       where.propertyId = propertyId;
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest) {
     const toMonth = to || new Date().toISOString().substring(0, 7);
     
     // IMPORTANT : Pour les KPIs, on calcule sur TOUS les prêts actifs, pas seulement ceux de la page
-    const allActiveLoansWhere: any = { isActive: true };
+    const allActiveLoansWhere: any = { isActive: true, organizationId };
     if (propertyId) {
       allActiveLoansWhere.propertyId = propertyId;
     }
@@ -220,8 +221,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    // TODO: Ajouter protection authentification RBAC (ADMIN uniquement)
-    
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     const validation = createLoanSchema.safeParse(body);
 
@@ -235,8 +236,8 @@ export async function POST(request: NextRequest) {
     const data = validation.data;
 
     // Vérifier que la propriété existe
-    const property = await prisma.property.findUnique({
-      where: { id: data.propertyId },
+    const property = await prisma.property.findFirst({
+      where: { id: data.propertyId, organizationId },
     });
 
     if (!property) {
@@ -266,6 +267,7 @@ export async function POST(request: NextRequest) {
         endDate,
         rateType: data.rateType,
         isActive: data.isActive,
+        organizationId,
       },
       include: {
         property: {

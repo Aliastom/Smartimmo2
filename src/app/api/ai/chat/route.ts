@@ -9,6 +9,7 @@ import { runReActAgent, type AgentConfig } from '@/lib/ai/agent/react';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { aiConfig } from '@/lib/ai/config';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -24,6 +25,8 @@ export async function POST(request: NextRequest) {
       { status: 503 }
     );
   }
+
+  const user = await requireAuth();
 
   try {
     const body = await request.json();
@@ -55,7 +58,7 @@ export async function POST(request: NextRequest) {
     const question = lastMessage.content;
 
     // Configuration de l'agent
-    const actualSessionId = sessionId || randomUUID();
+    const actualSessionId = sessionId || `${user.id}-${randomUUID()}`;
     
     // NOUVEAU : Récupérer l'historique de conversation pour la mémoire contextuelle
     let conversationHistory: any[] = [];
@@ -216,6 +219,7 @@ async function streamResponse(question: string, config: AgentConfig): Promise<Re
 
 // GET pour documentation
 export async function GET() {
+  await requireAuth();
   return NextResponse.json({
     endpoint: '/api/ai/chat',
     method: 'POST',
@@ -253,6 +257,7 @@ export async function GET() {
  */
 export async function GET_SESSION(sessionId: string) {
   try {
+    await requireAuth();
     const messages = await prisma.aiMessage.findMany({
       where: { sessionId },
       orderBy: { createdAt: 'asc' },

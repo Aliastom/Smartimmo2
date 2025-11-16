@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -7,12 +8,17 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     const propertyId = searchParams.get('propertyId');
     const month = searchParams.get('month');
     const year = searchParams.get('year');
 
-    const where = propertyId ? { propertyId } : {};
+    const where: any = { organizationId };
+    if (propertyId) {
+      where.propertyId = propertyId;
+    }
 
     const loans = await prisma.loan.findMany({
       where,

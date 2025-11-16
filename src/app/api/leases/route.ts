@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { leaseRepository } from '../../../infra/repositories/leaseRepository';
 import { LeasesService, LeaseFilters } from '@/lib/services/leasesService';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { z } from 'zod';
 import { getLeaseRuntimeStatus } from '../../../domain/leases/status';
 
@@ -49,19 +50,21 @@ const leaseSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     
     // Vérifier si c'est une requête pour les KPIs
     const kpis = searchParams.get('kpis');
     if (kpis === 'true') {
-      const kpiData = await LeasesService.getKPIs();
+      const kpiData = await LeasesService.getKPIs(organizationId);
       return NextResponse.json(kpiData);
     }
 
     // Vérifier si c'est une requête pour les alertes
     const alerts = searchParams.get('alerts');
     if (alerts === 'true') {
-      const alertData = await LeasesService.getAlerts();
+      const alertData = await LeasesService.getAlerts(organizationId);
       return NextResponse.json(alertData);
     }
 
@@ -80,7 +83,7 @@ export async function GET(request: NextRequest) {
     };
 
     // Rechercher les baux
-    const result = await LeasesService.search(filters);
+    const result = await LeasesService.search(filters, organizationId);
     
     return NextResponse.json(result);
   } catch (error) {
@@ -94,13 +97,15 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     
     // Validation avec Zod
     const validatedData = leaseSchema.parse(body);
     
     // Vérifier l'unicité des baux actifs pour cette propriété
-    const existingLeases = await leaseRepository.findByPropertyId(validatedData.propertyId);
+    const existingLeases = await leaseRepository.findByPropertyId(validatedData.propertyId, organizationId);
     const newStartDate = new Date(validatedData.startDate);
     const newEndDate = validatedData.endDate ? new Date(validatedData.endDate) : null;
     
@@ -174,7 +179,10 @@ export async function POST(request: NextRequest) {
       chargesNonRecupMensuelles: validatedData.chargesNonRecupMensuelles || null,
     };
     
-    const lease = await leaseRepository.create(processedData);
+    const lease = await leaseRepository.create({
+      ...processedData,
+      organizationId,
+    });
     return NextResponse.json(lease, { status: 201 });
   } catch (error) {
     console.error('Error creating lease:', error);

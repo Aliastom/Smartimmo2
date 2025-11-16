@@ -400,3 +400,6 @@ console.log(`Confiance: ${extraction.confidence * 100}%`);
 
 
 
+
+
+

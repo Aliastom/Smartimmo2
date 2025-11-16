@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -7,6 +8,9 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     const body = await request.json();
     const { uploadSessionId, existingDocumentId, context } = body;
 
@@ -23,10 +27,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Vérifier que la session d'upload existe
+    // Vérifier que la session d'upload existe et appartient à l'organisation
     const uploadSession = await prisma.uploadSession.findFirst({
       where: {
         id: uploadSessionId,
+        organizationId,
         expiresAt: {
           gt: new Date()
         }
@@ -40,11 +45,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Vérifier que le document existant existe et est actif
+    // Vérifier que le document existant existe, est actif et appartient à l'organisation
     const existingDocument = await prisma.document.findFirst({
       where: {
         id: existingDocumentId,
-        status: 'active'
+        status: 'active',
+        organizationId
       }
     });
 
@@ -63,7 +69,8 @@ export async function POST(request: NextRequest) {
         existingDocumentId,
         intendedContextType: context.type,
         intendedContextTempKey: context.tempKey,
-        intendedRefId: context.refId
+        intendedRefId: context.refId,
+        organizationId
       },
       include: {
         Document: {

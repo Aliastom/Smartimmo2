@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // GET /api/documents/[id]/links - Récupérer les liens d'un document
 
@@ -8,7 +9,21 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const documentId = params.id;
+
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true },
+    });
+
+    if (!document) {
+      return NextResponse.json(
+        { success: false, error: 'Document non trouvé' },
+        { status: 404 }
+      );
+    }
 
     const links = await prisma.documentLink.findMany({
       where: {
@@ -32,16 +47,16 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         if (link.linkedId) {
           switch (link.linkedType) {
             case 'property':
-              const property = await prisma.property.findUnique({
-                where: { id: link.linkedId },
+              const property = await prisma.property.findFirst({
+                where: { id: link.linkedId, organizationId },
                 select: { name: true, address: true },
               });
               entityName = property ? `${property.name} - ${property.address}` : null;
               break;
               
             case 'lease':
-              const lease = await prisma.lease.findUnique({
-                where: { id: link.linkedId },
+              const lease = await prisma.lease.findFirst({
+                where: { id: link.linkedId, organizationId },
                 include: {
                   Property: { select: { name: true } },
                   Tenant: { select: { firstName: true, lastName: true } },
@@ -51,16 +66,16 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
               break;
               
             case 'tenant':
-              const tenant = await prisma.tenant.findUnique({
-                where: { id: link.linkedId },
+              const tenant = await prisma.tenant.findFirst({
+                where: { id: link.linkedId, organizationId },
                 select: { firstName: true, lastName: true },
               });
               entityName = tenant ? `${tenant.firstName} ${tenant.lastName}` : null;
               break;
               
             case 'transaction':
-              const transaction = await prisma.transaction.findUnique({
-                where: { id: link.linkedId },
+              const transaction = await prisma.transaction.findFirst({
+                where: { id: link.linkedId, organizationId },
                 select: { label: true, amount: true },
               });
               entityName = transaction ? `${transaction.label} - ${transaction.amount}€` : null;
@@ -102,6 +117,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 // POST /api/documents/[id]/links - Créer un nouveau lien
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const documentId = params.id;
     const { entityType, entityId } = await request.json();
 
@@ -110,8 +127,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // Vérifier que le document existe
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, organizationId },
     });
 
     if (!document) {
@@ -123,16 +140,16 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       let entityExists = false;
       switch (entityType.toLowerCase()) {
         case 'property':
-          entityExists = !!(await prisma.property.findUnique({ where: { id: entityId } }));
+          entityExists = !!(await prisma.property.findFirst({ where: { id: entityId, organizationId } }));
           break;
         case 'lease':
-          entityExists = !!(await prisma.lease.findUnique({ where: { id: entityId } }));
+          entityExists = !!(await prisma.lease.findFirst({ where: { id: entityId, organizationId } }));
           break;
         case 'tenant':
-          entityExists = !!(await prisma.tenant.findUnique({ where: { id: entityId } }));
+          entityExists = !!(await prisma.tenant.findFirst({ where: { id: entityId, organizationId } }));
           break;
         case 'transaction':
-          entityExists = !!(await prisma.transaction.findUnique({ where: { id: entityId } }));
+          entityExists = !!(await prisma.transaction.findFirst({ where: { id: entityId, organizationId } }));
           break;
         case 'global':
           entityExists = true; // Global n'a pas besoin de validation

@@ -9,6 +9,7 @@ import { generateCompletion } from '@/lib/ai/clients/mistral';
 import { randomUUID } from 'crypto';
 import catalogData from '@/lib/ai/sql/catalog.json';
 import { aiConfig } from '@/lib/ai/config';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -22,6 +23,8 @@ export async function POST(request: NextRequest) {
       { status: 503 }
     );
   }
+
+  await requireAuth();
 
   try {
     const body = await request.json();
@@ -230,6 +233,7 @@ function shouldMaskPii(scope: any): boolean {
 
 // GET pour documentation
 export async function GET() {
+  await requireAuth();
   return NextResponse.json({
     endpoint: '/api/ai/sql',
     method: 'POST',

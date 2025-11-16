@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDedupAgent } from '@/services/dedup-agent.service';
 import { DedupInput } from '@/types/dedup';
 import { z } from 'zod';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // Schéma de validation pour la requête
 
@@ -92,6 +93,7 @@ const DedupRequestSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth();
     const body = await request.json();
 
     // Validation
@@ -142,6 +144,7 @@ export async function POST(request: NextRequest) {
  * Health check pour vérifier que le service est disponible
  */
 export async function GET(request: NextRequest) {
+  await requireAuth();
   return NextResponse.json({
     success: true,
     service: 'Dedup Agent',

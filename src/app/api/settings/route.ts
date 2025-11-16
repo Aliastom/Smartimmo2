@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSettingsByPrefix, setSetting, clearSettingsCache } from '@/lib/settings/appSettings';
 import { z } from 'zod';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // Schema de validation pour SET
 
@@ -19,6 +20,8 @@ const setSettingSchema = z.object({
  */
 export async function GET(request: NextRequest) {
   try {
+    await requireAuth();
+    
     const { searchParams } = new URL(request.url);
     const prefix = searchParams.get('prefix') || '';
 
@@ -44,6 +47,8 @@ export async function GET(request: NextRequest) {
  */
 export async function PATCH(request: NextRequest) {
   try {
+    await requireAuth();
+    
     const body = await request.json();
 
     // Validation Zod
@@ -165,6 +170,8 @@ export async function PATCH(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth();
+    
     clearSettingsCache();
 
     return NextResponse.json({

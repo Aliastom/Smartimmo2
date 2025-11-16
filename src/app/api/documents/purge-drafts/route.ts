@@ -1,8 +1,8 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 
@@ -13,6 +13,8 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json().catch(() => ({}));
     const force = body.force === true; // Si force=true, purger TOUS les brouillons
     
@@ -20,9 +22,10 @@ export async function POST(request: NextRequest) {
     
     // 1. Trouver les documents brouillons Ã  supprimer
     const whereClause = force 
-      ? { status: 'draft' as const } // Mode forcÃ© : TOUS les brouillons
+      ? { status: 'draft' as const, organizationId }
       : { // Mode normal : uniquement les orphelins
           status: 'draft' as const,
+          organizationId,
           OR: [
             { uploadSessionId: null }, // Sans session
             {
@@ -100,8 +103,9 @@ export async function POST(request: NextRequest) {
     // 3. Nettoyer les sessions expirÃ©es sans documents
     const expiredSessions = await prisma.uploadSession.findMany({
       where: {
+        organizationId,
         expiresAt: { lt: new Date() },
-        Document: { none: {} } // Pas de documents liÃ©s
+        Document: { none: {} }
       }
     });
 
@@ -140,12 +144,15 @@ export async function POST(request: NextRequest) {
 // GET /api/documents/purge-drafts - Obtenir les statistiques des documents brouillons
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     console.log('[API] RÃ©cupÃ©ration des statistiques des documents brouillons...');
     
     // TOUS les documents brouillons
     const totalDrafts = await prisma.document.count({
       where: {
-        status: 'draft'
+        status: 'draft',
+        organizationId,
       }
     });
     
@@ -153,6 +160,7 @@ export async function GET(request: NextRequest) {
     const activeDrafts = await prisma.document.count({
       where: {
         status: 'draft',
+        organizationId,
         UploadSession: {
           expiresAt: { gte: new Date() }
         }
@@ -163,6 +171,7 @@ export async function GET(request: NextRequest) {
     const orphanedDrafts = await prisma.document.count({
       where: {
         status: 'draft',
+        organizationId,
         OR: [
           { uploadSessionId: null },
           {
@@ -177,6 +186,7 @@ export async function GET(request: NextRequest) {
     // Sessions expirÃ©es
     const expiredSessions = await prisma.uploadSession.count({
       where: {
+        organizationId,
         expiresAt: { lt: new Date() }
       }
     });
@@ -184,6 +194,7 @@ export async function GET(request: NextRequest) {
     // Sessions actives
     const activeSessions = await prisma.uploadSession.count({
       where: {
+        organizationId,
         expiresAt: { gte: new Date() }
       }
     });

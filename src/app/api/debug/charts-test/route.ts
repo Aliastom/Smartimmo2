@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * Endpoint de debug pour vérifier le calcul des graphiques
@@ -9,7 +11,13 @@ import { prisma } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     const periodStart = searchParams.get('periodStart') || '2025-01';
     const periodEnd = searchParams.get('periodEnd') || '2025-12';
@@ -27,6 +35,7 @@ export async function GET(request: NextRequest) {
     // Charger les transactions (avec ou sans accounting_month)
     const transactions = await prisma.transaction.findMany({
       where: {
+        organizationId,
         OR: [
           {
             accounting_month: {

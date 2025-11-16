@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // vers la base directe (db....supabase.co)
 }
 
 model Account {
@@ -268,24 +269,24 @@ model DocumentTypeField {
 }
 
 model EcheanceRecurrente {
-  id          String       @id @default(cuid())
-  organizationId String    @default("default")
-  propertyId  String?
-  leaseId     String?
-  label       String
-  type        EcheanceType
-  periodicite Periodicite
-  montant     Decimal      @db.Decimal(10, 2)
-  recuperable Boolean      @default(false)
-  sens        SensEcheance
-  startAt     DateTime
-  endAt       DateTime?
-  isActive    Boolean      @default(true)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  Lease       Lease?       @relation(fields: [leaseId], references: [id])
-  Property    Property?    @relation(fields: [propertyId], references: [id])
-  Organization Organization @relation(fields: [organizationId], references: [id])
+  id             String       @id @default(cuid())
+  organizationId String       @default("default")
+  propertyId     String?
+  leaseId        String?
+  label          String
+  type           EcheanceType
+  periodicite    Periodicite
+  montant        Decimal      @db.Decimal(10, 2)
+  recuperable    Boolean      @default(false)
+  sens           SensEcheance
+  startAt        DateTime
+  endAt          DateTime?
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  Lease          Lease?       @relation(fields: [leaseId], references: [id])
+  Property       Property?    @relation(fields: [propertyId], references: [id])
+  Organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@index([isActive, startAt])
   @@index([leaseId])
@@ -402,21 +403,25 @@ enum LoanRateType {
 }
 
 model ManagementCompany {
-  id                  String     @id @default(cuid())
+  id                  String       @id @default(cuid())
+  organizationId      String       @default("default")
   nom                 String
   contact             String?
   email               String?
   telephone           String?
-  modeCalcul          String     @default("LOYERS_UNIQUEMENT")
+  modeCalcul          String       @default("LOYERS_UNIQUEMENT")
   taux                Float
   fraisMin            Float?
-  baseSurEncaissement Boolean    @default(true)
-  tvaApplicable       Boolean    @default(false)
+  baseSurEncaissement Boolean      @default(true)
+  tvaApplicable       Boolean      @default(false)
   tauxTva             Float?
-  actif               Boolean    @default(true)
-  createdAt           DateTime   @default(now())
-  updatedAt           DateTime   @updatedAt
+  actif               Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
   Property            Property[]
+  Organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 model NatureDefault {
@@ -486,7 +491,7 @@ model Payment {
   Lease              Lease?              @relation(fields: [leaseId], references: [id])
   Property           Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   PaymentAttachment  PaymentAttachment[]
-  Organization       Organization       @relation(fields: [organizationId], references: [id])
+  Organization       Organization        @relation(fields: [organizationId], references: [id])
 
   @@index([categoryId])
   @@index([leaseId, periodYear, periodMonth])
@@ -508,20 +513,20 @@ model PaymentAttachment {
 }
 
 model Photo {
-  id         String   @id @default(cuid())
-  organizationId String @default("default")
-  fileName   String
-  mime       String
-  url        String
-  size       Int
-  propertyId String
-  room       String?
-  tag        String?
-  metadata   String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  Property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  Organization Organization @relation(fields: [organizationId], references: [id])
+  id             String       @id @default(cuid())
+  organizationId String       @default("default")
+  fileName       String
+  mime           String
+  url            String
+  size           Int
+  propertyId     String
+  room           String?
+  tag            String?
+  metadata       String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  Property       Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  Organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@index([propertyId])
   @@index([organizationId])
@@ -568,7 +573,7 @@ model Property {
   FiscalType          FiscalType?          @relation("PropertyFiscalType", fields: [fiscalTypeId], references: [id])
   FiscalRegime        FiscalRegime?        @relation("PropertyFiscalRegime", fields: [fiscalRegimeId], references: [id])
   Transaction         Transaction[]
-  Organization        Organization        @relation(fields: [organizationId], references: [id])
+  Organization        Organization         @relation(fields: [organizationId], references: [id])
 
   @@index([isArchived])
   @@index([fiscalTypeId])
@@ -577,23 +582,23 @@ model Property {
 }
 
 model Reminder {
-  id             String        @id @default(cuid())
-  organizationId String        @default("default")
-  ownerId        String        @default("default")
+  id             String       @id @default(cuid())
+  organizationId String       @default("default")
+  ownerId        String       @default("default")
   documentId     String?
   kind           String
   title          String
   description    String?
   dueDate        DateTime
   alertDays      String?
-  autoCreated    Boolean       @default(true)
-  status         String        @default("open")
+  autoCreated    Boolean      @default(true)
+  status         String       @default("open")
   snoozedUntil   DateTime?
   metadata       String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  Document       Document?     @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  Organization   Organization  @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  Document       Document?    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  Organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@index([documentId])
   @@index([dueDate])
@@ -731,38 +736,38 @@ model TaxSourceSnapshot {
 }
 
 model TaxSourceConfig {
-  id          String   @id @default(cuid())
-  key         String   @unique // "OPENFISCA" | "BOFIP" | "DGFIP" | "SERVICE_PUBLIC" | "ECONOMIE_GOUV" | "LEGIFRANCE"
-  name        String // Nom affiché
-  baseUrl     String // URL de base
-  status      String   @default("active") // "active" | "inactive"
-  configJson  String // Configuration complète en JSON (urls, parameters, etc.)
-  updatedBy   String? // Utilisateur qui a modifié
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  key        String   @unique // "OPENFISCA" | "BOFIP" | "DGFIP" | "SERVICE_PUBLIC" | "ECONOMIE_GOUV" | "LEGIFRANCE"
+  name       String // Nom affiché
+  baseUrl    String // URL de base
+  status     String   @default("active") // "active" | "inactive"
+  configJson String // Configuration complète en JSON (urls, parameters, etc.)
+  updatedBy  String? // Utilisateur qui a modifié
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([key])
   @@index([status])
 }
 
 model FiscalSimulation {
-  id               String   @id @default(cuid())
-  organizationId   String   @default("default")
-  userId           String   @default("demo-user") // ID de l'utilisateur
-  name             String? // Nom personnalisé (ex: "Simulation 2025 - Scénario A")
-  year             Int // Année de déclaration
-  fiscalVersionId  String? // Code de la version fiscale utilisée (ex: "2025.1")
-  
+  id              String  @id @default(cuid())
+  organizationId  String  @default("default")
+  userId          String  @default("demo-user") // ID de l'utilisateur
+  name            String? // Nom personnalisé (ex: "Simulation 2025 - Scénario A")
+  year            Int // Année de déclaration
+  fiscalVersionId String? // Code de la version fiscale utilisée (ex: "2025.1")
+
   // Résultats de simulation (JSON)
-  inputsJson       String // FiscalInputs sérialisé
-  resultJson       String // SimulationResult sérialisé
-  
+  inputsJson String // FiscalInputs sérialisé
+  resultJson String // SimulationResult sérialisé
+
   // Métadonnées
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  createdBy        String? // Email ou nom de l'utilisateur
-  Organization     Organization @relation(fields: [organizationId], references: [id])
-  
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  createdBy    String? // Email ou nom de l'utilisateur
+  Organization Organization @relation(fields: [organizationId], references: [id])
+
   @@index([organizationId])
   @@index([userId])
   @@index([year])
@@ -802,8 +807,8 @@ model Tenant {
 }
 
 model Transaction {
-  id                               String     @id @default(cuid())
-  organizationId                   String     @default("default")
+  id                               String       @id @default(cuid())
+  organizationId                   String       @default("default")
   propertyId                       String
   leaseId                          String?
   bailId                           String?
@@ -820,13 +825,13 @@ model Transaction {
   paidAt                           DateTime?
   method                           String?
   notes                            String?
-  source                           String     @default("MANUAL")
-  idempotencyKey                   String?    @unique
+  source                           String       @default("MANUAL")
+  idempotencyKey                   String?      @unique
   monthsCovered                    String?
   parentTransactionId              String?
   moisIndex                        Int?
   moisTotal                        Int?
-  rapprochementStatus              String     @default("non_rapprochee")
+  rapprochementStatus              String       @default("non_rapprochee")
   dateRapprochement                DateTime?
   bankRef                          String?
   montantLoyer                     Float?
@@ -834,15 +839,15 @@ model Transaction {
   chargesNonRecup                  Float?
   isAutoAmount                     Boolean?
   managementCompanyId              String?
-  isAuto                           Boolean    @default(false)
+  isAuto                           Boolean      @default(false)
   autoSource                       String?
-  createdAt                        DateTime   @default(now())
-  updatedAt                        DateTime   @updatedAt
+  createdAt                        DateTime     @default(now())
+  updatedAt                        DateTime     @updatedAt
   Document                         Document[]
-  Lease_Transaction_bailIdToLease  Lease?     @relation("Transaction_bailIdToLease", fields: [bailId], references: [id])
-  Category                         Category?  @relation(fields: [categoryId], references: [id])
-  Lease_Transaction_leaseIdToLease Lease?     @relation("Transaction_leaseIdToLease", fields: [leaseId], references: [id])
-  Property                         Property   @relation(fields: [propertyId], references: [id])
+  Lease_Transaction_bailIdToLease  Lease?       @relation("Transaction_bailIdToLease", fields: [bailId], references: [id])
+  Category                         Category?    @relation(fields: [categoryId], references: [id])
+  Lease_Transaction_leaseIdToLease Lease?       @relation("Transaction_leaseIdToLease", fields: [leaseId], references: [id])
+  Property                         Property     @relation(fields: [propertyId], references: [id])
   Organization                     Organization @relation(fields: [organizationId], references: [id])
 
   @@index([bailId])
@@ -912,26 +917,28 @@ model UploadStagedItem {
 }
 
 model Organization {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  ownerUserId String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  Users       User[]
-  Properties  Property[]
-  Tenants     Tenant[]
-  Leases      Lease[]
-  Loans       Loan[]
-  Transactions Transaction[]
-  Documents   Document[]
-  Reminders   Reminder[]
-  Payments    Payment[]
-  Photos      Photo[]
-  Echeances   EcheanceRecurrente[]
-  Simulations FiscalSimulation[]
-  UploadSessions UploadSession[]
-  UploadItems UploadStagedItem[]
+  id                  String               @id @default(cuid())
+  name                String
+  slug                String               @unique
+  ownerUserId         String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  Users               User[]
+  Properties          Property[]
+  Tenants             Tenant[]
+  Leases              Lease[]
+  Loans               Loan[]
+  Transactions        Transaction[]
+  Documents           Document[]
+  Reminders           Reminder[]
+  Payments            Payment[]
+  Photos              Photo[]
+  Echeances           EcheanceRecurrente[]
+  Simulations         FiscalSimulation[]
+  UploadSessions      UploadSession[]
+  UploadItems         UploadStagedItem[]
+  UserProfiles        UserProfile[]
+  ManagementCompanies ManagementCompany[]
 }
 
 model User {
@@ -953,20 +960,24 @@ model User {
 }
 
 model UserProfile {
-  id         String   @id @default(cuid())
-  firstName  String   @default("")
-  lastName   String   @default("")
-  email      String   @default("")
-  phone      String?
-  address    String?
-  city       String?
-  postalCode String?
-  company    String?
-  siret      String?
-  signature  String?
-  logo       String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id             String       @id @default(cuid())
+  organizationId String       @default("default")
+  firstName      String       @default("")
+  lastName       String       @default("")
+  email          String       @default("")
+  phone          String?
+  address        String?
+  city           String?
+  postalCode     String?
+  company        String?
+  siret          String?
+  signature      String?
+  logo           String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  Organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 model VerificationToken {
@@ -1004,12 +1015,12 @@ model AdminBackupRecord {
   id          String   @id @default(cuid())
   createdAt   DateTime @default(now())
   createdById String
-  scope       String   // "admin"
-  fileUrl     String   // chemin S3/local
+  scope       String // "admin"
+  fileUrl     String // chemin S3/local
   checksum    String
   sizeBytes   Int
   note        String?
-  meta        Json     // manifest complet
+  meta        Json // manifest complet
 
   @@index([createdAt])
   @@index([scope])
@@ -1017,17 +1028,17 @@ model AdminBackupRecord {
 }
 
 model AdminBackupSchedule {
-  id          String   @id @default(cuid())
-  isActive    Boolean  @default(true)
-  frequency   String   // "daily" | "weekly" | "monthly"
-  hour        Int      @default(3)
-  dayOfWeek   Int?     // 0-6 pour hebdomadaire
-  dayOfMonth  Int?     // 1-31 pour mensuel
-  retentionDays Int    @default(30)
-  lastRunAt   DateTime?
-  nextRunAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String    @id @default(cuid())
+  isActive      Boolean   @default(true)
+  frequency     String // "daily" | "weekly" | "monthly"
+  hour          Int       @default(3)
+  dayOfWeek     Int? // 0-6 pour hebdomadaire
+  dayOfMonth    Int? // 1-31 pour mensuel
+  retentionDays Int       @default(30)
+  lastRunAt     DateTime?
+  nextRunAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@map("admin_backup_schedules")
 }

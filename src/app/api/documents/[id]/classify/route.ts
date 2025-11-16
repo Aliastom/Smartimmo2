@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { classificationService } from '@/services/ClassificationService';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * POST /api/documents/[id]/classify - Relancer la classification d'un document
@@ -14,7 +15,8 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    // TODO: Ajouter protection authentification
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { id } = params;
     const body = await request.json();
     const { forceReanalysis = false } = body;
@@ -22,15 +24,18 @@ export async function POST(
     console.log(`[API/Documents/${id}/classify] Demande de reclassification reçue. Force reanalysis: ${forceReanalysis}`);
 
     // Récupérer le document avec son fichier
-    const document = await prisma.document.findUnique({
-      where: { id },
+    const document = await prisma.document.findFirst({
+      where: { id, organizationId },
       select: {
         id: true,
         filenameOriginal: true,
         extractedText: true,
         size: true,
         mime: true,
-        url: true, // Pour récupérer le fichier original
+        url: true,
+        typeAlternatives: true,
+        status: true,
+        detectedTypeId: true,
       },
     });
 

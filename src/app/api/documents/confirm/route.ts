@@ -1,10 +1,10 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 import { writeFile, mkdir, readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
@@ -15,6 +15,9 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+
     const body = await request.json();
     const {
       tempId,
@@ -48,7 +51,16 @@ export async function POST(request: NextRequest) {
     try {
       const metaContent = await readFile(metaFilePath, 'utf-8');
       upload = JSON.parse(metaContent);
-      
+
+      if (upload.organizationId && upload.organizationId !== organizationId) {
+        return NextResponse.json(
+          { success: false, error: 'Document temporaire appartenant à une autre organisation' },
+          { status: 403 }
+        );
+      }
+
+      upload.organizationId = upload.organizationId || organizationId;
+
       // Vérifier l'expiration
       if (Date.now() > upload.expiresAt) {
         return NextResponse.json(
@@ -82,6 +94,7 @@ export async function POST(request: NextRequest) {
         where: {
           fileSha256: upload.sha256,
           deletedAt: null,
+          organizationId: upload.organizationId,
         },
       });
 
@@ -104,6 +117,50 @@ export async function POST(request: NextRequest) {
     const tempFilePath = upload.filePath;
     const fileBuffer = await readFile(tempFilePath);
 
+    const propertyId =
+      scope === 'property' && linkedTo?.propertyId ? linkedTo.propertyId : undefined;
+    const leaseId = linkedTo?.leaseId;
+    const tenantId = linkedTo?.tenantId;
+
+    if (propertyId) {
+      const property = await prisma.property.findFirst({
+        where: { id: propertyId, organizationId: upload.organizationId },
+        select: { id: true },
+      });
+      if (!property) {
+        return NextResponse.json(
+          { success: false, error: 'Bien introuvable ou non autorisé' },
+          { status: 404 }
+        );
+      }
+    }
+
+    if (leaseId) {
+      const lease = await prisma.lease.findFirst({
+        where: { id: leaseId, organizationId: upload.organizationId },
+        select: { id: true },
+      });
+      if (!lease) {
+        return NextResponse.json(
+          { success: false, error: 'Bail introuvable ou non autorisé' },
+          { status: 404 }
+        );
+      }
+    }
+
+    if (tenantId) {
+      const tenant = await prisma.tenant.findFirst({
+        where: { id: tenantId, organizationId: upload.organizationId },
+        select: { id: true },
+      });
+      if (!tenant) {
+        return NextResponse.json(
+          { success: false, error: 'Locataire introuvable ou non autorisé' },
+          { status: 404 }
+        );
+      }
+    }
+
     // Générer le chemin de stockage
     const now = new Date();
     const year = now.getFullYear();
@@ -124,6 +181,18 @@ export async function POST(request: NextRequest) {
 
     // Si c'est un remplacement (versioning)
     if (replaceDuplicateId) {
+      const duplicateDoc = await prisma.document.findFirst({
+        where: { id: replaceDuplicateId, organizationId: upload.organizationId },
+        select: { id: true },
+      });
+
+      if (!duplicateDoc) {
+        return NextResponse.json(
+          { success: false, error: 'Document à remplacer introuvable ou non autorisé' },
+          { status: 404 }
+        );
+      }
+
       // Marquer l'ancien comme remplacé
       await prisma.document.update({
         where: { id: replaceDuplicateId },
@@ -137,6 +206,7 @@ export async function POST(request: NextRequest) {
     // Créer le document en base SEULEMENT lors de la confirmation
     const document = await prisma.document.create({
       data: {
+        organizationId: upload.organizationId,
         filenameOriginal: customName || upload.originalName,
         fileName: `${crypto.randomUUID()}_${upload.originalName.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
         mime: upload.mime,
@@ -153,14 +223,14 @@ export async function POST(request: NextRequest) {
         extractedText: upload.extractedText || null,
         extractionSource: upload.extractionSource || null,
         // Liaison selon le scope
-        ...(scope === 'property' && linkedTo?.propertyId ? {
-          propertyId: linkedTo.propertyId
+        ...(propertyId ? {
+          propertyId
         } : {}),
-        ...(linkedTo?.leaseId ? {
-          leaseId: linkedTo.leaseId
+        ...(leaseId ? {
+          leaseId
         } : {}),
-        ...(linkedTo?.tenantId ? {
-          tenantId: linkedTo.tenantId
+        ...(tenantId ? {
+          tenantId
         } : {}),
       },
       include: {

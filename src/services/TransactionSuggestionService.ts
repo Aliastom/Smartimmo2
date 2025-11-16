@@ -97,6 +97,7 @@ class TransactionSuggestionService {
           id: true,
           extractedText: true,
           documentTypeId: true,
+          organizationId: true,
           DocumentType: {
             select: {
               id: true,
@@ -108,6 +109,11 @@ class TransactionSuggestionService {
               flowLocks: true,
               metaSchema: true
             }
+          },
+          DocumentLink: {
+            where: { linkedType: 'PROPERTY' },
+            select: { linkedId: true },
+            take: 1
           }
         }
       });
@@ -162,7 +168,24 @@ class TransactionSuggestionService {
       console.log('[TransactionSuggestion] ✅ Texte disponible:', textContent.length, 'caractères');
 
       // 4. Extraire les champs métier
-      const extractedData = await this.extractFields(textContent, config, document);
+      const extractedData = await this.extractFields(textContent, config, document, document.organizationId);
+      
+      // 4.5. Utiliser le lien du document si disponible (priorité sur matching par nom)
+      if (!extractedData.suggestions.propertyId && document.DocumentLink && document.DocumentLink.length > 0) {
+        // Vérifier que le bien appartient à l'organisation
+        const property = await prisma.property.findFirst({
+          where: { 
+            id: document.DocumentLink[0].linkedId,
+            organizationId: document.organizationId
+          },
+          select: { id: true }
+        });
+        if (property) {
+          extractedData.suggestions.propertyId = property.id;
+          extractedData.fieldsConfidence.propertyId = 0.95;
+          console.log(`[TransactionSuggestion] 🏠 Bien depuis lien du document: ${property.id}`);
+        }
+      }
       
       // 5. Calculer la confiance globale
       const confidence = this.calculateOverallConfidence(extractedData.fieldsConfidence);
@@ -253,7 +276,8 @@ class TransactionSuggestionService {
   private async extractFields(
     text: string,
     config: DocumentTypeConfig,
-    document: any
+    document: any,
+    organizationId?: string
   ): Promise<{
     suggestions: any;
     fieldsConfidence: Record<string, number>;
@@ -303,6 +327,14 @@ class TransactionSuggestionService {
       // Pas de mapping : utiliser les valeurs directement
       for (const [fieldName, data] of Object.entries(extracted)) {
         rawData[fieldName] = data.value;
+      }
+    }
+    
+    // IMPORTANT : Ajouter aussi les champs non mappés dans rawData pour le template
+    // (nécessaire pour les champs comme "locataire" utilisés dans libelleTemplate mais non mappés)
+    for (const [fieldName, data] of Object.entries(extracted)) {
+      if (!(fieldName in rawData)) {
+        rawData[fieldName] = typeof data === 'object' ? data.value : data;
       }
     }
 
@@ -413,7 +445,7 @@ class TransactionSuggestionService {
     // Bien : matcher en base (via adresse ou locataire)
     if (rawData.bien || rawData.adresse_bien) {
       const bienText = rawData.bien || rawData.adresse_bien;
-      const propertyId = await this.matchProperty(bienText);
+      const propertyId = await this.matchProperty(bienText, organizationId);
       if (propertyId) {
         suggestions.propertyId = propertyId;
         fieldsConfidence.propertyId = 0.85;
@@ -426,7 +458,7 @@ class TransactionSuggestionService {
     if (!suggestions.propertyId && extracted.locataire) {
       const locataireNom = extracted.locataire.value;
       console.log('[TransactionSuggestion] 🔍 Tentative matching par locataire:', locataireNom);
-      const match = await this.matchPropertyAndLeaseByTenant(locataireNom);
+      const match = await this.matchPropertyAndLeaseByTenant(locataireNom, organizationId);
       if (match.propertyId) {
         suggestions.propertyId = match.propertyId;
         suggestions.leaseId = match.leaseId;
@@ -475,10 +507,12 @@ class TransactionSuggestionService {
     // Libellé : depuis template avec les données extraites
     if (config.suggestionsConfig?.libelleTemplate || postprocess.libelleTemplate) {
       const template = postprocess.libelleTemplate || config.suggestionsConfig.libelleTemplate;
+      // rawData contient maintenant tous les champs (mappés + non mappés) grâce au code ci-dessus
       const label = this.generateLabel(template, rawData);
       if (label) {
         suggestions.label = label;
         fieldsConfidence.label = 0.9;
+        console.log(`[TransactionSuggestion] 📝 Libellé généré: ${label}`);
       }
     }
 
@@ -685,11 +719,12 @@ class TransactionSuggestionService {
   /**
    * Tente de matcher un texte de bien avec un bien existant
    */
-  private async matchProperty(propertyText: string): Promise<string | null> {
+  private async matchProperty(propertyText: string, organizationId?: string): Promise<string | null> {
     try {
       // Recherche par nom ou adresse
       const properties = await prisma.property.findMany({
         where: {
+          ...(organizationId ? { organizationId } : {}),
           OR: [
             { name: { contains: propertyText, mode: 'insensitive' } },
             { address: { contains: propertyText, mode: 'insensitive' } }
@@ -714,7 +749,7 @@ class TransactionSuggestionService {
   /**
    * Tente de trouver un bien et un bail via le nom du locataire
    */
-  private async matchPropertyAndLeaseByTenant(tenantName: string): Promise<{
+  private async matchPropertyAndLeaseByTenant(tenantName: string, organizationId?: string): Promise<{
     propertyId: string | null;
     leaseId: string | null;
   }> {
@@ -745,7 +780,9 @@ class TransactionSuggestionService {
 
       const lease = await prisma.lease.findFirst({
         where: {
+          ...(organizationId ? { organizationId } : {}),
           Tenant: {
+            ...(organizationId ? { organizationId } : {}),
             OR: [
               // Cas 1 : "Prénom Nom" (ex: Alain Tosetto)
               {

@@ -1,5 +1,4 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 import { classificationService } from '@/services/ClassificationService';
 import { sha256Hex } from '@/lib/hash';
 import { cleanupExpiredTemps, generateTempId } from '@/lib/cleanupTemp';
@@ -8,6 +7,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { dedupAI } from '@/services/dedup-ai.service';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 
@@ -33,6 +33,9 @@ export async function POST(request: NextRequest) {
     // Nettoyage des fichiers temporaires expirÃ©s
     cleanupExpiredTemps().catch(console.error);
 
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const scope = (formData.get('scope') as string) || 'global';
@@ -43,6 +46,51 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'Aucun fichier fourni' },
         { status: 400 }
       );
+    }
+
+    if (scope !== 'global' && scopeId) {
+      let scopeEntityExists: { id: string } | null = null;
+      switch (scope) {
+        case 'property':
+          scopeEntityExists = await prisma.property.findFirst({
+            where: { id: scopeId, organizationId },
+            select: { id: true },
+          });
+          break;
+        case 'lease':
+          scopeEntityExists = await prisma.lease.findFirst({
+            where: { id: scopeId, organizationId },
+            select: { id: true },
+          });
+          break;
+        case 'tenant':
+          scopeEntityExists = await prisma.tenant.findFirst({
+            where: { id: scopeId, organizationId },
+            select: { id: true },
+          });
+          break;
+        case 'transaction':
+          scopeEntityExists = await prisma.transaction.findFirst({
+            where: { id: scopeId, organizationId },
+            select: { id: true },
+          });
+          break;
+        case 'loan':
+          scopeEntityExists = await prisma.loan.findFirst({
+            where: { id: scopeId, organizationId },
+            select: { id: true },
+          });
+          break;
+        default:
+          break;
+      }
+
+      if (!scopeEntityExists) {
+        return NextResponse.json(
+          { success: false, error: 'Entité liée introuvable ou non autorisée' },
+          { status: 404 }
+        );
+      }
     }
 
     // VÃ©rifier la taille (max 50MB)
@@ -158,6 +206,7 @@ export async function POST(request: NextRequest) {
       // MAIS on exclut les documents brouillons (draft) qui ne sont pas de vrais doublons
       const candidates = await prisma.document.findMany({
         where: {
+          organizationId,
           deletedAt: null,
           status: {
             not: 'draft' // Exclure les documents brouillons
@@ -292,6 +341,7 @@ export async function POST(request: NextRequest) {
       sha256,
       scope,
       scopeId,
+      organizationId,
       isDuplicate: dedupResult ? dedupResult.duplicateType !== 'none' : false,
       dedupResult: dedupResult || null,
       // Ajouter le texte OCR complet pour la finalisation

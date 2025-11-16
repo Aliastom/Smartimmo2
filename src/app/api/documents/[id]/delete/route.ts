@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { readFile, mkdir, rename, unlink } from 'fs/promises';
 import { join } from 'path';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * DELETE /api/documents/[id]/delete
@@ -16,7 +17,8 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    // TODO: Ajouter protection authentification
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const documentId = params.id;
 
     if (!documentId) {
@@ -27,8 +29,8 @@ export async function DELETE(
     }
 
     // Récupérer le document avec ses relations
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, organizationId },
       include: {
         Property: {
           select: { id: true, name: true }
@@ -71,11 +73,11 @@ export async function DELETE(
       });
     }
     
-    if (document.transactionId && document.transaction) {
+    if (document.transactionId && document.Transaction) {
       links.push({
         type: 'transaction',
-        id: document.transaction.id,
-        name: document.transaction.label
+        id: document.Transaction.id,
+        name: document.Transaction.label
       });
     }
     
@@ -107,7 +109,7 @@ export async function DELETE(
       where: { id: documentId },
       data: {
         deletedAt: now,
-        deletedBy: 'user', // TODO: Récupérer l'utilisateur authentifié
+        deletedBy: user.id,
       }
     });
 

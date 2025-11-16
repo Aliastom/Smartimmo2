@@ -17,8 +17,9 @@ interface LeaseSearchParams {
 }
 
 export const leaseRepository = {
-  async findAll(): Promise<Lease[]> {
+  async findAll(organizationId: string): Promise<Lease[]> {
     const leases = await prisma.lease.findMany({
+      where: { organizationId },
       include: {
         Property: {
           select: { id: true, name: true, address: true }
@@ -32,9 +33,9 @@ export const leaseRepository = {
     return leases as Promise<Lease[]>;
   },
 
-  async findById(id: string): Promise<Lease | null> {
+  async findById(id: string, organizationId: string): Promise<Lease | null> {
     const lease = await prisma.lease.findUnique({
-      where: { id },
+      where: { id, organizationId },
       include: {
         Property: {
           select: { 
@@ -62,9 +63,9 @@ export const leaseRepository = {
     return lease as Lease | null;
   },
 
-  async findByPropertyId(propertyId: string): Promise<Lease[]> {
+  async findByPropertyId(propertyId: string, organizationId: string): Promise<Lease[]> {
     const leases = await prisma.lease.findMany({ 
-      where: { propertyId },
+      where: { propertyId, organizationId },
       include: {
         Property: {
           select: { id: true, name: true, address: true }
@@ -78,9 +79,9 @@ export const leaseRepository = {
     return leases as Promise<Lease[]>;
   },
 
-  async findByTenantId(tenantId: string): Promise<Lease[]> {
+  async findByTenantId(tenantId: string, organizationId: string): Promise<Lease[]> {
     const leases = await prisma.lease.findMany({ 
-      where: { tenantId },
+      where: { tenantId, organizationId },
       include: {
         Property: {
           select: { id: true, name: true, address: true }
@@ -94,11 +95,11 @@ export const leaseRepository = {
     return leases as Promise<Lease[]>;
   },
 
-  async findWithFilters(params: LeaseSearchParams): Promise<{ leases: Lease[]; total: number; pages: number }> {
-    const { filters = {}, search = '', page = 1, limit = 10 } = params;
+  async findWithFilters(params: LeaseSearchParams & { organizationId: string }): Promise<{ leases: Lease[]; total: number; pages: number }> {
+    const { filters = {}, search = '', page = 1, limit = 10, organizationId } = params;
     
     // Construire la clause where
-    const where: any = {};
+    const where: any = { organizationId };
     
     if (filters.propertyId) where.propertyId = filters.propertyId;
     if (filters.type) where.type = filters.type;
@@ -152,7 +153,7 @@ export const leaseRepository = {
     return { leases: normalizedLeases, total, pages };
   },
 
-  async create(data: Record<string, unknown>): Promise<Lease> {
+  async create(data: Record<string, unknown> & { organizationId: string }): Promise<Lease> {
     // Exclure l'ID si présent
     const { id, ...dataWithoutId } = data as any;
     const lease = await prisma.lease.create({ 
@@ -170,9 +171,9 @@ export const leaseRepository = {
     return lease as Lease;
   },
 
-  async update(id: string, data: Record<string, unknown>): Promise<Lease> {
+  async update(id: string, organizationId: string, data: Record<string, unknown>): Promise<Lease> {
     const lease = await prisma.lease.update({ 
-      where: { id }, 
+      where: { id, organizationId }, 
       data,
       include: {
         Property: {
@@ -187,7 +188,7 @@ export const leaseRepository = {
     return lease as Lease;
   },
 
-  async delete(id: string): Promise<Lease> {
-    return prisma.lease.delete({ where: { id } }) as Promise<Lease>;
+  async delete(id: string, organizationId: string): Promise<Lease> {
+    return prisma.lease.delete({ where: { id, organizationId } }) as Promise<Lease>;
   },
 };

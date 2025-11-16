@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { addMonthsYYYYMM, formatMonthlyLabel, extractBaseLabel } from '@/lib/utils/monthUtils';
 import { createManagementCommission } from '@/lib/services/managementCommissionService';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // Fonction pour normaliser une chaîne (enlever les accents, minuscules)
 
@@ -26,6 +27,8 @@ function formatAccountingMonthForSearch(yyyymm: string | null): string {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     
     // Paramètres de pagination
@@ -53,7 +56,7 @@ export async function GET(request: NextRequest) {
     const includeArchived = searchParams.get('includeArchived') === 'true'; // Inclure biens archivés
 
     // Construction des filtres
-    const where: any = {};
+    const where: any = { organizationId };
 
     // NOTE: La recherche textuelle sera appliquée APRÈS la récupération
     // car SQLite + Prisma ne gèrent pas bien les accents avec mode: 'insensitive'
@@ -235,7 +238,8 @@ export async function GET(request: NextRequest) {
         console.log(`[API GROUPAGE] Recherche des enfants pour ${parentIds.length} parents...`);
         const children = await prisma.transaction.findMany({
           where: {
-            parentTransactionId: { in: parentIds }
+            parentTransactionId: { in: parentIds },
+            organizationId
           },
           select: {
             id: true,
@@ -307,7 +311,8 @@ export async function GET(request: NextRequest) {
         console.log(`[API GROUPAGE] Recherche des parents pour ${childParentIds.length} enfants...`);
         const parents = await prisma.transaction.findMany({
           where: {
-            id: { in: childParentIds }
+            id: { in: childParentIds },
+            organizationId
           },
           select: {
             id: true,
@@ -638,6 +643,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🆕 [API POST] CRÉATION TRANSACTION');
@@ -675,11 +682,41 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Amount est requis' }, { status: 400 });
     }
 
+    // Vérifier que la propriété appartient à l'utilisateur
+    const property = await prisma.property.findFirst({
+      where: { id: body.propertyId, organizationId },
+      select: { id: true }
+    });
+    if (!property) {
+      return NextResponse.json({ error: 'Propriété introuvable' }, { status: 404 });
+    }
+
     // Vérifier que la catégorie existe
     const category = await prisma.category.findUnique({
       where: { id: body.categoryId },
       select: { id: true, label: true, type: true }
     });
+    // Vérifier que le bail/le lease appartiennent à l'organisation si fournis
+    if (body.leaseId) {
+      const lease = await prisma.lease.findFirst({
+        where: { id: body.leaseId, organizationId },
+        select: { id: true }
+      });
+      if (!lease) {
+        return NextResponse.json({ error: 'Bail introuvable pour ce compte' }, { status: 404 });
+      }
+    }
+
+    if (body.bailId) {
+      const bail = await prisma.lease.findFirst({
+        where: { id: body.bailId, organizationId },
+        select: { id: true }
+      });
+      if (!bail) {
+        return NextResponse.json({ error: 'Bail introuvable pour ce compte' }, { status: 404 });
+      }
+    }
+
     
     if (!category) {
       return NextResponse.json({ error: 'Catégorie introuvable' }, { status: 400 });
@@ -734,20 +771,13 @@ export async function POST(request: NextRequest) {
 
         const transaction = await tx.transaction.create({
           data: {
-            Property: {
-              connect: { id: body.propertyId }
-            },
-            Lease_Transaction_leaseIdToLease: body.leaseId ? {
-              connect: { id: body.leaseId }
-            } : undefined,
-            Lease_Transaction_bailIdToLease: body.bailId ? {
-              connect: { id: body.bailId }
-            } : undefined,
+            organizationId,
+            propertyId: body.propertyId,
+            leaseId: body.leaseId || null,
+            bailId: body.bailId || null,
             date: new Date(body.date),
             nature: body.natureId || body.nature, // Support both formats for compatibility
-            Category: {
-              connect: { id: body.categoryId }
-            },
+            categoryId: body.categoryId,
             label: label,
             amount: parseFloat(body.amount),
             reference: body.reference || null,
@@ -838,6 +868,7 @@ export async function POST(request: NextRequest) {
                 accountingMonth: accountingMonth,
                 leaseId: transaction.leaseId || undefined,
                 bailId: transaction.bailId || undefined,
+                organizationId,
                 // Copier les champs de paiement de la transaction parent
                 reference: body.reference || undefined,
                 paidAt: body.paidAt ? new Date(body.paidAt) : (body.paymentDate ? new Date(body.paymentDate) : undefined),
@@ -870,7 +901,8 @@ export async function POST(request: NextRequest) {
         const existingDocs = await tx.Document.findMany({
           where: { 
             id: { in: body.stagedDocumentIds },
-            status: 'draft'
+            status: 'draft',
+            organizationId
           },
           select: { id: true, fileName: true, status: true, fileSha256: true, textSha256: true }
         });
@@ -882,7 +914,8 @@ export async function POST(request: NextRequest) {
           if (doc.fileSha256) {
             const duplicateCheck = await DocumentsService.checkDuplicates({ 
               fileSha256: doc.fileSha256, 
-              textSha256: doc.textSha256 || undefined 
+              textSha256: doc.textSha256 || undefined,
+              organizationId,
             });
             if (duplicateCheck.hasExactDuplicate) {
               return NextResponse.json({
@@ -898,7 +931,8 @@ export async function POST(request: NextRequest) {
         await tx.Document.updateMany({
           where: { 
             id: { in: body.stagedDocumentIds },
-            status: 'draft'
+            status: 'draft',
+            organizationId
           },
           data: {
             status: 'active',
@@ -919,7 +953,8 @@ export async function POST(request: NextRequest) {
         const stagedLinks = await tx.UploadStagedItem.findMany({
           where: {
             id: { in: body.stagedLinkItemIds },
-            kind: 'link'
+            kind: 'link',
+            organizationId
           },
           include: {
             Document: {

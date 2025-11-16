@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DocumentsService } from '@/lib/services/documents';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/documents/stats - Obtenir les statistiques des documents
@@ -10,11 +11,12 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const searchParams = request.nextUrl.searchParams;
-    const ownerId = searchParams.get('ownerId') || 'default';
     const propertyId = searchParams.get('propertyId') || undefined;
 
-    const stats = await DocumentsService.getStats(ownerId, propertyId);
+    const stats = await DocumentsService.getStats(organizationId, propertyId || undefined);
 
     return NextResponse.json(stats);
   } catch (error: any) {

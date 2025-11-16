@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DocumentsService } from '@/lib/services/documents';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * POST /api/documents/[id]/version - Créer une nouvelle version d'un document
@@ -13,6 +14,8 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { id } = params;
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -34,7 +37,8 @@ export async function POST(
       buffer,
       file.name,
       file.type,
-      uploadedBy || undefined
+      uploadedBy || undefined,
+      organizationId
     );
 
     return NextResponse.json({

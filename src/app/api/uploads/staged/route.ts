@@ -4,6 +4,7 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { documentRecognitionService } from '@/services/DocumentRecognitionService';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     console.log('[API] POST /api/uploads/staged - Début');
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -36,10 +40,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Vérifier que la session d'upload existe et n'est pas expirée
+    // Vérifier que la session d'upload existe, n'est pas expirée et appartient à l'organisation
     const uploadSession = await prisma.uploadSession.findFirst({
       where: {
         id: uploadSessionId,
+        organizationId,
         expiresAt: {
           gt: new Date()
         }
@@ -75,7 +80,8 @@ export async function POST(request: NextRequest) {
     const existingDraft = await prisma.document.findFirst({
       where: {
         fileSha256,
-        status: 'draft'
+        status: 'draft',
+        organizationId
       }
     });
 
@@ -94,7 +100,8 @@ export async function POST(request: NextRequest) {
     const existingDocument = await prisma.document.findFirst({
       where: {
         fileSha256,
-        status: 'active' // Seulement les documents actifs
+        status: 'active', // Seulement les documents actifs
+        organizationId
       },
       include: {
         DocumentType: {
@@ -212,19 +219,16 @@ export async function POST(request: NextRequest) {
         url: `/storage/tmp/${uniqueFilename}`,
         status: 'draft',
         source: 'staged-upload',
+        organizationId,
+        uploadSessionId: uploadSessionId,
+        documentTypeId: finalDocumentTypeId || null,
+        intendedContextType,
+        intendedContextTempKey,
         // ✅ Définir correctement le statut OCR selon le résultat de l'analyse
         ocrStatus: textContent && textContent.length > 0 ? 'success' : 'failed',
         ocrVendor: analysisResult.success ? 'unified-service' : undefined,
         ocrConfidence: analysisResult.success ? 0.8 : undefined,
         ocrError: !analysisResult.success ? analysisResult.error : undefined,
-        UploadSession: {
-          connect: { id: uploadSessionId }
-        },
-        intendedContextType,
-        intendedContextTempKey,
-        DocumentType: finalDocumentTypeId ? {
-          connect: { id: finalDocumentTypeId }
-        } : undefined,
         extractedText: textContent // Ajouter le texte extrait par OCR
       }
     });

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminBackupService } from '@/services/AdminBackupService';
-import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
 import fs from 'fs/promises';
 import path from 'path';
 import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
+import { getCurrentUser } from '@/lib/auth/getCurrentUser';
 
 /**
  * POST /api/admin/backup/restore/:backupId
@@ -27,28 +27,13 @@ export async function POST(
   if (authError) return authError;
 
   try {
-    // TODO: Activer l'authentification en production
-    // const session = await getServerSession();
-    // if (!session || !session.user) {
-    //   return NextResponse.json(
-    //     { success: false, error: 'Non authentifié' },
-    //     { status: 401 }
-    //   );
-    // }
-
-    // const user = await prisma.user.findUnique({
-    //   where: { email: session.user.email || '' },
-    // });
-
-    // if (!user || user.role !== 'ADMIN') {
-    //   return NextResponse.json(
-    //     { success: false, error: 'Permissions insuffisantes' },
-    //     { status: 403 }
-    //   );
-    // }
-    
-    // Pour le développement, utiliser un user par défaut
-    const user = { id: 'dev-user', role: 'ADMIN' };
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Non authentifié' },
+        { status: 401 }
+      );
+    }
 
     // 2. Parser les paramètres
     const searchParams = request.nextUrl.searchParams;

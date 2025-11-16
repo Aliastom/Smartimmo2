@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/categories
@@ -16,6 +17,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    await requireAuth();
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || '';
     const natureCode = searchParams.get('natureCode');

@@ -20,9 +20,18 @@ const profileSchema = z.object({
   logo: z.string().optional(), // URL du logo
 });
 
+import { requireAuth } from '@/lib/auth/getCurrentUser';
+
 export async function GET() {
   try {
-    const profile = await prisma.userProfile.findFirst();
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
+    const profile = await prisma.userProfile.findFirst({
+      where: {
+        organizationId,
+      },
+    });
     return NextResponse.json({ data: profile });
   } catch (error) {
     console.error('Error fetching profile:', error);
@@ -35,10 +44,17 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     const body = await request.json();
     const validatedData = profileSchema.parse(body);
 
-    const existingProfile = await prisma.userProfile.findFirst();
+    const existingProfile = await prisma.userProfile.findFirst({
+      where: {
+        organizationId,
+      },
+    });
 
     let profile;
     if (existingProfile) {
@@ -48,7 +64,10 @@ export async function POST(request: NextRequest) {
       });
     } else {
       profile = await prisma.userProfile.create({
-        data: validatedData,
+        data: {
+          ...validatedData,
+          organizationId, // ✅ Associer à l'organisation de l'utilisateur
+        },
       });
     }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { landlordRepository } from '../../../infra/repositories/landlordRepository';
 import { z } from 'zod';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -22,6 +23,7 @@ const landlordSchema = z.object({
 
 export async function GET() {
   try {
+    await requireAuth();
     const landlord = await landlordRepository.get();
     return NextResponse.json(landlord);
   } catch (error) {
@@ -32,6 +34,7 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
+    await requireAuth();
     const body = await request.json();
     
     // Nettoyer les strings

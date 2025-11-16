@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { writeFile, mkdir, unlink } from 'fs/promises';
 import { join } from 'path';
 import { validateNatureCategoryType } from '@/utils/accountingStyles';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // GET /api/payments/[id] - Récupérer un paiement
 
@@ -11,8 +12,11 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const payment = await prisma.payment.findUnique({
-      where: { id: params.id },
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+
+    const payment = await prisma.payment.findFirst({
+      where: { id: params.id, organizationId },
       include: {
         Property: {
           select: { id: true, name: true }
@@ -46,7 +50,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         where: {
           metadata: {
             contains: `"paymentId":"${payment.id}"`
-          }
+          },
+          organizationId,
         },
         select: {
           id: true,
@@ -121,6 +126,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 // PATCH /api/payments/[id] - Modifier un paiement
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     const {
       propertyId,
@@ -211,8 +218,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
 
     // Vérifier que le paiement existe
-    const existingPayment = await prisma.payment.findUnique({
-      where: { id: params.id },
+    const existingPayment = await prisma.payment.findFirst({
+      where: { id: params.id, organizationId },
       include: { attachments: true }
     });
 
@@ -232,6 +239,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
           where: { 
             id: leaseId, 
             propertyId: propertyId,
+            organizationId,
             status: { in: ['ACTIF', 'SIGNÉ'] }
           }
         });

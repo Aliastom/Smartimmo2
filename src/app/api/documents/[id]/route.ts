@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DocumentsService } from '@/lib/services/documents';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/documents/[id] - Récupérer un document par ID
@@ -13,11 +14,14 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { id } = params;
 
     const result = await DocumentsService.search({
       query: id,
       limit: 1,
+      organizationId,
     });
 
     if (!result.Document || result.Document.length === 0) {
@@ -45,6 +49,8 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { id } = params;
     const body = await request.json();
 
@@ -61,12 +67,12 @@ export async function PATCH(
 
     // Renommage
     if (filenameOriginal !== undefined) {
-      await DocumentsService.updateFilename(id, filenameOriginal);
+      await DocumentsService.updateFilename(id, filenameOriginal, organizationId);
     }
 
     // Mise à jour du type de document
     if (chosenTypeId !== undefined) {
-      await DocumentsService.updateDocumentType(id, chosenTypeId);
+      await DocumentsService.updateDocumentType(id, chosenTypeId, organizationId);
     }
 
     // Reliaison
@@ -74,12 +80,13 @@ export async function PATCH(
       await DocumentsService.relink(id, {
         linkedTo,
         linkedId,
+        organizationId,
       });
     }
 
     // Reclassification
     if (reclassify) {
-      const result = await DocumentsService.classifyAndExtract(id);
+      const result = await DocumentsService.classifyAndExtract(id, organizationId);
       return NextResponse.json({
         success: true,
         classification: result,
@@ -118,11 +125,13 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { id } = params;
     const searchParams = request.nextUrl.searchParams;
     const deletedBy = searchParams.get('deletedBy') || 'unknown';
 
-    await DocumentsService.deleteSafely(id, deletedBy);
+    await DocumentsService.deleteSafely(id, deletedBy, organizationId);
 
     return NextResponse.json({
       success: true,

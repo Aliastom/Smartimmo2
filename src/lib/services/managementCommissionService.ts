@@ -9,6 +9,7 @@ import { isGestionDelegueEnabled, getGestionCodes } from '@/lib/settings/appSett
 interface CreateCommissionParams {
   transactionId: string;
   propertyId: string;
+  organizationId: string;
   montantLoyer: number;
   chargesRecup?: number;
   date: Date;
@@ -51,8 +52,8 @@ export async function createManagementCommission(
     const codes = await getGestionCodes();
 
     // Récupérer la propriété et sa société de gestion
-    const property = await prismaClient.property.findUnique({
-      where: { id: params.propertyId },
+    const property = await prismaClient.property.findFirst({
+      where: { id: params.propertyId, organizationId: params.organizationId },
       include: {
         ManagementCompany: true,
       },
@@ -104,6 +105,7 @@ export async function createManagementCommission(
     // Créer la transaction de commission (montant négatif = dépense)
     const commissionTransaction = await prismaClient.transaction.create({
       data: {
+        organizationId: params.organizationId,
         propertyId: params.propertyId,
         leaseId: params.leaseId || null,
         bailId: params.bailId || null,

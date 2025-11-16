@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { expandEcheances } from '@/lib/echeances/expandEcheances';
 import { EcheanceType, Periodicite, SensEcheance } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * Schema de validation pour les query params
@@ -57,8 +58,8 @@ const CreateEcheanceSchema = z.object({
  */
 export async function GET(request: NextRequest) {
   try {
-    // TODO: Ajouter protection authentification si nécessaire
-    
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     
     // Validation des query params
@@ -86,6 +87,7 @@ export async function GET(request: NextRequest) {
 
     // Construire le filtre Prisma
     const where: any = {
+      organizationId,
       isActive: true,
       startAt: { lte: toDate },
       OR: [
@@ -176,7 +178,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    // TODO: Ajouter protection authentification RBAC (ADMIN uniquement)
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     
     const body = await request.json();
     const validation = CreateEcheanceSchema.safeParse(body);
@@ -199,8 +202,31 @@ export async function POST(request: NextRequest) {
     };
 
     // Créer l'échéance
+    if (createData.propertyId) {
+      const property = await prisma.property.findFirst({
+        where: { id: createData.propertyId, organizationId },
+        select: { id: true },
+      });
+      if (!property) {
+        return NextResponse.json({ error: 'Propriété introuvable' }, { status: 404 });
+      }
+    }
+
+    if (createData.leaseId) {
+      const lease = await prisma.lease.findFirst({
+        where: { id: createData.leaseId, organizationId },
+        select: { id: true },
+      });
+      if (!lease) {
+        return NextResponse.json({ error: 'Bail introuvable' }, { status: 404 });
+      }
+    }
+
     const echeance = await prisma.echeanceRecurrente.create({
-      data: createData,
+      data: {
+        ...createData,
+        organizationId,
+      },
       include: {
         Property: {
           select: { id: true, name: true },

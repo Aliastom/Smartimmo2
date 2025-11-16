@@ -72,7 +72,7 @@ export class LeasesService {
   /**
    * RÃ©cupÃ©rer les KPIs des baux
    */
-  static async getKPIs(): Promise<LeaseKPIs> {
+  static async getKPIs(organizationId: string): Promise<LeaseKPIs> {
     const now = new Date();
     const in90Days = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
 
@@ -88,11 +88,12 @@ export class LeasesService {
       indexationDue
     ] = await Promise.all([
       // Total
-      prisma.lease.count(),
+      prisma.lease.count({ where: { organizationId } }),
       
       // Actifs (calculÃ© dynamiquement)
       prisma.lease.count({
         where: {
+          organizationId,
           OR: [
             { status: 'ACTIF' },
             {
@@ -113,12 +114,13 @@ export class LeasesService {
       
       // Ã€ signer (ENVOYÃ‰)
       prisma.lease.count({
-        where: { status: 'ENVOYÃ‰' }
+        where: { status: 'ENVOYÃ‰', organizationId }
       }),
       
       // Expirant sous 90 jours
       prisma.lease.count({
         where: {
+          organizationId,
           endDate: {
             gte: now,
             lte: in90Days
@@ -129,23 +131,24 @@ export class LeasesService {
       
       // RÃ©siliÃ©s
       prisma.lease.count({
-        where: { status: 'RÃ‰SILIÃ‰' }
+        where: { status: 'RÃ‰SILIÃ‰', organizationId }
       }),
       
       // Brouillons
       prisma.lease.count({
-        where: { status: 'BROUILLON' }
+        where: { status: 'BROUILLON', organizationId }
       }),
       
       // SignÃ©s
       prisma.lease.count({
-        where: { status: 'SIGNÃ‰' }
+        where: { status: 'SIGNÃ‰', organizationId }
       }),
       
       // Sans bail signÃ© (vÃ©rifier aussi les documents liÃ©s)
       (async () => {
         const leasesWithoutSignedPdf = await prisma.lease.findMany({
           where: {
+            organizationId,
             signedPdfUrl: null,
             status: { in: ['ACTIF', 'SIGNÃ‰'] }
           },
@@ -177,6 +180,7 @@ export class LeasesService {
       // Indexation due (approximation basÃ©e sur l'anniversaire)
       prisma.lease.count({
         where: {
+          organizationId,
           indexationType: { not: 'none' },
           status: { in: ['ACTIF', 'SIGNÃ‰'] }
         }
@@ -199,7 +203,7 @@ export class LeasesService {
   /**
    * Rechercher les baux avec filtres
    */
-  static async search(filters: LeaseFilters = {}): Promise<{
+  static async search(filters: LeaseFilters = {}, organizationId: string): Promise<{
     items: LeaseWithDetails[];
     total: number;
     page: number;
@@ -219,7 +223,7 @@ export class LeasesService {
     } = filters;
 
     // Construire la clause WHERE
-    const where: any = {};
+    const where: any = { organizationId };
 
     // Recherche textuelle
     if (search) {
@@ -230,7 +234,8 @@ export class LeasesService {
               { name: { contains: search } },
               { address: { contains: search } },
               { city: { contains: search } }
-            ]
+            ],
+            organizationId
           }
         },
         {
@@ -239,7 +244,8 @@ export class LeasesService {
               { firstName: { contains: search } },
               { lastName: { contains: search } },
               { email: { contains: search } }
-            ]
+            ],
+            organizationId
           }
         }
       ];
@@ -383,15 +389,15 @@ export class LeasesService {
   /**
    * RÃ©cupÃ©rer les baux en alerte (expirant, sans documents, indexation due)
    */
-  static async getAlerts(): Promise<{
+  static async getAlerts(organizationId: string): Promise<{
     expiringLeases: LeaseWithDetails[];
     missingDocumentsLeases: LeaseWithDetails[];
     indexationDueLeases: LeaseWithDetails[];
   }> {
     const [expiringResult, missingDocsResult, indexationResult] = await Promise.all([
-      this.search({ upcomingExpiration: true, limit: 10 }),
-      this.search({ missingDocuments: true, limit: 10 }),
-      this.search({ indexationDue: true, limit: 10 })
+      this.search({ upcomingExpiration: true, limit: 10 }, organizationId),
+      this.search({ missingDocuments: true, limit: 10 }, organizationId),
+      this.search({ indexationDue: true, limit: 10 }, organizationId)
     ]);
 
     return {

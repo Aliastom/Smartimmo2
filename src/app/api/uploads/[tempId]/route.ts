@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile, stat } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/uploads/[tempId]
@@ -16,6 +17,8 @@ export async function GET(
   { params }: { params: { tempId: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { tempId } = params;
 
     console.log('[Uploads API] Demande de fichier temporaire:', tempId);
@@ -81,6 +84,14 @@ export async function GET(
     // Lire les métadonnées
     const metaContent = await readFile(metaPath, 'utf-8');
     const meta = JSON.parse(metaContent);
+
+    // Vérifier que le fichier appartient à l'organisation
+    if (meta.organizationId && meta.organizationId !== organizationId) {
+      return NextResponse.json(
+        { error: 'Fichier temporaire non accessible' },
+        { status: 403 }
+      );
+    }
 
     // Vérifier l'expiration
     if (meta.expiresAt && Date.now() > meta.expiresAt) {

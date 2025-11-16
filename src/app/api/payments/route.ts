@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -7,6 +8,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     const propertyId = searchParams.get('propertyId');
     const leaseId = searchParams.get('leaseId');
@@ -19,7 +22,7 @@ export async function GET(request: NextRequest) {
     console.log('[GET /api/payments] Params:', { propertyId, leaseId, y, m, dateFrom, dateTo, q });
 
     // Construction du where
-    const where: any = {};
+    const where: any = { organizationId };
     
     if (propertyId) where.propertyId = propertyId;
     if (leaseId) where.leaseId = leaseId;
@@ -89,7 +92,8 @@ export async function GET(request: NextRequest) {
           where: {
             metadata: {
               contains: `"paymentId":"${payment.id}"`
-            }
+            },
+            organizationId
           },
           select: {
             id: true,

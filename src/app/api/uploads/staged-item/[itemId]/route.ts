@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -10,13 +11,18 @@ export async function DELETE(
   { params }: { params: { itemId: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { itemId } = params;
 
     console.log('[API] DELETE /api/uploads/staged-item:', itemId);
 
-    // Vérifier que l'item existe
-    const stagedItem = await prisma.uploadStagedItem.findUnique({
-      where: { id: itemId }
+    // Vérifier que l'item existe et appartient à l'organisation
+    const stagedItem = await prisma.uploadStagedItem.findFirst({
+      where: { 
+        id: itemId,
+        organizationId
+      }
     });
 
     if (!stagedItem) {

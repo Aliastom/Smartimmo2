@@ -1,5 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -7,6 +8,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     const scope = searchParams.get('scope');
 
@@ -18,16 +21,16 @@ export async function GET(request: NextRequest) {
 
     switch (scope) {
       case 'biens':
-        insights = await getBiensInsights();
+        insights = await getBiensInsights(organizationId);
         break;
       case 'locataires':
-        insights = await getLocatairesInsights();
+        insights = await getLocatairesInsights(organizationId);
         break;
       case 'transactions':
-        insights = await getTransactionsInsights();
+        insights = await getTransactionsInsights(organizationId);
         break;
       case 'documents':
-        insights = await getDocumentsInsights();
+        insights = await getDocumentsInsights(organizationId);
         break;
       default:
         return NextResponse.json({ error: 'Invalid scope' }, { status: 400 });
@@ -40,22 +43,24 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function getBiensInsights() {
+async function getBiensInsights(organizationId: string) {
   const [totalProperties, propertiesWithLeases, leases] = await Promise.all([
-    prisma.property.count(),
+    prisma.property.count({ where: { organizationId } }),
     prisma.property.count({
       where: {
+        organizationId,
         Lease: {
           some: {
-            status: 'ACTIF'
+            status: 'ACTIF',
+            organizationId,
           }
         }
       }
     }),
-            prisma.lease.findMany({
-              where: { status: 'ACTIF' },
-              include: { Property: true }
-            })
+    prisma.lease.findMany({
+      where: { status: 'ACTIF', organizationId },
+      include: { Property: true }
+    })
   ]);
 
   const occupiedProperties = propertiesWithLeases;
@@ -76,20 +81,22 @@ async function getBiensInsights() {
   };
 }
 
-async function getLocatairesInsights() {
+async function getLocatairesInsights(organizationId: string) {
   const [totalTenants, tenantsWithActiveLeases, tenantsWithoutLeases] = await Promise.all([
-    prisma.tenant.count(),
+    prisma.tenant.count({ where: { organizationId } }),
     prisma.tenant.count({
       where: {
+        organizationId,
         Lease: {
-          some: { status: 'ACTIF' }
+          some: { status: 'ACTIF', organizationId }
         }
       }
     }),
     prisma.tenant.count({
       where: {
+        organizationId,
         Lease: {
-          none: { status: 'ACTIF' }
+          none: { status: 'ACTIF', organizationId }
         }
       }
     })
@@ -107,10 +114,10 @@ async function getLocatairesInsights() {
   };
 }
 
-async function getTransactionsInsights() {
+async function getTransactionsInsights(organizationId: string) {
   const [totalTransactions, transactions, natures] = await Promise.all([
-    prisma.transaction.count(),
-    prisma.transaction.findMany(),
+    prisma.transaction.count({ where: { organizationId } }),
+    prisma.transaction.findMany({ where: { organizationId } }),
     prisma.natureEntity.findMany()
   ]);
 
@@ -122,7 +129,7 @@ async function getTransactionsInsights() {
 
   // RÃ©cupÃ©rer les liens de documents pour calculer les transactions non rapprochÃ©es
   const documentLinks = await prisma.documentLink.findMany({
-    where: { linkedType: 'transaction' }
+    where: { linkedType: 'transaction', Document: { organizationId } }
   });
   
   const transactionIdsWithDocuments = new Set(
@@ -162,6 +169,7 @@ async function getTransactionsInsights() {
   
   const upcomingDueDates = await prisma.transaction.count({
     where: {
+      organizationId,
       date: {
         gte: new Date(),
         lte: thirtyDaysFromNow
@@ -180,13 +188,13 @@ async function getTransactionsInsights() {
   };
 }
 
-async function getDocumentsInsights() {
+async function getDocumentsInsights(organizationId: string) {
   const [totalDocuments, pendingDocuments, classifiedDocuments, ocrFailedDocuments, draftDocuments] = await Promise.all([
-    prisma.document.count({ where: { status: { not: 'DELETED' } } }),
-    prisma.document.count({ where: { status: 'PENDING' } }),
-    prisma.document.count({ where: { status: 'ACTIVE', documentTypeId: { not: null } } }),
-    prisma.document.count({ where: { status: 'OCR_FAILED' } }),
-    prisma.document.count({ where: { status: 'DRAFT' } })
+    prisma.document.count({ where: { status: { not: 'DELETED' }, organizationId } }),
+    prisma.document.count({ where: { status: 'PENDING', organizationId } }),
+    prisma.document.count({ where: { status: 'ACTIVE', documentTypeId: { not: null }, organizationId } }),
+    prisma.document.count({ where: { status: 'OCR_FAILED', organizationId } }),
+    prisma.document.count({ where: { status: 'DRAFT', organizationId } })
   ]);
 
   const classificationRate = totalDocuments > 0 ? (classifiedDocuments / totalDocuments) * 100 : 0;

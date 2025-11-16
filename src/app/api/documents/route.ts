@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DocumentsService } from '@/lib/services/documents';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/documents - Recherche et liste de documents
@@ -10,6 +11,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const searchParams = request.nextUrl.searchParams;
     
     // Parse les paramètres de recherche
@@ -33,7 +36,7 @@ export async function GET(request: NextRequest) {
       offset: parseInt(searchParams.get('offset') || '0'),
     };
 
-    const result = await DocumentsService.search(filters);
+    const result = await DocumentsService.search({ ...filters, organizationId });
 
     return NextResponse.json(result);
   } catch (error: any) {
@@ -50,6 +53,10 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    const ownerId = user.id;
+
     const formData = await request.formData();
     const files = formData.getAll('files') as File[];
     
@@ -66,7 +73,6 @@ export async function POST(request: NextRequest) {
     const hintedTypeKey = formData.get('hintedTypeKey') as string | null;
     const tagsStr = formData.get('tags') as string | null;
     const tags = tagsStr ? JSON.parse(tagsStr) : [];
-    const ownerId = 'default'; // TODO: Récupérer l'ID utilisateur depuis la session
     const source = (formData.get('source') as any) || 'upload';
     const uploadedBy = formData.get('uploadedBy') as string | null;
 
@@ -82,6 +88,7 @@ export async function POST(request: NextRequest) {
         hintedTypeKey: hintedTypeKey || undefined,
         tags,
         ownerId,
+        organizationId,
         source,
         uploadedBy: uploadedBy || undefined,
       });

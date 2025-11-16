@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { buildSchedule, sliceSchedule, crdAtDate } from '@/lib/finance/amortization';
 import { Decimal } from '@prisma/client/runtime/library';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // Schéma de validation pour la mise à jour d'un prêt
 
@@ -33,14 +34,14 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    // TODO: Ajouter protection authentification RBAC (ADMIN + USER lecture)
-    
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     const from = searchParams.get('from') || undefined;
     const to = searchParams.get('to') || undefined;
 
-    const loan = await prisma.loan.findUnique({
-      where: { id: params.id },
+    const loan = await prisma.loan.findFirst({
+      where: { id: params.id, organizationId },
       include: {
         property: {
           select: {
@@ -137,8 +138,8 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    // TODO: Ajouter protection authentification RBAC (ADMIN uniquement)
-    
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     const validation = updateLoanSchema.safeParse(body);
 
@@ -152,8 +153,8 @@ export async function PATCH(
     const data = validation.data;
 
     // Vérifier que le prêt existe
-    const existingLoan = await prisma.loan.findUnique({
-      where: { id: params.id },
+    const existingLoan = await prisma.loan.findFirst({
+      where: { id: params.id, organizationId },
     });
 
     if (!existingLoan) {
@@ -165,8 +166,8 @@ export async function PATCH(
 
     // Si propertyId est modifié, vérifier que la nouvelle propriété existe
     if (data.propertyId && data.propertyId !== existingLoan.propertyId) {
-      const property = await prisma.property.findUnique({
-        where: { id: data.propertyId },
+      const property = await prisma.property.findFirst({
+        where: { id: data.propertyId, organizationId },
       });
 
       if (!property) {
@@ -211,7 +212,7 @@ export async function PATCH(
 
     // Mettre à jour le prêt
     const loan = await prisma.loan.update({
-      where: { id: params.id },
+      where: { id: params.id, organizationId },
       data: updateData,
       include: {
         property: {
@@ -259,11 +260,11 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    // TODO: Ajouter protection authentification RBAC (ADMIN uniquement)
-    
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     // Vérifier que le prêt existe
-    const loan = await prisma.loan.findUnique({
-      where: { id: params.id },
+    const loan = await prisma.loan.findFirst({
+      where: { id: params.id, organizationId },
     });
 
     if (!loan) {
@@ -275,7 +276,7 @@ export async function DELETE(
 
     // Soft delete : mettre isActive à false
     await prisma.loan.update({
-      where: { id: params.id },
+      where: { id: params.id, organizationId },
       data: {
         isActive: false,
       },

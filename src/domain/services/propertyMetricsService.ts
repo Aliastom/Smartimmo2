@@ -37,16 +37,20 @@ export interface PortfolioSummary {
 /**
  * Calcule le statut d'un bien en fonction de son mode et de ses baux
  */
-export async function computePropertyStatus(propertyId: string): Promise<string> {
-  const property = await prisma.property.findUnique({
-    where: { id: propertyId },
+export async function computePropertyStatus(propertyId: string, organizationId?: string): Promise<string> {
+  const property = await prisma.property.findFirst({
+    where: { 
+      id: propertyId,
+      ...(organizationId ? { organizationId } : {})
+    },
     select: {
       statusMode: true,
       statusManual: true,
       occupation: true,
       Lease: {
         where: {
-          status: { in: ['ACTIF', 'SIGNÉ'] }
+          status: { in: ['ACTIF', 'SIGNÉ'] },
+          ...(organizationId ? { organizationId } : {})
         },
         select: { id: true }
       }
@@ -77,35 +81,46 @@ export async function computePropertyStatus(propertyId: string): Promise<string>
  */
 export async function computePropertyMetrics(
   propertyId: string,
+  organizationId?: string,
   defaultExitFeesRate: number = 0.07
 ): Promise<PropertyMetrics> {
-  const property = await prisma.property.findUnique({
-    where: { id: propertyId },
+  const property = await prisma.property.findFirst({
+    where: { 
+      id: propertyId,
+      ...(organizationId ? { organizationId } : {})
+    },
     include: {
       Loan: {
-        where: { status: 'active' },
+        where: { 
+          isActive: true,
+          ...(organizationId ? { organizationId } : {})
+        },
         select: { remainingCapital: true, monthlyPayment: true, interestRate: true }
       },
       Lease: {
-        where: { status: { in: ['ACTIF', 'SIGNÉ'] } },
+        where: { 
+          status: { in: ['ACTIF', 'SIGNÉ'] },
+          ...(organizationId ? { organizationId } : {})
+        },
         select: { rentAmount: true, chargesRecupMensuelles: true, chargesNonRecupMensuelles: true, startDate: true, endDate: true }
       },
-      Payment: {
+      Transaction: {
         where: {
           nature: { in: ['LOYER', 'CHARGES'] },
           date: {
             gte: new Date(new Date().getFullYear(), 0, 1), // Début d'année
             lte: new Date()
-          }
+          },
+          ...(organizationId ? { organizationId } : {})
         },
-        select: { amount: true, nature: true }
+        select: { amount: true, nature: true, date: true }
       }
     }
   });
 
   if (!property) throw new Error(`Property ${propertyId} not found`);
 
-  const statut = await computePropertyStatus(propertyId);
+  const statut = await computePropertyStatus(propertyId, organizationId);
   const valeurMarche = property.currentValue;
   const crd = property.Loan.reduce((sum, loan) => sum + loan.remainingCapital, 0);
   const exitFeesRate = property.exitFeesRate ?? defaultExitFeesRate;
@@ -120,21 +135,21 @@ export async function computePropertyMetrics(
 
   // Cap rate (approx) = NOI / valeur marché
   // NOI simplifié = loyers encaissés - charges non récup (on approxime)
-  const loyersEncaisses = property.payments
-    .filter(p => p.nature === 'LOYER')
-    .reduce((sum, p) => sum + p.amount, 0);
-  const chargesPayees = property.payments
-    .filter(p => p.nature === 'CHARGES')
-    .reduce((sum, p) => sum + p.amount, 0);
+  const loyersEncaisses = property.Transaction
+    .filter(tx => tx.nature === 'LOYER' || tx.amount > 0)
+    .reduce((sum, tx) => sum + Math.abs(tx.amount || 0), 0);
+  const chargesPayees = property.Transaction
+    .filter(tx => tx.nature === 'CHARGES' || tx.amount < 0)
+    .reduce((sum, tx) => sum + Math.abs(tx.amount || 0), 0);
   const noi = loyersEncaisses - chargesPayees;
   const capRate = valeurMarche > 0 ? (noi / valeurMarche) * 100 : 0;
 
   // Taux d'occupation (approx) = % de mois avec encaissements / 12
   const currentYear = new Date().getFullYear();
   const monthsWithRent = new Set(
-    property.payments
-      .filter(p => p.nature === 'LOYER')
-      .map(p => new Date(p.date).getMonth())
+    property.Transaction
+      .filter(tx => tx.nature === 'LOYER' || tx.amount > 0)
+      .map(tx => new Date(tx.date).getMonth())
   ).size;
   const tauxOccupation = (monthsWithRent / 12) * 100;
 
@@ -154,24 +169,27 @@ export async function computePropertyMetrics(
  * Calcule le résumé du portefeuille complet
  */
 export async function computePortfolioSummary(
+  organizationId: string,
   defaultExitFeesRate: number = 0.07
 ): Promise<PortfolioSummary> {
   const properties = await prisma.property.findMany({
+    where: { organizationId },
     include: {
       Loan: {
-        where: { status: 'active' },
+        where: { isActive: true, organizationId },
         select: { remainingCapital: true, monthlyPayment: true }
       },
       Lease: {
-        where: { status: { in: ['ACTIF', 'SIGNÉ'] } },
+        where: { status: { in: ['ACTIF', 'SIGNÉ'] }, organizationId },
         select: { rentAmount: true, chargesRecupMensuelles: true, chargesNonRecupMensuelles: true }
       },
-      Payment: {
+      Transaction: {
         where: {
           date: {
             gte: new Date(new Date().getFullYear(), 0, 1),
             lte: new Date()
-          }
+          },
+          organizationId,
         },
         select: { amount: true, nature: true }
       }
@@ -203,10 +221,10 @@ export async function computePortfolioSummary(
     fraisSortieTotaux += fraisSortie;
 
     // Cashflow = loyers encaissés - mensualités
-    const loyersEncaisses = property.payments
-      .filter(p => p.nature === 'LOYER')
-      .reduce((sum, p) => sum + p.amount, 0);
-    const mensualites = property.Loan.reduce((sum, loan) => sum + (loan.monthlyPayment * 12), 0);
+    const loyersEncaisses = property.Transaction
+      .filter(tx => tx.nature === 'LOYER' || tx.amount > 0)
+      .reduce((sum, tx) => sum + Math.abs(tx.amount || 0), 0);
+    const mensualites = property.Loan.reduce((sum, loan) => sum + (Number(loan.monthlyPayment) * 12), 0);
     cashflowAnnuel += loyersEncaisses - mensualites;
 
     // Rendement brut
@@ -214,17 +232,17 @@ export async function computePortfolioSummary(
     const rendementBrut = valeurMarche > 0 ? (loyersAnnuels / valeurMarche) * 100 : 0;
 
     // Cap rate (simplifié)
-    const chargesPayees = property.payments
-      .filter(p => p.nature === 'CHARGES')
-      .reduce((sum, p) => sum + p.amount, 0);
+    const chargesPayees = property.Transaction
+      .filter(tx => tx.nature?.includes('CHARGE') || tx.amount < 0)
+      .reduce((sum, tx) => sum + Math.abs(tx.amount || 0), 0);
     const noi = loyersEncaisses - chargesPayees;
     const capRate = valeurMarche > 0 ? (noi / valeurMarche) * 100 : 0;
 
     // Taux d'occupation
     const monthsWithRent = new Set(
-      property.payments
-        .filter(p => p.nature === 'LOYER')
-        .map(p => new Date(p.date).getMonth())
+      property.Transaction
+        .filter(tx => tx.nature === 'LOYER' || tx.amount > 0)
+        .map(tx => new Date(tx.date).getMonth())
     ).size;
     const tauxOccupation = (monthsWithRent / 12) * 100;
 

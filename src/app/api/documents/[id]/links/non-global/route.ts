@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listNonGlobalLinks, getLinkDisplayInfo } from '@/lib/docsSimple';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/documents/[id]/links/non-global
@@ -15,6 +16,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
     const documentId = params.id;
 
     if (!documentId) {
@@ -25,11 +27,11 @@ export async function GET(
     }
 
     // Récupérer les liens bruts
-    const rawLinks = await listNonGlobalLinks(documentId);
+    const rawLinks = await listNonGlobalLinks(documentId, user.organizationId);
 
     // Enrichir avec les informations lisibles
     const linksWithInfo = await Promise.all(
-      rawLinks.map(link => getLinkDisplayInfo(link.linkedType, link.linkedId))
+      rawLinks.map(link => getLinkDisplayInfo(link.linkedType, link.linkedId, user.organizationId))
     );
 
     return NextResponse.json({ 

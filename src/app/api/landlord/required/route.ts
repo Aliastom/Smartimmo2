@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { landlordRepository } from '../../../../infra/repositories/landlordRepository';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -7,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    await requireAuth();
     const requiredFields = await landlordRepository.getRequiredFields();
     const allFilled = requiredFields.every(f => f.filled);
     

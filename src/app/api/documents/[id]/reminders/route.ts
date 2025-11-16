@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { PrismaClient } from '@prisma/client';
 import { ReminderCreateSchema } from '@/types/documents';
 import { getDocumentQueueService } from '@/services/jobs/document-queue.service';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 
@@ -24,10 +24,24 @@ export async function GET(
   context: RouteContext
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { id } = context.params;
 
+    const document = await prisma.document.findFirst({
+      where: { id, organizationId },
+      select: { id: true },
+    });
+
+    if (!document) {
+      return NextResponse.json(
+        { error: 'Document introuvable' },
+        { status: 404 }
+      );
+    }
+
     const reminders = await prisma.reminder.findMany({
-      where: { documentId: id },
+      where: { documentId: id, organizationId },
       orderBy: { dueDate: 'asc' },
     });
 
@@ -49,8 +63,22 @@ export async function POST(
   context: RouteContext
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { id } = context.params;
     const body = await request.json();
+
+    const document = await prisma.document.findFirst({
+      where: { id, organizationId },
+      select: { id: true },
+    });
+
+    if (!document) {
+      return NextResponse.json(
+        { error: 'Document introuvable' },
+        { status: 404 }
+      );
+    }
 
     // Deux modes: auto (relancer le job) ou manuel (créer un rappel custom)
     if (body.auto) {
@@ -68,7 +96,8 @@ export async function POST(
 
       const reminder = await prisma.reminder.create({
         data: {
-          ownerId: 'default', // TODO: user ID from session
+          ownerId: user.id,
+          organizationId,
           documentId: id,
           kind: validated.kind,
           title: validated.title,

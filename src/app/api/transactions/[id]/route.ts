@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -10,8 +11,11 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const transaction = await prisma.transaction.findUnique({
-      where: { id: params.id },
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+
+    const transaction = await prisma.transaction.findFirst({
+      where: { id: params.id, organizationId },
       include: {
         Property: {
           select: {
@@ -67,7 +71,10 @@ export async function GET(
     const documentLinks = await prisma.documentLink.findMany({
       where: {
         linkedType: 'transaction',
-        linkedId: params.id
+        linkedId: params.id,
+        Document: {
+          organizationId
+        }
       },
       include: {
         Document: {
@@ -167,8 +174,21 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    // TODO: Ajouter protection authentification
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+
     const body = await request.json();
+    const existingTransaction = await prisma.transaction.findFirst({
+      where: { id: params.id, organizationId },
+      select: { id: true }
+    });
+
+    if (!existingTransaction) {
+      return NextResponse.json(
+        { error: 'Transaction non trouvée' },
+        { status: 404 }
+      );
+    }
     
     // Si c'est uniquement un update de rapprochement (léger)
     if (body.rapprochementStatus !== undefined && Object.keys(body).length <= 3) {
@@ -222,7 +242,8 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    // TODO: Ajouter protection authentification
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     console.log('[API] PUT /api/transactions/:id - Données reçues:', {
       transactionId: params.id,
@@ -237,12 +258,44 @@ export async function PUT(
       isAutoAmount: body.isAutoAmount
     });
 
+    const existingTransaction = await prisma.transaction.findFirst({
+      where: { id: params.id, organizationId },
+      select: { id: true }
+    });
+
+    if (!existingTransaction) {
+      return NextResponse.json(
+        { error: 'Transaction non trouvée' },
+        { status: 404 }
+      );
+    }
+
     // Supprimer les champs de série s'ils sont présents dans le body (non modifiables)
     delete (body as any).parentTransactionId;
     delete (body as any).moisIndex;
     delete (body as any).moisTotal;
     
     // Utiliser une transaction Prisma pour garantir la cohérence
+    if (body.propertyId) {
+      const property = await prisma.property.findFirst({
+        where: { id: body.propertyId, organizationId },
+        select: { id: true }
+      });
+      if (!property) {
+        return NextResponse.json({ error: 'Propriété introuvable' }, { status: 404 });
+      }
+    }
+
+    if (body.leaseId) {
+      const lease = await prisma.lease.findFirst({
+        where: { id: body.leaseId, organizationId },
+        select: { id: true }
+      });
+      if (!lease) {
+        return NextResponse.json({ error: 'Bail introuvable' }, { status: 404 });
+      }
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       // 1. Mettre à jour la transaction (whitelist stricte - bailId ignoré)
       const transaction = await tx.transaction.update({
@@ -320,7 +373,8 @@ export async function PUT(
         const existingDocs = await tx.document.findMany({
           where: { 
             id: { in: body.stagedDocumentIds },
-            status: 'draft'
+            status: 'draft',
+            organizationId
           },
           select: { id: true, fileName: true, status: true, fileSha256: true, textSha256: true }
         });
@@ -334,7 +388,8 @@ export async function PUT(
               where: {
                 fileSha256: { in: fileSha256s },
                 status: 'active',
-                id: { notIn: body.stagedDocumentIds }
+                id: { notIn: body.stagedDocumentIds },
+                organizationId
               },
               select: { id: true, fileName: true, fileSha256: true }
             });
@@ -353,7 +408,8 @@ export async function PUT(
         await tx.document.updateMany({
           where: { 
             id: { in: body.stagedDocumentIds },
-            status: 'draft'
+            status: 'draft',
+            organizationId
           },
           data: {
             status: 'active',
@@ -374,7 +430,8 @@ export async function PUT(
         const stagedLinks = await tx.uploadStagedItem.findMany({
           where: {
             id: { in: body.stagedLinkItemIds },
-            kind: 'link'
+            kind: 'link',
+            organizationId
           },
           include: {
             Document: {
@@ -399,8 +456,8 @@ export async function PUT(
         
         if (isRentNature && body.montantLoyer) {
           // Récupérer la société de gestion du bien
-          const propertyWithCompany = await tx.property.findUnique({
-            where: { id: transaction.propertyId },
+          const propertyWithCompany = await tx.property.findFirst({
+            where: { id: transaction.propertyId, organizationId },
             include: { ManagementCompany: true }
           });
 
@@ -409,7 +466,8 @@ export async function PUT(
             existingCommission = await tx.transaction.findFirst({
               where: {
                 parentTransactionId: transaction.id,
-                autoSource: 'gestion'
+                  autoSource: 'gestion',
+                  organizationId
               }
             });
 
@@ -462,6 +520,7 @@ export async function PUT(
                 await createManagementCommission({
                   transactionId: transaction.id,
                   propertyId: transaction.propertyId,
+                  organizationId,
                   montantLoyer: body.montantLoyer,
                   chargesRecup: body.chargesRecup || 0,
                   date: transaction.date,
@@ -510,7 +569,8 @@ export async function PUT(
       const stagedLinks = await prisma.uploadStagedItem.findMany({
         where: {
           id: { in: body.stagedLinkItemIds },
-          kind: 'link'
+          kind: 'link',
+          organizationId
         },
         include: {
           Document: {
@@ -556,18 +616,34 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    // TODO: Ajouter protection authentification
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     // Récupérer le mode de suppression depuis les query params
     const url = new URL(request.url);
     const mode = (url.searchParams.get("mode") as "delete_docs" | "keep_docs_globalize") ?? "keep_docs_globalize";
 
     console.log(`[API] DELETE /api/transactions/${params.id} - Mode: ${mode}`);
 
+    const existingTransaction = await prisma.transaction.findFirst({
+      where: { id: params.id, organizationId },
+      select: { id: true }
+    });
+
+    if (!existingTransaction) {
+      return NextResponse.json(
+        { error: 'Transaction non trouvée' },
+        { status: 404 }
+      );
+    }
+
     // Vérifier si la transaction a des documents liés
     const documentLinks = await prisma.documentLink.findMany({
       where: {
         linkedType: 'transaction',
-        linkedId: params.id
+        linkedId: params.id,
+        Document: {
+          organizationId
+        }
       },
       select: { documentId: true }
     });
@@ -584,7 +660,8 @@ export async function DELETE(
       const children = await prisma.transaction.findMany({
         where: {
           parentTransactionId: params.id,
-          autoSource: 'gestion'
+          autoSource: 'gestion',
+          organizationId
         },
         select: {
           id: true,
@@ -601,7 +678,8 @@ export async function DELETE(
         if (autoChildren.length > 0) {
           await prisma.transaction.deleteMany({
             where: {
-              id: { in: autoChildren.map(c => c.id) }
+              id: { in: autoChildren.map(c => c.id) },
+              organizationId
             }
           });
           childrenInfo.autoDeleted = autoChildren.length;
@@ -614,7 +692,8 @@ export async function DELETE(
             // Supprimer aussi les enfants non-auto
             await prisma.transaction.deleteMany({
               where: {
-                id: { in: nonAutoChildren.map(c => c.id) }
+                id: { in: nonAutoChildren.map(c => c.id) },
+                organizationId
               }
             });
             console.log(`[Commission] ${nonAutoChildren.length} commission(s) non-auto supprimée(s) (flag actif)`);
@@ -637,7 +716,7 @@ export async function DELETE(
     if (hasDocuments) {
       // Utiliser la fonction de suppression avec gestion des documents
       const { deleteTransactionWithDocs } = await import('@/lib/docsSimple');
-      await deleteTransactionWithDocs(params.id, mode);
+      await deleteTransactionWithDocs(params.id, mode, organizationId);
     } else {
       // Pas de documents, suppression simple
       await prisma.transaction.delete({

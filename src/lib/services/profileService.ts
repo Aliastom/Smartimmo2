@@ -16,11 +16,24 @@ export interface ProfileData {
   logo?: string; // URL du logo
 }
 
-export async function getProfileData(): Promise<ProfileData> {
+export async function getProfileData(organizationId?: string): Promise<ProfileData> {
   try {
     // Récupérer depuis la base de données
     const { prisma } = await import('@/lib/prisma');
-    const profile = await prisma.userProfile.findFirst();
+    const { getCurrentUser } = await import('@/lib/auth/getCurrentUser');
+    
+    // Si organizationId n'est pas fourni, le récupérer de l'utilisateur connecté
+    let orgId = organizationId;
+    if (!orgId) {
+      const user = await getCurrentUser();
+      if (user) {
+        orgId = user.organizationId;
+      }
+    }
+    
+    const profile = await prisma.userProfile.findFirst({
+      where: orgId ? { organizationId: orgId } : undefined,
+    });
     
     if (profile) {
       return {

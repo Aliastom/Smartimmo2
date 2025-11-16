@@ -9,10 +9,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isValidModeCalcul } from '@/lib/gestion';
 import { isGestionDelegueEnabled } from '@/lib/settings/appSettings';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/gestion/societes/[id]
- * Récupère une société de gestion par son ID
+ * Récupère une société de gestion par son ID (de l'organisation)
  * Note: On permet la lecture même si la fonctionnalité est désactivée
  */
 
@@ -24,13 +25,22 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     // Pas de vérification du feature flag pour la lecture
     // (on permet la consultation même si désactivé)
 
-    const societe = await prisma.managementCompany.findUnique({
-      where: { id: params.id },
+    const societe = await prisma.managementCompany.findFirst({
+      where: { 
+        id: params.id,
+        organizationId,
+      },
       include: {
         Property: {
+          where: {
+            organizationId,
+          },
           select: {
             id: true,
             name: true,
@@ -68,14 +78,20 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     // Pas de vérification du feature flag pour la modification
     // (on permet la gestion même si désactivé)
 
     const body = await request.json();
 
-    // Vérifier que la société existe
-    const existing = await prisma.managementCompany.findUnique({
-      where: { id: params.id },
+    // Vérifier que la société existe et appartient à l'organisation
+    const existing = await prisma.managementCompany.findFirst({
+      where: { 
+        id: params.id,
+        organizationId,
+      },
     });
 
     if (!existing) {
@@ -133,7 +149,11 @@ export async function PATCH(
       where: { id: params.id },
       data: updateData,
       include: {
-        Property: true,
+        Property: {
+          where: {
+            organizationId,
+          },
+        },
       },
     });
 
@@ -157,14 +177,24 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     // Pas de vérification du feature flag pour la suppression
     // (on permet la gestion même si désactivé)
 
-    // Vérifier que la société existe
-    const existing = await prisma.managementCompany.findUnique({
-      where: { id: params.id },
+    // Vérifier que la société existe et appartient à l'organisation
+    const existing = await prisma.managementCompany.findFirst({
+      where: { 
+        id: params.id,
+        organizationId,
+      },
       include: {
-        Property: true,
+        Property: {
+          where: {
+            organizationId,
+          },
+        },
       },
     });
 

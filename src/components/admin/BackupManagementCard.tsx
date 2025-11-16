@@ -139,6 +139,8 @@ export default function BackupManagementCard() {
     }
 
     setIsImporting(true);
+    setImportResult(null); // Réinitialiser les résultats précédents
+    
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
@@ -151,28 +153,59 @@ export default function BackupManagementCard() {
         }
       );
 
-      const data = await response.json();
-
-      if (!data.success) {
-        toast.error('❌ Erreur lors de l\'import');
-        setImportResult({ error: data.error, details: data.details });
+      // Vérifier si la réponse est OK avant de parser le JSON
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        console.error('Erreur parsing JSON:', parseError);
+        setImportResult({
+          error: 'Erreur lors de la lecture de la réponse du serveur',
+          details: `Status: ${response.status} ${response.statusText}`,
+          logs: [`❌ Erreur HTTP ${response.status}: ${response.statusText}`],
+        });
+        toast.error('❌ Erreur lors de l\'import (réponse invalide)');
         return;
       }
 
-      setImportResult(data.data);
+      // Si la réponse HTTP n'est pas OK, traiter comme une erreur
+      if (!response.ok || !data.success) {
+        const errorMessage = data.error || `Erreur HTTP ${response.status}`;
+        toast.error(`❌ Erreur lors de l'import: ${errorMessage}`);
+        setImportResult({ 
+          error: errorMessage, 
+          details: data.details || data.message,
+          logs: data.logs || data.data?.logs || [`❌ Erreur: ${errorMessage}`],
+        });
+        return;
+      }
+
+      // Succès : afficher les résultats avec les logs
+      setImportResult({
+        ...data.data,
+        logs: data.data?.logs || [], // ✅ S'assurer que les logs sont inclus
+      });
 
       if (importMode === 'validate' || importMode === 'dry-run') {
         toast.success('✅ Validation réussie ! Consultez le résumé ci-dessous.');
+        // Ne pas fermer la modal pour voir les résultats
       } else {
         toast.success('✅ Import appliqué avec succès !');
         loadHistory();
-        setShowImportModal(false);
-        setSelectedFile(null);
-        setImportResult(null);
+        // Ne pas fermer automatiquement la modal - laisser l'utilisateur voir les logs et résultats
+        // setShowImportModal(false);
+        // setSelectedFile(null);
+        // setImportResult(null);
       }
     } catch (error) {
       console.error('Import error:', error);
-      toast.error('❌ Erreur lors de l\'import');
+      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+      toast.error(`❌ Erreur lors de l'import: ${errorMessage}`);
+      setImportResult({
+        error: 'Erreur réseau ou serveur',
+        details: errorMessage,
+        logs: [`❌ Erreur: ${errorMessage}`, `Stack: ${error instanceof Error ? error.stack : 'N/A'}`],
+      });
     } finally {
       setIsImporting(false);
     }
@@ -375,11 +408,36 @@ export default function BackupManagementCard() {
                 </div>
               </div>
 
+              {/* Journal des logs */}
+              {isImporting && (
+                <div className="border-t pt-4">
+                  <label className="block text-sm font-medium mb-2">Journal d'exécution :</label>
+                  <div className="bg-gray-900 text-gray-100 rounded p-3 max-h-64 overflow-y-auto font-mono text-xs space-y-1">
+                    <div className="text-gray-400">⏳ Import en cours...</div>
+                    <div className="text-gray-400">📦 Traitement du fichier...</div>
+                  </div>
+                </div>
+              )}
+
               {/* Étape 3: Résultat */}
               {importResult && (
                 <div className="border-t pt-4">
                   <label className="block text-sm font-medium mb-2">3. Résultat</label>
                   
+                  {/* Journal des logs */}
+                  {importResult.logs && importResult.logs.length > 0 && (
+                    <div className="mb-4">
+                      <div className="font-medium text-sm text-gray-700 mb-2">
+                        Journal d'exécution :
+                      </div>
+                      <div className="bg-gray-900 text-gray-100 rounded p-3 max-h-64 overflow-y-auto font-mono text-xs space-y-1">
+                        {importResult.logs.map((log, i) => (
+                          <div key={i}>{log}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {importResult.error ? (
                     <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
                       <p className="text-red-800 font-medium">{importResult.error}</p>
@@ -427,12 +485,14 @@ export default function BackupManagementCard() {
               >
                 Fermer
               </Button>
-              <Button
-                onClick={handleImport}
-                disabled={!selectedFile || isImporting}
-              >
-                {isImporting ? 'Import en cours...' : 'Importer'}
-              </Button>
+              {!importResult && (
+                <Button
+                  onClick={handleImport}
+                  disabled={!selectedFile || isImporting}
+                >
+                  {isImporting ? 'Import en cours...' : 'Importer'}
+                </Button>
+              )}
             </div>
           </div>
         </div>

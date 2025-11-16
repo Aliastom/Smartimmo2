@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { validateNatureCategory } from '@/utils/transactionValidation';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -10,6 +11,8 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { base, periods, attachments } = await request.json();
     
     console.log('[API /payments/batch] Request data:', {
@@ -24,6 +27,27 @@ export async function POST(request: NextRequest) {
     }
 
     const { propertyId, leaseId, date, method, reference, notes, nature, accountingCategoryId, label } = base;
+
+    // Vérifier que la propriété appartient à l'organisation
+    const property = await prisma.property.findFirst({
+      where: { id: propertyId, organizationId },
+      select: { id: true },
+    });
+
+    if (!property) {
+      return NextResponse.json({ error: 'Propriété introuvable' }, { status: 404 });
+    }
+
+    if (leaseId) {
+      const lease = await prisma.lease.findFirst({
+        where: { id: leaseId, organizationId, propertyId },
+        select: { id: true },
+      });
+
+      if (!lease) {
+        return NextResponse.json({ error: 'Bail introuvable pour ce bien' }, { status: 404 });
+      }
+    }
 
     // Validation nature/catégorie + créer snapshot
     let categorySnapshot = null;
@@ -76,6 +100,7 @@ export async function POST(request: NextRequest) {
           method: method || null,
           reference: reference || null,
           notes: notes || null,
+          organizationId,
         },
       });
       
@@ -121,7 +146,7 @@ export async function POST(request: NextRequest) {
             documentTypeId: documentTypeId && documentTypeId !== '' ? documentTypeId : null, // Utiliser le type fourni ou null
             propertyId: propertyId,
             leaseId: leaseId,
-            // Pas de transactionId car on crée des Payment, pas des Transaction
+            organizationId,
             metadata: JSON.stringify({
               source: 'payment_upload',
               paymentId: firstPayment.id, // Lier au paiement via metadata

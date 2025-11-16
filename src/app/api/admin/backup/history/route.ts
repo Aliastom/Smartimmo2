@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminBackupService } from '@/services/AdminBackupService';
-import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
 import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 

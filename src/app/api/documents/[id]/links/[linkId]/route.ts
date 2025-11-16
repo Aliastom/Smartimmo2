@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // DELETE /api/documents/[id]/links/[linkId] - Supprimer un lien spécifique
 // linkId est maintenant au format "linkedType:linkedId"
@@ -9,7 +10,18 @@ export const dynamic = 'force-dynamic';
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string; linkId: string } }) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { id: documentId, linkId } = params;
+
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true },
+    });
+
+    if (!document) {
+      return NextResponse.json({ success: false, error: 'Document non trouvé' }, { status: 404 });
+    }
 
     // Parser le linkId qui est au format "linkedType:linkedId"
     const [linkedType, linkedId] = linkId.split(':');

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminBackupService } from '@/services/AdminBackupService';
-import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
 import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
+import { getCurrentUser } from '@/lib/auth/getCurrentUser';
 
 /**
  * POST /api/admin/backup/import
@@ -24,28 +24,13 @@ export async function POST(request: NextRequest) {
   if (authError) return authError;
 
   try {
-    // TODO: Activer l'authentification en production
-    // const session = await getServerSession();
-    // if (!session || !session.user) {
-    //   return NextResponse.json(
-    //     { success: false, error: 'Non authentifié' },
-    //     { status: 401 }
-    //   );
-    // }
-
-    // const user = await prisma.user.findUnique({
-    //   where: { email: session.user.email || '' },
-    // });
-
-    // if (!user || user.role !== 'ADMIN') {
-    //   return NextResponse.json(
-    //     { success: false, error: 'Permissions insuffisantes' },
-    //     { status: 403 }
-    //   );
-    // }
-    
-    // Pour le développement, utiliser un user par défaut
-    const user = { id: 'dev-user', role: 'ADMIN' };
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Non authentifié' },
+        { status: 401 }
+      );
+    }
 
     // 2. Parser les paramètres
     const searchParams = request.nextUrl.searchParams;
@@ -99,7 +84,12 @@ export async function POST(request: NextRequest) {
 
     if (!result.success) {
       return NextResponse.json(
-        { success: false, error: 'Erreur lors de l\'import', details: result.errors },
+        { 
+          success: false, 
+          error: 'Erreur lors de l\'import', 
+          details: result.errors,
+          logs: result.logs, // ✅ Inclure les logs même en cas d'erreur
+        },
         { status: 400 }
       );
     }
@@ -138,15 +128,24 @@ export async function POST(request: NextRequest) {
         diff: result.diff,
         applied: result.applied,
         backupRecordId: result.backupRecordId,
+        logs: result.logs, // ✅ Inclure les logs d'avancement
       },
     });
   } catch (error) {
     console.error('Error importing backup:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+    const errorStack = error instanceof Error ? error.stack : 'N/A';
+    
     return NextResponse.json(
       {
         success: false,
         error: 'Erreur lors de l\'import',
-        details: error instanceof Error ? error.message : 'Erreur inconnue',
+        details: errorMessage,
+        logs: [
+          '❌ Erreur lors de l\'import',
+          `Erreur: ${errorMessage}`,
+          `Stack: ${errorStack}`,
+        ],
       },
       { status: 500 }
     );

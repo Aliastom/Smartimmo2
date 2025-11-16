@@ -1,30 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/prisma';
 import { getActiveLeaseWhere } from '../../../../lib/leases';
-
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     const { searchParams } = new URL(request.url);
     const propertyId = searchParams.get('propertyId');
 
     const today = new Date();
     
     // Construire les conditions WHERE selon le contexte
-    let whereActive: any = {};
-    let whereAll: any = {};
+    let whereActive: any = {
+      organizationId, // Filtrer par organisation
+    };
+    let whereAll: any = {
+      organizationId, // Filtrer par organisation
+    };
     
     if (propertyId) {
       // Stats pour un bien spécifique
-      whereActive = getActiveLeaseWhere({ propertyId, today });
-      whereAll = { propertyId };
+      whereActive = {
+        ...getActiveLeaseWhere({ propertyId, today }),
+        organizationId, // Filtrer par organisation
+      };
+      whereAll = { 
+        propertyId,
+        organizationId, // Filtrer par organisation
+      };
     } else {
       // Stats globales - tous les baux
-      whereActive = getActiveLeaseWhere({ today });
-      whereAll = {};
+      whereActive = {
+        ...getActiveLeaseWhere({ today }),
+        organizationId, // Filtrer par organisation
+      };
+      whereAll = {
+        organizationId, // Filtrer par organisation
+      };
     }
 
     // Calculer les stats avec une seule source de vérité

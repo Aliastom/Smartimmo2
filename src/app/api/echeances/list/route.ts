@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { EcheanceType, Periodicite, SensEcheance } from '@prisma/client';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * Schema de validation pour les query params de la liste
@@ -43,8 +44,8 @@ const ListQuerySchema = z.object({
  */
 export async function GET(request: NextRequest) {
   try {
-    // TODO: Ajouter protection authentification RBAC (ADMIN + USER lecture)
-    
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     
     // Validation
@@ -84,7 +85,7 @@ export async function GET(request: NextRequest) {
     } = validation.data;
 
     // Construire le where
-    const where: any = {};
+    const where: any = { organizationId };
 
     // Filtre actif
     if (active === '1') {

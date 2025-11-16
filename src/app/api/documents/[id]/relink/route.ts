@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DocumentsService } from '@/lib/services/documents';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * POST /api/documents/[id]/relink - Modifier la liaison d'un document
@@ -13,6 +14,8 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { id } = params;
     const body = await request.json();
     const { linkedTo, linkedId } = body;
@@ -27,6 +30,7 @@ export async function POST(
     const document = await DocumentsService.relink(id, {
       linkedTo,
       linkedId,
+      organizationId,
     });
 
     return NextResponse.json({

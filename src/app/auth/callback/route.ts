@@ -73,6 +73,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/login?error=missing_code', requestUrl.origin));
     }
 
+    console.log('[Auth Callback] Échange du code OAuth contre une session en cours...');
+
     // Échanger le code contre une session
     const supabase = await createServerClient();
     const { data: { session }, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
@@ -82,16 +84,31 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/login?error=session_failed', requestUrl.origin));
     }
 
+    console.log('[Auth Callback] Session Supabase obtenue, vérification de l\'utilisateur...');
+
     const { user } = session;
-    
-    if (!user?.email) {
-      console.error('[Auth Callback] Email manquant');
+    console.log('[Auth Callback] Payload Supabase user', {
+      id: user?.id,
+      email: user?.email,
+      hasUserMetadata: Boolean(user?.user_metadata),
+      identitiesCount: user?.identities?.length ?? 0,
+    });
+
+    // ➤ Extraction robuste de l’email pour Google OAuth
+    const email =
+      user.email ||
+      user.user_metadata?.email ||
+      user.identities?.[0]?.identity_data?.email ||
+      null;
+
+    if (!email) {
+      console.error('[Auth Callback] Aucun email récupérable via OAuth');
       return NextResponse.redirect(new URL('/login?error=no_email', requestUrl.origin));
     }
 
     console.log('[Auth Callback] Utilisateur Supabase:', {
       id: user.id,
-      email: user.email,
+      email,
     });
 
     // Synchroniser avec Prisma
@@ -100,7 +117,7 @@ export async function GET(request: NextRequest) {
       where: {
         OR: [
           { supabaseId: user.id },
-          { email: user.email },
+          { email },
         ],
       },
     });
@@ -132,14 +149,38 @@ export async function GET(request: NextRequest) {
       
       const shouldBeAdmin = adminCount === 0; // Premier utilisateur = ADMIN
       
+      // ⚠️ IMPORTANT : Créer l'organisation AVANT l'utilisateur pour éviter l'erreur de clé étrangère
+      // Le schéma Prisma a organizationId avec @default("default"), mais cette organisation n'existe pas après nettoyage
+      const userDisplayName = user.user_metadata?.name || email.split('@')[0] || 'Utilisateur';
+      const organizationSlug = buildOrganizationSlug(email || userDisplayName);
+      
+      // Créer l'organisation d'abord
+      const organization = await prisma.organization.create({
+        data: {
+          name: userDisplayName || email || 'Portefeuille',
+          slug: organizationSlug,
+          ownerUserId: null, // Sera mis à jour après création de l'utilisateur
+        },
+      });
+      
+      console.log('[Auth Callback] Organisation créée:', organization.id);
+      
+      // Maintenant créer l'utilisateur avec le bon organizationId
       prismaUser = await prisma.user.create({
         data: {
           supabaseId: user.id,
-          email: user.email,
-          name: user.user_metadata?.name || user.email?.split('@')[0] || 'Utilisateur',
+          email,
+          name: userDisplayName,
           emailVerified: new Date(),
           role: shouldBeAdmin ? 'ADMIN' : 'USER',
+          organizationId: organization.id, // ✅ Organisation existante
         },
+      });
+
+      // Mettre à jour l'organisation pour définir le propriétaire
+      await prisma.organization.update({
+        where: { id: organization.id },
+        data: { ownerUserId: prismaUser.id },
       });
 
       if (shouldBeAdmin) {
@@ -149,6 +190,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Pour un utilisateur existant, s'assurer qu'il a une organisation
     const organizationId = await ensureOrganizationForUser(
       prismaUser.id,
       prismaUser.name,

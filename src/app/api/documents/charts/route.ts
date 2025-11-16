@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // Palette de couleurs pour les types de documents (par code ET par label pour compatibilité)
 
@@ -28,6 +29,8 @@ const TYPE_COLORS: Record<string, string> = {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const searchParams = request.nextUrl.searchParams;
     
     // Récupérer les paramètres de filtre
@@ -38,6 +41,18 @@ export async function GET(request: NextRequest) {
     // Si propertyId est fourni, d'abord récupérer les IDs de documents liés à ce bien
     let documentIdsForProperty: string[] | undefined;
     if (propertyId) {
+      const property = await prisma.property.findFirst({
+        where: { id: propertyId, organizationId },
+        select: { id: true },
+      });
+
+      if (!property) {
+        return NextResponse.json(
+          { error: 'Bien introuvable' },
+          { status: 404 }
+        );
+      }
+
       const links = await prisma.documentLink.findMany({
         where: {
           linkedType: 'property',
@@ -66,7 +81,8 @@ export async function GET(request: NextRequest) {
 
     // Construire les filtres Prisma
     const where: any = {
-      deletedAt: null, // Exclure les documents supprimés
+      deletedAt: null,
+      organizationId,
     };
 
     // Filtre par période (date de création)

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { Search, Bell, Menu, User } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -19,6 +19,24 @@ export function Topbar({
   className 
 }: TopbarProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // Vérifier l'état d'authentification
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        const response = await fetch('/api/auth/me');
+        setIsAuthenticated(response.ok);
+      } catch (error) {
+        setIsAuthenticated(false);
+      }
+    }
+    checkAuth();
+    
+    // Vérifier périodiquement (toutes les 5 secondes)
+    const interval = setInterval(checkAuth, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <header className={cn(
@@ -69,15 +87,13 @@ export function Topbar({
 
       {/* Right section */}
       <div className="flex items-center gap-2">
-        {/* Notifications */}
+        {/* Notifications - Badge retiré, maintenant dans la sidebar en bas */}
         <Button
           variant="ghost"
           size="icon"
-          className="relative"
           aria-label="Notifications"
         >
           <Bell className="h-5 w-5" />
-          <span className="absolute -top-1 -right-1 w-3 h-3 bg-danger-500 rounded-full"></span>
         </Button>
 
         {/* Déconnexion */}

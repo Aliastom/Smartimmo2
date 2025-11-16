@@ -2,6 +2,8 @@
 import { PrismaClient } from '@prisma/client';
 import { classificationService } from '@/services/ClassificationService';
 import { prisma } from '@/lib/prisma';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 
@@ -13,7 +15,13 @@ import { prisma } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     const { documentId, testText } = body;
 
@@ -21,9 +29,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'documentId requis' }, { status: 400 });
     }
 
-    // RÃ©cupÃ©rer le document
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
+    // Récupérer le document
+    const document = await prisma.document.findFirst({
+      where: { 
+        id: documentId,
+        organizationId
+      },
       select: {
         id: true,
         filenameOriginal: true,

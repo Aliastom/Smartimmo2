@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { documentRecognitionService } from '@/services/DocumentRecognitionService';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * Fonction pour obtenir de vraies prédictions via le service unifié
@@ -69,12 +70,16 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     console.log('[API] Récupération du document brouillon:', params.id);
     
     // D'abord, récupérer le document sans filtre sur le status
-    const document = await prisma.document.findUnique({
+    const document = await prisma.document.findFirst({
       where: { 
-        id: params.id
+        id: params.id,
+        organizationId
       },
       select: {
         id: true,
@@ -181,14 +186,18 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     const body = await request.json();
     const { name, typeId, fields } = body;
 
     // Vérifier que le document existe et est en mode draft
-    const existingDocument = await prisma.document.findUnique({
+    const existingDocument = await prisma.document.findFirst({
       where: { 
         id: params.id,
-        status: 'draft'
+        status: 'draft',
+        organizationId
       }
     });
 
@@ -282,11 +291,15 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     // Vérifier que le document existe et est en mode draft
-    const existingDocument = await prisma.document.findUnique({
+    const existingDocument = await prisma.document.findFirst({
       where: { 
         id: params.id,
-        status: 'draft'
+        status: 'draft',
+        organizationId
       }
     });
 

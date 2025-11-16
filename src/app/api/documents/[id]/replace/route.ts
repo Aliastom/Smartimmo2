@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { writeFile, unlink } from 'fs/promises';
-import { join } from 'path';
+import { writeFile, mkdir } from 'fs/promises';
+import { join, dirname } from 'path';
 import { z } from 'zod';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -22,13 +23,15 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     const validatedData = replaceDocumentSchema.parse(body);
     const { file } = validatedData;
 
     // Vérifier que le document existe
-    const existingDocument = await prisma.document.findUnique({
-      where: { id: params.id },
+    const existingDocument = await prisma.document.findFirst({
+      where: { id: params.id, organizationId },
       include: {
         DocumentType: {
           select: {
@@ -36,6 +39,35 @@ export async function PUT(
             code: true,
             label: true,
             icon: true,
+          },
+        },
+        Property: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        Transaction: {
+          select: {
+            id: true,
+            label: true,
+          },
+        },
+        Lease: {
+          select: {
+            id: true,
+            Tenant: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        },
+        Loan: {
+          select: {
+            id: true,
+            bankName: true,
           },
         },
       },
@@ -48,27 +80,12 @@ export async function PUT(
       );
     }
 
-    // Supprimer l'ancien fichier
-    try {
-      const oldFilePath = join(process.cwd(), 'public', existingDocument.url);
-      await unlink(oldFilePath);
-    } catch (error) {
-      console.warn(`Failed to delete old file ${existingDocument.url}:`, error);
-      // Continue même si l'ancien fichier n'existe pas
-    }
-
-    // Créer le nouveau fichier
+    // Remplacer le fichier physique dans le stockage principal
     const buffer = Buffer.from(file.base64, 'base64');
-    const fileName = `${Date.now()}-${file.name}`;
-    const uploadDir = 'uploads/documents';
-    const filePath = join(process.cwd(), 'public', uploadDir, fileName);
-    const url = `/${uploadDir}/${fileName}`;
-
-    // Créer le dossier s'il n'existe pas
-    await writeFile(join(process.cwd(), 'public', uploadDir), '', { flag: 'a' }).catch(() => {});
-
-    // Sauvegarder le fichier
-    await writeFile(filePath, buffer);
+    const bucketKey = existingDocument.bucketKey || join('storage', 'documents', `${existingDocument.id}-${Date.now()}`);
+    const absolutePath = join(process.cwd(), bucketKey);
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, buffer);
 
     // Mettre à jour le document
     const document = await prisma.document.update({
@@ -77,7 +94,7 @@ export async function PUT(
         fileName: file.name,
         mime: file.mime,
         size: buffer.length,
-        url,
+        bucketKey,
       },
       include: {
         DocumentType: {
@@ -94,13 +111,13 @@ export async function PUT(
             name: true,
           },
         },
-        transaction: {
+        Transaction: {
           select: {
             id: true,
             label: true,
           },
         },
-        lease: {
+        Lease: {
           select: {
             id: true,
             Tenant: {
@@ -111,7 +128,7 @@ export async function PUT(
             },
           },
         },
-        loan: {
+        Loan: {
           select: {
             id: true,
             bankName: true,

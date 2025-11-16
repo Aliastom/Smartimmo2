@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 import { BulkDocumentOperationSchema } from '@/types/documents';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 
@@ -14,6 +14,8 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     const validated = BulkDocumentOperationSchema.parse(body);
 
@@ -25,10 +27,10 @@ export async function POST(request: NextRequest) {
       case 'delete':
         // Soft-delete
         await prisma.document.updateMany({
-          where: { id: { in: documentIds } },
+          where: { id: { in: documentIds }, organizationId },
           data: {
             deletedAt: new Date(),
-            deletedBy: 'default', // TODO: user ID
+            deletedBy: user.id,
           },
         });
         result.message = `${documentIds.length} documents deleted`;
@@ -37,7 +39,7 @@ export async function POST(request: NextRequest) {
       case 'restore':
         // Restore soft-deleted documents
         await prisma.document.updateMany({
-          where: { id: { in: documentIds } },
+          where: { id: { in: documentIds }, organizationId },
           data: {
             deletedAt: null,
             deletedBy: null,
@@ -54,7 +56,7 @@ export async function POST(request: NextRequest) {
           );
         }
         await prisma.document.updateMany({
-          where: { id: { in: documentIds } },
+          where: { id: { in: documentIds }, organizationId },
           data: {
             documentTypeId: data.documentTypeId,
             typeConfidence: 1.0,
@@ -74,8 +76,8 @@ export async function POST(request: NextRequest) {
 
         // Pour chaque document, ajouter les tags
         for (const docId of documentIds) {
-          const doc = await prisma.document.findUnique({
-            where: { id: docId },
+          const doc = await prisma.document.findFirst({
+            where: { id: docId, organizationId },
             select: { tagsJson: true },
           });
 
@@ -105,8 +107,8 @@ export async function POST(request: NextRequest) {
 
         // Pour chaque document, retirer les tags
         for (const docId of documentIds) {
-          const doc = await prisma.document.findUnique({
-            where: { id: docId },
+          const doc = await prisma.document.findFirst({
+            where: { id: docId, organizationId },
             select: { tagsJson: true },
           });
 

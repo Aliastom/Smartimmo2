@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import type { SimulationResult, FiscalInputs } from '@/types/fiscal';
 
 // ============================================================================
@@ -19,14 +20,18 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    // TODO: Récupérer userId depuis session
-    const userId = 'demo-user';
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    const userId = user.id;
     
     const { searchParams } = new URL(request.url);
     const year = searchParams.get('year');
     const limit = parseInt(searchParams.get('limit') || '20');
     
-    const where: any = { userId };
+    const where: any = { 
+      organizationId,
+      userId 
+    };
     if (year) {
       where.year = parseInt(year);
     }
@@ -71,9 +76,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // TODO: Récupérer userId depuis session
-    const userId = 'demo-user';
-    const createdBy = 'demo-user'; // TODO: session.user.email
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    const userId = user.id;
+    const createdBy = user.email || user.name || userId;
     
     const body = await request.json();
     const { name, inputs, result } = body as {
@@ -95,6 +101,7 @@ export async function POST(request: NextRequest) {
     // Créer la simulation
     const simulation = await prisma.fiscalSimulation.create({
       data: {
+        organizationId,
         userId,
         name: name || `Simulation ${result.inputs.year}`,
         year: result.inputs.year,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { documentRecognitionService } from '@/services/DocumentRecognitionService';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * POST /api/uploads/staged/[id]/analyze
@@ -15,11 +16,17 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     console.log('[API] Analyse du document brouillon:', params.id);
 
     // 1. Récupérer le document brouillon
-    const document = await prisma.document.findUnique({
-      where: { id: params.id },
+    const document = await prisma.document.findFirst({
+      where: { 
+        id: params.id,
+        organizationId
+      },
       select: {
         id: true,
         fileName: true,

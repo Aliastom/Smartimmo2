@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { leaseRepository } from '../../../../../infra/repositories/leaseRepository';
 import { documentRepository } from '../../../../../infra/repositories/documentRepository';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { renderToStream } from '@react-pdf/renderer';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
@@ -26,8 +27,10 @@ function generateSlug(fileName: string): string {
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     // Récupérer le bail avec les données associées
-    const lease = await leaseRepository.findById(params.id);
+    const lease = await leaseRepository.findById(params.id, organizationId);
     
     if (!lease) {
       return NextResponse.json({ error: 'Bail non trouvé' }, { status: 404 });

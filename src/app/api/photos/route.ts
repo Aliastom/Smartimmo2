@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { z } from 'zod';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -23,6 +24,8 @@ const photoUploadSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     const propertyId = searchParams.get('propertyId');
     const room = searchParams.get('room');
@@ -30,7 +33,7 @@ export async function GET(request: NextRequest) {
     const q = searchParams.get('q');
 
     // Construction du where
-    const where: any = {};
+    const where: any = { organizationId };
     
     if (propertyId) where.propertyId = propertyId;
     if (room) where.room = room;
@@ -90,8 +93,11 @@ export async function POST(request: NextRequest) {
     } = validatedData;
 
     // Vérifier que la propriété existe
-    const property = await prisma.property.findUnique({
-      where: { id: propertyId },
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+
+    const property = await prisma.property.findFirst({
+      where: { id: propertyId, organizationId },
     });
 
     if (!property) {
@@ -152,6 +158,7 @@ export async function POST(request: NextRequest) {
         size: buffer.length,
         url,
         propertyId,
+        organizationId,
         room,
         tag,
         metadata: metadata ? JSON.stringify(metadata) : null,

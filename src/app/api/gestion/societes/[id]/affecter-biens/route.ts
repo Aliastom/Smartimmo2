@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isGestionDelegueEnabled } from '@/lib/settings/appSettings';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * POST /api/gestion/societes/[id]/affecter-biens
@@ -26,6 +27,9 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     // Pas de vérification du feature flag pour l'affectation
     // (on permet la gestion même si désactivé)
 
@@ -39,11 +43,17 @@ export async function POST(
       );
     }
 
-    // Vérifier que la société existe
-    const societe = await prisma.managementCompany.findUnique({
-      where: { id: params.id },
+    // Vérifier que la société existe et appartient à l'organisation
+    const societe = await prisma.managementCompany.findFirst({
+      where: { 
+        id: params.id,
+        organizationId,
+      },
       include: {
         Property: {
+          where: {
+            organizationId,
+          },
           select: { id: true },
         },
       },
@@ -56,18 +66,19 @@ export async function POST(
       );
     }
 
-    // Vérifier que toutes les propriétés existent
+    // Vérifier que toutes les propriétés existent et appartiennent à l'organisation
     if (body.propertyIds.length > 0) {
       const properties = await prisma.property.findMany({
         where: {
           id: { in: body.propertyIds },
+          organizationId,
         },
         select: { id: true },
       });
 
       if (properties.length !== body.propertyIds.length) {
         return NextResponse.json(
-          { error: 'Certaines propriétés n\'existent pas' },
+          { error: 'Certaines propriétés n\'existent pas ou n\'appartiennent pas à votre organisation' },
           { status: 400 }
         );
       }
@@ -101,10 +112,16 @@ export async function POST(
     ]);
 
     // Récupérer la société mise à jour
-    const updatedSociete = await prisma.managementCompany.findUnique({
-      where: { id: params.id },
+    const updatedSociete = await prisma.managementCompany.findFirst({
+      where: { 
+        id: params.id,
+        organizationId,
+      },
       include: {
         Property: {
+          where: {
+            organizationId,
+          },
           select: {
             id: true,
             name: true,

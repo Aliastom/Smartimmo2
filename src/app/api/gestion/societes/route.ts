@@ -8,10 +8,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isValidModeCalcul } from '@/lib/gestion';
 import { isGestionDelegueEnabled } from '@/lib/settings/appSettings';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/gestion/societes
- * Liste toutes les sociétés de gestion
+ * Liste toutes les sociétés de gestion de l'organisation
  * Note: On permet la lecture même si la fonctionnalité est désactivée,
  * pour permettre la consultation et la gestion des sociétés existantes.
  */
@@ -21,12 +22,21 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     // Vérifier le statut d'activation (mais ne pas bloquer la lecture)
     const enabled = await isGestionDelegueEnabled();
 
     const societes = await prisma.managementCompany.findMany({
+      where: {
+        organizationId,
+      },
       include: {
         Property: {
+          where: {
+            organizationId,
+          },
           select: {
             id: true,
             name: true,
@@ -65,6 +75,9 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     // Feature flag check (via settings)
     const enabled = await isGestionDelegueEnabled();
     if (!enabled) {
@@ -120,6 +133,7 @@ export async function POST(request: NextRequest) {
     // Créer la société
     const societe = await prisma.managementCompany.create({
       data: {
+        organizationId,
         nom: body.nom,
         contact: body.contact || null,
         email: body.email || null,
@@ -133,7 +147,11 @@ export async function POST(request: NextRequest) {
         actif: body.actif ?? true,
       },
       include: {
-        Property: true,
+        Property: {
+          where: {
+            organizationId,
+          },
+        },
       },
     });
 

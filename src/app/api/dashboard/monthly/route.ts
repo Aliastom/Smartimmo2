@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getGestionCodes } from '@/lib/settings/appSettings';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import type {
   MonthlyDashboardData,
   MonthlyKPIs,
@@ -32,6 +33,9 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    console.log('[Dashboard Monthly] User:', { id: user.id, email: user.email, organizationId });
     const searchParams = request.nextUrl.searchParams;
     
     // Période : mois courant par défaut
@@ -69,13 +73,15 @@ export async function GET(request: NextRequest) {
         gte: firstDay,
         lte: lastDay,
       },
+      organizationId,
     };
-    
+
     const wherePrevTransaction: any = {
       date: {
         gte: prevFirstDay,
         lte: prevLastDay,
       },
+      organizationId,
     };
     
     if (bienIds.length > 0) {
@@ -119,6 +125,7 @@ export async function GET(request: NextRequest) {
         leaseId: true,
         Property: {
           select: {
+            id: true,
             name: true,
           },
         },
@@ -215,6 +222,7 @@ export async function GET(request: NextRequest) {
         { endDate: null },
         { endDate: { gte: firstDay } },
       ],
+      organizationId,
     };
     
     if (bienIds.length > 0) {
@@ -275,6 +283,7 @@ export async function GET(request: NextRequest) {
           { endDate: null },
           { endDate: { gte: prevFirstDay } },
         ],
+        organizationId,
       },
     });
     
@@ -289,6 +298,7 @@ export async function GET(request: NextRequest) {
           lte: lastDay,
         },
         status: { not: 'pending' },
+        organizationId,
       },
     });
     
@@ -345,7 +355,8 @@ export async function GET(request: NextRequest) {
     // Récupérer tous les baux actifs (avec filtres)
     const whereLeasesForRelances: any = {
       status: 'ACTIF',
-      startDate: { lte: today }, // Baux déjà démarrés
+      startDate: { lte: today },
+      organizationId,
     };
     
     if (bienIds.length > 0) {
@@ -390,6 +401,7 @@ export async function GET(request: NextRequest) {
         leaseId: { in: leasesForRelances.map(l => l.id) },
         nature: rentNature,
         paidAt: { not: null },
+        organizationId,
       };
       
       const paidRentTransactions = await prisma.transaction.findMany({
@@ -475,6 +487,7 @@ export async function GET(request: NextRequest) {
       where: {
         status: 'ACTIF',
         indexationType: { not: null },
+        organizationId,
       },
       select: {
         id: true,
@@ -525,6 +538,7 @@ export async function GET(request: NextRequest) {
           { endDate: null },
           { endDate: { gte: firstDay } },
         ],
+        organizationId,
       },
       select: {
         id: true,
@@ -587,6 +601,7 @@ export async function GET(request: NextRequest) {
           { endAt: null },
           { endAt: { gte: firstDay } },
         ],
+        organizationId,
       },
       select: {
         id: true,
@@ -650,6 +665,7 @@ export async function GET(request: NextRequest) {
           gte: today,
           lte: echeanceLimit,
         },
+        organizationId,
       },
       select: {
         id: true,
@@ -697,6 +713,7 @@ export async function GET(request: NextRequest) {
           gte: firstDay,
           lte: lastDay,
         },
+        organizationId,
       },
       select: {
         id: true,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { suggestTypeGlobal } from '@/services/documentSuggestion';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -65,6 +66,7 @@ function extractContextType(context: string | undefined): string {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth();
     const body = await request.json();
     const validatedData = classifyRequestSchema.parse(body);
 

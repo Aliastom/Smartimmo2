@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { TaxParamsService } from '@/services/tax/TaxParamsService';
 import { FiscalAggregator } from '@/services/tax/FiscalAggregator';
 import { Optimizer } from '@/services/tax/Optimizer';
@@ -16,15 +16,9 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    // Vérifier l'authentification
-    // TODO: Activer l'authentification en production
-    // const session = await getServerSession();
-    // if (!session?.user) {
-    //   return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-    // }
-    
-    // Pour les tests, utiliser un userId par défaut
-    const userId = 'demo-user';
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    const userId = user.id;
     
     // Récupérer l'ID de simulation depuis les query params (optionnel)
     const { searchParams } = new URL(request.url);
@@ -41,8 +35,12 @@ export async function GET(request: NextRequest) {
       // Charger la simulation spécifique
       console.log(`🔍 Recherche simulation ID: ${simulationId}`);
       
-      simulation = await prisma.fiscalSimulation.findUnique({
-        where: { id: simulationId },
+      simulation = await prisma.fiscalSimulation.findFirst({
+        where: { 
+          id: simulationId,
+          organizationId,
+          userId 
+        },
       });
       
       if (!simulation) {
@@ -50,14 +48,6 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(
           { error: 'Simulation introuvable' },
           { status: 404 }
-        );
-      }
-      
-      if (simulation.userId !== userId) {
-        console.log(`❌ Simulation ${simulationId} appartient à un autre utilisateur`);
-        return NextResponse.json(
-          { error: 'Accès non autorisé' },
-          { status: 403 }
         );
       }
       
@@ -111,7 +101,10 @@ export async function GET(request: NextRequest) {
     } else {
       // Charger la dernière simulation
       simulation = await prisma.fiscalSimulation.findFirst({
-        where: { userId },
+        where: { 
+          organizationId,
+          userId 
+        },
         orderBy: { createdAt: 'desc' },
       });
       

@@ -8,6 +8,7 @@ import { getKpi } from "@/server/kpi/getKpi";
 import { detectIntent } from "@/server/kpi/intent";
 import { explain } from "@/server/kpi/explain";
 import { aiConfig } from "@/lib/ai/config";
+import { requireAuth } from "@/lib/auth/getCurrentUser";
 
 
 // Force dynamic rendering for Vercel deployment
@@ -37,9 +38,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const user = await requireAuth();
+
   try {
     const body: KpiRequest = await request.json();
-    const { metricId, question, userId = "demo", time, filters } = body;
+    const { metricId, question, userId = user.id, time, filters } = body;
 
     // Si aucun metricId ni question fournie
     if (!metricId && !question) {
@@ -113,6 +116,7 @@ export async function POST(request: NextRequest) {
  * GET /api/ai/kpi (healthcheck)
  */
 export async function GET() {
+  await requireAuth();
   return NextResponse.json({
     status: "ok",
     service: "KPI Intelligence",

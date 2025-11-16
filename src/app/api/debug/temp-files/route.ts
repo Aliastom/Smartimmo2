@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readdir, stat } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 
 /**
  * GET /api/debug/temp-files
@@ -12,6 +13,10 @@ import { tmpdir } from 'os';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Protection ADMIN
+  const authError = await protectAdminRoute();
+  if (authError) return authError;
+
   try {
     const tempDir = join(tmpdir(), 'smartimmo', 'uploads');
     

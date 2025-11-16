@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { Periodicite, SensEcheance } from '@prisma/client';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/echeances/kpis
@@ -12,9 +13,11 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     // Récupérer toutes les échéances actives
     const echeances = await prisma.echeanceRecurrente.findMany({
-      where: { isActive: true },
+      where: { isActive: true, organizationId },
       select: {
         montant: true,
         sens: true,
@@ -62,9 +65,9 @@ export async function GET() {
     });
 
     // Compter les échéances
-    const totalEcheances = await prisma.echeanceRecurrente.count();
+    const totalEcheances = await prisma.echeanceRecurrente.count({ where: { organizationId } });
     const echeancesActives = await prisma.echeanceRecurrente.count({
-      where: { isActive: true },
+      where: { isActive: true, organizationId },
     });
 
     return NextResponse.json({

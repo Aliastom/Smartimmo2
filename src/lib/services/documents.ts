@@ -23,6 +23,7 @@ export interface UploadDocumentParams {
   ownerId?: string;
   source?: 'upload' | 'email' | 'scan' | 'api';
   uploadedBy?: string;
+  organizationId?: string;
 }
 
 export interface RelinkDocumentParams {
@@ -40,6 +41,71 @@ export interface ClassifyAndExtractResult {
 }
 
 export class DocumentsService {
+  private static async ensureDocumentBelongsToOrg(documentId: string, organizationId?: string) {
+    const document = await prisma.document.findFirst({
+      where: {
+        id: documentId,
+        ...(organizationId ? { organizationId } : {}),
+      },
+    });
+
+    if (!document) {
+      throw new Error('Document not found');
+    }
+
+    return document;
+  }
+
+  private static async ensureLinkedEntityBelongsToOrg(
+    linkedTo?: UploadDocumentParams['linkedTo'],
+    linkedId?: string | null,
+    organizationId?: string
+  ) {
+    if (!organizationId || !linkedTo || !linkedId) {
+      return;
+    }
+
+    let exists: { id: string } | null = null;
+
+    switch (linkedTo) {
+      case 'property':
+        exists = await prisma.property.findFirst({
+          where: { id: linkedId, organizationId },
+          select: { id: true },
+        });
+        break;
+      case 'lease':
+        exists = await prisma.lease.findFirst({
+          where: { id: linkedId, organizationId },
+          select: { id: true },
+        });
+        break;
+      case 'transaction':
+        exists = await prisma.transaction.findFirst({
+          where: { id: linkedId, organizationId },
+          select: { id: true },
+        });
+        break;
+      case 'tenant':
+        exists = await prisma.tenant.findFirst({
+          where: { id: linkedId, organizationId },
+          select: { id: true },
+        });
+        break;
+      case 'loan':
+        exists = await prisma.loan.findFirst({
+          where: { id: linkedId, organizationId },
+          select: { id: true },
+        });
+        break;
+      default:
+        break;
+    }
+
+    if (!exists) {
+      throw new Error('Linked entity not found or inaccessible');
+    }
+  }
   /**
    * Upload et crÃ©ation d'un document
    */
@@ -56,7 +122,10 @@ export class DocumentsService {
       ownerId = 'default',
       source = 'upload',
       uploadedBy,
+      organizationId = 'default',
     } = params;
+
+    await this.ensureLinkedEntityBelongsToOrg(linkedTo, linkedId, organizationId);
 
     // Convertir File en Buffer si nÃ©cessaire
     let buffer: Buffer;
@@ -74,7 +143,7 @@ export class DocumentsService {
 
     // VÃ©rifier les doublons
     const existingDoc = await prisma.document.findFirst({
-      where: { fileSha256: sha256, ownerId },
+      where: { fileSha256: sha256, organizationId },
     });
 
     if (existingDoc) {
@@ -98,6 +167,7 @@ export class DocumentsService {
     const document = await prisma.document.create({
       data: {
         ownerId,
+        organizationId,
         bucketKey: '', // sera mis Ã  jour aprÃ¨s upload
         filenameOriginal: fileName,
         fileName: fileName, // legacy
@@ -161,9 +231,12 @@ export class DocumentsService {
    * AppelÃ© aprÃ¨s l'OCR ou manuellement
    * TODO: ImplÃ©menter OCR et classification automatique
    */
-  static async classifyAndExtract(documentId: string): Promise<ClassifyAndExtractResult> {
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
+  static async classifyAndExtract(documentId: string, organizationId?: string): Promise<ClassifyAndExtractResult> {
+    const document = await prisma.document.findFirst({
+      where: {
+        id: documentId,
+        ...(organizationId ? { organizationId } : {}),
+      },
       include: {
         DocumentType: true,
         DocumentTextIndex: true,
@@ -219,7 +292,7 @@ export class DocumentsService {
   /**
    * VÃ©rifier les doublons (exact et near-duplicates)
    */
-  static async checkDuplicates(opts: { fileSha256?: string; textSha256?: string }): Promise<{
+  static async checkDuplicates(opts: { fileSha256?: string; textSha256?: string; organizationId?: string }): Promise<{
     hasExactDuplicate: boolean;
     exactDuplicate?: any;
     nearDuplicates?: Array<{ id: string; similarity: number; fileName: string }>;
@@ -229,7 +302,8 @@ export class DocumentsService {
       ? await prisma.document.findFirst({
           where: {
             fileSha256: opts.fileSha256,
-            status: 'active' // Exclure les drafts
+            status: 'active', // Exclure les drafts
+            ...(opts.organizationId ? { organizationId: opts.organizationId } : {}),
           },
           select: {
             id: true,
@@ -259,7 +333,8 @@ export class DocumentsService {
       const textDuplicates = await prisma.document.findMany({
         where: {
           textSha256: opts.textSha256,
-          status: 'active'
+          status: 'active',
+          ...(opts.organizationId ? { organizationId: opts.organizationId } : {}),
         },
         select: {
           id: true,
@@ -289,8 +364,11 @@ export class DocumentsService {
   /**
    * Modifier la liaison d'un document
    */
-  static async relink(documentId: string, params: RelinkDocumentParams): Promise<any> {
-    const { linkedTo, linkedId } = params;
+  static async relink(documentId: string, params: RelinkDocumentParams & { organizationId?: string }): Promise<any> {
+    const { linkedTo, linkedId, organizationId } = params;
+
+    await this.ensureDocumentBelongsToOrg(documentId, organizationId);
+    await this.ensureLinkedEntityBelongsToOrg(linkedTo, linkedId, organizationId);
 
     const updateData: any = {
       linkedTo,
@@ -341,18 +419,11 @@ export class DocumentsService {
     file: Buffer,
     fileName: string,
     mimeType: string,
-    uploadedBy?: string
+    uploadedBy?: string,
+    organizationId?: string
   ): Promise<any> {
-    // RÃ©cupÃ©rer le document prÃ©cÃ©dent
-    const prevDoc = await prisma.document.findUnique({
-      where: { id: previousDocumentId },
-    });
+    const prevDoc = await this.ensureDocumentBelongsToOrg(previousDocumentId, organizationId);
 
-    if (!prevDoc) {
-      throw new Error('Previous document not found');
-    }
-
-    // CrÃ©er la nouvelle version
     const newVersion = await this.uploadAndCreate({
       file,
       fileName,
@@ -361,11 +432,11 @@ export class DocumentsService {
       linkedId: prevDoc.linkedId || undefined,
       tags: prevDoc.tags ? prevDoc.tags.split(',') : [],
       ownerId: prevDoc.ownerId,
+      organizationId: prevDoc.organizationId,
       source: prevDoc.source as any,
       uploadedBy,
     });
 
-    // Mettre Ã  jour les champs de versioning
     await prisma.document.update({
       where: { id: newVersion.id },
       data: {
@@ -375,7 +446,6 @@ export class DocumentsService {
       },
     });
 
-    // Archiver l'ancienne version
     await prisma.document.update({
       where: { id: previousDocumentId },
       data: {
@@ -389,16 +459,8 @@ export class DocumentsService {
   /**
    * Supprimer un document (suppression physique)
    */
-  static async deleteSafely(documentId: string, deletedBy?: string): Promise<void> {
-    // RÃ©cupÃ©rer le document pour obtenir le chemin du fichier
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
-      select: { bucketKey: true, fileName: true }
-    });
-
-    if (!document) {
-      throw new Error(`Document ${documentId} not found`);
-    }
+  static async deleteSafely(documentId: string, deletedBy?: string, organizationId?: string): Promise<void> {
+    const document = await this.ensureDocumentBelongsToOrg(documentId, organizationId);
 
     // Suppression physique : supprimer d'abord les liens, puis le document
     // Les contraintes CASCADE s'occuperont du reste
@@ -455,11 +517,13 @@ export class DocumentsService {
     includeDeleted?: boolean;
     limit?: number;
     offset?: number;
+    organizationId?: string;
   }) {
     // Construire la requÃªte avec les liens polymorphiques
     let whereClause: any = {};
-
-    // Plus de soft delete - tous les documents sont actifs
+    if (filters.organizationId) {
+      whereClause.organizationId = filters.organizationId;
+    }
 
     if (filters.type) {
       whereClause.DocumentType = { code: filters.type };
@@ -535,10 +599,15 @@ export class DocumentsService {
     let total = 0;
 
     if (isSpecificEntityFilter) {
+      const linkWhereClause: any = { ...linkWhere };
+      if (filters.organizationId) {
+        linkWhereClause.Document = { organizationId: filters.organizationId };
+      }
+
       // Recherche pour une entitÃ© spÃ©cifique (ex: onglet Documents d'un bien)
       // Recherche avec liens polymorphiques
       const links = await prisma.documentLink.findMany({
-        where: linkWhere,
+        where: linkWhereClause,
         include: {
           Document: {
             include: {
@@ -792,12 +861,13 @@ export class DocumentsService {
   /**
    * Obtenir les statistiques des documents
    */
-  static async getStats(ownerId: string = 'default', propertyId?: string) {
-    // Construire le where de base
-    const baseWhere: any = { ownerId, deletedAt: null };
+  static async getStats(organizationId: string, propertyId?: string) {
     if (propertyId) {
-      baseWhere.propertyId = propertyId;
+      await this.ensureLinkedEntityBelongsToOrg('property', propertyId, organizationId);
     }
+
+    // Construire le where de base
+    const baseWhere: any = { organizationId, deletedAt: null, ...(propertyId ? { propertyId } : {}) };
 
     const [total, pending, classified, withReminders, ocrFailed, drafts, orphans] = await Promise.all([
       prisma.document.count({
@@ -866,9 +936,12 @@ export class DocumentsService {
    */
   static async checkCompleteness(
     scope: 'property' | 'lease' | 'transaction',
-    entityId: string
+    entityId: string,
+    organizationId?: string
   ): Promise<{ complete: boolean; missing: any[]; provided: any[] }> {
     const requiredTypes = await this.getRequiredDocumentTypes(scope);
+
+    await this.ensureLinkedEntityBelongsToOrg(scope, entityId, organizationId);
 
     const linkedField =
       scope === 'property' ? 'propertyId' : scope === 'lease' ? 'leaseId' : 'transactionId';
@@ -877,6 +950,7 @@ export class DocumentsService {
       where: {
         [linkedField]: entityId,
         deletedAt: null,
+        ...(organizationId ? { organizationId } : {}),
       },
       include: {
         DocumentType: true,
@@ -898,7 +972,9 @@ export class DocumentsService {
   /**
    * Mettre Ã  jour le nom de fichier d'un document
    */
-  static async updateFilename(documentId: string, newFilename: string): Promise<void> {
+  static async updateFilename(documentId: string, newFilename: string, organizationId?: string): Promise<void> {
+    await this.ensureDocumentBelongsToOrg(documentId, organizationId);
+
     await prisma.document.update({
       where: { id: documentId },
       data: {
@@ -911,8 +987,7 @@ export class DocumentsService {
   /**
    * Mettre Ã  jour le type de document
    */
-  static async updateDocumentType(documentId: string, typeCode: string): Promise<void> {
-    // Trouver l'ID du type de document Ã  partir du code
+  static async updateDocumentType(documentId: string, typeCode: string, organizationId?: string): Promise<void> {
     const documentType = await prisma.documentType.findUnique({
       where: { code: typeCode },
       select: { id: true }
@@ -922,11 +997,13 @@ export class DocumentsService {
       throw new Error(`Type de document invalide: ${typeCode}`);
     }
 
+    await this.ensureDocumentBelongsToOrg(documentId, organizationId);
+
     await prisma.document.update({
       where: { id: documentId },
       data: {
         documentTypeId: documentType.id,
-        status: 'classified', // Marquer comme classÃ© si un type est choisi
+        status: 'classified',
       },
     });
   }

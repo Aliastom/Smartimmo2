@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { transactionSuggestionService } from '@/services/TransactionSuggestionService';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { prisma } from '@/lib/prisma';
 
 /**
  * GET /api/documents/[id]/suggest-transaction
@@ -14,6 +16,21 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+
+    const document = await prisma.document.findFirst({
+      where: { id: params.id, organizationId },
+      select: { id: true },
+    });
+
+    if (!document) {
+      return NextResponse.json({
+        success: false,
+        error: 'Document introuvable',
+      }, { status: 404 });
+    }
+
     console.log('[API] Suggestion de transaction pour document:', params.id);
 
     const suggestion = await transactionSuggestionService.fromDocument(params.id);

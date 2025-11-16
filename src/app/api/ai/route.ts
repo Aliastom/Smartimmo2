@@ -9,6 +9,7 @@ import { route as routeQuestion } from '@/lib/ai/router';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { aiConfig } from '@/lib/ai/config';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -28,15 +29,22 @@ export async function POST(request: NextRequest) {
   const correlationId = randomUUID();
   const startTime = Date.now();
 
+  const user = await requireAuth();
+  let parsedBody: any = null;
+  let effectiveSessionUser = user.id;
+
   try {
     const body = await request.json();
+    parsedBody = body;
 
     const {
       question,
-      sessionUser = 'default',
+      sessionUser = user.id,
       pathname,
       searchParams,
     } = body;
+
+    effectiveSessionUser = sessionUser || user.id || 'default';
 
     // Validation
     if (!question || typeof question !== 'string') {
@@ -63,7 +71,7 @@ export async function POST(request: NextRequest) {
     // Router la question
     const result = await routeQuestion({
       question,
-      sessionUser,
+      sessionUser: effectiveSessionUser,
       pathname,
       searchParams: searchParamsObj,
     });
@@ -71,7 +79,7 @@ export async function POST(request: NextRequest) {
     // Logger la requête
     await logQuery({
       correlationId,
-      sessionUser,
+      sessionUser: effectiveSessionUser,
       question,
       intent: result.metadata?.intent || 'unknown',
       toolUsed: result.tool,
@@ -101,8 +109,8 @@ export async function POST(request: NextRequest) {
     // Logger l'erreur
     await logQuery({
       correlationId,
-      sessionUser: 'default',
-      question: (await request.json()).question || '',
+      sessionUser: effectiveSessionUser || user.id || 'default',
+      question: typeof parsedBody?.question === 'string' ? parsedBody.question : '',
       intent: 'error',
       toolUsed: 'none',
       ok: false,
@@ -180,6 +188,7 @@ export async function POST_FEEDBACK(queryId: string, rating: 1 | -1, comment?: s
 
 // GET pour documentation
 export async function GET() {
+  await requireAuth();
   return NextResponse.json({
     endpoint: '/api/ai',
     method: 'POST',

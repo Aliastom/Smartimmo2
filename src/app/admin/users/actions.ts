@@ -2,6 +2,8 @@
 
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { getCurrentUser } from '@/lib/auth/getCurrentUser';
+import { deleteUserSafely } from '@/lib/services/userDeletionService';
 
 export async function updateUserRole(userId: string, role: 'ADMIN' | 'USER') {
   // TODO: Ajouter protection authentification
@@ -37,14 +39,38 @@ export async function createUser(data: { name: string; email: string; role: 'ADM
     throw new Error('Un utilisateur avec cet email existe déjà');
   }
   
-  // Créer l'utilisateur
+  // Créer une organisation unique pour cet utilisateur
+  // Chaque utilisateur a son propre portefeuille isolé
+  const orgSlug = data.email
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 24) + '-' + Math.random().toString(36).slice(2, 6);
+  
+  const organization = await prisma.organization.create({
+    data: {
+      name: data.name || data.email || 'Portefeuille',
+      slug: `org-${orgSlug}`,
+      ownerUserId: null, // Sera mis à jour après création de l'utilisateur
+    },
+  });
+  
+  // Créer l'utilisateur avec son organisation unique
   const user = await prisma.user.create({
     data: {
       email: data.email,
       name: data.name || data.email.split('@')[0],
       role: data.role,
       emailVerified: new Date(), // Marquer comme vérifié si on l'invite
+      organizationId: organization.id,
     },
+  });
+  
+  // Mettre à jour l'organisation pour définir le propriétaire
+  await prisma.organization.update({
+    where: { id: organization.id },
+    data: { ownerUserId: user.id },
   });
   
   // Envoyer l'email d'invitation si demandé
@@ -72,9 +98,14 @@ export async function createUser(data: { name: string; email: string; role: 'ADM
 }
 
 export async function deleteUser(userId: string) {
-  // TODO: Ajouter protection authentification
-  await prisma.user.delete({
-    where: { id: userId },
-  });
+  // Vérifier que l'utilisateur est admin
+  const currentAdmin = await getCurrentUser();
+  if (!currentAdmin || currentAdmin.role !== 'ADMIN') {
+    throw new Error('Accès réservé aux administrateurs');
+  }
+
+  // Utiliser le service de suppression sécurisée
+  await deleteUserSafely(userId, currentAdmin.id);
+
   revalidatePath('/admin/users');
 }

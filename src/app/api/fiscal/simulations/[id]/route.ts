@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import type { SimulationResult, FiscalInputs } from '@/types/fiscal';
 
 // ============================================================================
@@ -22,13 +23,17 @@ export async function GET(
   context: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    const userId = user.id;
     const { id } = context.params;
     
-    // TODO: Vérifier que l'utilisateur a accès à cette simulation
-    const userId = 'demo-user';
-    
-    const simulation = await prisma.fiscalSimulation.findUnique({
-      where: { id },
+    const simulation = await prisma.fiscalSimulation.findFirst({
+      where: { 
+        id,
+        organizationId,
+        userId 
+      },
     });
     
     if (!simulation) {
@@ -38,17 +43,6 @@ export async function GET(
           error: 'Simulation introuvable' 
         },
         { status: 404 }
-      );
-    }
-    
-    // Vérifier que l'utilisateur est propriétaire
-    if (simulation.userId !== userId) {
-      return NextResponse.json(
-        { 
-          success: false,
-          error: 'Accès non autorisé' 
-        },
-        { status: 403 }
       );
     }
     
@@ -91,13 +85,17 @@ export async function DELETE(
   context: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    const userId = user.id;
     const { id } = context.params;
     
-    // TODO: Vérifier que l'utilisateur a accès à cette simulation
-    const userId = 'demo-user';
-    
-    const simulation = await prisma.fiscalSimulation.findUnique({
-      where: { id },
+    const simulation = await prisma.fiscalSimulation.findFirst({
+      where: { 
+        id,
+        organizationId,
+        userId 
+      },
     });
     
     if (!simulation) {
@@ -107,17 +105,6 @@ export async function DELETE(
           error: 'Simulation introuvable' 
         },
         { status: 404 }
-      );
-    }
-    
-    // Vérifier que l'utilisateur est propriétaire
-    if (simulation.userId !== userId) {
-      return NextResponse.json(
-        { 
-          success: false,
-          error: 'Accès non autorisé' 
-        },
-        { status: 403 }
       );
     }
     

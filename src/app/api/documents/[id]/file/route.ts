@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { readFile, access } from 'fs/promises';
 import { join } from 'path';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * GET /api/documents/[id]/file
@@ -16,6 +17,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
     const documentId = params.id;
 
     if (!documentId) {
@@ -26,8 +28,8 @@ export async function GET(
     }
 
     // Récupérer le document
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, organizationId: user.organizationId },
       select: {
         id: true,
         filenameOriginal: true,

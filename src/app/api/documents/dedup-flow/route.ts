@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dedupFlowService } from '@/services/dedup-flow.service';
 import { DedupFlowInput, DedupFlowContext } from '@/types/dedup-flow';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -14,6 +15,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth();
     const body = await request.json();
     
     console.log('[DedupFlow API] Requête reçue:', {
@@ -81,6 +83,7 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    await requireAuth();
     const body = await request.json();
     
     console.log('[DedupFlow API] Traitement résultat API:', body);

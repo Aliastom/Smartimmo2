@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -12,8 +13,11 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const photo = await prisma.photo.findUnique({
-      where: { id: params.id },
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+
+    const photo = await prisma.photo.findFirst({
+      where: { id: params.id, organizationId },
       include: {
         Property: {
           select: {
@@ -46,9 +50,11 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    // Vérifier que la photo existe
-    const photo = await prisma.photo.findUnique({
-      where: { id: params.id },
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+
+    const photo = await prisma.photo.findFirst({
+      where: { id: params.id, organizationId },
     });
 
     if (!photo) {

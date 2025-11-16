@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { EcheanceType, Periodicite, SensEcheance } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * Schema de validation pour PATCH (partial)
@@ -45,8 +46,8 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    // TODO: Ajouter protection authentification RBAC (ADMIN uniquement)
-    
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     const validation = UpdateEcheanceSchema.safeParse(body);
 
@@ -60,9 +61,35 @@ export async function PATCH(
     const data = validation.data;
 
     // Vérifier que l'échéance existe
-    const existing = await prisma.echeanceRecurrente.findUnique({
-      where: { id: params.id },
+    const existing = await prisma.echeanceRecurrente.findFirst({
+      where: { id: params.id, organizationId },
     });
+    if (data.propertyId) {
+      const property = await prisma.property.findFirst({
+        where: { id: data.propertyId, organizationId },
+        select: { id: true },
+      });
+      if (!property) {
+        return NextResponse.json(
+          { error: 'Propriété introuvable' },
+          { status: 404 }
+        );
+      }
+    }
+
+    if (data.leaseId) {
+      const lease = await prisma.lease.findFirst({
+        where: { id: data.leaseId, organizationId },
+        select: { id: true },
+      });
+      if (!lease) {
+        return NextResponse.json(
+          { error: 'Bail introuvable' },
+          { status: 404 }
+        );
+      }
+    }
+
 
     if (!existing) {
       return NextResponse.json(
@@ -89,7 +116,7 @@ export async function PATCH(
 
     // Mettre à jour
     const updated = await prisma.echeanceRecurrente.update({
-      where: { id: params.id },
+      where: { id: params.id, organizationId },
       data: updateData,
       include: {
         Property: {
@@ -130,14 +157,14 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    // TODO: Ajouter protection authentification RBAC (ADMIN uniquement)
-    
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     const hard = searchParams.get('hard') === '1';
 
     // Vérifier que l'échéance existe
-    const existing = await prisma.echeanceRecurrente.findUnique({
-      where: { id: params.id },
+    const existing = await prisma.echeanceRecurrente.findFirst({
+      where: { id: params.id, organizationId },
     });
 
     if (!existing) {
@@ -150,7 +177,7 @@ export async function DELETE(
     if (hard) {
       // Suppression définitive (hard delete)
       await prisma.echeanceRecurrente.delete({
-        where: { id: params.id },
+        where: { id: params.id, organizationId },
       });
 
       return NextResponse.json({
@@ -170,7 +197,7 @@ export async function DELETE(
       }
 
       const updated = await prisma.echeanceRecurrente.update({
-        where: { id: params.id },
+        where: { id: params.id, organizationId },
         data: updateData,
       });
 

@@ -4,6 +4,7 @@ import { renderToBuffer } from '@react-pdf/renderer';
 import React from 'react';
 import PatrimoinePdf from '@/pdf/PatrimoinePdf';
 import { buildSchedule } from '@/lib/finance/amortization';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * POST /api/dashboard/patrimoine/export/pdf
@@ -15,6 +16,8 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     const { from, to, mode } = body;
 
@@ -33,6 +36,7 @@ export async function POST(request: NextRequest) {
 
     // Récupérer les propriétés
     const properties = await prisma.property.findMany({
+      where: { organizationId },
       select: {
         id: true,
         name: true,
@@ -47,7 +51,7 @@ export async function POST(request: NextRequest) {
 
     // Récupérer les prêts actifs
     const loans = await prisma.loan.findMany({
-      where: { isActive: true },
+      where: { isActive: true, organizationId },
       select: {
         id: true,
         principal: true,
@@ -72,6 +76,7 @@ export async function POST(request: NextRequest) {
           gte: from, 
           lte: to 
         },
+        organizationId,
       },
       select: {
         date: true,
@@ -172,6 +177,7 @@ export async function POST(request: NextRequest) {
           { endAt: null },
           { endAt: { gte: fromDate } },
         ],
+        organizationId,
       },
       select: {
         label: true,

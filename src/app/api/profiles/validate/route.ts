@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { validateProfileForLeaseSignature, ProfileData } from '@/lib/services/profileService';
 
 
@@ -8,8 +9,15 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    // Récupérer le profil utilisateur
-    const profile = await prisma.userProfile.findFirst();
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
+    // Récupérer le profil utilisateur de son organisation
+    const profile = await prisma.userProfile.findFirst({
+      where: {
+        organizationId,
+      },
+    });
     
     if (!profile) {
       return NextResponse.json({

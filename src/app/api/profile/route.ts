@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -7,12 +8,20 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    let profile = await prisma.userProfile.findFirst();
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
+    let profile = await prisma.userProfile.findFirst({
+      where: {
+        organizationId,
+      },
+    });
     
     if (!profile) {
-      // Créer un profil par défaut s'il n'existe pas
+      // Créer un profil par défaut pour cette organisation s'il n'existe pas
       profile = await prisma.userProfile.create({
         data: {
+          organizationId,
           firstName: '',
           lastName: '',
           email: '',

@@ -1,5 +1,4 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 import { readFile, writeFile, mkdir, unlink, rename } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -8,6 +7,40 @@ import { validateDocumentContext, type FinalizeDocumentRequest } from '@/types/d
 import { prisma } from '@/lib/prisma';
 // import { BailSigneLinksService } from '@/lib/services/bailSigneLinksService'; // OBSOLÃˆTE
 import { DocumentAutoLinkingServiceServer, AutoLinkingContext } from '@/lib/services/documentAutoLinkingService.server';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
+
+type ContextEntityType = 'PROPERTY' | 'LEASE' | 'TENANT' | 'TRANSACTION';
+
+async function isContextEntityAccessible(
+  entityType: ContextEntityType,
+  entityId: string,
+  organizationId: string
+): Promise<boolean> {
+  switch (entityType) {
+    case 'PROPERTY':
+      return !!(await prisma.property.findFirst({
+        where: { id: entityId, organizationId },
+        select: { id: true },
+      }));
+    case 'LEASE':
+      return !!(await prisma.lease.findFirst({
+        where: { id: entityId, organizationId },
+        select: { id: true },
+      }));
+    case 'TENANT':
+      return !!(await prisma.tenant.findFirst({
+        where: { id: entityId, organizationId },
+        select: { id: true },
+      }));
+    case 'TRANSACTION':
+      return !!(await prisma.transaction.findFirst({
+        where: { id: entityId, organizationId },
+        select: { id: true },
+      }));
+    default:
+      return false;
+  }
+}
 
 
 
@@ -35,6 +68,9 @@ export async function POST(request: NextRequest) {
     
     // Nettoyage des fichiers expirÃ©s
     cleanupExpiredTemps().catch(console.error);
+
+    const user = await requireAuth();
+    const currentOrganizationId = user.organizationId;
 
     const body = await request.json() as Partial<FinalizeDocumentRequest> & {
       // Anciens paramÃ¨tres pour rÃ©trocompatibilitÃ©
@@ -76,6 +112,15 @@ export async function POST(request: NextRequest) {
     try {
       const metaContent = await readFile(metaPath, 'utf-8');
       meta = JSON.parse(metaContent);
+
+      if (meta.organizationId && meta.organizationId !== currentOrganizationId) {
+        return NextResponse.json(
+          { success: false, error: 'Document temporaire appartenant à une autre organisation' },
+          { status: 403 }
+        );
+      }
+
+      meta.organizationId = meta.organizationId || currentOrganizationId;
     } catch (error) {
       return NextResponse.json(
         { success: false, error: 'TEMP_NOT_FOUND', details: 'Fichier temporaire non trouvÃ©' },
@@ -114,6 +159,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (documentContext.entityType !== 'GLOBAL' && documentContext.entityId) {
+      const isAccessible = await isContextEntityAccessible(
+        documentContext.entityType as ContextEntityType,
+        documentContext.entityId,
+        meta.organizationId
+      );
+      if (!isAccessible) {
+        return NextResponse.json(
+          { success: false, error: 'Entité liée introuvable ou non autorisée' },
+          { status: 404 }
+        );
+      }
+    }
+
     // GÃ©rer la dÃ©cision de dÃ©duplication
     const decision = dedup?.decision;
     const matchedId = dedup?.matchedId;
@@ -135,8 +194,8 @@ export async function POST(request: NextRequest) {
     // Ne crÃ©e AUCUN nouveau Document, seulement un DocumentLink
     if (decision === 'link_existing' && matchedId) {
       // VÃ©rifier que le document existant existe
-      const existingDoc = await prisma.document.findUnique({
-        where: { id: matchedId },
+      const existingDoc = await prisma.document.findFirst({
+        where: { id: matchedId, organizationId: meta.organizationId },
         select: { 
           id: true, 
           filenameOriginal: true,
@@ -158,6 +217,9 @@ export async function POST(request: NextRequest) {
           documentId: matchedId,
           entityType: documentContext.entityType,
           entityId: documentContext.entityId || null,
+          Document: {
+            organizationId: meta.organizationId,
+          },
         }
       });
 
@@ -224,6 +286,18 @@ export async function POST(request: NextRequest) {
 
     // CompatibilitÃ© avec l'ancien systÃ¨me de versioning
     if (replaceDuplicateId) {
+      const replaceTarget = await prisma.document.findFirst({
+        where: { id: replaceDuplicateId, organizationId: meta.organizationId },
+        select: { id: true },
+      });
+
+      if (!replaceTarget) {
+        return NextResponse.json(
+          { success: false, error: 'Document à remplacer introuvable ou non autorisé' },
+          { status: 404 }
+        );
+      }
+
       await prisma.document.update({
         where: { id: replaceDuplicateId },
         data: {
@@ -244,7 +318,8 @@ export async function POST(request: NextRequest) {
       const originalDoc = await prisma.document.findFirst({
         where: { 
           fileSha256: meta.sha256, // SHA256 original, pas modifiÃ©
-          status: 'active'
+          status: 'active',
+          organizationId: meta.organizationId,
         },
         select: { 
           id: true,
@@ -304,6 +379,7 @@ export async function POST(request: NextRequest) {
     // CrÃ©er le document en base
     const document = await prisma.document.create({
       data: {
+        organizationId: meta.organizationId,
         filenameOriginal: customName || meta.originalName,
         fileName: `${meta.originalName}`.replace(/[^a-zA-Z0-9._-]/g, '_'),
         mime: meta.mime,
@@ -470,8 +546,8 @@ export async function POST(request: NextRequest) {
 
         if (leaseId) {
           // RÃ©cupÃ©rer les informations du bail
-          const lease = await prisma.lease.findUnique({
-            where: { id: leaseId },
+          const lease = await prisma.lease.findFirst({
+            where: { id: leaseId, organizationId: meta.organizationId },
             include: { Tenant: true, Property: true }
           });
 
@@ -551,8 +627,8 @@ export async function POST(request: NextRequest) {
           // Construire le contexte selon le type d'entitÃ©
           if (documentContext.entityType === 'LEASE' && documentContext.entityId) {
             // RÃ©cupÃ©rer les informations du bail
-            const lease = await prisma.lease.findUnique({
-              where: { id: documentContext.entityId },
+            const lease = await prisma.lease.findFirst({
+              where: { id: documentContext.entityId, organizationId: meta.organizationId },
               include: { Tenant: true, Property: true }
             });
             

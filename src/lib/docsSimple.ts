@@ -14,10 +14,13 @@ import { join } from 'path';
  * Supprime définitivement un document (hard delete) avec toutes ses liaisons
  * @param documentId - ID du document à supprimer
  */
-export async function hardDeleteDocument(documentId: string) {
+export async function hardDeleteDocument(documentId: string, organizationId?: string) {
   // Récupérer le document pour obtenir les infos du fichier physique
-  const document = await prisma.document.findUnique({
-    where: { id: documentId },
+  const document = await prisma.document.findFirst({
+    where: {
+      id: documentId,
+      ...(organizationId ? { organizationId } : {}),
+    },
     select: { bucketKey: true, fileName: true }
   });
 
@@ -49,7 +52,16 @@ export async function hardDeleteDocument(documentId: string) {
  * @param documentId - ID du document
  * @returns Liste des liaisons avec leur type et ID
  */
-export async function listNonGlobalLinks(documentId: string) {
+export async function listNonGlobalLinks(documentId: string, organizationId: string) {
+  const document = await prisma.document.findFirst({
+    where: { id: documentId, organizationId },
+    select: { id: true },
+  });
+
+  if (!document) {
+    throw new Error('Document non trouvé ou non autorisé');
+  }
+
   const links = await prisma.documentLink.findMany({
     where: { documentId },
     select: { 
@@ -75,13 +87,26 @@ export type DeleteTransactionMode = "delete_docs" | "keep_docs_globalize";
  */
 export async function deleteTransactionWithDocs(
   transactionId: string, 
-  mode: DeleteTransactionMode
+  mode: DeleteTransactionMode,
+  organizationId: string
 ) {
+  const transaction = await prisma.transaction.findFirst({
+    where: { id: transactionId, organizationId },
+    select: { id: true },
+  });
+
+  if (!transaction) {
+    throw new Error('Transaction non trouvée ou non autorisée');
+  }
+
   // 1) Récupérer tous les documents liés à la transaction
   const links = await prisma.documentLink.findMany({
     where: { 
       linkedType: "transaction", 
-      linkedId: transactionId 
+      linkedId: transactionId,
+      Document: {
+        organizationId,
+      }
     },
     select: { documentId: true },
   });
@@ -91,7 +116,7 @@ export async function deleteTransactionWithDocs(
   if (mode === "delete_docs") {
     // Mode A : Supprimer tous ces documents (hard delete avec cascade des liaisons)
     for (const docId of docIds) {
-      await hardDeleteDocument(docId);
+      await hardDeleteDocument(docId, organizationId);
     }
   } else {
     // Mode B (keep_docs_globalize) : Retirer toutes les liaisons non-globales pour ces documents
@@ -125,7 +150,7 @@ export async function deleteTransactionWithDocs(
  * @param linkedId - ID de l'entité liée
  * @returns Un objet avec le type et un nom lisible
  */
-export async function getLinkDisplayInfo(linkedType: string, linkedId: string): Promise<{
+export async function getLinkDisplayInfo(linkedType: string, linkedId: string, organizationId: string): Promise<{
   type: string;
   id: string;
   displayName: string;
@@ -135,16 +160,16 @@ export async function getLinkDisplayInfo(linkedType: string, linkedId: string): 
   try {
     switch (linkedType) {
       case 'property':
-        const property = await prisma.property.findUnique({
-          where: { id: linkedId },
+        const property = await prisma.property.findFirst({
+          where: { id: linkedId, organizationId },
           select: { name: true }
         });
         displayName = property?.name || `Bien #${linkedId.slice(0, 8)}`;
         break;
 
       case 'lease':
-        const lease = await prisma.lease.findUnique({
-          where: { id: linkedId },
+        const lease = await prisma.lease.findFirst({
+          where: { id: linkedId, organizationId },
           select: { 
             Property: { select: { name: true } },
             Tenant: { select: { firstName: true, lastName: true } }
@@ -160,16 +185,16 @@ export async function getLinkDisplayInfo(linkedType: string, linkedId: string): 
         break;
 
       case 'transaction':
-        const transaction = await prisma.transaction.findUnique({
-          where: { id: linkedId },
+        const transaction = await prisma.transaction.findFirst({
+          where: { id: linkedId, organizationId },
           select: { label: true }
         });
         displayName = transaction?.label || `Transaction #${linkedId.slice(0, 8)}`;
         break;
 
       case 'tenant':
-        const tenant = await prisma.tenant.findUnique({
-          where: { id: linkedId },
+        const tenant = await prisma.tenant.findFirst({
+          where: { id: linkedId, organizationId },
           select: { firstName: true, lastName: true }
         });
         displayName = tenant ? `${tenant.firstName} ${tenant.lastName}` : `Locataire #${linkedId.slice(0, 8)}`;

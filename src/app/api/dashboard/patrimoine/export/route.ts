@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
  * POST /api/dashboard/patrimoine/export
@@ -11,6 +12,8 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const body = await request.json();
     const { from, to, mode, format = 'csv' } = body;
 
@@ -23,7 +26,7 @@ export async function POST(request: NextRequest) {
 
     // Pour l'instant, on génère uniquement du CSV (compatible Excel)
     if (format === 'csv') {
-      const csvData = await generateCSV(from, to, mode);
+      const csvData = await generateCSV(from, to, mode, organizationId);
       
       return new NextResponse(csvData, {
         status: 200,
@@ -47,7 +50,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function generateCSV(from: string, to: string, mode: string): Promise<string> {
+async function generateCSV(from: string, to: string, mode: string, organizationId: string): Promise<string> {
   const [fromYear, fromMonth] = from.split('-').map(Number);
   const [toYear, toMonth] = to.split('-').map(Number);
   const fromDate = new Date(fromYear, fromMonth - 1, 1);
@@ -61,6 +64,7 @@ async function generateCSV(from: string, to: string, mode: string): Promise<stri
         gte: from, 
         lte: to 
       },
+      organizationId,
     },
     select: {
       date: true,

@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     const searchParams = request.nextUrl.searchParams;
     
     // Récupérer les paramètres de filtre
@@ -15,6 +18,7 @@ export async function GET(request: NextRequest) {
     // Construire les filtres Prisma
     const where: any = {
       status: 'ACTIF', // On ne compte que les baux actifs
+      organizationId, // Filtrer par organisation
     };
 
     // Filtre par propriété

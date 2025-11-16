@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
@@ -16,12 +16,18 @@ import {
   Home,
   Calendar,
   Landmark,
-  Calculator,
-  TrendingUp
+  Calculator
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
 import { UserDisplay } from '@/components/auth/UserDisplay';
+
+interface UserInfo {
+  id: string;
+  email: string;
+  name?: string;
+  role: 'ADMIN' | 'USER';
+}
 
 interface SidebarProps {
   className?: string;
@@ -84,13 +90,8 @@ const navItems: NavItem[] = [
   },
   {
     label: 'Simulation Fiscale',
-    href: '/impots/simulation',
+    href: '/fiscal',
     icon: Calculator,
-  },
-  {
-    label: 'Optimiseur Fiscal',
-    href: '/impots/optimizer',
-    icon: TrendingUp,
   },
   {
     label: 'Administration',
@@ -110,7 +111,35 @@ const gestionItems: NavItem[] = [];
 export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange }: SidebarProps) {
   const pathname = usePathname();
   const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const [user, setUser] = useState<UserInfo | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const collapsed = collapsedProp ?? internalCollapsed;
+
+  // Récupérer les informations utilisateur et vérifier l'authentification
+  useEffect(() => {
+    async function fetchUser() {
+      try {
+        const response = await fetch('/api/auth/me');
+        if (response.ok) {
+          const data = await response.json();
+          setUser(data.user || data); // Support des deux formats
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('Error fetching user:', error);
+        setIsAuthenticated(false);
+        setUser(null);
+      }
+    }
+    fetchUser();
+    
+    // Vérifier périodiquement (toutes les 5 secondes)
+    const interval = setInterval(fetchUser, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleCollapse = () => {
     const next = !collapsed;
@@ -118,16 +147,25 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
     if (collapsedProp === undefined) setInternalCollapsed(next);
   };
 
+  // Filtrer les items de navigation selon le rôle
+  const filteredNavItems = navItems.filter(item => {
+    // Cacher "Administration" si l'utilisateur n'est pas admin
+    if (item.href === '/admin') {
+      return user?.role === 'ADMIN';
+    }
+    return true;
+  });
+
   return (
     <aside className={cn(
-      "h-full bg-white border-r border-gray-200 transition-all duration-300",
+      "h-full bg-white border-r border-gray-200 transition-all duration-300 flex flex-col",
       collapsed ? "w-16" : "w-64",
       "lg:relative lg:translate-x-0",
       "fixed inset-y-0 left-0 z-30 translate-x-0", // Mobile toujours visible
       className
     )}>
       {/* Collapse button */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
         {!collapsed && (
           <span className="font-semibold text-gray-900">Navigation</span>
         )}
@@ -146,9 +184,9 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
         </Button>
       </div>
 
-      {/* Navigation */}
-      <nav className="p-4 space-y-1">
-        {navItems.map((item) => {
+      {/* Navigation - prend tout l'espace disponible */}
+      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+        {filteredNavItems.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
           
           return (
@@ -181,20 +219,29 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
             </Link>
           );
         })}
-
       </nav>
 
-      {/* Utilisateur connecté */}
-      <div className="mt-auto border-t border-gray-200 p-4">
-        {!collapsed && <UserDisplay />}
-        {collapsed && (
-          <div className="flex justify-center">
-            <div className="w-10 h-10 rounded-full bg-primary text-primary-content flex items-center justify-center text-sm font-semibold">
-              👤
+      {/* Utilisateur connecté - Le badge Administrateur est géré par UserDisplay - Toujours en bas */}
+      {isAuthenticated && (
+        <div className="border-t border-gray-200 p-4 flex-shrink-0">
+          {!collapsed && <UserDisplay />}
+          {collapsed && (
+            <div className="flex justify-center">
+              <div className="relative">
+                <div className="w-10 h-10 rounded-full bg-primary text-primary-content flex items-center justify-center text-sm font-semibold">
+                  👤
+                </div>
+                {/* Badge Administrateur pour la version collapsed */}
+                {user && user.role === 'ADMIN' && (
+                  <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center border-2 border-white">
+                    <Shield className="w-2.5 h-2.5 text-white" />
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </aside>
   );
 }
