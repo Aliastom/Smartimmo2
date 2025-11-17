@@ -6,6 +6,10 @@ module.exports = {
   rules: {
     '@typescript-eslint/explicit-module-boundary-types': 'off',
     
+    // ===== CONSOLE LOGS =====
+    // Interdire console.log, autoriser console.error et console.warn
+    'no-console': ['error', { allow: ['warn', 'error', 'info'] }],
+    
     // ===== NAMING CONVENTIONS (ENGLISH ONLY) =====
     '@typescript-eslint/naming-convention': [
       'error',
@@ -52,5 +56,14 @@ module.exports = {
     
     // Warn on non-ASCII characters in identifiers (accents, etc.)
     'no-irregular-whitespace': 'error',
-  }
+  },
+  // Exclure les fichiers de scripts et de configuration de la règle no-console
+  overrides: [
+    {
+      files: ['scripts/**/*', '*.config.{js,ts,mjs}', '**/test/**/*', '**/*.test.{ts,tsx}'],
+      rules: {
+        'no-console': 'off',
+      },
+    },
+  ],
 }

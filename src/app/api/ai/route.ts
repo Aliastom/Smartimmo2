@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[API:router:${correlationId}] Question: "${question.substring(0, 100)}..."`);
+    // logDebug(`[API:router:${correlationId}] Question: "${question.substring(0, 100)}..."`);
 
     // Convertir searchParams si fourni
     const searchParamsObj = searchParams

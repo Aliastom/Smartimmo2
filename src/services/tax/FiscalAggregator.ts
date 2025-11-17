@@ -381,7 +381,7 @@ class FiscalAggregatorClass {
       orderBy: { date: 'asc' },
     });
     
-    console.log(`📊 Bien ${property.name} : ${transactions.length} transaction(s) trouvée(s) pour ${year}`);
+    // logDebug(`📊 Bien ${property.name} : ${transactions.length} transaction(s) trouvée(s) pour ${year}`);
     
     // ✅ CORRECTION : Filtrer selon NatureEntity.flow (RECETTE/DEPENSE) et non amount > 0
     const natures = this.naturesCache!;

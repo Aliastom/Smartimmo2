@@ -29,7 +29,22 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     const supabase = await createServerClient();
     const { data: { user }, error } = await supabase.auth.getUser();
 
-    if (error || !user) {
+    // Ignorer silencieusement les erreurs de refresh token (utilisateur non connecté)
+    if (error) {
+      // Les erreurs de refresh token sont normales quand l'utilisateur n'est pas connecté
+      const isRefreshTokenError = 
+        error.message?.includes('refresh_token_not_found') ||
+        error.message?.includes('Invalid Refresh Token') ||
+        (error as any)?.code === 'refresh_token_not_found';
+      
+      if (!isRefreshTokenError) {
+        // Logger uniquement les autres erreurs
+        console.warn('[getCurrentUser] Erreur Supabase:', error.message);
+      }
+      return null;
+    }
+
+    if (!user) {
       return null;
     }
 
@@ -68,7 +83,17 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       organizationId: prismaUser.organizationId,
     };
   } catch (error) {
-    console.error('[getCurrentUser] Erreur:', error);
+    // Ignorer silencieusement les erreurs de refresh token
+    const isRefreshTokenError = 
+      error instanceof Error && (
+        error.message?.includes('refresh_token_not_found') ||
+        error.message?.includes('Invalid Refresh Token') ||
+        (error as any)?.code === 'refresh_token_not_found'
+      );
+    
+    if (!isRefreshTokenError) {
+      console.error('[getCurrentUser] Erreur:', error);
+    }
     return null;
   }
 });

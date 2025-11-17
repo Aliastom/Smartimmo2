@@ -7,43 +7,65 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { unlink } from 'fs/promises';
-import { join } from 'path';
+import { getStorageService } from "@/services/storage.service";
 
 /**
  * Supprime définitivement un document (hard delete) avec toutes ses liaisons
  * @param documentId - ID du document à supprimer
  */
 export async function hardDeleteDocument(documentId: string, organizationId?: string) {
+  console.log(`[hardDeleteDocument] Début suppression document ${documentId} (org: ${organizationId || 'toutes'})`);
+  
   // Récupérer le document pour obtenir les infos du fichier physique
   const document = await prisma.document.findFirst({
     where: {
       id: documentId,
       ...(organizationId ? { organizationId } : {}),
     },
-    select: { bucketKey: true, fileName: true }
+    select: { bucketKey: true, fileName: true, filenameOriginal: true, organizationId: true }
   });
 
   if (!document) {
+    console.error(`[hardDeleteDocument] ❌ Document ${documentId} non trouvé`);
     throw new Error(`Document ${documentId} non trouvé`);
   }
 
-  // Supprimer le document (cascade supprime automatiquement toutes les liaisons DocumentLink)
-  await prisma.document.delete({ 
-    where: { id: documentId } 
-  });
+  console.log(`[hardDeleteDocument] Document trouvé: ${document.filenameOriginal || document.fileName}, bucketKey: ${document.bucketKey}, org: ${document.organizationId}`);
 
-  // Supprimer le fichier physique
+  // Supprimer le document (cascade supprime automatiquement toutes les liaisons DocumentLink)
+  try {
+    await prisma.document.delete({ 
+      where: { id: documentId } 
+    });
+    console.log(`[hardDeleteDocument] ✅ Document ${documentId} supprimé de la base de données`);
+  } catch (dbError) {
+    console.error(`[hardDeleteDocument] ❌ Erreur lors de la suppression de la base de données:`, dbError);
+    throw dbError;
+  }
+
+  // Supprimer le fichier physique via le service de stockage
   if (document.bucketKey) {
     try {
-      const filePath = join(process.cwd(), 'storage', 'documents', document.bucketKey);
-      await unlink(filePath);
-      console.log(`✅ Fichier physique supprimé: ${document.fileName}`);
+      const storageService = getStorageService();
+      // Normaliser la clé pour garantir la compatibilité avec tous les formats
+      const filename = document.filenameOriginal || document.fileName || 'document';
+      const normalizedKey = storageService.normalizeBucketKey(
+        document.bucketKey,
+        documentId,
+        filename
+      );
+      console.log(`[hardDeleteDocument] Suppression fichier: ${normalizedKey} (original: ${document.bucketKey})`);
+      await storageService.deleteDocument(normalizedKey);
+      console.log(`[hardDeleteDocument] ✅ Fichier physique supprimé: ${document.fileName} (${normalizedKey})`);
     } catch (error) {
-      console.log(`⚠️  Fichier physique non trouvé: ${document.fileName} (${document.bucketKey})`);
-      // Ne pas faire échouer la suppression si le fichier n'existe pas
+      console.error(`[hardDeleteDocument] ⚠️  Fichier physique non trouvé ou erreur suppression: ${document.fileName} (${document.bucketKey})`, error);
+      // Ne pas faire échouer la suppression si le fichier n'existe pas (document déjà supprimé de la base)
     }
+  } else {
+    console.log(`[hardDeleteDocument] ⚠️  Pas de bucketKey pour le document ${documentId}, aucun fichier à supprimer`);
   }
+  
+  console.log(`[hardDeleteDocument] ✅ Suppression terminée pour document ${documentId}`);
 }
 
 /**

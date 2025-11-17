@@ -107,6 +107,8 @@ export async function middleware(request: NextRequest) {
   const { data: { user }, error } = await supabase.auth.getUser();
 
   // Si pas d'utilisateur, rediriger vers /login
+  // Note: Les erreurs de refresh_token sont normales quand l'utilisateur n'est pas connecté
+  // Elles sont gérées silencieusement ici
   if (error || !user) {
     const redirectUrl = new URL('/login', request.url);
     redirectUrl.searchParams.set('redirect', pathname);

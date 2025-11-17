@@ -157,7 +157,7 @@ export async function GET(request: NextRequest) {
           nombreBiens: inputs.biens.length,
         });
       } else {
-        console.log('⚠️ Aucune simulation trouvée → Génération de données par défaut');
+        // logDebug('⚠️ Aucune simulation trouvée → Génération de données par défaut');
         // Pas de simulation sauvegardée : générer une optimisation de base
         const currentYear = new Date().getFullYear();
         taxParams = await TaxParamsService.get(currentYear);
@@ -188,16 +188,16 @@ export async function GET(request: NextRequest) {
     // Optimiser
     const optimization = await Optimizer.optimize(inputs, taxParams);
     
-    // ✅ Debug : Vérifier les valeurs des biens avant renvoi
-    console.log(`📊 Biens dans optimisation (avant JSON):`);
-    optimization.simulation.biens.forEach((b: any, i: number) => {
-      console.log(`  ${i+1}. ${b.nom}:`, {
-        recettesBrutes: b.recettesBrutes,
-        chargesDeductibles: b.chargesDeductibles,
-        type: typeof b.recettesBrutes,
-        typeCharges: typeof b.chargesDeductibles,
-      });
-    });
+    // ✅ Debug : Vérifier les valeurs des biens avant renvoi (désactivé en production)
+    // logDebug(`📊 Biens dans optimisation (avant JSON):`);
+    // optimization.simulation.biens.forEach((b: any, i: number) => {
+    //   logDebug(`  ${i+1}. ${b.nom}:`, {
+    //     recettesBrutes: b.recettesBrutes,
+    //     chargesDeductibles: b.chargesDeductibles,
+    //     type: typeof b.recettesBrutes,
+    //     typeCharges: typeof b.chargesDeductibles,
+    //   });
+    // });
     
     return NextResponse.json(optimization);
   } catch (error) {

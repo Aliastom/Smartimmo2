@@ -1,8 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { unlink } from 'fs/promises';
-import { join } from 'path';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 
 
@@ -166,15 +165,15 @@ export async function DELETE(request: NextRequest) {
           continue;
         }
 
-        // Supprimer le fichier physique s'il existe
+        // Supprimer le fichier physique via le service de stockage s'il existe
         if (doc.bucketKey) {
-          const filePath = join(process.cwd(), 'storage', 'documents', doc.bucketKey);
           try {
-            await unlink(filePath);
-            console.log(`[API] Fichier physique supprimÃ©: ${filePath}`);
+            const storageService = getStorageService();
+            await storageService.deleteDocument(doc.bucketKey);
+            console.log(`[API] Fichier physique supprimé du stockage: ${doc.bucketKey}`);
           } catch (fileError) {
-            console.warn(`[API] Impossible de supprimer le fichier: ${filePath}`, fileError);
-            // Continuer mÃªme si le fichier n'existe pas
+            console.warn(`[API] Impossible de supprimer le fichier du stockage: ${doc.bucketKey}`, fileError);
+            // Continuer même si le fichier n'existe pas
           }
         }
 

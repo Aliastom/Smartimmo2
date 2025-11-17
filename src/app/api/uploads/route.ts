@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { documentRepository } from '../../../infra/repositories/documentRepository';
 import { z } from 'zod';
-import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
 import { createHash } from 'crypto';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { prisma } from '@/lib/prisma';
+import { getStorageService } from '@/services/storage.service';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -118,34 +117,51 @@ export async function POST(request: NextRequest) {
     const slug = generateSlug(file.name);
     const extension = file.name.split('.').pop() || '';
     
-    // Création du chemin de stockage
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
+    // Créer le document en base d'abord pour obtenir l'ID
+    const tempDocument = await prisma.document.create({
+      data: {
+        organizationId,
+        ownerId: user.id,
+        bucketKey: '', // Sera mis à jour après upload
+        filenameOriginal: file.name,
+        fileName: file.name,
+        mime: file.type,
+        size: file.size,
+        url: '', // Sera mis à jour après upload
+        fileSha256: hash,
+        status: 'active',
+        source: 'upload',
+        uploadedBy: user.id,
+        uploadedAt: new Date(),
+        // Relations optionnelles
+        propertyId: validatedFields.propertyId || null,
+        transactionId: validatedFields.transactionId || null,
+        leaseId: validatedFields.leaseId || null,
+        loanId: validatedFields.loanId || null,
+      },
+    });
+
+    // Upload vers le stockage (local ou Supabase selon STORAGE_TYPE)
+    const storageService = getStorageService();
     const fileName = `${slug}-${hash.substring(0, 8)}.${extension}`;
-    const uploadPath = join(process.cwd(), 'public', 'uploads', String(year), month);
-    const filePath = join(uploadPath, fileName);
-    const url = `/uploads/${year}/${month}/${fileName}`;
+    const { key: bucketKey, url: storageUrl } = await storageService.uploadDocument(
+      buffer,
+      tempDocument.id,
+      fileName,
+      file.type
+    );
 
-    // Création du dossier si nécessaire
-    await mkdir(uploadPath, { recursive: true });
-
-    // Sauvegarde du fichier
-    await writeFile(filePath, buffer);
-
-    // Création du document en base
-    const document = await documentRepository.create({
-      fileName: file.name,
-      mime: file.type,
-      size: file.size,
-      url,
-      fileSha256: hash,
-      docType: validatedFields.docType,
-      tagsJson: validatedFields.tagsJson,
-      propertyId: validatedFields.propertyId,
-      transactionId: validatedFields.transactionId,
-      leaseId: validatedFields.leaseId,
-      loanId: validatedFields.loanId,
+    // Mettre à jour le document avec les infos de stockage
+    const finalUrl = `/api/documents/${tempDocument.id}/file`;
+    const document = await prisma.document.update({
+      where: { id: tempDocument.id },
+      data: {
+        bucketKey,
+        url: finalUrl,
+        // Metadata supplémentaire si nécessaire
+        tagsJson: validatedFields.tagsJson || null,
+        tags: validatedFields.tagsJson || null,
+      },
     });
 
     return NextResponse.json(document, { status: 201 });

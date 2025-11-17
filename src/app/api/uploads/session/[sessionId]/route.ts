@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -144,18 +145,16 @@ export async function DELETE(
     console.log(`[API] ${documentsToDelete.length} documents brouillons trouvés pour suppression`);
 
     // Supprimer les fichiers physiques et les entrées de base
+    const storageService = getStorageService();
     for (const doc of documentsToDelete) {
       try {
-        // Supprimer le fichier physique s'il existe
-        if (doc.storagePath) {
-          const fs = require('fs').promises;
-          const path = require('path');
-          const fullPath = path.join(process.cwd(), 'storage', 'tmp', doc.storagePath);
+        // Supprimer le fichier physique via le service de stockage s'il existe
+        if (doc.bucketKey) {
           try {
-            await fs.unlink(fullPath);
-            console.log(`[API] Fichier physique supprimé: ${fullPath}`);
+            await storageService.deleteDocument(doc.bucketKey);
+            console.log(`[API] Fichier physique supprimé du stockage: ${doc.bucketKey}`);
           } catch (fileError) {
-            console.warn(`[API] Impossible de supprimer le fichier: ${fullPath}`, fileError);
+            console.warn(`[API] Impossible de supprimer le fichier du stockage: ${doc.bucketKey}`, fileError);
           }
         }
         

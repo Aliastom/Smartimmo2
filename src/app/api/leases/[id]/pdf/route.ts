@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { leaseRepository } from '../../../../../infra/repositories/leaseRepository';
-import { documentRepository } from '../../../../../infra/repositories/documentRepository';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { renderToStream } from '@react-pdf/renderer';
-import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
 import { createHash } from 'crypto';
+import { getStorageService } from '@/services/storage.service';
+import { prisma } from '@/lib/prisma';
 import React from 'react';
 import LeasePdf from '../../../../../pdf/LeasePdf';
 
@@ -99,35 +98,49 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     const slug = generateSlug(baseFileName);
     const fileName = `${slug.replace('.pdf', '')}-${hash.substring(0, 8)}.pdf`;
 
-    // Créer le chemin de stockage
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const uploadPath = join(process.cwd(), 'public', 'uploads', String(year), month);
-    const filePath = join(uploadPath, fileName);
-    const url = `/uploads/${year}/${month}/${fileName}`;
+    // Créer le document en base d'abord pour obtenir l'ID
+    const tempDocument = await prisma.document.create({
+      data: {
+        organizationId,
+        ownerId: user.id,
+        bucketKey: '', // Sera mis à jour après upload
+        filenameOriginal: baseFileName,
+        fileName: baseFileName,
+        mime: 'application/pdf',
+        size: buffer.length,
+        url: '', // Sera mis à jour après upload
+        fileSha256: hash,
+        propertyId: lease.propertyId || null,
+        leaseId: lease.id,
+        status: 'active',
+        source: 'lease_pdf_generation',
+        uploadedBy: user.id,
+        uploadedAt: new Date(),
+      },
+    });
 
-    // Créer le dossier si nécessaire
-    await mkdir(uploadPath, { recursive: true });
+    // Upload vers le stockage (local ou Supabase selon STORAGE_TYPE)
+    const storageService = getStorageService();
+    const { key: bucketKey, url: storageUrl } = await storageService.uploadDocument(
+      buffer,
+      tempDocument.id,
+      fileName,
+      'application/pdf'
+    );
 
-    // Sauvegarder le fichier
-    await writeFile(filePath, buffer);
-
-    // Créer le document en base de données
-    const document = await documentRepository.create({
-      fileName: baseFileName,
-      mime: 'application/pdf',
-      size: buffer.length,
-      url,
-      fileSha256: hash,
-      docType: 'lease',
-      propertyId: lease.propertyId,
-      leaseId: lease.id,
+    // Mettre à jour le document avec les infos de stockage
+    const finalUrl = `/api/documents/${tempDocument.id}/file`;
+    const document = await prisma.document.update({
+      where: { id: tempDocument.id },
+      data: {
+        bucketKey,
+        url: finalUrl,
+      },
     });
 
     return NextResponse.json({
       documentId: document.id,
-      downloadUrl: url,
+      downloadUrl: finalUrl,
       fileName: baseFileName,
     });
   } catch (error) {

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
 import { validateNatureCategory } from '@/utils/transactionValidation';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -120,38 +119,50 @@ export async function POST(request: NextRequest) {
         // Décoder le base64
         const buffer = Buffer.from(base64.split(',')[1] || base64, 'base64');
         
-        // Créer le chemin de stockage
-        const now = new Date();
-        const yearDir = now.getFullYear();
-        const monthDir = String(now.getMonth() + 1).padStart(2, '0');
-        const timestamp = Date.now();
-        const filename = `${timestamp}_${name}`;
-        const uploadPath = join(process.cwd(), 'public', 'uploads', 'documents', String(yearDir), monthDir);
-        const filePath = join(uploadPath, filename);
-        const url = `/uploads/documents/${yearDir}/${monthDir}/${filename}`;
-
-        // Créer le dossier si nécessaire
-        await mkdir(uploadPath, { recursive: true });
-
-        // Sauvegarder le fichier
-        await writeFile(filePath, buffer);
-
-        // Créer le document avec le type spécifié
-        await prisma.document.create({
+        // Créer le document en base d'abord pour obtenir l'ID
+        const tempDocument = await prisma.document.create({
           data: {
+            organizationId,
+            ownerId: user.id,
+            bucketKey: '', // Sera mis à jour après upload
+            filenameOriginal: name,
             fileName: name,
             mime: mime,
             size: buffer.length,
-            url,
+            url: '', // Sera mis à jour après upload
             documentTypeId: documentTypeId && documentTypeId !== '' ? documentTypeId : null, // Utiliser le type fourni ou null
-            propertyId: propertyId,
-            leaseId: leaseId,
-            organizationId,
+            propertyId: propertyId || null,
+            leaseId: leaseId || null,
+            status: 'active',
+            source: 'payment_upload',
+            uploadedBy: user.id,
+            uploadedAt: new Date(),
             metadata: JSON.stringify({
               source: 'payment_upload',
               paymentId: firstPayment.id, // Lier au paiement via metadata
               uploadedAt: new Date().toISOString(),
             }),
+          },
+        });
+
+        // Upload vers le stockage (local ou Supabase selon STORAGE_TYPE)
+        const storageService = getStorageService();
+        const timestamp = Date.now();
+        const filename = `${timestamp}_${name}`;
+        const { key: bucketKey, url: storageUrl } = await storageService.uploadDocument(
+          buffer,
+          tempDocument.id,
+          filename,
+          mime
+        );
+
+        // Mettre à jour le document avec les infos de stockage
+        const finalUrl = `/api/documents/${tempDocument.id}/file`;
+        await prisma.document.update({
+          where: { id: tempDocument.id },
+          data: {
+            bucketKey,
+            url: finalUrl,
           },
         });
       }

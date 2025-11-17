@@ -2,6 +2,7 @@
 import { BulkDocumentOperationSchema } from '@/types/documents';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 
 
@@ -26,6 +27,13 @@ export async function POST(request: NextRequest) {
     switch (operation) {
       case 'delete':
         // Soft-delete
+        // Récupérer les documents pour obtenir leurs bucketKey (au cas où on voudrait les supprimer physiquement plus tard)
+        const documentsToDelete = await prisma.document.findMany({
+          where: { id: { in: documentIds }, organizationId },
+          select: { id: true, bucketKey: true },
+        });
+
+        // Soft-delete en base
         await prisma.document.updateMany({
           where: { id: { in: documentIds }, organizationId },
           data: {
@@ -33,6 +41,10 @@ export async function POST(request: NextRequest) {
             deletedBy: user.id,
           },
         });
+
+        // Note: Pour un soft-delete, on ne supprime généralement pas les fichiers physiquement
+        // Si vous voulez un hard-delete, utilisez l'opération 'hard_delete' ou /api/documents/{id}/hard-delete
+        
         result.message = `${documentIds.length} documents deleted`;
         break;
 

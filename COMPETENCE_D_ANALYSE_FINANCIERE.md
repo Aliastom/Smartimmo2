@@ -303,3 +303,4 @@ console.log(`Rendement net: ${rend.net}%`);
 
 
 
+

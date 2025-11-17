@@ -306,23 +306,36 @@ export default function DocumentsClient() {
   const handleDeleteMultipleConfirmed = useCallback(async () => {
     try {
       let deletedCount = 0;
+      let errorCount = 0;
       
       for (const doc of documentsToDelete) {
         try {
+          console.log(`[DeleteMultiple] Suppression de ${doc.id}...`);
           const response = await fetch(`/api/documents/${doc.id}/hard-delete`, {
             method: 'DELETE',
           });
           
           if (response.ok) {
+            const result = await response.json();
+            console.log(`[DeleteMultiple] ✅ Document ${doc.id} supprimé:`, result);
             deletedCount++;
+          } else {
+            const errorData = await response.json().catch(() => ({ error: 'Erreur inconnue' }));
+            console.error(`[DeleteMultiple] ❌ Erreur suppression ${doc.id}:`, response.status, errorData);
+            errorCount++;
           }
         } catch (fetchError) {
-          console.error(`Erreur lors de la suppression de ${doc.id}:`, fetchError);
+          console.error(`[DeleteMultiple] ❌ Exception lors de la suppression de ${doc.id}:`, fetchError);
+          errorCount++;
         }
       }
       
       if (deletedCount > 0) {
         notify2.success(`${deletedCount} document(s) supprimé(s)`);
+      }
+      
+      if (errorCount > 0) {
+        notify2.error(`${errorCount} document(s) n'ont pas pu être supprimé(s)`);
       }
       
       setSelectedIds(new Set());
@@ -331,7 +344,7 @@ export default function DocumentsClient() {
       setShowDeleteMultipleModal(false);
       setDocumentsToDelete([]);
     } catch (error) {
-      console.error('Erreur lors de la suppression multiple:', error);
+      console.error('[DeleteMultiple] Erreur lors de la suppression multiple:', error);
       notify2.error('Erreur lors de la suppression des documents');
     }
   }, [documentsToDelete, loadData]);

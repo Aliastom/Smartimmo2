@@ -1,23 +1,75 @@
 'use client';
 
 import React, { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  TooltipProps,
-  Legend,
-} from 'recharts';
+import { TooltipProps } from 'recharts';
+
+// Dynamic imports pour Recharts (réduire le bundle initial)
+const ResponsiveContainer = dynamic(
+  () => import('recharts').then(mod => mod.ResponsiveContainer),
+  { ssr: false }
+);
+
+const BarChart = dynamic(
+  () => import('recharts').then(mod => mod.BarChart),
+  { ssr: false }
+);
+
+const Bar = dynamic(
+  () => import('recharts').then(mod => mod.Bar),
+  { ssr: false }
+);
+
+const LineChart = dynamic(
+  () => import('recharts').then(mod => mod.LineChart),
+  { ssr: false }
+);
+
+const Line = dynamic(
+  () => import('recharts').then(mod => mod.Line),
+  { ssr: false }
+);
+
+const PieChart = dynamic(
+  () => import('recharts').then(mod => mod.PieChart),
+  { ssr: false }
+);
+
+const Pie = dynamic(
+  () => import('recharts').then(mod => mod.Pie),
+  { ssr: false }
+);
+
+const Cell = dynamic(
+  () => import('recharts').then(mod => mod.Cell),
+  { ssr: false }
+);
+
+const XAxis = dynamic(
+  () => import('recharts').then(mod => mod.XAxis),
+  { ssr: false }
+);
+
+const YAxis = dynamic(
+  () => import('recharts').then(mod => mod.YAxis),
+  { ssr: false }
+);
+
+const CartesianGrid = dynamic(
+  () => import('recharts').then(mod => mod.CartesianGrid),
+  { ssr: false }
+);
+
+const Tooltip = dynamic(
+  () => import('recharts').then(mod => mod.Tooltip),
+  { ssr: false }
+);
+
+const Legend = dynamic(
+  () => import('recharts').then(mod => mod.Legend),
+  { ssr: false }
+);
 import { MonthlySeriesItem, RepartitionParBienItem } from '@/types/dashboard';
 import { FileText } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shared/select';
@@ -75,7 +127,7 @@ const formatMonthLabel = (yyyymm: string) => {
   return monthNames[parseInt(month) - 1];
 };
 
-export function PatrimoineCharts({
+export const PatrimoineCharts = React.memo(function PatrimoineCharts({
   loyers,
   charges,
   cashflow,
@@ -474,5 +526,5 @@ export function PatrimoineCharts({
       </Card>
     </div>
   );
-}
+});
 

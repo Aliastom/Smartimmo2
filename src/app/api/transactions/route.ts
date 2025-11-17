@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { addMonthsYYYYMM, formatMonthlyLabel, extractBaseLabel } from '@/lib/utils/monthUtils';
 import { createManagementCommission } from '@/lib/services/managementCommissionService';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { logDebug } from '@/lib/utils/logger';
 
 // Fonction pour normaliser une chaîne (enlever les accents, minuscules)
 
@@ -102,11 +103,11 @@ export async function GET(request: NextRequest) {
       where.accounting_month = {};
       if (accountingMonthStart) {
         where.accounting_month.gte = accountingMonthStart;
-        console.log('[API] Filtre période comptable début:', accountingMonthStart);
+        logDebug('[API] Filtre période comptable début:', accountingMonthStart);
       }
       if (accountingMonthEnd) {
         where.accounting_month.lte = accountingMonthEnd;
-        console.log('[API] Filtre période comptable fin:', accountingMonthEnd);
+        logDebug('[API] Filtre période comptable fin:', accountingMonthEnd);
       }
     }
 
@@ -125,7 +126,7 @@ export async function GET(request: NextRequest) {
       },
     });
     const natureMap = new Map(natures.map(n => [n.code, n]));
-    console.log('[API] Natures chargées:', natures.length, 'natures');
+    logDebug('[API] Natures chargées:', natures.length, 'natures');
     
     // Appliquer le filtre flow si spécifié (INCOME ou EXPENSE)
     if (flowFilter) {
@@ -133,9 +134,9 @@ export async function GET(request: NextRequest) {
       const matchingNatures = natures.filter(n => n.flow === flowFilter);
       if (matchingNatures.length > 0) {
         where.nature = { in: matchingNatures.map(n => n.code) };
-        console.log(`[API] Filtre flow appliqué: ${flowFilter} -> ${matchingNatures.length} natures`);
+        logDebug(`[API] Filtre flow appliqué: ${flowFilter} -> ${matchingNatures.length} natures`);
       } else {
-        console.log(`[API] Aucune nature trouvée pour flow: ${flowFilter}`);
+        logDebug(`[API] Aucune nature trouvée pour flow: ${flowFilter}`);
         return NextResponse.json({
           data: [],
           pagination: { page: 1, limit: 50, total: 0, pages: 0 }
@@ -151,9 +152,9 @@ export async function GET(request: NextRequest) {
       );
       if (matchingNature) {
         where.nature = matchingNature.code;
-        console.log(`[API] Filtre nature appliqué: ${natureId} -> ${matchingNature.code}`);
+        logDebug(`[API] Filtre nature appliqué: ${natureId} -> ${matchingNature.code}`);
       } else {
-        console.log(`[API] Nature non trouvée pour: ${natureId}`);
+        logDebug(`[API] Nature non trouvée pour: ${natureId}`);
         return NextResponse.json({
           data: [],
           pagination: { page: 1, limit: 50, total: 0, pages: 0 }
@@ -235,7 +236,7 @@ export async function GET(request: NextRequest) {
       // Étape 1: Charger les enfants des transactions initiales
       const parentIds = transactions.map(t => t.id);
       if (parentIds.length > 0) {
-        console.log(`[API GROUPAGE] Recherche des enfants pour ${parentIds.length} parents...`);
+        logDebug(`[API GROUPAGE] Recherche des enfants pour ${parentIds.length} parents...`);
         const children = await prisma.transaction.findMany({
           where: {
             parentTransactionId: { in: parentIds },
@@ -292,7 +293,7 @@ export async function GET(request: NextRequest) {
         });
         
         if (children.length > 0) {
-          console.log(`[API GROUPAGE] ${children.length} enfants trouvés et ajoutés aux résultats`);
+          logDebug(`[API GROUPAGE] ${children.length} enfants trouvés et ajoutés aux résultats`);
           // Ajouter les enfants sans doublons
           const existingIds = new Set(allTransactions.map(t => t.id));
           const newChildren = children.filter(c => !existingIds.has(c.id));
@@ -308,7 +309,7 @@ export async function GET(request: NextRequest) {
         .filter((id): id is string => id !== null && id !== undefined);
       
       if (childParentIds.length > 0) {
-        console.log(`[API GROUPAGE] Recherche des parents pour ${childParentIds.length} enfants...`);
+        logDebug(`[API GROUPAGE] Recherche des parents pour ${childParentIds.length} enfants...`);
         const parents = await prisma.transaction.findMany({
           where: {
             id: { in: childParentIds },
@@ -365,7 +366,7 @@ export async function GET(request: NextRequest) {
         });
         
         if (parents.length > 0) {
-          console.log(`[API GROUPAGE] ${parents.length} parents trouvés et ajoutés aux résultats`);
+          logDebug(`[API GROUPAGE] ${parents.length} parents trouvés et ajoutés aux résultats`);
           // Ajouter les parents sans doublons
           const existingIds = new Set(allTransactions.map(t => t.id));
           const newParents = parents.filter(p => !existingIds.has(p.id));
@@ -378,7 +379,7 @@ export async function GET(request: NextRequest) {
     // ⚙️ FILTRAGE EN MÉMOIRE: Si on a des filtres flow/status, filtrer les transactions
     let filteredTransactions = allTransactions;
     if (groupByParent && (flowFilter || status)) {
-      console.log(`[API FILTRAGE] Application des filtres en mémoire: flow=${flowFilter}, status=${status}`);
+      logDebug(`[API FILTRAGE] Application des filtres en mémoire: flow=${flowFilter}, status=${status}`);
       
       // Étape 1: Identifier les transactions qui correspondent aux filtres
       const matchingTransactionIds = new Set<string>();
@@ -391,7 +392,7 @@ export async function GET(request: NextRequest) {
         }
       });
       
-      console.log(`[API FILTRAGE] ${matchingTransactionIds.size} transactions correspondent aux filtres`);
+      logDebug(`[API FILTRAGE] ${matchingTransactionIds.size} transactions correspondent aux filtres`);
       
       // Étape 2: Inclure les parents des transactions correspondantes (pour contexte visuel)
       const parentIdsToInclude = new Set<string>();
@@ -401,23 +402,23 @@ export async function GET(request: NextRequest) {
         }
       });
       
-      console.log(`[API FILTRAGE] ${parentIdsToInclude.size} parents à inclure pour le contexte`);
+      logDebug(`[API FILTRAGE] ${parentIdsToInclude.size} parents à inclure pour le contexte`);
       
       // Étape 3: Filtrer pour ne garder que les transactions correspondantes + leurs parents
       filteredTransactions = allTransactions.filter(t => 
         matchingTransactionIds.has(t.id) || parentIdsToInclude.has(t.id)
       );
       
-      console.log(`[API FILTRAGE] ${filteredTransactions.length} transactions après filtrage (avec parents)`);
-      console.log(`[API FILTRAGE] IDs des transactions filtrées:`, filteredTransactions.map(t => ({ id: t.id, label: t.label, nature: t.nature })));
+      logDebug(`[API FILTRAGE] ${filteredTransactions.length} transactions après filtrage (avec parents)`);
+      logDebug(`[API FILTRAGE] IDs des transactions filtrées:`, filteredTransactions.map(t => ({ id: t.id, label: t.label, nature: t.nature })));
     }
     
     let filteredTotal = groupByParent && (flowFilter || status) ? filteredTransactions.length : (total + childrenCount + parentsCount);
-    console.log(`[API] filteredTotal calculé: ${filteredTotal}, groupByParent: ${groupByParent}, flowFilter: ${flowFilter}, status: ${status}, childrenCount: ${childrenCount}, parentsCount: ${parentsCount}`);
+    logDebug(`[API] filteredTotal calculé: ${filteredTotal}, groupByParent: ${groupByParent}, flowFilter: ${flowFilter}, status: ${status}, childrenCount: ${childrenCount}, parentsCount: ${parentsCount}`);
     
     if (searchTerm) {
       const normalizedSearch = normalizeString(searchTerm);
-      console.log('[API SEARCH] Recherche avec:', searchTerm, '(normalisé:', normalizedSearch + ')');
+      logDebug('[API SEARCH] Recherche avec:', searchTerm, '(normalisé:', normalizedSearch + ')');
       
       filteredTransactions = allTransactions.filter(transaction => {
         const normalizedLabel = normalizeString(transaction.label || '');
@@ -436,7 +437,7 @@ export async function GET(request: NextRequest) {
                       normalizedAccountingMonthRaw.includes(normalizedSearch);
         
         if (match) {
-          console.log('[API SEARCH] Match trouvé:', transaction.label);
+          logDebug('[API SEARCH] Match trouvé:', transaction.label);
         }
         
         return match;
@@ -451,7 +452,7 @@ export async function GET(request: NextRequest) {
       });
       
       if (parentIds.size > 0) {
-        console.log(`[API SEARCH] Chargement de ${parentIds.size} parents pour la vue groupée`);
+        logDebug(`[API SEARCH] Chargement de ${parentIds.size} parents pour la vue groupée`);
         const parents = allTransactions.filter(t => parentIds.has(t.id));
         // Ajouter les parents aux résultats (sans doublons)
         const existingIds = new Set(filteredTransactions.map(t => t.id));
@@ -463,16 +464,16 @@ export async function GET(request: NextRequest) {
       }
       
       filteredTotal = filteredTransactions.length; // Total AVANT pagination manuelle
-      console.log(`[API SEARCH] ${filteredTotal} transactions trouvées après filtrage (avec parents)`);
+      logDebug(`[API SEARCH] ${filteredTotal} transactions trouvées après filtrage (avec parents)`);
       
       // Appliquer la pagination manuellement après le filtrage
       filteredTransactions = filteredTransactions.slice(offset, offset + limit);
-      console.log(`[API SEARCH] ${filteredTransactions.length} transactions après pagination`);
+      logDebug(`[API SEARCH] ${filteredTransactions.length} transactions après pagination`);
     } else if (!searchTerm && (groupByParent && (flowFilter || status))) {
       // Pagination pour vue groupée avec filtres (sans recherche textuelle)
-      console.log(`[API PAGINATION GROUPÉE] ${filteredTransactions.length} transactions avant pagination`);
+      logDebug(`[API PAGINATION GROUPÉE] ${filteredTransactions.length} transactions avant pagination`);
       filteredTransactions = filteredTransactions.slice(offset, offset + limit);
-      console.log(`[API PAGINATION GROUPÉE] ${filteredTransactions.length} transactions après pagination`);
+      logDebug(`[API PAGINATION GROUPÉE] ${filteredTransactions.length} transactions après pagination`);
     }
     
     const transactionIds = filteredTransactions.map(t => t.id);
@@ -525,14 +526,14 @@ export async function GET(request: NextRequest) {
       if (statusFilter === 'rapprochee') {
         filteredTransactions = filteredTransactions.filter(t => t.rapprochementStatus === 'rapprochee');
         filteredTotal = filteredTransactions.length;
-        console.log('[API] Filtre rapprochée appliqué:', filteredTotal, 'transactions');
+        logDebug('[API] Filtre rapprochée appliqué:', filteredTotal, 'transactions');
       } else if (statusFilter === 'non_rapprochee') {
         filteredTransactions = filteredTransactions.filter(t => t.rapprochementStatus === 'non_rapprochee');
         filteredTotal = filteredTransactions.length;
-        console.log('[API] Filtre non rapprochée appliqué:', filteredTotal, 'transactions');
+        logDebug('[API] Filtre non rapprochée appliqué:', filteredTotal, 'transactions');
       }
     } else if (alreadyFilteredInMemory) {
-      console.log('[API] Filtrage de statut déjà effectué en mémoire, skip');
+      logDebug('[API] Filtrage de statut déjà effectué en mémoire, skip');
     }
     
     // Filtre hasDocument (séparé du statut de rapprochement)
@@ -541,19 +542,19 @@ export async function GET(request: NextRequest) {
       if (hasDocument === 'true') {
         filteredTransactions = filteredTransactions.filter(t => (linksByTransaction.get(t.id) || []).length > 0);
         filteredTotal = filteredTransactions.length;
-        console.log('[API] Filtre avec documents appliqué:', filteredTotal, 'transactions');
+        logDebug('[API] Filtre avec documents appliqué:', filteredTotal, 'transactions');
       } else if (hasDocument === 'false') {
         filteredTransactions = filteredTransactions.filter(t => (linksByTransaction.get(t.id) || []).length === 0);
         filteredTotal = filteredTransactions.length;
-        console.log('[API] Filtre sans documents appliqué:', filteredTotal, 'transactions');
+        logDebug('[API] Filtre sans documents appliqué:', filteredTotal, 'transactions');
       }
     } else if (hasDocument && alreadyFilteredInMemory) {
-      console.log('[API] Filtrage hasDocument skip en vue groupée (pour préserver les parents pour contexte)');
+      logDebug('[API] Filtrage hasDocument skip en vue groupée (pour préserver les parents pour contexte)');
     }
 
 
-    console.log(`[API AVANT TRANSFORMATION] ${filteredTransactions.length} transactions à transformer`);
-    console.log(`[API AVANT TRANSFORMATION] IDs:`, filteredTransactions.map(t => t.id));
+    logDebug(`[API AVANT TRANSFORMATION] ${filteredTransactions.length} transactions à transformer`);
+    logDebug(`[API AVANT TRANSFORMATION] IDs:`, filteredTransactions.map(t => t.id));
     
     // Transformation des données
     // Créer un Map des transactions par ID pour hériter accountingMonth des parents
@@ -567,7 +568,7 @@ export async function GET(request: NextRequest) {
       // Récupérer les documents liés à cette transaction
       const linkedDocuments = linksByTransaction.get(transaction.id) || [];
 
-      console.log('[API] Transaction nature debug:', {
+      logDebug('[API] Transaction nature debug:', {
         id: transaction.id,
         natureCode: transaction.nature, // This is the code
         natureType: natureType,
@@ -646,10 +647,10 @@ export async function POST(request: NextRequest) {
     const user = await requireAuth();
     const organizationId = user.organizationId;
     const body = await request.json();
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🆕 [API POST] CRÉATION TRANSACTION');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('[API] Données reçues:', {
+    logDebug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logDebug('🆕 [API POST] CRÉATION TRANSACTION');
+    logDebug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logDebug('[API] Données reçues:', {
       stagedDocumentIds: body.stagedDocumentIds,
       stagedLinkItemIds: body.stagedLinkItemIds,
       hasStagedDocuments: !!(body.stagedDocumentIds && body.stagedDocumentIds.length > 0),
@@ -660,13 +661,13 @@ export async function POST(request: NextRequest) {
       propertyId: body.propertyId,
       amount: body.amount
     });
-    console.log('[API] 💰 GESTION DÉLÉGUÉE - Breakdown loyer:', {
+    logDebug('[API] 💰 GESTION DÉLÉGUÉE - Breakdown loyer:', {
       montantLoyer: body.montantLoyer,
       chargesRecup: body.chargesRecup,
       chargesNonRecup: body.chargesNonRecup,
       isAutoAmount: body.isAutoAmount
     });
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logDebug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     // Validation des données requises
     if (!body.propertyId) {
@@ -722,7 +723,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Catégorie introuvable' }, { status: 400 });
     }
 
-    console.log('[API] Catégorie validée:', category);
+    logDebug('[API] Catégorie validée:', category);
 
     // Construire accountingMonth à partir des champs de période
     let accountingMonth = null;
@@ -737,7 +738,7 @@ export async function POST(request: NextRequest) {
       accountingMonth = `${year}-${month}`;
     }
 
-    console.log('[API] Champs de période:', {
+    logDebug('[API] Champs de période:', {
       accountingMonth,
       periodStart: body.periodStart,
       periodMonth: body.periodMonth,
@@ -750,7 +751,7 @@ export async function POST(request: NextRequest) {
     const baseLabel = extractBaseLabel(rawLabel);
     const startMonth = accountingMonth || `${body.periodYear}-${String(body.periodMonth).padStart(2, '0')}`;
     
-    console.log('[API] Label processing:', {
+    logDebug('[API] Label processing:', {
       rawLabel,
       baseLabel,
       startMonth
@@ -833,7 +834,7 @@ export async function POST(request: NextRequest) {
           }
         });
         
-        console.log('[API] ✅ Transaction créée:', {
+        logDebug('[API] ✅ Transaction créée:', {
           id: transaction.id,
           isAutoAmount: transaction.isAutoAmount,
           montantLoyer: transaction.montantLoyer,
@@ -880,7 +881,7 @@ export async function POST(request: NextRequest) {
               
               if (commissionResult.commissionTransaction) {
                 transactions.push(commissionResult.commissionTransaction);
-                console.log(`[Commission] Créée automatiquement pour transaction ${transaction.id}`);
+                logDebug(`[Commission] Créée automatiquement pour transaction ${transaction.id}`);
               }
             } catch (error) {
               console.error('[Commission] Erreur lors de la création automatique:', error);
@@ -895,7 +896,7 @@ export async function POST(request: NextRequest) {
 
       // 2. Finaliser les documents en staging si présents
       if (body.stagedDocumentIds && body.stagedDocumentIds.length > 0) {
-        console.log('[API] Finalisation des documents en staging:', body.stagedDocumentIds);
+        logDebug('[API] Finalisation des documents en staging:', body.stagedDocumentIds);
         
         // Vérifier que les documents existent
         const existingDocs = await tx.Document.findMany({
@@ -906,7 +907,7 @@ export async function POST(request: NextRequest) {
           },
           select: { id: true, fileName: true, status: true, fileSha256: true, textSha256: true }
         });
-        console.log('[API] Documents draft trouvés:', existingDocs);
+        logDebug('[API] Documents draft trouvés:', existingDocs);
 
         // Re-vérifier les doublons avant finalisation
         const { DocumentsService } = await import('@/lib/services/documents');
@@ -942,12 +943,12 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        console.log('Documents finalisés (liens créés après la transaction):', primaryTransaction.id);
+        logDebug('Documents finalisés (liens créés après la transaction):', primaryTransaction.id);
       }
 
       // 3. Traiter les liens vers documents existants si présents
       if (body.stagedLinkItemIds && body.stagedLinkItemIds.length > 0) {
-        console.log('[API] Traitement des liens vers documents existants:', body.stagedLinkItemIds);
+        logDebug('[API] Traitement des liens vers documents existants:', body.stagedLinkItemIds);
         
         // Récupérer les staged items de type 'link'
         const stagedLinks = await tx.UploadStagedItem.findMany({
@@ -966,7 +967,7 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        console.log('[API] Staged links trouvés:', stagedLinks.length);
+        logDebug('[API] Staged links trouvés:', stagedLinks.length);
         // Note : Les liens seront créés APRÈS la transaction via createDocumentLinks()
       }
 
@@ -983,7 +984,7 @@ export async function POST(request: NextRequest) {
 
     // Créer les liens APRÈS la transaction pour éviter le timeout
     if (body.stagedDocumentIds && body.stagedDocumentIds.length > 0) {
-      console.log('[API] Création des liens pour les documents finalisés...');
+      logDebug('[API] Création des liens pour les documents finalisés...');
       const { createDocumentLinks } = await import('@/lib/services/documentLinkService');
       
       // Lier les documents à TOUTES les transactions créées
@@ -992,11 +993,11 @@ export async function POST(request: NextRequest) {
           await createDocumentLinks(docId, transaction);
         }));
       }
-      console.log(`Documents finalisés et liés à ${result.allTransactions.length} transactions`);
+      logDebug(`Documents finalisés et liés à ${result.allTransactions.length} transactions`);
     }
 
     if (body.stagedLinkItemIds && body.stagedLinkItemIds.length > 0) {
-      console.log('[API] Création des liens pour les documents existants...');
+      logDebug('[API] Création des liens pour les documents existants...');
       
       // Récupérer les staged items de type 'link'
       const stagedLinks = await prisma.uploadStagedItem.findMany({
@@ -1022,7 +1023,7 @@ export async function POST(request: NextRequest) {
           if (!stagedLink.Document) continue;
           const docId = stagedLink.Document.id;
           await createDocumentLinks(docId, transaction);
-          console.log(`[API] Liens créés pour document existant: ${stagedLink.Document.filenameOriginal} → ${transaction.id}`);
+          logDebug(`[API] Liens créés pour document existant: ${stagedLink.Document.filenameOriginal} → ${transaction.id}`);
         }
       }
 
@@ -1031,7 +1032,7 @@ export async function POST(request: NextRequest) {
         where: { id: { in: body.stagedLinkItemIds } }
       });
 
-      console.log(`Liens vers documents existants créés pour ${result.allTransactions.length} transactions`);
+      logDebug(`Liens vers documents existants créés pour ${result.allTransactions.length} transactions`);
     }
 
     // Construire le message de succès avec les mois créés

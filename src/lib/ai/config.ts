@@ -107,35 +107,37 @@ export const aiConfig = {
   },
 };
 
+import { logDebug } from '@/lib/utils/logger';
+
 /**
  * Helper pour logger la configuration au démarrage
  */
 export function logAiConfig() {
-  console.log('═'.repeat(60));
-  console.log('🤖 Smartimmo AI Configuration');
-  console.log('═'.repeat(60));
+  logDebug('═'.repeat(60));
+  logDebug('🤖 Smartimmo AI Configuration');
+  logDebug('═'.repeat(60));
   
   if (!aiConfig.enabled) {
-    console.log('❌ IA DÉSACTIVÉE (NEXT_PUBLIC_AI_ENABLED=false)');
-    console.log('═'.repeat(60));
+    logDebug('❌ IA DÉSACTIVÉE (NEXT_PUBLIC_AI_ENABLED=false)');
+    logDebug('═'.repeat(60));
     return;
   }
   
-  console.log(`Mode: ${aiConfig.mode.toUpperCase()}`);
-  console.log(`Ollama: ${aiConfig.ollama.host} (${aiConfig.ollama.model})`);
-  console.log(`Qdrant: ${aiConfig.qdrant.url} (${aiConfig.qdrant.collection})`);
-  console.log(`Embeddings: ${aiConfig.embeddings.model}`);
+  logDebug(`Mode: ${aiConfig.mode.toUpperCase()}`);
+  logDebug(`Ollama: ${aiConfig.ollama.host} (${aiConfig.ollama.model})`);
+  logDebug(`Qdrant: ${aiConfig.qdrant.url} (${aiConfig.qdrant.collection})`);
+  logDebug(`Embeddings: ${aiConfig.embeddings.model}`);
   
   if (aiConfig.mode === 'react') {
-    console.log('\n✅ Agent ReAct activé avec outils:');
-    console.log(`   - SQL: ${aiConfig.features.sqlTool ? '✓' : '✗'}`);
-    console.log(`   - KB Search: ${aiConfig.features.kbSearch ? '✓' : '✗'}`);
-    console.log(`   - Doc Fetch: ${aiConfig.features.docFetch ? '✓' : '✗'}`);
-    console.log(`   - OCR Summarize: ${aiConfig.features.ocrSummarize ? '✓' : '✗'}`);
+    logDebug('\n✅ Agent ReAct activé avec outils:');
+    logDebug(`   - SQL: ${aiConfig.features.sqlTool ? '✓' : '✗'}`);
+    logDebug(`   - KB Search: ${aiConfig.features.kbSearch ? '✓' : '✗'}`);
+    logDebug(`   - Doc Fetch: ${aiConfig.features.docFetch ? '✓' : '✗'}`);
+    logDebug(`   - OCR Summarize: ${aiConfig.features.ocrSummarize ? '✓' : '✗'}`);
   } else {
-    console.log('\n⚠️  Mode Legacy (RAG simple)');
+    logDebug('\n⚠️  Mode Legacy (RAG simple)');
   }
   
-  console.log('═'.repeat(60));
+  logDebug('═'.repeat(60));
 }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getGestionCodes } from '@/lib/settings/appSettings';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { logDebug } from '@/lib/utils/logger';
 import type {
   MonthlyDashboardData,
   MonthlyKPIs,
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
   try {
     const user = await requireAuth();
     const organizationId = user.organizationId;
-    console.log('[Dashboard Monthly] User:', { id: user.id, email: user.email, organizationId });
+    logDebug('[Dashboard Monthly] User:', { id: user.id, email: user.email, organizationId });
     const searchParams = request.nextUrl.searchParams;
     
     // Période : mois courant par défaut

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -12,6 +12,8 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     const leaseId = params.id;
     const formData = await request.formData();
     const file = formData.get('signedPdf') as File;
@@ -25,42 +27,18 @@ export async function POST(
     }
 
     // Vérifier que le bail existe
-    const lease = await prisma.lease.findUnique({
-      where: { id: leaseId },
+    const lease = await prisma.lease.findFirst({
+      where: { id: leaseId, organizationId },
       include: { Tenant: true, Property: true }
     });
 
     if (!lease) {
-      return NextResponse.json({ error: 'Bail non trouvé' }, { status: 404 });
+      return NextResponse.json({ error: 'Bail non trouvé ou non autorisé' }, { status: 404 });
     }
 
-    // Créer le dossier uploads s'il n'existe pas
-    const uploadsDir = join(process.cwd(), 'public', 'uploads', 'leases');
-    await mkdir(uploadsDir, { recursive: true });
-
-    // Générer un nom de fichier unique
-    const timestamp = Date.now();
-    const fileName = `bail-signe-${leaseId}-${timestamp}.pdf`;
-    const filePath = join(uploadsDir, fileName);
-
-    // Sauvegarder le fichier
+    // Lire le fichier
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    await writeFile(filePath, buffer);
-
-    // Mettre à jour le bail avec l'URL du PDF signé et le statut
-    const updatedLease = await prisma.lease.update({
-      where: { id: leaseId },
-      data: {
-        signedPdfUrl: `/uploads/leases/${fileName}`,
-        status: 'SIGNÉ',
-        updatedAt: new Date()
-      },
-      include: {
-        Tenant: true,
-        Property: true
-      }
-    });
 
     // Trouver le type de document BAIL_SIGNE
     const documentType = await prisma.documentType.findUnique({
@@ -71,29 +49,66 @@ export async function POST(
       throw new Error('Type de document BAIL_SIGNE non trouvé');
     }
 
-    // Créer un document de type BAIL_SIGNE
-    const document = await prisma.document.create({
+    // Créer le document en base d'abord pour obtenir l'ID
+    const tempDocument = await prisma.document.create({
       data: {
+        organizationId,
+        ownerId: user.id,
         documentTypeId: documentType.id,
         filenameOriginal: file.name,
-        fileName: fileName,
-        url: `/uploads/leases/${fileName}`,
-        size: file.size,
+        fileName: file.name,
         mime: file.type,
+        size: file.size,
         fileSha256: '', // Sera calculé si nécessaire
-        bucketKey: `/uploads/leases/${fileName}`,
+        bucketKey: '', // Sera mis à jour après upload
+        url: '', // Sera mis à jour après upload
         leaseId: leaseId,
         tenantId: lease.tenantId,
         propertyId: lease.propertyId,
         status: 'active', // ✅ Active directement (pas de staging pour bail signé)
         source: 'upload',
-        uploadedBy: 'lease-signed-upload',
+        uploadedBy: user.id,
         uploadedAt: new Date(),
         metadata: JSON.stringify({
           originalName: file.name,
           uploadType: 'lease_signed',
           leaseStatus: 'SIGNÉ'
         })
+      }
+    });
+
+    // Upload vers le stockage (local ou Supabase selon STORAGE_TYPE)
+    const storageService = getStorageService();
+    const timestamp = Date.now();
+    const fileName = `bail-signe-${leaseId}-${timestamp}.pdf`;
+    const { key: bucketKey, url: storageUrl } = await storageService.uploadDocument(
+      buffer,
+      tempDocument.id,
+      fileName,
+      file.type
+    );
+
+    // Mettre à jour le document avec les infos de stockage
+    const finalUrl = `/api/documents/${tempDocument.id}/file`;
+    const document = await prisma.document.update({
+      where: { id: tempDocument.id },
+      data: {
+        bucketKey,
+        url: finalUrl,
+      },
+    });
+
+    // Mettre à jour le bail avec l'URL du PDF signé et le statut
+    const updatedLease = await prisma.lease.update({
+      where: { id: leaseId },
+      data: {
+        signedPdfUrl: finalUrl,
+        status: 'SIGNÉ',
+        updatedAt: new Date()
+      },
+      include: {
+        Tenant: true,
+        Property: true
       }
     });
 

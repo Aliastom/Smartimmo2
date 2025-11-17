@@ -47,6 +47,7 @@ import {
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAlert } from '@/hooks/useAlert';
+import { useLoading } from '@/contexts/LoadingContext';
 import { ConfirmDeletePropertyDialog, type DeleteMode } from '@/components/properties/ConfirmDeletePropertyDialog';
 import type { PropertyStats } from '@/services/deletePropertySmart';
 
@@ -77,6 +78,7 @@ export default function BiensClient({ initialData, stats, properties, transactio
   const { insights, loading: insightsLoading } = useDashboardInsights('biens');
   const { setStatusFilter } = usePropertyFilters();
   const { showAlert, showConfirm } = useAlert();
+  const { setLoading } = useLoading();
   
   // Détecter l'état actif des chips basé sur les paramètres URL
   const getActiveChip = () => {
@@ -460,7 +462,12 @@ export default function BiensClient({ initialData, stats, properties, transactio
                     <TableRow 
                       key={property.id}
                       className={`cursor-pointer ${property.isArchived ? 'bg-gray-50 opacity-70 border-l-4 border-l-gray-400' : ''}`}
-                      onClick={() => router.push(`/biens/${property.id}/transactions`)}
+                      data-property-id={property.id}
+                      onClick={() => {
+                        const targetPath = `/biens/${property.id}/transactions`;
+                        // Le loader sera déclenché par SmartTopLoader via la détection du clic
+                        router.push(targetPath);
+                      }}
                     >
                       <TableCell>
                         <div>

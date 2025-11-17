@@ -1,9 +1,70 @@
 'use client';
 
-import React, { Suspense, lazy } from 'react';
+import React from 'react';
+import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { LineChart, Line, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+
+// Dynamic imports pour Recharts (réduire le bundle initial)
+const LineChart = dynamic(
+  () => import('recharts').then(mod => mod.LineChart),
+  { ssr: false }
+);
+
+const Line = dynamic(
+  () => import('recharts').then(mod => mod.Line),
+  { ssr: false }
+);
+
+const PieChart = dynamic(
+  () => import('recharts').then(mod => mod.PieChart),
+  { ssr: false }
+);
+
+const Pie = dynamic(
+  () => import('recharts').then(mod => mod.Pie),
+  { ssr: false }
+);
+
+const Cell = dynamic(
+  () => import('recharts').then(mod => mod.Cell),
+  { ssr: false }
+);
+
+const BarChart = dynamic(
+  () => import('recharts').then(mod => mod.BarChart),
+  { ssr: false }
+);
+
+const Bar = dynamic(
+  () => import('recharts').then(mod => mod.Bar),
+  { ssr: false }
+);
+
+const XAxis = dynamic(
+  () => import('recharts').then(mod => mod.XAxis),
+  { ssr: false }
+);
+
+const YAxis = dynamic(
+  () => import('recharts').then(mod => mod.YAxis),
+  { ssr: false }
+);
+
+const Tooltip = dynamic(
+  () => import('recharts').then(mod => mod.Tooltip),
+  { ssr: false }
+);
+
+const ResponsiveContainer = dynamic(
+  () => import('recharts').then(mod => mod.ResponsiveContainer),
+  { ssr: false }
+);
+
+const Legend = dynamic(
+  () => import('recharts').then(mod => mod.Legend),
+  { ssr: false }
+);
 import { cn } from '@/utils/cn';
 
 export interface BienMiniChartsProps {

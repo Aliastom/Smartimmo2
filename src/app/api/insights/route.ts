@@ -115,49 +115,79 @@ async function getLocatairesInsights(organizationId: string) {
 }
 
 async function getTransactionsInsights(organizationId: string) {
-  const [totalTransactions, transactions, natures] = await Promise.all([
+  // ✅ OPTIMISATION : Utiliser des requêtes agrégées au lieu de charger toutes les transactions
+  const [totalTransactions, natures, documentLinks] = await Promise.all([
     prisma.transaction.count({ where: { organizationId } }),
-    prisma.transaction.findMany({ where: { organizationId } }),
-    prisma.natureEntity.findMany()
+    prisma.natureEntity.findMany(),
+    prisma.documentLink.findMany({
+      where: { linkedType: 'transaction', Document: { organizationId } },
+      select: { linkedId: true } // Ne charger que l'ID pour économiser la mémoire
+    })
   ]);
 
-  // Calculer les totaux par type
-  let totalIncome = 0;
-  let totalExpenses = 0;
-  let unreconciledTransactions = 0;
-  let anomalies = 0;
-
-  // RÃ©cupÃ©rer les liens de documents pour calculer les transactions non rapprochÃ©es
-  const documentLinks = await prisma.documentLink.findMany({
-    where: { linkedType: 'transaction', Document: { organizationId } }
-  });
+  // Créer un map des natures pour un accès rapide
+  const natureMap = new Map(natures.map(n => [n.code, n]));
   
+  // Créer un Set des transactions avec documents
   const transactionIdsWithDocuments = new Set(
     documentLinks.map(link => link.linkedId)
   );
 
-  // CrÃ©er un map des natures pour un accÃ¨s rapide
-  const natureMap = new Map(natures.map(n => [n.code, n]));
+  // ✅ OPTIMISATION : Calculer les totaux avec des requêtes agrégées
+  // Pour RECETTE : natures avec natureType === 'RECETTE'
+  const recetteCodes = natures
+    .filter(n => n.natureType === 'RECETTE')
+    .map(n => n.code);
+  
+  // Pour DEPENSE : natures avec natureType === 'DEPENSE'
+  const depenseCodes = natures
+    .filter(n => n.natureType === 'DEPENSE')
+    .map(n => n.code);
 
-  transactions.forEach(transaction => {
-    const amount = transaction.amount || 0;
-    
-    // DÃ©terminer si c'est une recette ou une dÃ©pense basÃ© sur la nature
-    const nature = natureMap.get(transaction.nature || '');
-    if (nature?.natureType === 'RECETTE') {
-      totalIncome += amount;
-    } else if (nature?.natureType === 'DEPENSE') {
-      totalExpenses += amount;
-    }
+  // Calculer les totaux avec une seule requête agrégée
+  const [incomeResult, expenseResult, anomaliesResult] = await Promise.all([
+    // Total des recettes
+    recetteCodes.length > 0
+      ? prisma.transaction.aggregate({
+          where: {
+            organizationId,
+            nature: { in: recetteCodes }
+          },
+          _sum: { amount: true }
+        })
+      : { _sum: { amount: null } },
+    // Total des dépenses
+    depenseCodes.length > 0
+      ? prisma.transaction.aggregate({
+          where: {
+            organizationId,
+            nature: { in: depenseCodes }
+          },
+          _sum: { amount: true }
+        })
+      : { _sum: { amount: null } },
+    // Anomalies : transactions sans catégorie ou montant nul
+    prisma.transaction.count({
+      where: {
+        organizationId,
+        OR: [
+          { amount: 0 },
+          { categoryId: null }
+        ]
+      }
+    })
+  ]);
 
-    // VÃ©rifier si la transaction a un document liÃ©
-    if (!transactionIdsWithDocuments.has(transaction.id)) {
-      unreconciledTransactions++;
-    }
+  const totalIncome = Math.abs(incomeResult._sum.amount || 0);
+  const totalExpenses = Math.abs(expenseResult._sum.amount || 0);
+  const anomalies = anomaliesResult;
 
-    // DÃ©tecter les anomalies (montant nul, catÃ©gorie manquante)
-    if (amount === 0 || !transaction.categoryId) {
-      anomalies++;
+  // ✅ OPTIMISATION : Calculer les transactions non rapprochées avec une requête
+  // au lieu de charger toutes les transactions en mémoire
+  const unreconciledTransactions = await prisma.transaction.count({
+    where: {
+      organizationId,
+      id: { notIn: Array.from(transactionIdsWithDocuments) }
     }
   });
 

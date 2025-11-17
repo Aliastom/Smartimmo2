@@ -321,10 +321,35 @@ export class StorageService {
     const sha256 = this.calculateSha256(buffer);
     const key = this.generateStorageKey(documentId, filename);
     
-    await this.provider.upload(buffer, key, mime);
-    const url = await this.provider.getPublicUrl(key);
+    console.log('[StorageService] Upload document:', {
+      documentId,
+      filename,
+      key,
+      mime,
+      size: buffer.length,
+      storageType: process.env.STORAGE_TYPE || 'local'
+    });
+    
+    try {
+      await this.provider.upload(buffer, key, mime);
+      const url = await this.provider.getPublicUrl(key);
+      
+      console.log('[StorageService] ✅ Document uploadé avec succès:', {
+        key,
+        url,
+        documentId
+      });
 
-    return { key, sha256, url };
+      return { key, sha256, url };
+    } catch (error: any) {
+      console.error('[StorageService] ❌ Erreur upload document:', {
+        error: error.message,
+        key,
+        documentId,
+        storageType: process.env.STORAGE_TYPE || 'local'
+      });
+      throw error;
+    }
   }
 
   /**
@@ -399,21 +424,28 @@ export function getStorageService(): StorageService {
   if (!storageServiceInstance) {
     // Déterminer le provider en fonction de l'environnement
     const storageType = process.env.STORAGE_TYPE || 'local';
+    console.log('[Storage] STORAGE_TYPE détecté:', storageType);
+    console.log('[Storage] Variables disponibles:', {
+      hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      bucket: process.env.SUPABASE_STORAGE_BUCKET || 'documents (défaut)'
+    });
 
     let provider: StorageProvider;
 
     if (storageType === 'supabase') {
       try {
         provider = new SupabaseStorageProvider();
-        console.log('[Storage] Utilisation de SupabaseStorageProvider');
-      } catch (error) {
-        console.error('[Storage] Erreur lors de l\'initialisation de SupabaseStorageProvider:', error);
-        console.warn('[Storage] Fallback vers LocalStorageProvider');
+        console.log('[Storage] ✅ SupabaseStorageProvider initialisé avec succès');
+      } catch (error: any) {
+        console.error('[Storage] ❌ Erreur lors de l\'initialisation de SupabaseStorageProvider:', error);
+        console.error('[Storage] Détails:', error.message || error);
+        console.warn('[Storage] ⚠️ Fallback vers LocalStorageProvider');
         provider = new LocalStorageProvider();
       }
     } else {
       provider = new LocalStorageProvider();
-      console.log('[Storage] Utilisation de LocalStorageProvider');
+      console.log('[Storage] ✅ Utilisation de LocalStorageProvider');
     }
 
     storageServiceInstance = new StorageService(provider);

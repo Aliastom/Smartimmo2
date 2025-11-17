@@ -5,6 +5,7 @@ import { Shield, LogOut, Settings, User, ChevronUp } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 
 interface UserInfo {
   name: string | null;
@@ -24,31 +25,13 @@ export function UserDisplay({ className }: { className?: string }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
+  // Utiliser le hook centralisé React Query (plus performant)
+  const { user: authUser, isLoading: authLoading } = useAuth();
+  
   useEffect(() => {
-    async function fetchUser() {
-      try {
-        const response = await fetch('/api/auth/me');
-        if (response.ok) {
-          const data = await response.json();
-          setUser(data.user);
-        } else {
-          // Si l'utilisateur n'est pas authentifié, réinitialiser
-          setUser(null);
-        }
-      } catch (error) {
-        console.error('Erreur lors de la récupération du profil:', error);
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchUser();
-    
-    // Vérifier périodiquement l'authentification (toutes les 5 secondes)
-    const interval = setInterval(fetchUser, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    setUser(authUser);
+    setLoading(authLoading);
+  }, [authUser, authLoading]);
 
   // Fermer le menu au clic extérieur
   useEffect(() => {

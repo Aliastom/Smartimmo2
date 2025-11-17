@@ -11,7 +11,12 @@ export default function QueryProvider({ children }: { children: React.ReactNode 
         defaultOptions: {
           queries: {
             refetchOnWindowFocus: false,
-            staleTime: 30_000,
+            refetchOnMount: false,
+            refetchOnReconnect: false,
+            // Cache les données pendant 5 minutes par défaut
+            staleTime: 5 * 60 * 1000,
+            // Garde les données en cache pendant 10 minutes même si non utilisées
+            gcTime: 10 * 60 * 1000,
             retry: 1,
           },
         },
@@ -20,7 +25,9 @@ export default function QueryProvider({ children }: { children: React.ReactNode 
   return (
     <QueryClientProvider client={queryClient}>
       {children}
-      <ReactQueryDevtools initialIsOpen={false} />
+      {process.env.NODE_ENV === 'development' && (
+        <ReactQueryDevtools initialIsOpen={false} />
+      )}
     </QueryClientProvider>
   );
 }

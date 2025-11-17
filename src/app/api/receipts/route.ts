@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 import { 
   getSuggestedCategoryId, 
   generateRentLabel, 
@@ -28,6 +30,9 @@ const receiptSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    
     console.log('[API /receipts] Starting request...');
     const body = await request.json();
     console.log('[API /receipts] Request body:', body);
@@ -201,7 +206,7 @@ export async function POST(request: NextRequest) {
         
         // Calculer la taille du PDF si fourni
         let pdfSize = 0;
-        let pdfUrl = filePath;
+        let pdfBuffer: Buffer | null = null;
         
         if (receiptPdfBase64) {
           try {
@@ -209,21 +214,14 @@ export async function POST(request: NextRequest) {
             const base64Data = receiptPdfBase64.replace(/^data:application\/pdf;base64,/, '');
             
             // Convertir en Buffer
-            const pdfBuffer = Buffer.from(base64Data, 'base64');
+            pdfBuffer = Buffer.from(base64Data, 'base64');
             pdfSize = pdfBuffer.length;
             
-            // Créer le chemin du fichier
-            const actualFilePath = `public/uploads/receipts/${fileId}.pdf`;
-            pdfUrl = `/uploads/receipts/${fileId}.pdf`;
-            
-            // Sauvegarder le fichier
-            const fs = await import('fs/promises');
-            await fs.writeFile(actualFilePath, pdfBuffer);
-            
-            console.log('[API /receipts] PDF sauvegardé:', actualFilePath, 'taille:', pdfSize, 'bytes');
+            console.log('[API /receipts] PDF préparé pour upload, taille:', pdfSize, 'bytes');
           } catch (error) {
-            console.error('[API /receipts] Erreur lors de la sauvegarde du PDF:', error);
+            console.error('[API /receipts] Erreur lors de la préparation du PDF:', error);
             pdfSize = 0;
+            pdfBuffer = null;
           }
         }
 
@@ -236,16 +234,25 @@ export async function POST(request: NextRequest) {
           throw new Error('Document type RENT_RECEIPT not found');
         }
 
-        receiptDocument = await prisma.document.create({
+        // Créer le document en base d'abord pour obtenir l'ID
+        const tempDocument = await prisma.document.create({
           data: {
-            fileName,
+            organizationId,
+            ownerId: user.id,
+            bucketKey: '', // Sera mis à jour après upload
+            filenameOriginal: fileName,
+            fileName: fileName,
             mime: 'application/pdf',
-            size: pdfSize,
-            url: pdfUrl,
+            size: pdfSize || 0,
+            url: '', // Sera mis à jour après upload
             documentTypeId: rentReceiptType.id, // Utiliser le nouveau système de types
             propertyId: lease.Property.id,
             transactionId: transaction.id,
             leaseId,
+            status: 'active',
+            source: 'receipt_generation',
+            uploadedBy: user.id,
+            uploadedAt: new Date(),
             metadata: JSON.stringify({
               rentAmount: finalRentAmount,
               chargesAmount: finalChargesAmount,
@@ -257,8 +264,33 @@ export async function POST(request: NextRequest) {
             }),
           },
         });
+
+        // Upload vers le stockage si PDF disponible
+        if (pdfBuffer) {
+          const storageService = getStorageService();
+          const { key: bucketKey, url: storageUrl } = await storageService.uploadDocument(
+            pdfBuffer,
+            tempDocument.id,
+            fileName,
+            'application/pdf'
+          );
+
+          // Mettre à jour le document avec les infos de stockage
+          const finalUrl = `/api/documents/${tempDocument.id}/file`;
+          receiptDocument = await prisma.document.update({
+            where: { id: tempDocument.id },
+            data: {
+              bucketKey,
+              url: finalUrl,
+              size: pdfSize,
+            },
+          });
+        } else {
+          // Pas de PDF, garder le document temporaire
+          receiptDocument = tempDocument;
+        }
         
-        console.log('[API /receipts] Document quittance créé (PDF à générer):', receiptDocument.id);
+        console.log('[API /receipts] Document quittance créé:', receiptDocument.id);
       } catch (error) {
         console.error('[API /receipts] Erreur lors de la création du document quittance:', error);
         // Ne pas faire échouer la transaction si la création du document échoue

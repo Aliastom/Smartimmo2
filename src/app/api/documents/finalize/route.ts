@@ -453,12 +453,41 @@ export async function POST(request: NextRequest) {
     const finalFilename = `${document.id}.${meta.ext}`;
     
     // Upload vers le stockage (local ou Supabase selon STORAGE_TYPE)
-    const { key: bucketKey, url: storageUrl } = await storageService.uploadDocument(
-      fileBuffer,
-      document.id,
-      finalFilename,
-      meta.mime
-    );
+    console.log('[Finalize] Début upload document final vers storage:', {
+      documentId: document.id,
+      filename: finalFilename,
+      mime: meta.mime,
+      size: fileBuffer.length,
+      storageType: process.env.STORAGE_TYPE || 'local'
+    });
+    
+    let bucketKey: string;
+    let storageUrl: string;
+    
+    try {
+      const result = await storageService.uploadDocument(
+        fileBuffer,
+        document.id,
+        finalFilename,
+        meta.mime
+      );
+      bucketKey = result.key;
+      storageUrl = result.url;
+      
+      console.log('[Finalize] ✅ Document uploadé avec succès:', {
+        bucketKey,
+        storageUrl,
+        documentId: document.id
+      });
+    } catch (uploadError: any) {
+      console.error('[Finalize] ❌ Erreur lors de l\'upload du document final:', uploadError);
+      console.error('[Finalize] Détails:', {
+        message: uploadError.message,
+        stack: uploadError.stack,
+        documentId: document.id
+      });
+      throw new Error(`Échec de l'upload du document final: ${uploadError.message || 'Erreur inconnue'}`);
+    }
 
     // Supprimer le fichier temporaire (local ou Supabase)
     try {
