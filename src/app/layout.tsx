@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import '@/styles/toasts.css';
@@ -25,6 +25,19 @@ const inter = Inter({ subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'SmartImmo - Gestion Immobilière',
   description: 'Application de gestion immobilière moderne et responsive',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Smartimmo',
+  },
+  icons: {
+    apple: '/icons/icon-180.png',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#3b82f6',
 };
 
 export default function RootLayout({
@@ -36,6 +49,14 @@ export default function RootLayout({
     <html lang="fr" data-theme="smartimmo">
       <head>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+        {/* PWA Meta Tags */}
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <meta name="theme-color" content="#3b82f6" />
+        {/* iOS Specific */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="Smartimmo" />
+        <link rel="apple-touch-icon" href="/icons/icon-180.png" />
       </head>
       <body className={inter.className}>
         <ThemeProvider>

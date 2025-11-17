@@ -1,3 +1,5 @@
+import withPWA from 'next-pwa';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -46,4 +48,104 @@ const nextConfig = {
   }
 }
 
-export default nextConfig
+// Configuration PWA avec next-pwa
+// ⚠️ IMPORTANT: Ne pas activer en développement pour éviter les conflits
+const pwaConfig = withPWA({
+  dest: 'public',
+  register: true,
+  skipWaiting: true,
+  disable: process.env.NODE_ENV === 'development', // Désactiver en dev
+  buildExcludes: [/middleware-manifest\.json$/],
+  // Stratégies de cache intelligentes pour ne pas casser Supabase
+  runtimeCaching: [
+    // Ne JAMAIS mettre en cache les endpoints d'authentification Supabase
+    {
+      urlPattern: /^https:\/\/.*\.supabase\.co\/auth\/v1\//,
+      handler: 'NetworkOnly',
+      options: {
+        cacheName: 'supabase-auth',
+        expiration: {
+          maxEntries: 0, // Pas de cache
+        },
+      },
+    },
+    // Stratégie NetworkFirst pour les données Supabase (toujours vérifier en ligne)
+    {
+      urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/v1\//,
+      handler: 'NetworkFirst',
+      options: {
+        cacheName: 'supabase-data',
+        expiration: {
+          maxEntries: 50,
+          maxAgeSeconds: 60, // Cache très court (1 minute)
+        },
+        networkTimeoutSeconds: 10,
+      },
+    },
+    // Stratégie NetworkFirst pour le storage Supabase
+    {
+      urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/v1\//,
+      handler: 'NetworkFirst',
+      options: {
+        cacheName: 'supabase-storage',
+        expiration: {
+          maxEntries: 100,
+          maxAgeSeconds: 300, // 5 minutes
+        },
+        networkTimeoutSeconds: 10,
+      },
+    },
+    // Cache agressif pour les assets statiques Next.js
+    {
+      urlPattern: /^\/_next\/static\/.*/,
+      handler: 'StaleWhileRevalidate',
+      options: {
+        cacheName: 'next-static',
+        expiration: {
+          maxEntries: 200,
+          maxAgeSeconds: 31536000, // 1 an
+        },
+      },
+    },
+    // Cache pour les icônes et images statiques
+    {
+      urlPattern: /^\/icons\/.*/,
+      handler: 'CacheFirst',
+      options: {
+        cacheName: 'icons',
+        expiration: {
+          maxEntries: 50,
+          maxAgeSeconds: 31536000, // 1 an
+        },
+      },
+    },
+    // Cache pour les images uploadées (avec stratégie NetworkFirst pour éviter les problèmes)
+    {
+      urlPattern: /^\/uploads\/.*/,
+      handler: 'NetworkFirst',
+      options: {
+        cacheName: 'uploads',
+        expiration: {
+          maxEntries: 100,
+          maxAgeSeconds: 86400, // 1 jour
+        },
+        networkTimeoutSeconds: 10,
+      },
+    },
+    // Pages HTML avec stratégie NetworkFirst pour toujours avoir la dernière version
+    {
+      urlPattern: ({ request }) => request.mode === 'navigate',
+      handler: 'NetworkFirst',
+      options: {
+        cacheName: 'pages',
+        expiration: {
+          maxEntries: 50,
+          maxAgeSeconds: 300, // 5 minutes
+        },
+        networkTimeoutSeconds: 10,
+      },
+    },
+  ],
+});
+
+export default pwaConfig(nextConfig)
