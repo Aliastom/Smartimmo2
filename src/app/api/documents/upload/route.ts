@@ -109,19 +109,34 @@ export async function POST(request: NextRequest) {
     // Calculer le hash SHA-256
     const sha256 = sha256Hex(buffer);
 
-    // CrÃ©er le rÃ©pertoire temporaire
-    const tempDir = join(tmpdir(), 'smartimmo', 'uploads');
-    await mkdir(tempDir, { recursive: true });
-
     // GÃ©nÃ©rer tempId et extension
     const tempId = generateTempId();
     const ext = file.name.split('.').pop() || 'bin';
     const tempFileName = `${tempId}.${ext}`;
-    const tempFilePath = join(tempDir, tempFileName);
+    
+    // Stocker le fichier temporaire (local ou Supabase selon STORAGE_TYPE)
+    const storageService = getStorageService();
+    const tempKey = `tmp/${tempId}.${ext}`;
+    let tempFilePath: string;
+    
+    // Sur Vercel avec Supabase, stocker dans Supabase Storage
+    // Sinon, stocker en local dans /tmp
+    if (process.env.STORAGE_TYPE === 'supabase') {
+      // Upload vers Supabase Storage avec préfixe tmp/
+      await storageService.uploadWithKey(buffer, tempKey, file.type || 'application/octet-stream');
+      tempFilePath = tempKey; // Utiliser la clé comme chemin pour Supabase
+    } else {
+      // Stockage local
+      const tempDir = join(tmpdir(), 'smartimmo', 'uploads');
+      await mkdir(tempDir, { recursive: true });
+      tempFilePath = join(tempDir, tempFileName);
+      await writeFile(tempFilePath, buffer);
+    }
+    
+    // Sauvegarder les métadonnées (toujours en local dans /tmp pour Supabase aussi)
+    const tempDir = join(tmpdir(), 'smartimmo', 'uploads');
+    await mkdir(tempDir, { recursive: true });
     const metaFilePath = join(tempDir, `${tempId}.meta.json`);
-
-    // Ã‰crire le fichier temporaire sur disque
-    await writeFile(tempFilePath, buffer);
 
     // Continuer l'analyse (l'agent Dedup gÃ¨re la dÃ©tection de doublons)
     let rawText = '';

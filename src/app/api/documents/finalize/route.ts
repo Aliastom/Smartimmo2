@@ -140,12 +140,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // VÃ©rifier que le fichier existe
+    // Vérifier que le fichier existe et le lire
+    let fileBuffer: Buffer;
     try {
-      await readFile(meta.filePath);
-    } catch {
+      // Si le filePath commence par "tmp/", c'est dans Supabase Storage
+      if (meta.filePath && meta.filePath.startsWith('tmp/')) {
+        const storageService = getStorageService();
+        fileBuffer = await storageService.downloadDocument(meta.filePath);
+      } else {
+        // Sinon, c'est un fichier local
+        fileBuffer = await readFile(meta.filePath);
+      }
+    } catch (error: any) {
+      console.error('[Finalize] Erreur lecture fichier temporaire:', error);
       return NextResponse.json(
-        { success: false, error: 'TEMP_NOT_FOUND', details: 'Fichier temporaire non trouvÃ© sur le disque' },
+        { success: false, error: 'TEMP_NOT_FOUND', details: `Fichier temporaire non trouvé: ${error.message}` },
         { status: 410 }
       );
     }
@@ -437,8 +446,7 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Lire le fichier temporaire et l'uploader vers le stockage définitif
-    const fileBuffer = await readFile(meta.filePath);
+    // Le fileBuffer a déjà été lu dans la vérification précédente
     const storageService = getStorageService();
     
     // Générer le nom de fichier final
@@ -452,11 +460,17 @@ export async function POST(request: NextRequest) {
       meta.mime
     );
 
-    // Supprimer le fichier temporaire
+    // Supprimer le fichier temporaire (local ou Supabase)
     try {
-      await unlink(meta.filePath);
-    } catch (unlinkError) {
-      console.warn('[Finalize] Failed to delete temp file:', unlinkError);
+      if (meta.filePath && meta.filePath.startsWith('tmp/')) {
+        // Fichier temporaire dans Supabase Storage
+        await storageService.deleteDocument(meta.filePath);
+      } else {
+        // Fichier temporaire local
+        await unlink(meta.filePath);
+      }
+    } catch (deleteError) {
+      console.warn('[Finalize] Failed to delete temp file:', deleteError);
       // Ne pas faire échouer l'opération pour ça
     }
 
