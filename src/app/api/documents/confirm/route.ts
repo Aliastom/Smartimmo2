@@ -114,9 +114,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Lire le fichier temporaire
+    // Chemin du fichier temporaire
     const tempFilePath = upload.filePath;
-    const fileBuffer = await readFile(tempFilePath);
 
     const propertyId =
       scope === 'property' && linkedTo?.propertyId ? linkedTo.propertyId : undefined;
