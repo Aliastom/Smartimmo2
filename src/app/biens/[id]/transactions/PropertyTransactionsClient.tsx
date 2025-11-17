@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { notify2 } from '@/lib/notify2';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { SectionTitle } from '@/components/ui/SectionTitle';
 import { BackToPropertyButton } from '@/components/shared/BackToPropertyButton';
-import { PropertySubNav } from '@/components/bien/PropertySubNav';
+import { usePropertyHeaderActions } from '../PropertyHeaderActionsContext';
 import { Pagination } from '@/components/ui/Pagination';
 import { TransactionModal } from '@/components/transactions/TransactionModalV2';
 import TransactionFilters from '@/components/transactions/TransactionFilters';
@@ -107,6 +107,7 @@ interface PropertyTransactionsClientProps {
 export default function PropertyTransactionsClient({ propertyId, propertyName }: PropertyTransactionsClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { setActions } = usePropertyHeaderActions();
 
   // États principaux
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -480,35 +481,31 @@ export default function PropertyTransactionsClient({ propertyId, propertyName }:
     }
   }, [modalMode, selectedTransaction, loadData, isDrawerOpen, transactions]);
 
+  // Mémoriser les actions pour éviter les re-renders inutiles
+  const headerActions = useMemo(() => (
+    <>
+      <Button onClick={handleCreateTransaction}>
+        <Plus className="h-4 w-4 mr-2" />
+        Nouvelle Transaction
+      </Button>
+      <BackToPropertyButton 
+        propertyId={propertyId} 
+        propertyName={propertyName}
+      />
+    </>
+  ), [propertyId, propertyName, handleCreateTransaction]);
+
+  // Définir les actions dans le header
+  React.useEffect(() => {
+    setActions(headerActions);
+    
+    return () => {
+      setActions(null);
+    };
+  }, [setActions, headerActions]);
+
   return (
     <div className="space-y-6">
-      {/* Header avec menu intégré */}
-      <div className="grid grid-cols-3 items-center mb-6 gap-6">
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 border-b-4 pb-2 inline-block" style={{ borderColor: '#fca5a5' }}>Transactions - {propertyName}</h1>
-          <p className="text-gray-600 mt-2">Suivi des revenus et dépenses de ce bien</p>
-        </div>
-        
-          <div className="flex justify-center">
-            <PropertySubNav
-              propertyId={propertyId}
-              counts={{
-                transactions: totalCount,
-              }}
-            />
-          </div>
-        
-        <div className="flex items-center gap-3 justify-end">
-          <Button onClick={handleCreateTransaction}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nouvelle Transaction
-          </Button>
-          <BackToPropertyButton 
-            propertyId={propertyId} 
-            propertyName={propertyName}
-          />
-        </div>
-      </div>
 
       {/* Graphiques */}
       <div className="grid gap-4 grid-cols-1 md:grid-cols-4">

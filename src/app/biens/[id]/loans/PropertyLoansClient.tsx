@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { notify2 } from '@/lib/notify2';
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Switch } from '@/components/ui/Switch';
 import { SectionTitle } from '@/components/ui/SectionTitle';
 import { BackToPropertyButton } from '@/components/shared/BackToPropertyButton';
-import { PropertySubNav } from '@/components/bien/PropertySubNav';
+import { usePropertyHeaderActions } from '../PropertyHeaderActionsContext';
 import { LoansKpiBar } from '@/components/loans/LoansKpiBar';
 import { LoansCRDTimelineChart } from '@/components/loans/LoansCRDTimelineChart';
 import { LoansByPropertyChart } from '@/components/loans/LoansByPropertyChart';
@@ -42,6 +42,7 @@ interface Filters {
 export default function PropertyLoansClient({ propertyId, propertyName }: PropertyLoansClientProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { setActions } = usePropertyHeaderActions();
 
   // États principaux
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -190,11 +191,11 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
   };
 
   // CRUD Handlers
-  const handleCreate = () => {
+  const handleCreate = useCallback(() => {
     setSelectedLoan(null);
     setModalMode('create');
     setIsModalOpen(true);
-  };
+  }, []);
 
   const handleEdit = (loan: Loan) => {
     setSelectedLoan(loan);
@@ -309,34 +310,32 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
 
   const charts = chartsData || { crdTimeline: [], crdByProperty: [], topCostlyLoans: [] };
 
+  // Mémoriser les actions pour éviter les re-renders inutiles
+  const headerActions = useMemo(() => (
+    <>
+      <Link href={`/loans?propertyId=${propertyId}`}>
+        <Button variant="outline">
+          Voir tous les prêts
+        </Button>
+      </Link>
+      <Button onClick={handleCreate} size="lg">
+        <Plus className="h-5 w-5 mr-2" />
+        Nouveau prêt
+      </Button>
+    </>
+  ), [propertyId, handleCreate]);
+
+  // Définir les actions dans le header
+  React.useEffect(() => {
+    setActions(headerActions);
+    
+    return () => {
+      setActions(null);
+    };
+  }, [setActions, headerActions]);
+
   return (
     <div className="space-y-6">
-      {/* Header avec menu intégré */}
-      <div className="grid grid-cols-3 items-center mb-6 gap-6">
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 border-b-4 pb-2 inline-block" style={{ borderColor: '#67e8f9' }}>Prêts - {propertyName}</h1>
-          <p className="text-gray-600 mt-2">Gestion des prêts immobiliers de ce bien</p>
-        </div>
-        
-        <div className="flex justify-center">
-          <PropertySubNav
-            propertyId={propertyId}
-            activeTab="loans"
-          />
-        </div>
-        
-        <div className="flex gap-2 justify-end">
-          <Link href={`/loans?propertyId=${propertyId}`}>
-            <Button variant="outline">
-              Voir tous les prêts
-            </Button>
-          </Link>
-          <Button onClick={handleCreate} size="lg">
-            <Plus className="h-5 w-5 mr-2" />
-            Nouveau prêt
-          </Button>
-        </div>
-      </div>
 
       <div className="min-h-screen bg-gray-50">
         <div className="p-6 space-y-6">

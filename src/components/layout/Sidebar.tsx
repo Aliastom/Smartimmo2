@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
+import { useLoading } from '@/contexts/LoadingContext';
 import { 
   LayoutDashboard, 
   Building2, 
@@ -16,7 +18,8 @@ import {
   Home,
   Calendar,
   Landmark,
-  Calculator
+  Calculator,
+  Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
@@ -110,36 +113,19 @@ const gestionItems: NavItem[] = [];
 
 export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange }: SidebarProps) {
   const pathname = usePathname();
+  const { isLoading } = useLoading();
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [user, setUser] = useState<UserInfo | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const collapsed = collapsedProp ?? internalCollapsed;
 
-  // Récupérer les informations utilisateur et vérifier l'authentification
+  // Récupérer les informations utilisateur avec React Query (hook centralisé)
+  const { user: authUser, isAuthenticated: authIsAuthenticated } = useAuth();
+  
   useEffect(() => {
-    async function fetchUser() {
-      try {
-        const response = await fetch('/api/auth/me');
-        if (response.ok) {
-          const data = await response.json();
-          setUser(data.user || data); // Support des deux formats
-          setIsAuthenticated(true);
-        } else {
-          setIsAuthenticated(false);
-          setUser(null);
-        }
-      } catch (error) {
-        console.error('Error fetching user:', error);
-        setIsAuthenticated(false);
-        setUser(null);
-      }
-    }
-    fetchUser();
-    
-    // Vérifier périodiquement (toutes les 5 secondes)
-    const interval = setInterval(fetchUser, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    setUser(authUser);
+    setIsAuthenticated(authIsAuthenticated);
+  }, [authUser, authIsAuthenticated]);
 
   const toggleCollapse = () => {
     const next = !collapsed;
@@ -188,6 +174,7 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
         {filteredNavItems.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+          const itemLoading = isLoading(item.href);
           
           return (
             <Link
@@ -202,10 +189,16 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
                 collapsed && "justify-center px-2"
               )}
             >
-              <item.icon className={cn(
-                "h-5 w-5 flex-shrink-0",
-                isActive ? "text-primary-600" : "text-gray-500"
-              )} />
+              {itemLoading ? (
+                <Loader2 
+                  className="h-5 w-5 flex-shrink-0 animate-spin sidebar-loader-orange" 
+                />
+              ) : (
+                <item.icon className={cn(
+                  "h-5 w-5 flex-shrink-0",
+                  isActive ? "text-primary-600" : "text-gray-500"
+                )} />
+              )}
               {!collapsed && (
                 <>
                   <span className="truncate">{item.label}</span>

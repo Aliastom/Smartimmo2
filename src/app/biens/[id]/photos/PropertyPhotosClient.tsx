@@ -1,11 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Camera, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { SectionTitle } from '@/components/ui/SectionTitle';
 import { BackToPropertyButton } from '@/components/shared/BackToPropertyButton';
-import { PropertySubNav } from '@/components/bien/PropertySubNav';
+import { usePropertyHeaderActions } from '../PropertyHeaderActionsContext';
 
 interface PropertyPhotosClientProps {
   propertyId: string;
@@ -13,32 +12,30 @@ interface PropertyPhotosClientProps {
 }
 
 export default function PropertyPhotosClient({ propertyId, propertyName }: PropertyPhotosClientProps) {
+  const { setActions } = usePropertyHeaderActions();
+
+  // Mémoriser les actions pour éviter les re-renders inutiles
+  const headerActions = useMemo(() => (
+    <>
+      <Button>
+        <Upload className="h-4 w-4 mr-2" />
+        Ajouter des photos
+      </Button>
+      <BackToPropertyButton propertyId={propertyId} propertyName={propertyName} />
+    </>
+  ), [propertyId, propertyName]);
+
+  // Définir les actions dans le header
+  React.useEffect(() => {
+    setActions(headerActions);
+    
+    return () => {
+      setActions(null);
+    };
+  }, [setActions, headerActions]);
+
   return (
     <div className="space-y-6">
-      {/* Header avec menu intégré */}
-      <div className="grid grid-cols-3 items-center mb-6 gap-6">
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 border-b-4 border-purple-400 pb-2 inline-block">Photos - {propertyName}</h1>
-          <p className="text-gray-600 mt-2">Galerie photos de {propertyName}</p>
-        </div>
-        
-        <div className="flex justify-center">
-          <PropertySubNav
-            propertyId={propertyId}
-            counts={{
-              photos: 0,
-            }}
-          />
-        </div>
-        
-        <div className="flex items-center gap-3 justify-end">
-          <Button>
-            <Upload className="h-4 w-4 mr-2" />
-            Ajouter des photos
-          </Button>
-          <BackToPropertyButton propertyId={propertyId} propertyName={propertyName} />
-        </div>
-      </div>
 
       {/* Contenu photos */}
       <div className="text-center py-12">

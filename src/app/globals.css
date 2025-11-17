@@ -1871,3 +1871,32 @@ body {
   line-height: 1 !important;
   z-index: 10 !important;
 }
+
+/* === BARRE DE CHARGEMENT INTELLIGENTE === */
+.smart-top-loader {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  z-index: 9999;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.smart-top-loader-bar {
+  height: 100%;
+  background-color: #0ea5e9;
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.5);
+  transition: width 0.1s linear;
+}
+
+.smart-top-loader-bar[data-completing="true"] {
+  transition: width 0.3s ease-out;
+}
+
+/* === LOADER ORANGE PASTEL DANS LE MENU === */
+.sidebar-loader-orange {
+  color: #fb923c !important;
+  stroke: #fb923c !important;
+}

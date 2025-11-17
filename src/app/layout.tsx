@@ -13,6 +13,8 @@ import { RouteProgressProvider } from '@/components/RouteProgressProvider';
 import { AlertProvider } from '@/hooks/useAlert';
 import { CompanionProvider } from '@/ui/companion/CompanionProvider';
 import { CompanionDock } from '@/ui/companion/CompanionDock';
+import { SmartTopLoader } from '@/components/SmartTopLoader';
+import { LoadingProvider } from '@/contexts/LoadingContext';
 // Import du helper de test en développement uniquement
 if (process.env.NODE_ENV === 'development') {
   import('@/lib/toast-test-helper');
@@ -38,11 +40,19 @@ export default function RootLayout({
       <body className={inter.className}>
         <ThemeProvider>
           <QueryProvider>
-            <AlertProvider>
+            <LoadingProvider>
+              <SmartTopLoader
+                color="#0ea5e9"
+                height={5}
+                shadowColor="rgba(14, 165, 233, 0.5)"
+                initialProgress={20}
+                zIndex={9999}
+              />
+              <AlertProvider>
               <TooltipProvider>
-                {/* RouteProgressProvider avec feedback immédiat global */}
+                {/* RouteProgressProvider désactivé - SmartTopLoader gère maintenant les navigations */}
                 <RouteProgressProvider 
-                  enableGlobalCapture={true}
+                  enableGlobalCapture={false}
                   showDelay={80}
                   className="z-[9999]"
                 >
@@ -57,7 +67,8 @@ export default function RootLayout({
                   </UploadReviewModalProvider>
                 </RouteProgressProvider>
               </TooltipProvider>
-            </AlertProvider>
+              </AlertProvider>
+            </LoadingProvider>
           </QueryProvider>
           {/* SMARTIMMO: Toast System v2 - Monté en dehors des providers pour éviter les conflits */}
           <ToastProvider />

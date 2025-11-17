@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { notify2 } from '@/lib/notify2';
 import { Upload as UploadIcon } from 'lucide-react';
@@ -18,7 +18,7 @@ import { ConfirmDeleteDocumentModal } from '@/components/documents/ConfirmDelete
 import { DocumentEditModal } from '@/components/documents/unified/DocumentEditModal';
 import DocumentDrawer from '@/components/documents/DocumentDrawer';
 import { BackToPropertyButton } from '@/components/shared/BackToPropertyButton';
-import { PropertySubNav } from '@/components/bien/PropertySubNav';
+import { usePropertyHeaderActions } from '../PropertyHeaderActionsContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Filter, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
@@ -41,6 +41,7 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
   const router = useRouter();
   const searchParams = useSearchParams();
   const { openModalWithFileSelection } = useUploadReviewModal();
+  const { setActions } = usePropertyHeaderActions();
 
   // États principaux
   const [documents, setDocuments] = useState<DocumentTableRow[]>([]);
@@ -423,36 +424,31 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
     return sorted;
   }, [documents, sortField, sortOrder]);
 
+  // Mémoriser les actions pour éviter les re-renders inutiles
+  const headerActions = useMemo(() => (
+    <>
+      <Button onClick={handleUploadClick}>
+        <UploadIcon className="h-4 w-4 mr-2" />
+        Uploader
+      </Button>
+      <BackToPropertyButton 
+        propertyId={propertyId} 
+        propertyName={propertyName}
+      />
+    </>
+  ), [propertyId, propertyName, handleUploadClick]);
+
+  // Définir les actions dans le header
+  React.useEffect(() => {
+    setActions(headerActions);
+    
+    return () => {
+      setActions(null);
+    };
+  }, [setActions, headerActions]);
+
   return (
     <div className="space-y-6">
-      {/* Header avec menu intégré */}
-      <div className="grid grid-cols-3 items-center mb-6 gap-6">
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 border-b-4 border-blue-400 pb-2 inline-block">Documents - {propertyName}</h1>
-          <p className="text-gray-600 mt-2">Tous les documents liés à ce bien immobilier</p>
-        </div>
-        
-          <div className="flex justify-center">
-            <PropertySubNav
-              propertyId={propertyId}
-              counts={{
-                documents: totalCount,
-              }}
-            />
-          </div>
-        
-        <div className="flex items-center gap-3 justify-end">
-          <Button onClick={handleUploadClick}>
-            <UploadIcon className="h-4 w-4 mr-2" />
-            Uploader
-          </Button>
-          <BackToPropertyButton 
-            propertyId={propertyId} 
-            propertyName={propertyName}
-          />
-        </div>
-      </div>
-
       {/* Graphiques - TOUS sur la même ligne (AU DESSUS DES CARTES) */}
       <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
         {/* Graphique 1 : Évolution mensuelle (2 colonnes) */}

@@ -1,7 +1,10 @@
 'use client';
 
 import React from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useLoading } from '@/contexts/LoadingContext';
+import { Loader2 } from 'lucide-react';
 
 interface PropertySubNavProps {
   propertyId: string;
@@ -27,6 +30,7 @@ interface PropertySubNavProps {
 
 export function PropertySubNav({ propertyId, activeTab, counts }: PropertySubNavProps) {
   const pathname = usePathname();
+  const { isLoading } = useLoading();
 
   return (
     <div className="property-glass-nav">
@@ -34,27 +38,46 @@ export function PropertySubNav({ propertyId, activeTab, counts }: PropertySubNav
           const href = `/biens/${propertyId}${tab.href}`;
           const isActive = activeTab ? tab.id === activeTab : pathname.startsWith(href);
           const count = tab.countKey && counts ? counts[tab.countKey] : undefined;
+          const isTabLoading = isLoading(href);
 
           return (
-            <a
+            <Link
               key={tab.id}
               href={href}
-              onClick={(e) => {
-                e.preventDefault();
-                window.location.href = href;
-              }}
               className={`glass-item ${isActive ? 'glass-item-active' : ''}`}
               style={{ '--hue': `${tab.hue}deg` } as React.CSSProperties}
+              prefetch={true}
             >
-              <span className="glass-icon glass-mono" id={`blur-${index}`} aria-hidden="true">{tab.emoji}</span>
-              <span className="glass-icon glass-mono" aria-hidden="true">{tab.emoji}</span>
-              <span className="glass-icon glass-midl" aria-hidden="true" style={{ backgroundImage: `-moz-element(#blur-${index})` }}>{tab.emoji}</span>
-              <span className="glass-icon glass-grey" aria-hidden="true">{tab.emoji}</span>
+              {isTabLoading ? (
+                // Afficher le loader orange à la place de l'emoji
+                <>
+                  <span className="glass-icon glass-mono" id={`blur-${index}`} aria-hidden="true">
+                    <Loader2 className="h-5 w-5 animate-spin sidebar-loader-orange" />
+                  </span>
+                  <span className="glass-icon glass-mono" aria-hidden="true">
+                    <Loader2 className="h-5 w-5 animate-spin sidebar-loader-orange" />
+                  </span>
+                  <span className="glass-icon glass-midl" aria-hidden="true" style={{ backgroundImage: `-moz-element(#blur-${index})` }}>
+                    <Loader2 className="h-5 w-5 animate-spin sidebar-loader-orange" />
+                  </span>
+                  <span className="glass-icon glass-grey" aria-hidden="true">
+                    <Loader2 className="h-5 w-5 animate-spin sidebar-loader-orange" />
+                  </span>
+                </>
+              ) : (
+                // Afficher l'emoji normal
+                <>
+                  <span className="glass-icon glass-mono" id={`blur-${index}`} aria-hidden="true">{tab.emoji}</span>
+                  <span className="glass-icon glass-mono" aria-hidden="true">{tab.emoji}</span>
+                  <span className="glass-icon glass-midl" aria-hidden="true" style={{ backgroundImage: `-moz-element(#blur-${index})` }}>{tab.emoji}</span>
+                  <span className="glass-icon glass-grey" aria-hidden="true">{tab.emoji}</span>
+                </>
+              )}
               {tab.label}
               {count !== undefined && count > 0 && (
                 <span className="glass-count">{count}</span>
               )}
-            </a>
+            </Link>
           );
         })}
     </div>

@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { notify2 } from '@/lib/notify2';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { SectionTitle } from '@/components/ui/SectionTitle';
 import { BackToPropertyButton } from '@/components/shared/BackToPropertyButton';
-import { PropertySubNav } from '@/components/bien/PropertySubNav';
+import { usePropertyHeaderActions } from '../PropertyHeaderActionsContext';
 import { LeasesKpiBar } from '@/components/leases/LeasesKpiBar';
 import { LeasesRentEvolutionChart } from '@/components/leases/LeasesRentEvolutionChart';
 import { LeasesByFurnishedChart } from '@/components/leases/LeasesByFurnishedChart';
@@ -54,6 +54,7 @@ interface PropertyLeasesClientProps {
 export default function PropertyLeasesClient({ propertyId, propertyName }: PropertyLeasesClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { setActions } = usePropertyHeaderActions();
 
   const [leases, setLeases] = useState<LeaseWithDetails[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -443,32 +444,28 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
     setShowDeleteConfirmModal(true);
   }, [leases, selectedIds]);
 
+  // Mémoriser les actions pour éviter les re-renders inutiles
+  const headerActions = useMemo(() => (
+    <>
+      <Button onClick={handleCreateLease}>
+        <Plus className="h-4 w-4 mr-2" />
+        Nouveau bail
+      </Button>
+      <BackToPropertyButton propertyId={propertyId} propertyName={propertyName} />
+    </>
+  ), [propertyId, propertyName, handleCreateLease]);
+
+  // Définir les actions dans le header
+  React.useEffect(() => {
+    setActions(headerActions);
+    
+    return () => {
+      setActions(null);
+    };
+  }, [setActions, headerActions]);
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-3 items-center mb-6 gap-6">
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 border-b-4 border-amber-400 pb-2 inline-block">Baux</h1>
-          <p className="text-gray-600 mt-2">Baux du bien {propertyName}</p>
-        </div>
-        
-          <div className="flex justify-center">
-            <PropertySubNav
-              propertyId={propertyId}
-              counts={{
-                baux: totalCount,
-              }}
-            />
-          </div>
-        
-        <div className="flex items-center gap-3 justify-end">
-          <Button onClick={handleCreateLease}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nouveau bail
-          </Button>
-          <BackToPropertyButton propertyId={propertyId} propertyName={propertyName} />
-        </div>
-      </div>
-
       <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
         <div className="md:col-span-2">
           <LeasesRentEvolutionChart

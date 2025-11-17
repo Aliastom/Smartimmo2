@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { notify2 } from '@/lib/notify2';
@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Switch } from '@/components/ui/Switch';
 import { Pagination } from '@/components/ui/Pagination';
 import { BackToPropertyButton } from '@/components/shared/BackToPropertyButton';
-import { PropertySubNav } from '@/components/bien/PropertySubNav';
+import { usePropertyHeaderActions } from '../PropertyHeaderActionsContext';
 import { EcheancesKpiBar } from '@/components/echeances/EcheancesKpiBar';
 import { EcheancesCumulativeChart } from '@/components/echeances/EcheancesCumulativeChart';
 import { EcheancesByTypeChart } from '@/components/echeances/EcheancesByTypeChart';
@@ -226,11 +226,11 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
   };
 
   // CRUD Handlers
-  const handleCreate = () => {
+  const handleCreate = useCallback(() => {
     setSelectedEcheance(null);
     setModalMode('create');
     setIsModalOpen(true);
-  };
+  }, []);
 
   const handleEdit = (echeance: EcheanceRecurrente) => {
     setSelectedEcheance(echeance);
@@ -357,34 +357,30 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
   const kpis = kpisData || { revenusAnnuels: 0, chargesAnnuelles: 0, totalEcheances: 0, echeancesActives: 0 };
   const charts = chartsData || { cumulative: [], byType: [], recuperables: { recuperables: 0, nonRecuperables: 0 } };
 
+  const { setActions } = usePropertyHeaderActions();
+
+  // Mémoriser les actions pour éviter les re-renders inutiles
+  const headerActions = useMemo(() => (
+    <>
+      <Button onClick={handleCreate}>
+        <Plus className="h-4 w-4 mr-2" />
+        Nouvelle échéance
+      </Button>
+      <BackToPropertyButton propertyId={propertyId} />
+    </>
+  ), [propertyId, handleCreate]);
+
+  // Définir les actions dans le header
+  React.useEffect(() => {
+    setActions(headerActions);
+    
+    return () => {
+      setActions(null);
+    };
+  }, [setActions, headerActions]);
+
   return (
     <div className="space-y-6">
-      {/* Header avec menu intégré - Layout grid 3 colonnes comme Transactions */}
-      <div className="grid grid-cols-3 items-center mb-6 gap-6">
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 border-b-4 pb-2 inline-block" style={{ borderColor: '#86efac' }}>
-            Échéances - {propertyName}
-          </h1>
-          <p className="text-gray-600 mt-2">Charges et revenus récurrents pour ce bien</p>
-        </div>
-        
-        <div className="flex justify-center">
-          <PropertySubNav
-            propertyId={propertyId}
-            counts={{
-              echeances: totalCount,
-            }}
-          />
-        </div>
-        
-        <div className="flex items-center gap-3 justify-end">
-          <Button onClick={handleCreate}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nouvelle échéance
-          </Button>
-          <BackToPropertyButton propertyId={propertyId} />
-        </div>
-      </div>
 
       <div className="space-y-6">
         {/* Graphiques - Ligne 1 : 2+1+1 colonnes */}
