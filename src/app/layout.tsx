@@ -15,6 +15,7 @@ import { CompanionProvider } from '@/ui/companion/CompanionProvider';
 import { CompanionDock } from '@/ui/companion/CompanionDock';
 import { SmartTopLoader } from '@/components/SmartTopLoader';
 import { LoadingProvider } from '@/contexts/LoadingContext';
+import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister';
 // Import du helper de test en développement uniquement
 if (process.env.NODE_ENV === 'development') {
   import('@/lib/toast-test-helper');
@@ -94,6 +95,8 @@ export default function RootLayout({
           {/* SMARTIMMO: Toast System v2 - Monté en dehors des providers pour éviter les conflits */}
           <ToastProvider />
         </ThemeProvider>
+        {/* Enregistrement du Service Worker PWA (uniquement en production, côté client) */}
+        <ServiceWorkerRegister />
       </body>
     </html>
   );
