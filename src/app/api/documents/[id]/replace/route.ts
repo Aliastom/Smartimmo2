@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { writeFile, mkdir } from 'fs/promises';
-import { join, dirname } from 'path';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -80,12 +79,26 @@ export async function PUT(
       );
     }
 
-    // Remplacer le fichier physique dans le stockage principal
+    // Remplacer le fichier dans le stockage (local ou Supabase)
     const buffer = Buffer.from(file.base64, 'base64');
-    const bucketKey = existingDocument.bucketKey || join('storage', 'documents', `${existingDocument.id}-${Date.now()}`);
-    const absolutePath = join(process.cwd(), bucketKey);
-    await mkdir(dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, buffer);
+    const storageService = getStorageService();
+    
+    // Utiliser le bucketKey existant ou générer un nouveau
+    let bucketKey: string;
+    if (existingDocument.bucketKey) {
+      // Normaliser l'ancien bucketKey si nécessaire
+      bucketKey = storageService.normalizeBucketKey(
+        existingDocument.bucketKey,
+        existingDocument.id,
+        file.name
+      );
+    } else {
+      // Générer une nouvelle clé
+      bucketKey = storageService.generateStorageKey(existingDocument.id, file.name);
+    }
+    
+    // Upload avec upsert (écrase le fichier existant)
+    await storageService.uploadWithKey(buffer, bucketKey, file.mime);
 
     // Mettre à jour le document
     const document = await prisma.document.update({

@@ -1,5 +1,5 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { readFile, writeFile, mkdir, unlink, rename } from 'fs/promises';
+import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { cleanupExpiredTemps } from '@/lib/cleanupTemp';
@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma';
 // import { BailSigneLinksService } from '@/lib/services/bailSigneLinksService'; // OBSOLÃˆTE
 import { DocumentAutoLinkingServiceServer, AutoLinkingContext } from '@/lib/services/documentAutoLinkingService.server';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 type ContextEntityType = 'PROPERTY' | 'LEASE' | 'TENANT' | 'TRANSACTION';
 
@@ -436,40 +437,40 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // DÃ©placer le fichier vers le stockage dÃ©finitif
-    const storageDir = join(process.cwd(), 'storage', 'documents');
-    await mkdir(storageDir, { recursive: true });
-
-    const finalFilename = `${document.id}.${meta.ext}`;
-    const finalPath = join(storageDir, finalFilename);
+    // Lire le fichier temporaire et l'uploader vers le stockage définitif
+    const fileBuffer = await readFile(meta.filePath);
+    const storageService = getStorageService();
     
-    // DÃ©placer (ou copier puis supprimer)
+    // Générer le nom de fichier final
+    const finalFilename = `${document.id}.${meta.ext}`;
+    
+    // Upload vers le stockage (local ou Supabase selon STORAGE_TYPE)
+    const { key: bucketKey, url: storageUrl } = await storageService.uploadDocument(
+      fileBuffer,
+      document.id,
+      finalFilename,
+      meta.mime
+    );
+
+    // Supprimer le fichier temporaire
     try {
-      await rename(meta.filePath, finalPath);
-    } catch (renameError) {
-      console.warn('[Finalize] Rename failed, falling back to copy:', renameError);
-      const fileBuffer = await readFile(meta.filePath);
-      await writeFile(finalPath, fileBuffer);
-      // Supprimer le fichier temporaire aprÃ¨s copie rÃ©ussie
-      try {
-        await unlink(meta.filePath);
-      } catch (unlinkError) {
-        console.warn('[Finalize] Failed to delete temp file:', unlinkError);
-        // Ne pas faire Ã©chouer l'opÃ©ration pour Ã§a
-      }
+      await unlink(meta.filePath);
+    } catch (unlinkError) {
+      console.warn('[Finalize] Failed to delete temp file:', unlinkError);
+      // Ne pas faire échouer l'opération pour ça
     }
 
     // Supprimer le meta.json
     await unlink(metaPath).catch(console.error);
 
-    // DÃ©finir l'URL finale du document
+    // Définir l'URL finale du document
     const finalDocumentUrl = `/api/documents/${document.id}/file`;
     
-    // Mettre Ã  jour le document avec les chemins finaux
+    // Mettre à jour le document avec les chemins finaux
     await prisma.document.update({
       where: { id: document.id },
       data: {
-        bucketKey: `storage/documents/${finalFilename}`,
+        bucketKey,
         url: finalDocumentUrl,
       }
     });

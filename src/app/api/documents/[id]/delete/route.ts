@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { readFile, mkdir, rename, unlink } from 'fs/promises';
-import { join } from 'path';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 /**
  * DELETE /api/documents/[id]/delete
@@ -113,27 +112,22 @@ export async function DELETE(
       }
     });
 
-    // Déplacer le fichier vers la corbeille (trash)
+    // Supprimer le fichier du stockage (optionnel - soft delete uniquement par défaut)
+    // Pour un hard delete, décommenter le code ci-dessous
     if (document.bucketKey) {
       try {
-        const currentPath = join(process.cwd(), document.bucketKey);
-        const trashDir = join(process.cwd(), 'storage', 'trash');
-        await mkdir(trashDir, { recursive: true });
-        
-        const ext = document.bucketKey.split('.').pop() || 'bin';
-        const trashPath = join(trashDir, `${documentId}.${ext}`);
-        
-        await rename(currentPath, trashPath).catch(async (renameError) => {
-          // Si rename échoue, copier puis supprimer
-          const fileBuffer = await readFile(currentPath);
-          await writeFile(trashPath, fileBuffer);
-          await unlink(currentPath);
-        });
-        
-        console.log(`[Delete] Document ${documentId} déplacé vers trash`);
+        const storageService = getStorageService();
+        const normalizedKey = storageService.normalizeBucketKey(
+          document.bucketKey,
+          document.id,
+          document.filenameOriginal || document.fileName
+        );
+        // Optionnel: supprimer physiquement le fichier (hard delete)
+        // await storageService.deleteDocument(normalizedKey);
+        // console.log(`[Delete] Document ${documentId} supprimé du stockage`);
       } catch (fileError) {
-        console.error('[Delete] Erreur déplacement fichier vers trash:', fileError);
-        // Continuer même si le déplacement échoue
+        console.error('[Delete] Erreur suppression fichier:', fileError);
+        // Continuer même si la suppression échoue (soft delete suffit)
       }
     }
 

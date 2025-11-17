@@ -1,10 +1,11 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir, readFile, unlink } from 'fs/promises';
+import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
@@ -161,23 +162,48 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Générer le chemin de stockage
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
+    // Lire le fichier temporaire
+    const fileBuffer = await readFile(tempFilePath);
     
-    const uploadDir = join(process.cwd(), 'uploads', String(year), month);
-    await mkdir(uploadDir, { recursive: true });
+    // Créer le document en base d'abord pour obtenir l'ID
+    const now = new Date();
+    const tempDocument = await prisma.document.create({
+      data: {
+        organizationId: upload.organizationId,
+        filenameOriginal: customName || upload.originalName,
+        fileName: `${crypto.randomUUID()}_${upload.originalName.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
+        mime: upload.mime,
+        size: upload.size,
+        fileSha256: upload.sha256,
+        status: 'classified',
+        ocrStatus: 'success',
+        source: 'upload',
+        uploadedAt: now,
+        documentTypeId: documentType.id,
+        bucketKey: '', // Sera mis à jour après upload
+        url: '', // Sera mis à jour après upload
+        // Texte OCR extrait lors de l'upload
+        extractedText: upload.extractedText || null,
+        extractionSource: upload.extractionSource || null,
+        // Liaison selon le scope
+        ...(propertyId ? { propertyId } : {}),
+        ...(leaseId ? { leaseId } : {}),
+        ...(tenantId ? { tenantId } : {}),
+      },
+    });
 
-    // Nom du fichier (sanitize)
-    const sanitizedFilename = upload.originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const timestamp = Date.now();
-    const filename = `${timestamp}_${sanitizedFilename}`;
-    const filePath = join(uploadDir, filename);
-    const relativeFilePath = `uploads/${year}/${month}/${filename}`;
+    // Upload vers le stockage (local ou Supabase selon STORAGE_TYPE)
+    const storageService = getStorageService();
+    const sanitizedFilename = (customName || upload.originalName).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const { key: bucketKey, url: storageUrl } = await storageService.uploadDocument(
+      fileBuffer,
+      tempDocument.id,
+      sanitizedFilename,
+      upload.mime
+    );
 
-    // Écrire le fichier sur disque
-    await writeFile(filePath, fileBuffer);
+    // Mettre à jour le document avec les infos de stockage
+    const finalDocumentUrl = `/api/documents/${tempDocument.id}/file`;
 
     // Si c'est un remplacement (versioning)
     if (replaceDuplicateId) {
@@ -203,35 +229,12 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Créer le document en base SEULEMENT lors de la confirmation
-    const document = await prisma.document.create({
+    // Mettre à jour le document avec les infos de stockage
+    const document = await prisma.document.update({
+      where: { id: tempDocument.id },
       data: {
-        organizationId: upload.organizationId,
-        filenameOriginal: customName || upload.originalName,
-        fileName: `${crypto.randomUUID()}_${upload.originalName.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
-        mime: upload.mime,
-        size: upload.size,
-        fileSha256: upload.sha256,
-        status: 'classified',
-        ocrStatus: 'success',
-        source: 'upload',
-        uploadedAt: now,
-        documentTypeId: documentType.id,
-        bucketKey: relativeFilePath,
-        url: `/uploads/${year}/${month}/${filename}`,
-        // Texte OCR extrait lors de l'upload
-        extractedText: upload.extractedText || null,
-        extractionSource: upload.extractionSource || null,
-        // Liaison selon le scope
-        ...(propertyId ? {
-          propertyId
-        } : {}),
-        ...(leaseId ? {
-          leaseId
-        } : {}),
-        ...(tenantId ? {
-          tenantId
-        } : {}),
+        bucketKey,
+        url: finalDocumentUrl,
       },
       include: {
         DocumentType: {

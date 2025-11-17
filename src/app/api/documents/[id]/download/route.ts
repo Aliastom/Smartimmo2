@@ -47,7 +47,15 @@ export async function GET(
 
     // Télécharger depuis le storage
     const storageService = getStorageService();
-    const buffer = await storageService.downloadDocument(document.bucketKey);
+    
+    // Normaliser le bucketKey pour gérer les anciens formats (rétrocompatibilité)
+    const normalizedKey = storageService.normalizeBucketKey(
+      document.bucketKey,
+      document.id,
+      document.filenameOriginal || document.fileName
+    );
+    
+    const buffer = await storageService.downloadDocument(normalizedKey);
 
     // Retourner le fichier
     return new NextResponse(buffer, {

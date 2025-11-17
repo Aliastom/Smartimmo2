@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { readFile, access } from 'fs/promises';
-import { join } from 'path';
+import { getStorageService } from '@/services/storage.service';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 
 /**
@@ -48,56 +47,39 @@ export async function GET(
       );
     }
 
-    // Construire le chemin du fichier
-    // Essayer d'abord avec bucketKey
-    let filePath = join(process.cwd(), document.bucketKey);
-    let fileExists = false;
-
-    // Vérifier que le fichier existe avec bucketKey
-    try {
-      await access(filePath);
-      fileExists = true;
-    } catch {
-      // Si le fichier n'existe pas avec bucketKey, essayer avec l'URL
-      if (document.url) {
-        // Extraire le chemin de l'URL (enlever /storage/ du début si présent)
-        let urlPath = document.url.replace(/^\/api\/documents\/[^/]+\/file/, '');
-        if (urlPath.startsWith('/storage/')) {
-          urlPath = urlPath.substring(1); // Enlever le / du début
-        } else if (!urlPath.startsWith('storage/')) {
-          urlPath = `storage/${urlPath}`;
-        }
-        
-        filePath = join(process.cwd(), urlPath);
-        
-        try {
-          await access(filePath);
-          fileExists = true;
-        } catch {
-          // Dernier essai: si l'URL commence par /storage/, utiliser directement
-          if (document.url.startsWith('/storage/')) {
-            filePath = join(process.cwd(), document.url.substring(1));
-            try {
-              await access(filePath);
-              fileExists = true;
-            } catch {
-              // Pas trouvé
-            }
-          }
-        }
-      }
-    }
-
-    if (!fileExists) {
-      console.error(`[Document File] Fichier non trouvé: ${document.bucketKey} (URL: ${document.url})`);
+    if (!document.bucketKey) {
+      console.error(`[Document File] bucketKey manquant pour le document: ${document.id}`);
       return NextResponse.json(
-        { success: false, error: 'Fichier non trouvé sur le disque' },
+        { success: false, error: 'Clé de stockage manquante' },
         { status: 404 }
       );
     }
 
-    // Lire le fichier
-    const fileBuffer = await readFile(filePath);
+    // Utiliser le service de stockage pour télécharger le fichier
+    // Cela fonctionne en local ET sur Vercel (si un provider cloud est configuré)
+    const storageService = getStorageService();
+    
+    // Normaliser le bucketKey pour gérer les anciens formats (rétrocompatibilité)
+    const normalizedKey = storageService.normalizeBucketKey(
+      document.bucketKey,
+      document.id,
+      document.filenameOriginal || document.fileName
+    );
+    
+    let fileBuffer: Buffer;
+    try {
+      fileBuffer = await storageService.downloadDocument(normalizedKey);
+    } catch (error: any) {
+      console.error(`[Document File] Erreur lors du téléchargement: ${error.message}`, {
+        bucketKey: document.bucketKey,
+        normalizedKey,
+        documentId: document.id
+      });
+      return NextResponse.json(
+        { success: false, error: 'Fichier non trouvé dans le stockage' },
+        { status: 404 }
+      );
+    }
 
     // Déterminer le nom de fichier pour le téléchargement
     const downloadName = document.filenameOriginal || document.fileName;

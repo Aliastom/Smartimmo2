@@ -198,7 +198,6 @@ export class DocumentsService {
     // Upload vers le storage
     const { key, url } = await storageService.uploadDocument(
       buffer,
-      ownerId,
       document.id,
       fileName,
       mimeType
