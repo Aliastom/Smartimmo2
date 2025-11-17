@@ -122,15 +122,22 @@ export async function POST(request: NextRequest) {
     // Sur Vercel avec Supabase, stocker dans Supabase Storage
     // Sinon, stocker en local dans /tmp
     if (process.env.STORAGE_TYPE === 'supabase') {
-      // Upload vers Supabase Storage avec préfixe tmp/
-      await storageService.uploadWithKey(buffer, tempKey, file.type || 'application/octet-stream');
-      tempFilePath = tempKey; // Utiliser la clé comme chemin pour Supabase
+      try {
+        // Upload vers Supabase Storage avec préfixe tmp/
+        await storageService.uploadWithKey(buffer, tempKey, file.type || 'application/octet-stream');
+        tempFilePath = tempKey; // Utiliser la clé comme chemin pour Supabase
+        console.log('[Upload] Fichier temporaire stocké dans Supabase Storage:', tempKey);
+      } catch (uploadError: any) {
+        console.error('[Upload] Erreur upload vers Supabase Storage:', uploadError);
+        throw new Error(`Échec de l'upload vers Supabase: ${uploadError.message || 'Erreur inconnue'}`);
+      }
     } else {
       // Stockage local
       const tempDir = join(tmpdir(), 'smartimmo', 'uploads');
       await mkdir(tempDir, { recursive: true });
       tempFilePath = join(tempDir, tempFileName);
       await writeFile(tempFilePath, buffer);
+      console.log('[Upload] Fichier temporaire stocké en local:', tempFilePath);
     }
     
     // Sauvegarder les métadonnées (toujours en local dans /tmp pour Supabase aussi)

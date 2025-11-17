@@ -122,8 +122,14 @@ class SupabaseStorageProvider implements StorageProvider {
   /**
    * Normalise la clé pour Supabase Storage
    * Enlève le préfixe "storage/" ou "documents/" si présent pour éviter les doublons
+   * Gère les fichiers temporaires avec le préfixe "tmp/"
    */
   private normalizeKey(key: string): string {
+    // Si la clé commence par "tmp/", la garder telle quelle (fichiers temporaires)
+    if (key.startsWith('tmp/')) {
+      return key;
+    }
+    
     // Si la clé commence par "storage/documents/", on enlève "storage/"
     if (key.startsWith('storage/documents/')) {
       return key.replace('storage/', '');
