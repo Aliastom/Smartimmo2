@@ -10,6 +10,7 @@ export async function middleware(request: NextRequest) {
   
   // Routes TOUJOURS publiques (pas de vérification d'auth)
   const publicRoutes = [
+    '/', // Page d'accueil publique - nécessaire pour l'installation PWA
     '/login',
     '/auth/callback',
     '/auth/logout',
@@ -57,8 +58,11 @@ export async function middleware(request: NextRequest) {
                     (pathname.startsWith('/workbox-') && pathname.endsWith('.js')) ||
                     pathname.startsWith('/icons/');
 
+  // Vérifier si c'est la page d'accueil exacte
+  const isHomePage = pathname === '/';
+  
   const isStaticAsset = staticFileExtensions.some((ext) => pathname.endsWith(ext));
-  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route)) || isStaticAsset || isPwaFile;
+  const isPublicRoute = isHomePage || publicRoutes.some(route => pathname.startsWith(route)) || isStaticAsset || isPwaFile;
   const isPublicApi = publicApiRoutes.some(route => pathname.startsWith(route));
   
   if (isPublicRoute || isPublicApi) {
@@ -123,7 +127,18 @@ export const config = {
      * - robots.txt, sitemap.xml
      * La logique de routes publiques est gérée dans le middleware ci-dessus
      */
-    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|workbox-.*\\.js|icons|robots\\.txt|sitemap\\.xml).*)',
+    /*
+     * Exclure les routes publiques du matcher :
+     * - _next/* (fichiers statiques Next.js)
+     * - favicon.ico
+     * - manifest.webmanifest (manifest PWA)
+     * - sw.js (service worker)
+     * - workbox-*.js (fichiers Workbox)
+     * - icons/* (icônes PWA)
+     * - robots.txt, sitemap.xml
+     * Note: La page d'accueil "/" est gérée dans le middleware via isHomePage
+     */
+    '/((?!_next|favicon.ico|manifest.webmanifest|sw.js|workbox-.*\\.js|icons|robots\\.txt|sitemap\\.xml).*)',
   ],
 };
 
