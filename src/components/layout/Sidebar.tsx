@@ -147,7 +147,7 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
       "h-full bg-white border-r border-gray-200 transition-all duration-300 flex flex-col",
       collapsed ? "w-16" : "w-64",
       "lg:relative lg:translate-x-0",
-      "fixed inset-y-0 left-0 z-30 translate-x-0", // Mobile toujours visible
+      "fixed inset-y-0 left-0 z-30",
       className
     )}>
       {/* Collapse button */}

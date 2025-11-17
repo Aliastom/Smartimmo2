@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import {
@@ -33,48 +34,34 @@ export default function DashboardClientMonthly() {
   const [type, setType] = useState<'INCOME' | 'EXPENSE' | 'ALL'>('ALL');
   const [statut, setStatut] = useState<'paye' | 'en_retard' | 'a_venir' | 'ALL'>('ALL');
   const [source, setSource] = useState<'loyer' | 'hors_loyer' | 'ALL'>('ALL');
-  
-  // État pour les données
-  const [data, setData] = useState<MonthlyDashboardData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // Charger les données depuis l'API
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      setError(null);
-      
-      try {
-        const params = new URLSearchParams({
-          month,
-          ...(bienIds.length > 0 && { bienIds: bienIds.join(',') }),
-          ...(locataireIds.length > 0 && { locataireIds: locataireIds.join(',') }),
-          ...(type !== 'ALL' && { type }),
-          ...(statut !== 'ALL' && { statut }),
-          ...(source !== 'ALL' && { source }),
-        });
-        
-        const response = await fetch(`/api/dashboard/monthly?${params.toString()}`);
-        
-        if (!response.ok) {
-          throw new Error('Erreur lors du chargement des données');
-        }
-        
-        const result = await response.json();
-        setData(result);
-      } catch (err) {
-        console.error('Erreur:', err);
-        setError(err instanceof Error ? err.message : 'Une erreur est survenue');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    fetchData();
+  // Mémoriser les paramètres de requête pour éviter les re-renders
+  const queryParams = useMemo(() => {
+    const params = new URLSearchParams({
+      month,
+      ...(bienIds.length > 0 && { bienIds: bienIds.join(',') }),
+      ...(locataireIds.length > 0 && { locataireIds: locataireIds.join(',') }),
+      ...(type !== 'ALL' && { type }),
+      ...(statut !== 'ALL' && { statut }),
+      ...(source !== 'ALL' && { source }),
+    });
+    return params.toString();
   }, [month, bienIds, locataireIds, type, statut, source]);
+
+  // Utiliser React Query pour le cache et la gestion d'état
+  const { data, isLoading, error } = useQuery<MonthlyDashboardData>({
+    queryKey: ['dashboard-monthly', queryParams],
+    queryFn: async () => {
+      const response = await fetch(`/api/dashboard/monthly?${queryParams}`);
+      if (!response.ok) {
+        throw new Error('Erreur lors du chargement des données');
+      }
+      return response.json();
+    },
+    staleTime: 2 * 60 * 1000, // 2 minutes pour le dashboard
+  });
   
-  // Mettre à jour l'URL avec les filtres
+  // Mettre à jour l'URL avec les filtres (une seule fois au changement)
   useEffect(() => {
     const params = new URLSearchParams();
     if (month) params.set('month', month);
@@ -106,10 +93,10 @@ export default function DashboardClientMonthly() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600 mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-sm sm:text-base text-gray-600 mt-1">
             Vue mensuelle opérationnelle de votre portefeuille
           </p>
         </div>
@@ -144,7 +131,9 @@ export default function DashboardClientMonthly() {
                   d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
               </svg>
-              <p className="text-sm font-medium">{error}</p>
+              <p className="text-sm font-medium">
+                {error instanceof Error ? error.message : 'Une erreur est survenue'}
+              </p>
             </div>
           </CardContent>
         </Card>

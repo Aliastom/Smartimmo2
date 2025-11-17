@@ -636,7 +636,7 @@ export default function SimulationTab() {
                           
                           <Separator className="bg-green-200" />
                           
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                               <p className="text-xs text-green-700">Loyers annuels</p>
                               <p className="text-sm font-semibold text-green-900">

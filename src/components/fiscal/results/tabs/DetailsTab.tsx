@@ -156,7 +156,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                     {/* Détails (repliable) */}
                     {isExpanded && (
                       <div className="mt-4 space-y-3 pt-3 border-t border-gray-200">
-                        <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                           <div className="flex justify-between">
                             <span className="text-gray-600">Loyers encaissés :</span>
                             <span className="font-medium text-green-700">{formatEuro(bien.recettesBrutes)}</span>
@@ -167,7 +167,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                           </div>
                         </div>
                         
-                        <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                           <div className="flex justify-between">
                             <span className="text-gray-600">Résultat fiscal :</span>
                             <span className={`font-medium ${isDeficit ? 'text-red-700' : 'text-green-700'}`}>{formatEuro(bien.resultatFiscal)}</span>
@@ -426,7 +426,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                   {formatEuro(simulation.ir.revenuImposable)}
                 </span>
               </div>
-                <div className="grid grid-cols-2 gap-3 text-xs text-gray-600">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-gray-600">
                 <div className="flex justify-between">
                   <span>Nombre de parts :</span>
                   <span className="font-medium">{simulation.inputs.foyer?.parts || simulation.inputs.parts}</span>
@@ -779,7 +779,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                 
                 <Separator />
                 
-                <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <div className="flex justify-between">
                     <span className="text-gray-600">Taux effectif :</span>
                     <span className="font-medium">{formatPercent(simulation.resume?.tauxEffectif || 0)}</span>

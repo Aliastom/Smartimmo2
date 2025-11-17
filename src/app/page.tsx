@@ -11,10 +11,10 @@ export default function HomePage() {
       <div className="max-w-md w-full text-center space-y-8">
         {/* Logo / Titre */}
         <div className="space-y-4">
-          <h1 className="text-5xl font-bold text-slate-800">
+          <h1 className="text-4xl sm:text-5xl font-bold text-slate-800">
             Smart<span className="text-blue-600">Immo</span>
           </h1>
-          <p className="text-lg text-slate-600">
+          <p className="text-base sm:text-lg text-slate-600">
             Gestion immobilière moderne et intuitive
           </p>
         </div>

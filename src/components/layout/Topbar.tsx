@@ -6,6 +6,7 @@ import { Search, Bell, Menu, User } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
 import { LogoutButton } from '@/components/auth/LogoutButton';
+import { useAuth } from '@/hooks/useAuth';
 
 interface TopbarProps {
   onMenuClick?: () => void;
@@ -21,26 +22,16 @@ export function Topbar({
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Vérifier l'état d'authentification
+  // Utiliser le hook centralisé React Query (plus performant)
+  const { isAuthenticated: authIsAuthenticated } = useAuth();
+  
   useEffect(() => {
-    async function checkAuth() {
-      try {
-        const response = await fetch('/api/auth/me');
-        setIsAuthenticated(response.ok);
-      } catch (error) {
-        setIsAuthenticated(false);
-      }
-    }
-    checkAuth();
-    
-    // Vérifier périodiquement (toutes les 5 secondes)
-    const interval = setInterval(checkAuth, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    setIsAuthenticated(authIsAuthenticated);
+  }, [authIsAuthenticated]);
 
   return (
     <header className={cn(
-      "sticky top-0 z-40 h-16 px-4 lg:px-6",
+      "fixed top-0 left-0 right-0 z-40 h-16 px-4 lg:px-6",
       "bg-white/80 backdrop-blur-md border-b border-gray-200",
       "flex items-center justify-between",
       className

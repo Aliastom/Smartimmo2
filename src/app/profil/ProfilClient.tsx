@@ -323,7 +323,7 @@ export default function ProfilClient({ initialData }: ProfilClientProps) {
             <CardTitle>Informations Personnelles</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="firstName">Prénom</Label>
                 <Input
@@ -388,7 +388,7 @@ export default function ProfilClient({ initialData }: ProfilClientProps) {
                 />
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="postalCode">Code Postal</Label>
                 <Input

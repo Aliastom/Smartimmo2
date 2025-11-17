@@ -13,8 +13,8 @@ export default function LoginPage({
           <p className="inline-flex items-center gap-2 rounded-full bg-white/70 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
             SmartImmo • Auth 2.0
           </p>
-          <h1 className="mt-4 text-4xl font-bold">Ravis de vous revoir 👋</h1>
-          <p className="mt-2 text-base text-slate-600">
+          <h1 className="mt-4 text-3xl sm:text-4xl font-bold">Ravis de vous revoir 👋</h1>
+          <p className="mt-2 text-sm sm:text-base text-slate-600">
             Connectez-vous pour reprendre vos opérations SmartImmo.
           </p>
         </div>

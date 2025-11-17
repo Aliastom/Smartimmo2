@@ -179,7 +179,7 @@ export function EcheanceModal({
         </div>
 
         {/* Type et Sens */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <Label htmlFor="type">Type *</Label>
             <Controller
@@ -228,7 +228,7 @@ export function EcheanceModal({
         </div>
 
         {/* Périodicité et Montant */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <Label htmlFor="periodicite">Périodicité *</Label>
             <Controller
@@ -269,7 +269,7 @@ export function EcheanceModal({
         </div>
 
         {/* Bien et Bail */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <Label htmlFor="propertyId">Bien</Label>
             <Controller
@@ -329,7 +329,7 @@ export function EcheanceModal({
         </div>
 
         {/* Dates */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <Label htmlFor="startAt">Date de début *</Label>
             <Input
