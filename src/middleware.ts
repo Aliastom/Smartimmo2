@@ -16,6 +16,12 @@ export async function middleware(request: NextRequest) {
     '/_next',
     '/favicon.ico',
     '/rive',
+    // Fichiers PWA - doivent être accessibles sans authentification
+    '/manifest.webmanifest',
+    '/sw.js',
+    '/icons',
+    '/robots.txt',
+    '/sitemap.xml',
   ];
   
   // Routes API publiques (ne nécessitent pas d'auth)
@@ -43,10 +49,16 @@ export async function middleware(request: NextRequest) {
     '.ttf',
     '.otf',
     '.riv',
+    '.webmanifest', // Manifest PWA
   ];
+  
+  // Vérifier si c'est un fichier PWA (service worker ou workbox)
+  const isPwaFile = pathname === '/sw.js' || 
+                    (pathname.startsWith('/workbox-') && pathname.endsWith('.js')) ||
+                    pathname.startsWith('/icons/');
 
   const isStaticAsset = staticFileExtensions.some((ext) => pathname.endsWith(ext));
-  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route)) || isStaticAsset;
+  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route)) || isStaticAsset || isPwaFile;
   const isPublicApi = publicApiRoutes.some(route => pathname.startsWith(route));
   
   if (isPublicRoute || isPublicApi) {
@@ -101,12 +113,17 @@ export const config = {
   matcher: [
     /*
      * Protéger toutes les routes sauf:
-     * - _next/static (fichiers statiques)
-     * - _next/image (optimisation d'images)
+     * - _next/static (fichiers statiques Next.js)
+     * - _next/image (optimisation d'images Next.js)
      * - favicon.ico
+     * - manifest.webmanifest (manifest PWA)
+     * - sw.js (service worker)
+     * - workbox-*.js (fichiers Workbox)
+     * - icons/* (icônes PWA)
+     * - robots.txt, sitemap.xml
      * La logique de routes publiques est gérée dans le middleware ci-dessus
      */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|workbox-.*\\.js|icons|robots\\.txt|sitemap\\.xml).*)',
   ],
 };
 
