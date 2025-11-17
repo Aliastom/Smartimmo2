@@ -54,8 +54,13 @@ export async function middleware(request: NextRequest) {
   ];
   
   // Vérifier si c'est un fichier PWA (service worker ou workbox)
+  // Les fichiers workbox peuvent être dans /workbox-*.js ou /_next/static/workbox-*.js
+  // IMPORTANT: Ces fichiers DOIVENT être accessibles sans authentification
   const isPwaFile = pathname === '/sw.js' || 
-                    (pathname.startsWith('/workbox-') && pathname.endsWith('.js')) ||
+                    pathname === '/sw' ||
+                    /^\/workbox-.*\.js$/.test(pathname) ||
+                    /^\/workbox-.*$/.test(pathname) ||
+                    /^\/_next\/static\/.*\/workbox-.*\.js$/.test(pathname) ||
                     pathname.startsWith('/icons/');
 
   // Vérifier si c'est la page d'accueil exacte
@@ -116,29 +121,22 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Protéger toutes les routes sauf:
-     * - _next/static (fichiers statiques Next.js)
-     * - _next/image (optimisation d'images Next.js)
+     * Protéger toutes les routes SAUF les routes publiques listées ci-dessous.
+     * La logique détaillée est gérée dans le middleware ci-dessus.
+     * 
+     * Routes exclues du matcher (donc publiques) :
+     * - _next/* (tous les fichiers statiques Next.js, inclut workbox)
      * - favicon.ico
-     * - manifest.webmanifest (manifest PWA)
-     * - sw.js (service worker)
-     * - workbox-*.js (fichiers Workbox)
+     * - manifest.webmanifest
+     * - sw.js
+     * - workbox-*.js (fichiers Workbox à la racine)
      * - icons/* (icônes PWA)
      * - robots.txt, sitemap.xml
-     * La logique de routes publiques est gérée dans le middleware ci-dessus
-     */
-    /*
-     * Exclure les routes publiques du matcher :
-     * - _next/* (fichiers statiques Next.js)
-     * - favicon.ico
-     * - manifest.webmanifest (manifest PWA)
-     * - sw.js (service worker)
-     * - workbox-*.js (fichiers Workbox)
-     * - icons/* (icônes PWA)
-     * - robots.txt, sitemap.xml
+     * 
      * Note: La page d'accueil "/" est gérée dans le middleware via isHomePage
+     * car le matcher Next.js ne peut pas exclure "/" facilement avec un pattern.
      */
-    '/((?!_next|favicon.ico|manifest.webmanifest|sw.js|workbox-.*\\.js|icons|robots\\.txt|sitemap\\.xml).*)',
+    '/((?!_next|favicon\\.ico|manifest\\.webmanifest|sw\\.js|workbox-.*\\.js|icons|robots\\.txt|sitemap\\.xml).*)',
   ],
 };
 
