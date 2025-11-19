@@ -192,15 +192,83 @@ export async function POST(req: Request) {
       }
 
     } else if (isImage) {
-      // ============ TRAITEMENT IMAGE ============
-      console.log('[OCR] Image détectée - OCR temporairement désactivé pour éviter les erreurs de workers');
+      // ============ TRAITEMENT IMAGE AVEC GOOGLE CLOUD VISION API ============
+      console.log('[OCR] Image détectée - Utilisation de Google Cloud Vision API');
       
-      // OCR temporairement désactivé pour éviter les erreurs de workers Tesseract.js
-      return NextResponse.json({
-        ok: false,
-        error: 'OCR temporairement indisponible',
-        details: 'Le service OCR pour les images est temporairement désactivé. Veuillez utiliser des fichiers PDF pour l\'instant.'
-      }, { status: 503 });
+      try {
+        const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
+        
+        if (!apiKey) {
+          console.error('[OCR] GOOGLE_CLOUD_VISION_API_KEY non configurée');
+          return NextResponse.json({
+            ok: false,
+            error: 'Configuration manquante',
+            details: 'La clé API Google Cloud Vision n\'est pas configurée. Veuillez configurer GOOGLE_CLOUD_VISION_API_KEY.'
+          }, { status: 500 });
+        }
+
+        // Convertir le buffer en base64 pour l'API
+        const imageContent = buffer.toString('base64');
+
+        console.log('[OCR] Appel Google Cloud Vision API REST pour l\'image...');
+        
+        // Appel à l'API REST de Google Cloud Vision avec la clé API
+        const visionResponse = await fetch(
+          `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              requests: [
+                {
+                  image: {
+                    content: imageContent,
+                  },
+                  features: [
+                    {
+                      type: 'TEXT_DETECTION',
+                      maxResults: 1,
+                    },
+                  ],
+                },
+              ],
+            }),
+          }
+        );
+
+        if (!visionResponse.ok) {
+          const errorData = await visionResponse.json().catch(() => ({}));
+          throw new Error(
+            `Google Vision API error: ${visionResponse.status} ${visionResponse.statusText}. ${JSON.stringify(errorData)}`
+          );
+        }
+
+        const visionResult = await visionResponse.json();
+        const responses = visionResult.responses || [];
+        
+        if (responses.length === 0 || !responses[0].textAnnotations || responses[0].textAnnotations.length === 0) {
+          console.log('[OCR] Aucun texte détecté dans l\'image');
+          raw = '';
+        } else {
+          // La première annotation contient tout le texte détecté
+          const textAnnotations = responses[0].textAnnotations;
+          raw = textAnnotations[0].description || '';
+          console.log(`[OCR] Google Cloud Vision extrait ${raw.length} caractères`);
+        }
+
+        source = 'tesseract'; // Garder le même nom de source pour compatibilité
+        pagesOcred = 1; // Une image = une page
+        
+      } catch (visionError: any) {
+        console.error('[OCR] Erreur Google Cloud Vision:', visionError);
+        return NextResponse.json({
+          ok: false,
+          error: 'Erreur lors de l\'OCR de l\'image',
+          details: visionError.message || 'Erreur inconnue lors de l\'appel à Google Cloud Vision API'
+        }, { status: 500 });
+      }
       
     } else {
       // Cas des formats non supportés (ni PDF, ni image, ni convertible)
