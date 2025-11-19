@@ -1422,46 +1422,44 @@ export function UploadReviewModal({
                 )}
               </div>
 
-              {/* Prédictions (chips) */}
-              {draftData.predictions && draftData.predictions.length > 0 && (
-                <div className="space-y-2">
-                  <Label>Prédictions suggérées</Label>
-                  {autoLinkingDocumentType && !documentTypeEditable && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Les prédictions sont désactivées car le type de document est verrouillé
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-2">
-                    {draftData.predictions.map((prediction: any, index: number) => {
-                      const isTypeLocked = autoLinkingDocumentType && !documentTypeEditable;
-                      return (
-                        <Badge
-                          key={index}
-                          variant="secondary"
-                          className={
-                            isTypeLocked 
-                              ? 'opacity-50 cursor-not-allowed' 
-                              : 'cursor-pointer hover:bg-blue-50'
+              {/* Prédictions - Afficher seulement le meilleur score */}
+              {draftData.predictions && draftData.predictions.length > 0 && (() => {
+                const bestPrediction = draftData.predictions[0];
+                const isTypeLocked = autoLinkingDocumentType && !documentTypeEditable;
+                return (
+                  <div className="space-y-2">
+                    <Label>Prédiction suggérée</Label>
+                    {autoLinkingDocumentType && !documentTypeEditable && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Les prédictions sont désactivées car le type de document est verrouillé
+                      </p>
+                    )}
+                    <div className="flex gap-2">
+                      <Badge
+                        variant="default"
+                        className={
+                          isTypeLocked 
+                            ? 'opacity-50 cursor-not-allowed' 
+                            : 'cursor-pointer hover:bg-blue-50'
+                        }
+                        onClick={() => {
+                          if (isTypeLocked) return;
+                          
+                          console.log('[UploadReview] Clic sur prédiction:', bestPrediction);
+                          if (bestPrediction.typeCode) {
+                            setSelectedType(bestPrediction.typeCode);
+                            console.log('[UploadReview] Type sélectionné:', bestPrediction.typeCode);
+                          } else {
+                            console.log('[UploadReview] Aucun typeCode disponible pour cette prédiction');
                           }
-                          onClick={() => {
-                            if (isTypeLocked) return;
-                            
-                            console.log('[UploadReview] Clic sur prédiction:', prediction);
-                            if (prediction.typeCode) {
-                              setSelectedType(prediction.typeCode);
-                              console.log('[UploadReview] Type sélectionné:', prediction.typeCode);
-                            } else {
-                              console.log('[UploadReview] Aucun typeCode disponible pour cette prédiction');
-                            }
-                          }}
-                        >
-                          {prediction.label} ({Math.round(prediction.score * 100)}%)
-                        </Badge>
-                      );
-                    })}
+                        }}
+                      >
+                        {bestPrediction.label} ({Math.round(bestPrediction.score * 100)}%)
+                      </Badge>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Champs extraits */}
               {draftData.fieldsExtracted && Object.keys(draftData.fieldsExtracted).length > 0 && (
@@ -1713,7 +1711,7 @@ export function UploadReviewModal({
               </div>
             )}
 
-            {/* Prédictions */}
+            {/* Prédictions - Afficher seulement le meilleur score */}
             {(() => {
               // Validation robuste des prédictions
               const predictions = Array.isArray(currentPreview.predictions) 
@@ -1723,33 +1721,34 @@ export function UploadReviewModal({
               // Vérifier si le type est verrouillé
               const isTypeLocked = autoLinkingDocumentType && !documentTypeEditable;
               
-              return predictions.length > 0 && (
+              // Prendre seulement la meilleure prédiction
+              const bestPrediction = predictions.length > 0 ? predictions[0] : null;
+              
+              return bestPrediction && (
                 <div>
-                  <Label>Prédictions (scores de confiance)</Label>
+                  <Label>Prédiction suggérée</Label>
                   {isTypeLocked && (
                     <p className="text-xs text-gray-500 mt-1">
                       Les prédictions sont désactivées car le type de document est verrouillé
                     </p>
                   )}
-                  <div className="flex gap-2 mt-2 flex-wrap">
-                    {predictions.map((pred, idx) => (
-                      <Badge
-                        key={pred.typeCode || `pred-${idx}`}
-                        variant={idx === 0 ? 'default' : 'secondary'}
-                        className={
-                          isTypeLocked 
-                            ? 'opacity-50 cursor-not-allowed' 
-                            : 'cursor-pointer hover:bg-blue-600'
+                  <div className="flex gap-2 mt-2">
+                    <Badge
+                      key={bestPrediction.typeCode || 'pred-0'}
+                      variant="default"
+                      className={
+                        isTypeLocked 
+                          ? 'opacity-50 cursor-not-allowed' 
+                          : 'cursor-pointer hover:bg-blue-600'
+                      }
+                      onClick={() => {
+                        if (!isTypeLocked) {
+                          setSelectedType(bestPrediction.typeCode);
                         }
-                        onClick={() => {
-                          if (!isTypeLocked) {
-                            setSelectedType(pred.typeCode);
-                          }
-                        }}
-                      >
-                        {pred.label}: {Math.round((pred.score || 0) * 100)}%
-                      </Badge>
-                    ))}
+                      }}
+                    >
+                      {bestPrediction.label}: {Math.round((bestPrediction.score || 0) * 100)}%
+                    </Badge>
                   </div>
                 </div>
               );

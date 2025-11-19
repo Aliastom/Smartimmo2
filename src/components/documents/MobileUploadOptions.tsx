@@ -63,7 +63,7 @@ export function MobileUploadOptions({
         capture="environment"
         onChange={handleFileChange}
         className="hidden"
-        multiple={maxFiles > 1}
+        multiple={false}
         disabled={disabled}
       />
 
