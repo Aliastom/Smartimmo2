@@ -11,6 +11,8 @@ import { useEffect } from 'react';
  * - Enregistre le service worker /sw.js avec le scope "/"
  * - Gère les erreurs proprement sans casser l'app
  * - Évite les enregistrements multiples
+ * 
+ * Note: La détection des mises à jour est gérée par useServiceWorkerUpdate()
  */
 export function ServiceWorkerRegister() {
   useEffect(() => {
@@ -40,6 +42,7 @@ export function ServiceWorkerRegister() {
 
       if (hasSwRegistered) {
         // Service worker déjà enregistré, ne rien faire
+        // La détection des mises à jour sera gérée par useServiceWorkerUpdate()
         return;
       }
 
@@ -50,22 +53,15 @@ export function ServiceWorkerRegister() {
         })
         .then((registration) => {
           console.info('[PWA] Service Worker enregistré avec succès:', registration.scope);
-
-          // Écouter les mises à jour du service worker
-          registration.addEventListener('updatefound', () => {
-            const newWorker = registration.installing;
-            if (newWorker) {
-              newWorker.addEventListener('statechange', () => {
-                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  console.info('[PWA] Nouveau service worker disponible. Rechargez la page pour l\'activer.');
-                }
-              });
-            }
-          });
+          
+          // Vérifier périodiquement les mises à jour (toutes les heures)
+          setInterval(() => {
+            registration.update();
+          }, 60 * 60 * 1000);
         })
         .catch((error) => {
           // Erreur lors de l'enregistrement (ne pas casser l'app)
-          console.warn('[PWA] Erreur lors de l\'enregistrement du service worker:', error);
+          console.warn('[PWA] Erreur lors de l'enregistrement du service worker:', error);
         });
     }).catch((error) => {
       // Erreur lors de la vérification des enregistrements
@@ -76,4 +72,3 @@ export function ServiceWorkerRegister() {
   // Ce composant ne rend rien visuellement
   return null;
 }
-

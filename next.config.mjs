@@ -53,7 +53,7 @@ const nextConfig = {
 const pwaConfig = withPWA({
   dest: 'public',
   register: true,
-  skipWaiting: true,
+  skipWaiting: false, // Désactiver skipWaiting automatique pour permettre à l'utilisateur de choisir
   disable: process.env.NODE_ENV === 'development', // Désactiver en dev
   buildExcludes: [/middleware-manifest\.json$/],
   // Stratégies de cache intelligentes pour ne pas casser Supabase

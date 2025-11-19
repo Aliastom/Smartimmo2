@@ -16,6 +16,7 @@ import { CompanionDock } from '@/ui/companion/CompanionDock';
 import { SmartTopLoader } from '@/components/SmartTopLoader';
 import { LoadingProvider } from '@/contexts/LoadingContext';
 import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister';
+import { UpdateBanner } from '@/components/pwa/UpdateBanner';
 // Import du helper de test en développement uniquement
 if (process.env.NODE_ENV === 'development') {
   import('@/lib/toast-test-helper');
@@ -97,6 +98,8 @@ export default function RootLayout({
         </ThemeProvider>
         {/* Enregistrement du Service Worker PWA (uniquement en production, côté client) */}
         <ServiceWorkerRegister />
+        {/* Bandeau de notification de mise à jour PWA */}
+        <UpdateBanner />
       </body>
     </html>
   );
