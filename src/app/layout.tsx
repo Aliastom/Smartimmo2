@@ -13,7 +13,6 @@ import { RouteProgressProvider } from '@/components/RouteProgressProvider';
 import { AlertProvider } from '@/hooks/useAlert';
 import { CompanionProvider } from '@/ui/companion/CompanionProvider';
 import { CompanionDock } from '@/ui/companion/CompanionDock';
-import { SmartTopLoader } from '@/components/SmartTopLoader';
 import { LoadingProvider } from '@/contexts/LoadingContext';
 import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister';
 import { UpdateBanner } from '@/components/pwa/UpdateBanner';
@@ -66,7 +65,6 @@ export default function RootLayout({
             <LoadingProvider>
               <AlertProvider>
               <TooltipProvider>
-                {/* RouteProgressProvider désactivé - SmartTopLoader gère maintenant les navigations */}
                 <RouteProgressProvider 
                   enableGlobalCapture={false}
                   showDelay={80}
