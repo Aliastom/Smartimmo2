@@ -63,11 +63,19 @@ export function UploadReviewModalProvider({ children }: { children: ReactNode })
 
   // Ouvrir la modal avec des fichiers et une configuration
   const openModal = useCallback((files: File[], config: UploadReviewModalConfig = {}) => {
+    console.log('[UploadReviewModalContext] openModal called with:', {
+      filesCount: files.length,
+      filesNames: files.map(f => f.name),
+      config
+    });
+    
     setModalState({
       isOpen: true,
       files,
       config
     });
+    
+    console.log('[UploadReviewModalContext] Modal state updated, isOpen: true');
   }, []);
 
   // Ouvrir la modal avec sélection de fichier

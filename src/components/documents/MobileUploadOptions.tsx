@@ -23,10 +23,18 @@ export function MobileUploadOptions({
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      console.log('[MobileUploadOptions] handleFileChange called');
       const files = Array.from(e.target.files || []);
+      console.log('[MobileUploadOptions] Files selected:', files.length, files.map(f => f.name));
+      
       if (files.length > 0) {
-        onFilesSelected(files.slice(0, maxFiles));
+        const filesToSend = files.slice(0, maxFiles);
+        console.log('[MobileUploadOptions] Calling onFilesSelected with:', filesToSend.length, 'files');
+        onFilesSelected(filesToSend);
+      } else {
+        console.log('[MobileUploadOptions] No files to send');
       }
+      
       // Réinitialiser l'input pour permettre de sélectionner le même fichier
       if (e.target) {
         e.target.value = '';

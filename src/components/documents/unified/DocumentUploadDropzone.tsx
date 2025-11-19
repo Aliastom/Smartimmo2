@@ -36,7 +36,12 @@ export function DocumentUploadDropzone({
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
-      if (acceptedFiles.length === 0) return;
+      console.log('[DocumentUploadDropzone] onDrop called with files:', acceptedFiles.length);
+      
+      if (acceptedFiles.length === 0) {
+        console.log('[DocumentUploadDropzone] No files, returning');
+        return;
+      }
 
       // Vérifier le nombre de fichiers
       if (acceptedFiles.length > maxFiles) {
@@ -61,19 +66,34 @@ export function DocumentUploadDropzone({
       const leaseId = linkedTo === 'lease' ? linkedId : undefined;
       const tenantId = linkedTo === 'tenant' ? linkedId : undefined;
       
-      openModal(acceptedFiles, {
+      console.log('[DocumentUploadDropzone] Opening modal with config:', {
         scope: modalScope,
         propertyId,
         leaseId,
         tenantId,
         autoLinkingDocumentType: hintedTypeKey,
-        onSuccess: () => {
-          setSelectedFiles([]);
-          onSuccess?.([]);
-        }
+        filesCount: acceptedFiles.length
       });
+      
+      try {
+        openModal(acceptedFiles, {
+          scope: modalScope,
+          propertyId,
+          leaseId,
+          tenantId,
+          autoLinkingDocumentType: hintedTypeKey,
+          onSuccess: () => {
+            setSelectedFiles([]);
+            onSuccess?.([]);
+          }
+        });
+        console.log('[DocumentUploadDropzone] Modal opened successfully');
+      } catch (error) {
+        console.error('[DocumentUploadDropzone] Error opening modal:', error);
+        onError?.('Erreur lors de l\'ouverture de la modal');
+      }
     },
-    [maxFiles, maxSize, onError]
+    [maxFiles, maxSize, onError, openModal, linkedTo, linkedId, hintedTypeKey, onSuccess]
   );
 
 

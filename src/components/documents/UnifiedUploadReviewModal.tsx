@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { UploadReviewModal } from './UploadReviewModal';
 import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
 
@@ -16,6 +16,14 @@ export function UnifiedUploadReviewModal() {
     closeModal,
     handleSuccess
   } = useUploadReviewModal();
+
+  useEffect(() => {
+    console.log('[UnifiedUploadReviewModal] State changed:', {
+      isOpen,
+      filesCount: files.length,
+      config
+    });
+  }, [isOpen, files, config]);
 
   return (
     <UploadReviewModal
