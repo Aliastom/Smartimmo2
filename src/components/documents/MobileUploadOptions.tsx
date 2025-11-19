@@ -22,23 +22,30 @@ export function MobileUploadOptions({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      console.log('[MobileUploadOptions] handleFileChange called');
-      const files = Array.from(e.target.files || []);
-      console.log('[MobileUploadOptions] Files selected:', files.length, files.map(f => f.name));
+    (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
+      const target = e.target as HTMLInputElement;
+      console.log('[MobileUploadOptions] handleFileChange called', target.files);
+      const files = Array.from(target.files || []);
+      console.log('[MobileUploadOptions] Files selected:', files.length, files.map(f => ({ name: f.name, size: f.size, type: f.type })));
       
       if (files.length > 0) {
         const filesToSend = files.slice(0, maxFiles);
         console.log('[MobileUploadOptions] Calling onFilesSelected with:', filesToSend.length, 'files');
-        onFilesSelected(filesToSend);
+        // Utiliser setTimeout pour s'assurer que le fichier est complètement disponible (surtout pour la caméra)
+        setTimeout(() => {
+          onFilesSelected(filesToSend);
+        }, 150);
       } else {
         console.log('[MobileUploadOptions] No files to send');
       }
       
       // Réinitialiser l'input pour permettre de sélectionner le même fichier
-      if (e.target) {
-        e.target.value = '';
-      }
+      // Attendre plus longtemps pour la caméra qui peut prendre du temps
+      setTimeout(() => {
+        if (target) {
+          target.value = '';
+        }
+      }, 300);
     },
     [onFilesSelected, maxFiles]
   );
@@ -62,6 +69,7 @@ export function MobileUploadOptions({
         accept="image/*"
         capture="environment"
         onChange={handleFileChange}
+        onInput={handleFileChange}
         className="hidden"
         multiple={false}
         disabled={disabled}

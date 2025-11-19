@@ -1,10 +1,12 @@
 import { readdir, unlink, readFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { getStorageService } from '@/services/storage.service';
 
 /**
  * Nettoie les fichiers temporaires expirés
  * Supprime les fichiers dont expiresAt < Date.now()
+ * Gère à la fois les fichiers locaux et ceux dans Supabase Storage (préfixe tmp/)
  */
 export async function cleanupExpiredTemps(): Promise<{ cleaned: number; errors: number }> {
   let cleaned = 0;
@@ -29,7 +31,20 @@ export async function cleanupExpiredTemps(): Promise<{ cleaned: number; errors: 
           
           // Supprimer le fichier principal
           if (meta.filePath) {
-            await unlink(meta.filePath).catch(() => {});
+            if (meta.filePath.startsWith('tmp/')) {
+              // Fichier temporaire dans Supabase Storage
+              try {
+                const storageService = getStorageService();
+                await storageService.deleteDocument(meta.filePath);
+                console.log(`[CleanupTemp] Fichier temporaire Supabase supprimé: ${meta.filePath}`);
+              } catch (storageError) {
+                console.warn(`[CleanupTemp] Erreur suppression fichier Supabase ${meta.filePath}:`, storageError);
+                errors++;
+              }
+            } else {
+              // Fichier temporaire local
+              await unlink(meta.filePath).catch(() => {});
+            }
           }
           
           // Supprimer le meta.json

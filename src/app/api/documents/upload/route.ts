@@ -1,5 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { classificationService } from '@/services/ClassificationService';
+import { DocumentRecognitionService } from '@/services/DocumentRecognitionService';
 import { sha256Hex } from '@/lib/hash';
 import { cleanupExpiredTemps, generateTempId } from '@/lib/cleanupTemp';
 import { writeFile, mkdir } from 'fs/promises';
@@ -9,6 +10,8 @@ import { dedupAI } from '@/services/dedup-ai.service';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { getStorageService } from '@/services/storage.service';
+
+const documentRecognitionService = new DocumentRecognitionService();
 
 
 
@@ -180,7 +183,7 @@ export async function POST(request: NextRequest) {
     let autoAssigned = false;
     let assignedTypeCode: string | null = null;
 
-    // Classification seulement si on a du texte extrait
+    // Classification : essayer d'abord avec le texte, puis fallback sur le nom de fichier
     if (rawText && rawText.trim().length > 0) {
       console.log('[Upload] Classification du texte extrait:', rawText.length, 'caractÃ¨res');
       
@@ -206,7 +209,28 @@ export async function POST(request: NextRequest) {
         assignedTypeCode = classificationResult.classification.top3[0].typeCode;
       }
     } else {
-      console.log('[Upload] Pas de texte extrait - classification ignorÃ©e pour', file.name);
+      // Fallback : analyse par nom de fichier pour les images sans OCR
+      console.log('[Upload] Pas de texte extrait - tentative d\'analyse par nom de fichier pour', file.name);
+      try {
+        const filenameResult = await documentRecognitionService.analyzeByFilename(file.name);
+        if (filenameResult.success && filenameResult.predictions && filenameResult.predictions.length > 0) {
+          predictions = filenameResult.predictions.map(pred => ({
+            typeCode: pred.typeCode,
+            label: pred.label,
+            score: pred.score,
+            threshold: pred.threshold
+          }));
+          console.log('[Upload] Prédictions générées par nom de fichier:', predictions.length);
+          
+          // Auto-assigner si la meilleure prédiction dépasse son seuil
+          if (predictions.length > 0 && predictions[0].score >= predictions[0].threshold) {
+            autoAssigned = true;
+            assignedTypeCode = predictions[0].typeCode;
+          }
+        }
+      } catch (error) {
+        console.error('[Upload] Erreur lors de l\'analyse par nom de fichier:', error);
+      }
     }
 
     // Extraire un aperÃ§u du texte
