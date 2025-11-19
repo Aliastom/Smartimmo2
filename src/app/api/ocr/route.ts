@@ -192,99 +192,72 @@ export async function POST(req: Request) {
       }
 
     } else if (isImage) {
-      // ============ TRAITEMENT IMAGE AVEC GOOGLE CLOUD VISION API ============
-      console.log('[OCR] Image détectée - Utilisation de Google Cloud Vision API');
+      // ============ TRAITEMENT IMAGE AVEC OCR.SPACE API (GRATUIT, SANS CARTE BANCAIRE) ============
+      console.log('[OCR] Image détectée - Utilisation de OCR.space API (gratuit)');
       
       try {
-        // Vérifier toutes les variables d'environnement disponibles (debug)
-        console.log('[OCR] Variables d\'environnement disponibles:', {
-          hasGoogleKey: !!process.env.GOOGLE_CLOUD_VISION_API_KEY,
-          keyPrefix: process.env.GOOGLE_CLOUD_VISION_API_KEY?.substring(0, 10) || 'NON',
-          allEnvKeys: Object.keys(process.env).filter(k => k.includes('GOOGLE')).join(', ')
-        });
-        
-        const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
-        
-        if (!apiKey) {
-          console.error('[OCR] GOOGLE_CLOUD_VISION_API_KEY non configurée');
-          console.error('[OCR] NODE_ENV:', process.env.NODE_ENV);
-          console.error('[OCR] Variables Google disponibles:', Object.keys(process.env).filter(k => k.includes('GOOGLE')));
-          return NextResponse.json({
-            ok: false,
-            error: 'Configuration manquante',
-            details: 'La clé API Google Cloud Vision n\'est pas configurée. Veuillez configurer GOOGLE_CLOUD_VISION_API_KEY et redémarrer le serveur.'
-          }, { status: 500 });
-        }
-
         // Convertir le buffer en base64 pour l'API
         const imageContent = buffer.toString('base64');
-
-        console.log('[OCR] Appel Google Cloud Vision API REST pour l\'image...');
-        console.log('[OCR] Taille de l\'image:', buffer.length, 'bytes');
-        console.log('[OCR] Clé API présente:', apiKey ? 'Oui (' + apiKey.substring(0, 10) + '...)' : 'Non');
         
-        // Appel à l'API REST de Google Cloud Vision avec la clé API
-        const visionResponse = await fetch(
-          `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
+        // Optionnel : clé API OCR.space (gratuit sans clé, mais limité à 25k/jour avec clé)
+        const ocrSpaceApiKey = process.env.OCR_SPACE_API_KEY || 'helloworld'; // 'helloworld' = clé par défaut gratuite
+        
+        console.log('[OCR] Appel OCR.space API pour l\'image...');
+        console.log('[OCR] Taille de l\'image:', buffer.length, 'bytes');
+        
+        // Appel à l'API REST OCR.space (gratuit, 25 000 requêtes/jour)
+        const ocrSpaceResponse = await fetch(
+          'https://api.ocr.space/parse/image',
           {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json',
+              'Content-Type': 'application/x-www-form-urlencoded',
             },
-            body: JSON.stringify({
-              requests: [
-                {
-                  image: {
-                    content: imageContent,
-                  },
-                  features: [
-                    {
-                      type: 'TEXT_DETECTION',
-                      maxResults: 1,
-                    },
-                  ],
-                },
-              ],
+            body: new URLSearchParams({
+              base64Image: `data:${actualFileType};base64,${imageContent}`,
+              apikey: ocrSpaceApiKey,
+              language: 'fre', // Français
+              isOverlayRequired: 'false',
+              detectOrientation: 'true',
+              scale: 'true',
             }),
           }
         );
 
-        console.log('[OCR] Réponse Google Vision API status:', visionResponse.status);
+        console.log('[OCR] Réponse OCR.space API status:', ocrSpaceResponse.status);
 
-        if (!visionResponse.ok) {
-          const errorData = await visionResponse.json().catch(() => ({}));
-          console.error('[OCR] Erreur Google Vision API:', errorData);
+        if (!ocrSpaceResponse.ok) {
+          const errorData = await ocrSpaceResponse.json().catch(() => ({}));
+          console.error('[OCR] Erreur OCR.space API:', errorData);
           throw new Error(
-            `Google Vision API error: ${visionResponse.status} ${visionResponse.statusText}. ${JSON.stringify(errorData)}`
+            `OCR.space API error: ${ocrSpaceResponse.status} ${ocrSpaceResponse.statusText}. ${JSON.stringify(errorData)}`
           );
         }
 
-        const visionResult = await visionResponse.json();
-        console.log('[OCR] Résultat Google Vision API:', JSON.stringify(visionResult).substring(0, 500));
+        const ocrSpaceResult = await ocrSpaceResponse.json();
+        console.log('[OCR] Résultat OCR.space API:', JSON.stringify(ocrSpaceResult).substring(0, 500));
         
-        const responses = visionResult.responses || [];
-        console.log('[OCR] Nombre de réponses:', responses.length);
-        
-        if (responses.length === 0 || !responses[0].textAnnotations || responses[0].textAnnotations.length === 0) {
-          console.log('[OCR] Aucun texte détecté dans l\'image');
-          raw = '';
-        } else {
-          // La première annotation contient tout le texte détecté
-          const textAnnotations = responses[0].textAnnotations;
-          raw = textAnnotations[0].description || '';
-          console.log(`[OCR] Google Cloud Vision extrait ${raw.length} caractères`);
+        // Vérifier si l'OCR a réussi
+        if (ocrSpaceResult.OCRExitCode === 1 && ocrSpaceResult.ParsedResults && ocrSpaceResult.ParsedResults.length > 0) {
+          // Le texte extrait est dans ParsedText
+          raw = ocrSpaceResult.ParsedResults[0].ParsedText || '';
+          console.log(`[OCR] OCR.space extrait ${raw.length} caractères`);
           console.log('[OCR] Extrait (premiers 200 caractères):', raw.substring(0, 200));
+        } else {
+          // Aucun texte détecté ou erreur
+          console.log('[OCR] Aucun texte détecté dans l\'image (ExitCode:', ocrSpaceResult.OCRExitCode, ')');
+          raw = '';
         }
 
         source = 'tesseract'; // Garder le même nom de source pour compatibilité
         pagesOcred = 1; // Une image = une page
         
-      } catch (visionError: any) {
-        console.error('[OCR] Erreur Google Cloud Vision:', visionError);
+      } catch (ocrError: any) {
+        console.error('[OCR] Erreur OCR.space:', ocrError);
         return NextResponse.json({
           ok: false,
           error: 'Erreur lors de l\'OCR de l\'image',
-          details: visionError.message || 'Erreur inconnue lors de l\'appel à Google Cloud Vision API'
+          details: ocrError.message || 'Erreur inconnue lors de l\'appel à OCR.space API'
         }, { status: 500 });
       }
       
