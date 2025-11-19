@@ -196,14 +196,23 @@ export async function POST(req: Request) {
       console.log('[OCR] Image détectée - Utilisation de Google Cloud Vision API');
       
       try {
+        // Vérifier toutes les variables d'environnement disponibles (debug)
+        console.log('[OCR] Variables d\'environnement disponibles:', {
+          hasGoogleKey: !!process.env.GOOGLE_CLOUD_VISION_API_KEY,
+          keyPrefix: process.env.GOOGLE_CLOUD_VISION_API_KEY?.substring(0, 10) || 'NON',
+          allEnvKeys: Object.keys(process.env).filter(k => k.includes('GOOGLE')).join(', ')
+        });
+        
         const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
         
         if (!apiKey) {
           console.error('[OCR] GOOGLE_CLOUD_VISION_API_KEY non configurée');
+          console.error('[OCR] NODE_ENV:', process.env.NODE_ENV);
+          console.error('[OCR] Variables Google disponibles:', Object.keys(process.env).filter(k => k.includes('GOOGLE')));
           return NextResponse.json({
             ok: false,
             error: 'Configuration manquante',
-            details: 'La clé API Google Cloud Vision n\'est pas configurée. Veuillez configurer GOOGLE_CLOUD_VISION_API_KEY.'
+            details: 'La clé API Google Cloud Vision n\'est pas configurée. Veuillez configurer GOOGLE_CLOUD_VISION_API_KEY et redémarrer le serveur.'
           }, { status: 500 });
         }
 
