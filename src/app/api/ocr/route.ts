@@ -211,6 +211,8 @@ export async function POST(req: Request) {
         const imageContent = buffer.toString('base64');
 
         console.log('[OCR] Appel Google Cloud Vision API REST pour l\'image...');
+        console.log('[OCR] Taille de l\'image:', buffer.length, 'bytes');
+        console.log('[OCR] Clé API présente:', apiKey ? 'Oui (' + apiKey.substring(0, 10) + '...)' : 'Non');
         
         // Appel à l'API REST de Google Cloud Vision avec la clé API
         const visionResponse = await fetch(
@@ -238,15 +240,21 @@ export async function POST(req: Request) {
           }
         );
 
+        console.log('[OCR] Réponse Google Vision API status:', visionResponse.status);
+
         if (!visionResponse.ok) {
           const errorData = await visionResponse.json().catch(() => ({}));
+          console.error('[OCR] Erreur Google Vision API:', errorData);
           throw new Error(
             `Google Vision API error: ${visionResponse.status} ${visionResponse.statusText}. ${JSON.stringify(errorData)}`
           );
         }
 
         const visionResult = await visionResponse.json();
+        console.log('[OCR] Résultat Google Vision API:', JSON.stringify(visionResult).substring(0, 500));
+        
         const responses = visionResult.responses || [];
+        console.log('[OCR] Nombre de réponses:', responses.length);
         
         if (responses.length === 0 || !responses[0].textAnnotations || responses[0].textAnnotations.length === 0) {
           console.log('[OCR] Aucun texte détecté dans l\'image');
@@ -256,6 +264,7 @@ export async function POST(req: Request) {
           const textAnnotations = responses[0].textAnnotations;
           raw = textAnnotations[0].description || '';
           console.log(`[OCR] Google Cloud Vision extrait ${raw.length} caractères`);
+          console.log('[OCR] Extrait (premiers 200 caractères):', raw.substring(0, 200));
         }
 
         source = 'tesseract'; // Garder le même nom de source pour compatibilité
