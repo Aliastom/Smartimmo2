@@ -14,6 +14,7 @@ import { AlertProvider } from '@/hooks/useAlert';
 import { CompanionProvider } from '@/ui/companion/CompanionProvider';
 import { CompanionDock } from '@/ui/companion/CompanionDock';
 import { LoadingProvider } from '@/contexts/LoadingContext';
+import { SmartTopLoader } from '@/components/SmartTopLoader';
 import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister';
 import { UpdateBanner } from '@/components/pwa/UpdateBanner';
 // Import du helper de test en développement uniquement
@@ -63,8 +64,16 @@ export default function RootLayout({
         <ThemeProvider>
           <QueryProvider>
             <LoadingProvider>
+              <SmartTopLoader
+                color="#0ea5e9"
+                height={5}
+                shadowColor="rgba(14, 165, 233, 0.5)"
+                initialProgress={20}
+                zIndex={9999}
+              />
               <AlertProvider>
               <TooltipProvider>
+                {/* RouteProgressProvider désactivé - SmartTopLoader gère maintenant les navigations */}
                 <RouteProgressProvider 
                   enableGlobalCapture={false}
                   showDelay={80}
