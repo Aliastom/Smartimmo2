@@ -76,9 +76,10 @@ Vercel expose automatiquement ces variables lors des builds :
 
 **Solution :**
 1. Vérifier que les variables sont bien créées dans Vercel
-2. Vérifier que la syntaxe est correcte : `${VERCEL_GIT_COMMIT_SHA}` (avec les accolades)
-3. Redéployer l'application
-4. Vérifier dans les logs de build Vercel que les variables sont bien injectées
+2. ⚠️ **Vérifier que la syntaxe est correcte : `${VERCEL_GIT_COMMIT_SHA}` (avec `${}` et non `@`)**
+3. Si vous avez utilisé `@VERCEL_GIT_COMMIT_SHA`, supprimez la variable et recréez-la avec `${VERCEL_GIT_COMMIT_SHA}`
+4. Redéployer l'application après correction
+5. Vérifier dans les logs de build Vercel que les variables sont bien injectées
 
 ### Le badge affiche des valeurs incorrectes
 

@@ -12,6 +12,7 @@ import { suggestTypeGlobal, SuggestionResult } from '@/services/documentSuggesti
 import { getIcon } from '@/utils/icons';
 import { Badge } from '@/ui/shared/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/shared/card';
+import { MobileUploadOptions } from '@/components/documents/MobileUploadOptions';
 
 interface TransactionAttachment {
   id?: string;
@@ -250,12 +251,29 @@ export function TransactionDocumentUpload({
     isUploading 
   });
 
+  const handleMobileFileSelect = useCallback((files: File[]) => {
+    const event = {
+      target: { files: files as any },
+    } as React.ChangeEvent<HTMLInputElement>;
+    handleFileUpload(event);
+  }, [handleFileUpload]);
+
   return (
     <div className="space-y-4">
       {/* Zone d'upload */}
       <div className="space-y-2">
         <Label>Documents joints</Label>
-        <div className="border-2 border-dashed border-base-300 rounded-lg p-6 text-center hover:border-primary transition-colors">
+        
+        {/* Options mobile : 3 boutons séparés */}
+        <MobileUploadOptions
+          onFilesSelected={handleMobileFileSelect}
+          acceptedTypes={['application/pdf', 'image/jpeg', 'image/png']}
+          maxFiles={10}
+          disabled={disabled || isUploading}
+        />
+
+        {/* Zone d'upload desktop : glisser-déposer */}
+        <div className="hidden md:block border-2 border-dashed border-base-300 rounded-lg p-6 text-center hover:border-primary transition-colors">
           <input
             type="file"
             multiple
@@ -279,9 +297,6 @@ export function TransactionDocumentUpload({
             </p>
             <p className="text-xs text-base-content opacity-70">
               PDF, JPG, PNG (max 10 MB)
-            </p>
-            <p className="text-xs text-primary mt-2">
-              DEBUG: Composant actif ({attachments.length} fichiers)
             </p>
           </label>
         </div>

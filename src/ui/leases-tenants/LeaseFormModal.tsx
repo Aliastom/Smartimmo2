@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
+import { SearchableSelect } from '@/components/forms/SearchableSelect';
 import { useCreateLease, useUpdateLease, useLeases, type Lease, type CreateLeaseData } from '../hooks/useLeases';
 import { useTenants } from '../hooks/useTenants';
 import { getLeaseStatusDisplay } from '../../domain/leases/status';
@@ -44,25 +45,35 @@ export default function LeaseFormModal({
   
   useEffect(() => {
     if (isOpen) {
-      // Charger les propriétés avec une limite élevée pour récupérer tous les biens
-      fetch('/api/properties?limit=1000')
+      // Charger les propriétés avec une limite très élevée pour récupérer tous les biens
+      fetch('/api/properties?limit=10000')
         .then(res => res.json())
         .then(data => {
-          // L'API peut retourner { data: [...], total, ... } ou directement un tableau
+          // L'API retourne { data: [...], pagination: {...} }
           const propertiesList = data?.data || data?.properties || data?.items || (Array.isArray(data) ? data : []);
-          setProperties(Array.isArray(propertiesList) ? propertiesList : []);
+          const finalList = Array.isArray(propertiesList) ? propertiesList : [];
+          console.log('[LeaseFormModal] Propriétés chargées:', finalList.length, 'sur', data?.pagination?.total || '?');
+          setProperties(finalList);
         })
-        .catch(err => console.error('Error loading properties:', err));
+        .catch(err => {
+          console.error('Error loading properties:', err);
+          setProperties([]);
+        });
       
-      // Charger les locataires avec une limite élevée pour récupérer tous les locataires
-      fetch('/api/tenants?limit=1000')
+      // Charger les locataires avec une limite très élevée pour récupérer tous les locataires
+      fetch('/api/tenants?limit=10000')
         .then(res => res.json())
         .then(data => {
-          // L'API peut retourner { data: [...], total, ... } ou directement un tableau
+          // L'API retourne { data: [...], pagination: {...} }
           const tenantsList = data?.data || data?.tenants || data?.items || (Array.isArray(data) ? data : []);
-          setTenants(Array.isArray(tenantsList) ? tenantsList : []);
+          const finalList = Array.isArray(tenantsList) ? tenantsList : [];
+          console.log('[LeaseFormModal] Locataires chargés:', finalList.length, 'sur', data?.pagination?.total || '?');
+          setTenants(finalList);
         })
-        .catch(err => console.error('Error loading tenants:', err));
+        .catch(err => {
+          console.error('Error loading tenants:', err);
+          setTenants([]);
+        });
     }
   }, [isOpen]);
 
@@ -175,44 +186,35 @@ export default function LeaseFormModal({
                   <input type="hidden" name="propertyId" value={defaultPropertyId} />
                 </div>
               ) : (
-                <select
-                  id="propertyId"
-                  name="propertyId"
+                <SearchableSelect
+                  options={properties.map(p => ({
+                    id: p.id,
+                    value: p.id,
+                    label: `${p.name} - ${p.address}`
+                  }))}
                   value={formData.propertyId}
-                  onChange={handleChange}
+                  onChange={(value) => handleChange({ target: { name: 'propertyId', value } } as any)}
+                  placeholder="Rechercher une propriété..."
                   required
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-primary"
-                >
-                  <option value="">Sélectionner une propriété</option>
-                  {properties.map(property => (
-                    <option key={property.id} value={property.id}>
-                      {property.name} - {property.address}
-                    </option>
-                  ))}
-                </select>
+                  label="Propriété"
+                />
               )}
             </div>
 
             {/* Locataire */}
             <div>
-              <label htmlFor="tenantId" className="block text-sm font-medium text-neutral-700 mb-2">
-                Locataire *
-              </label>
-              <select
-                id="tenantId"
-                name="tenantId"
+              <SearchableSelect
+                options={tenants.map(t => ({
+                  id: t.id,
+                  value: t.id,
+                  label: `${t.firstName} ${t.lastName} - ${t.email || ''}`
+                }))}
                 value={formData.tenantId}
-                onChange={handleChange}
+                onChange={(value) => handleChange({ target: { name: 'tenantId', value } } as any)}
+                placeholder="Rechercher un locataire..."
                 required
-                className="w-full px-3 py-2 border border-neutral-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-primary"
-              >
-                <option value="">Sélectionner un locataire</option>
-                {tenants.map(tenant => (
-                  <option key={tenant.id} value={tenant.id}>
-                    {tenant.firstName} {tenant.lastName} - {tenant.email}
-                  </option>
-                ))}
-              </select>
+                label="Locataire"
+              />
             </div>
 
             {/* Type de bail */}

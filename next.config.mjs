@@ -18,6 +18,12 @@ const nextConfig = {
     },
     serverComponentsExternalPackages: ['onnxruntime-node', '@xenova/transformers', 'sharp']
   },
+  // Injection automatique des variables Git Vercel pour le badge de version
+  env: {
+    // Exposer les variables Git Vercel côté client (si disponibles)
+    NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA || '',
+    NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF: process.env.VERCEL_GIT_COMMIT_REF || '',
+  },
   // Configuration webpack
   webpack: (config, { isServer }) => {
     // Désactiver le cache webpack sur Vercel pour éviter problème de taille

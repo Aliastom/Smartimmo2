@@ -6,10 +6,22 @@
  * (branche + SHA du commit) - 100% automatique, sans maintenance manuelle
  */
 export function AppVersionBadge() {
+  // Lire les variables d'environnement (disponibles au build time)
   const commitSha = process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA;
   const commitRef = process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF;
+  const isDev = process.env.NODE_ENV === 'development';
 
-  // Ne rien afficher si aucune info Git n'est disponible (ex: en local sans config)
+  // En développement, afficher un badge de test si les variables ne sont pas définies
+  if (isDev && !commitSha && !commitRef) {
+    // Mode debug : afficher un badge de test pour vérifier que le composant fonctionne
+    return (
+      <div className="text-[10px] md:text-xs text-slate-400 font-mono">
+        Smartimmo · dev · local
+      </div>
+    );
+  }
+
+  // En production, ne rien afficher si aucune info Git n'est disponible
   if (!commitSha && !commitRef) {
     return null;
   }

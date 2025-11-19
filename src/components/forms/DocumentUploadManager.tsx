@@ -17,6 +17,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { suggestTypeGlobal, getDocumentTypeByCode } from '@/services/documentSuggestion';
+import { MobileUploadOptions } from '../documents/MobileUploadOptions';
 
 interface DocumentAttachment {
   id?: string;
@@ -167,10 +168,26 @@ export default function DocumentUploadManager({
     return "Faible";
   };
 
+  const handleMobileFileSelect = useCallback((files: File[]) => {
+    // Simuler un événement de changement de fichier
+    const event = {
+      target: { files: files as any },
+    } as React.ChangeEvent<HTMLInputElement>;
+    handleFileUpload(event);
+  }, [handleFileUpload]);
+
   return (
     <div className="space-y-4">
-      {/* Zone d'upload */}
-      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary-400 transition-colors">
+      {/* Options mobile : 3 boutons séparés */}
+      <MobileUploadOptions
+        onFilesSelected={handleMobileFileSelect}
+        acceptedTypes={['application/pdf', 'image/jpeg', 'image/png', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']}
+        maxFiles={10}
+        disabled={disabled || isUploading}
+      />
+
+      {/* Zone d'upload desktop */}
+      <div className="hidden md:block border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary-400 transition-colors">
         <input
           type="file"
           multiple

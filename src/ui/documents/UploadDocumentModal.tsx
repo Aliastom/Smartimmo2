@@ -12,6 +12,7 @@ import { Upload, X, FileText, Eye, EyeOff, Lock, AlertTriangle } from 'lucide-re
 import { useUploadDocument, useClassifyDocument, DocumentClassification } from '@/hooks/useDocuments';
 import { suggestTypeGlobal, SuggestionInput, SuggestionResult } from '@/services/documentSuggestion';
 import { DynamicMetadataForm } from '@/ui/shared/DynamicMetadataForm';
+import { MobileUploadOptions } from '@/components/documents/MobileUploadOptions';
 
 interface UploadDocumentModalProps {
   isOpen: boolean;
@@ -306,19 +307,12 @@ export function UploadDocumentModal({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Zone de drop de fichier */}
+          {/* Zone de sélection de fichier */}
           <div className="space-y-2">
             <Label>Fichier *</Label>
-            <div
-              className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-                selectedFile
-                  ? 'border-success bg-success/10'
-                  : 'border-base-300 hover:border-primary'
-              }`}
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-            >
-              {selectedFile ? (
+            
+            {selectedFile ? (
+              <div className="border-2 border-success bg-success/10 rounded-lg p-6 text-center">
                 <div className="flex items-center justify-center gap-2">
                   <FileText className="h-8 w-8 text-success" />
                   <div>
@@ -327,23 +321,58 @@ export function UploadDocumentModal({
                       {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                     </p>
                   </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedFile(null)}
+                    className="ml-auto"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
                 </div>
-              ) : (
-                <div className="flex flex-col items-center gap-2">
-                  <Upload className="h-8 w-8 text-base-content opacity-60" />
-                  <p className="text-base-content opacity-80">
-                    Glissez-déposez un fichier ici ou
-                  </p>
-                  <Input
-                    type="file"
-                    onChange={handleFileSelect}
-                    className="w-auto"
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif"
-                    disabled={isUploading}
-                  />
+              </div>
+            ) : (
+              <>
+                {/* Options mobile : 3 boutons séparés */}
+                <MobileUploadOptions
+                  onFilesSelected={(files) => {
+                    if (files.length > 0) {
+                      const event = {
+                        target: { files: files as any },
+                      } as React.ChangeEvent<HTMLInputElement>;
+                      handleFileSelect(event);
+                    }
+                  }}
+                  acceptedTypes={['application/pdf', 'image/jpeg', 'image/png', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']}
+                  maxFiles={1}
+                  disabled={isUploading}
+                />
+
+                {/* Zone de drop desktop : glisser-déposer */}
+                <div
+                  className={`hidden md:block border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                    'border-base-300 hover:border-primary'
+                  }`}
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                >
+                  <div className="flex flex-col items-center gap-2">
+                    <Upload className="h-8 w-8 text-base-content opacity-60" />
+                    <p className="text-base-content opacity-80">
+                      Glissez-déposez un fichier ici ou
+                    </p>
+                    <Input
+                      type="file"
+                      onChange={handleFileSelect}
+                      className="w-auto"
+                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif"
+                      disabled={isUploading}
+                    />
+                  </div>
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
 
           {/* Sélection du type de document */}

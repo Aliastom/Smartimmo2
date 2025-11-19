@@ -40,6 +40,7 @@ import {
   TrendingUp,
   History
 } from 'lucide-react';
+import { SearchableSelect } from './SearchableSelect';
 
 const leaseSchema = z.object({
   propertyId: z.string().min(1, 'Le bien est requis'),
@@ -118,24 +119,28 @@ export default function LeaseEditModal({
   const loadData = async () => {
     setIsLoadingData(true);
     try {
-      // Augmenter la limite à 1000 pour récupérer tous les biens et locataires
+      // Augmenter la limite à 10000 pour récupérer tous les biens et locataires
       const [propertiesRes, tenantsRes] = await Promise.all([
-        fetch('/api/properties?limit=1000'),
-        fetch('/api/tenants?limit=1000')
+        fetch('/api/properties?limit=10000'),
+        fetch('/api/tenants?limit=10000')
       ]);
 
       if (propertiesRes.ok) {
         const propertiesData = await propertiesRes.json();
-        // L'API peut retourner { data: [...], total, ... } ou directement un tableau
+        // L'API retourne { data: [...], pagination: {...} }
         const propertiesList = propertiesData.data || propertiesData.properties || propertiesData.items || (Array.isArray(propertiesData) ? propertiesData : []);
-        setProperties(Array.isArray(propertiesList) ? propertiesList : []);
+        const finalList = Array.isArray(propertiesList) ? propertiesList : [];
+        console.log('[LeaseEditModal] Propriétés chargées:', finalList.length, 'sur', propertiesData?.pagination?.total || '?');
+        setProperties(finalList);
       }
 
       if (tenantsRes.ok) {
         const tenantsData = await tenantsRes.json();
-        // L'API peut retourner { data: [...], total, ... } ou directement un tableau
+        // L'API retourne { data: [...], pagination: {...} }
         const tenantsList = tenantsData.data || tenantsData.tenants || tenantsData.items || (Array.isArray(tenantsData) ? tenantsData : []);
-        setTenants(Array.isArray(tenantsList) ? tenantsList : []);
+        const finalList = Array.isArray(tenantsList) ? tenantsList : [];
+        console.log('[LeaseEditModal] Locataires chargés:', finalList.length, 'sur', tenantsData?.pagination?.total || '?');
+        setTenants(finalList);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -699,21 +704,19 @@ export default function LeaseEditModal({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
             />
           ) : (
-            // Mode création : dropdown sélectionnable
-            <select
+            // Mode création : SearchableSelect
+            <SearchableSelect
+              options={(properties && Array.isArray(properties) ? properties : []).map(p => ({
+                id: p.id,
+                value: p.id,
+                label: `${p.name} - ${p.address}`
+              }))}
               value={formData.propertyId}
-              onChange={(e) => handleChange('propertyId', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-                errors.propertyId ? 'border-red-500' : 'border-gray-300'
-              }`}
-            >
-              <option value="">Sélectionner un bien</option>
-              {properties && Array.isArray(properties) && properties.map((property) => (
-                <option key={property.id} value={property.id}>
-                  {property.name} - {property.address}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => handleChange('propertyId', value)}
+              placeholder="Rechercher un bien..."
+              required
+              className={errors.propertyId ? 'border-red-500' : ''}
+            />
           )}
           {errors.propertyId && <p className="text-red-500 text-sm mt-1">{errors.propertyId}</p>}
         </div>
@@ -735,21 +738,19 @@ export default function LeaseEditModal({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
             />
           ) : (
-            // Éditable
-            <select
+            // Éditable : SearchableSelect
+            <SearchableSelect
+              options={(tenants && Array.isArray(tenants) ? tenants : []).map(t => ({
+                id: t.id,
+                value: t.id,
+                label: `${t.firstName} ${t.lastName}${t.email ? ` - ${t.email}` : ''}`
+              }))}
               value={formData.tenantId}
-              onChange={(e) => handleChange('tenantId', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-                errors.tenantId ? 'border-red-500' : 'border-gray-300'
-              }`}
-            >
-              <option value="">Sélectionner un locataire</option>
-              {tenants && Array.isArray(tenants) && tenants.map((tenant) => (
-                <option key={tenant.id} value={tenant.id}>
-                  {tenant.firstName} {tenant.lastName}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => handleChange('tenantId', value)}
+              placeholder="Rechercher un locataire..."
+              required
+              className={errors.tenantId ? 'border-red-500' : ''}
+            />
           )}
           {errors.tenantId && <p className="text-red-500 text-sm mt-1">{errors.tenantId}</p>}
         </div>

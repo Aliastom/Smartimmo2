@@ -6,6 +6,7 @@ import { Upload, X, FileText, Image, File, AlertCircle, CheckCircle } from 'luci
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
+import { MobileUploadOptions } from '../MobileUploadOptions';
 
 interface DocumentUploadDropzoneProps {
   onSuccess?: (documents: any[]) => void;
@@ -102,11 +103,18 @@ export function DocumentUploadDropzone({
   return (
     <>
       <div className="space-y-4">
-        {/* Dropzone */}
+        {/* Options mobile : 3 boutons séparés */}
+        <MobileUploadOptions
+          onFilesSelected={onDrop}
+          acceptedTypes={acceptedTypes}
+          maxFiles={maxFiles}
+        />
+
+        {/* Dropzone desktop : glisser-déposer */}
         <div
           {...getRootProps()}
           className={`
-            border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
+            hidden md:block border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
             ${isDragActive ? 'border-primary-500 bg-primary-50' : 'border-gray-300 hover:border-primary-400'}
           `}
         >

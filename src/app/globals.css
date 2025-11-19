@@ -1751,16 +1751,26 @@ body {
   outline: none !important;
 }
 
-.property-glass-nav .glass-item:hover,
-.property-glass-nav .glass-item:focus {
+.property-glass-nav .glass-item:hover:not(.glass-item-active),
+.property-glass-nav .glass-item:focus:not(.glass-item-active) {
   --hl: 1;
 }
 
-/* Force la coloration de l'icône active */
+/* Force la coloration de l'icône active - État permanent distinct du hover */
+.property-glass-nav .glass-item-active {
+  --hl: 1 !important;
+}
+
 .property-glass-nav .glass-item-active .glass-mono,
 .property-glass-nav .glass-item-active .glass-midl,
 .property-glass-nav .glass-item-active .glass-grey {
   filter: hue-rotate(var(--hue)) saturate(2) brightness(1.2) drop-shadow(0 0 10px hsla(var(--hue), 70%, 50%, 0.8)) !important;
+}
+
+/* Pas de changement de couleur au hover si déjà actif */
+.property-glass-nav .glass-item-active:hover,
+.property-glass-nav .glass-item-active:focus {
+  --hl: 1 !important;
 }
 
 /* COULEURS HEXAGONES AU HOVER - LES DEUX CONTOURS (Teintes atténuées) */

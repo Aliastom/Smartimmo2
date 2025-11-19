@@ -781,18 +781,44 @@ export function UploadReviewModal({
     setIsConfirming(true);
 
     try {
+      // Déterminer le type de document à utiliser (comme dans handleConfirm)
+      const finalTypeCode = autoLinkingDocumentType || selectedType;
+      
       const response = await fetch('/api/documents/finalize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tempId: currentPreview.tempId,
-          chosenTypeId: selectedType || undefined,
+          typeCode: finalTypeCode, // Utiliser le nouveau champ typeCode
+          chosenTypeId: finalTypeCode || undefined, // Rétrocompatibilité
           predictions: currentPreview.predictions || [],
           ocrText: '', // Le texte complet est maintenant dans le meta.json
-          context: {
-            entityType: scope === 'property' ? 'PROPERTY' : 'GLOBAL',
-            entityId: propertyId || leaseId || tenantId || undefined,
-          },
+          context: (() => {
+            // Déterminer le contexte de liaison (comme dans handleConfirm)
+            if (autoLinkingContext && (autoLinkingContext.leaseId || autoLinkingContext.propertyId || autoLinkingContext.tenantsIds?.length)) {
+              if (autoLinkingContext.leaseId) {
+                return {
+                  entityType: 'LEASE' as const,
+                  entityId: autoLinkingContext.leaseId
+                };
+              } else if (autoLinkingContext.propertyId) {
+                return {
+                  entityType: 'PROPERTY' as const,
+                  entityId: autoLinkingContext.propertyId
+                };
+              } else if (autoLinkingContext.tenantsIds?.length) {
+                return {
+                  entityType: 'TENANT' as const,
+                  entityId: autoLinkingContext.tenantsIds[0]
+                };
+              }
+            }
+            // Fallback sur le contexte manuel
+            return {
+              entityType: (scope === 'property' ? 'PROPERTY' : scope === 'lease' ? 'LEASE' : scope === 'tenant' ? 'TENANT' : 'GLOBAL') as const,
+              entityId: propertyId || leaseId || tenantId || undefined,
+            };
+          })(),
           customName: customName !== currentPreview.filename ? customName : undefined,
           // Actions sur doublons
           replaceDuplicateId: currentPreview.duplicateAction === 'replace' 
