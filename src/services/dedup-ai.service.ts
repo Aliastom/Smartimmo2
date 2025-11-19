@@ -115,7 +115,9 @@ export class DedupAIService {
       console.log('[DedupAI] Utilisation du match par checksum exact');
     }
     
-    if (!bestMatch || (bestSimilarity < 0.95 && !exactChecksumMatch)) {
+    // Seuil plus strict : seulement si similarité très élevée (≥ 0.99) OU checksum exact
+    // Cela évite les faux positifs pour des documents similaires mais différents
+    if (!bestMatch || (bestSimilarity < 0.99 && !exactChecksumMatch)) {
       return this.createNoneResult(tempFile);
     }
 
@@ -275,15 +277,15 @@ export class DedupAIService {
       return "exact_duplicate";
     }
     
-    // Near duplicate
-    if (signals.text_similarity >= 0.98) {
+    // Near duplicate - seuil augmenté à 0.995 pour éviter les faux positifs
+    // Seulement pour des documents vraiment très similaires (quasi-identiques)
+    if (signals.text_similarity >= 0.995) {
       return "near_duplicate";
     }
     
-    // Potential duplicate (seuil plus élevé pour éviter les faux positifs)
-    if (signals.text_similarity >= 0.99 || 
-        (signals.period_match && signals.context_match && 
-         signals.ocr_quality_new < signals.ocr_quality_existing - 0.1)) {
+    // Potential duplicate - seuil très élevé (0.99) ET même contexte/période
+    // Pour les baux signés, même avec une similarité élevée, si le contexte diffère, ce n'est pas un doublon
+    if (signals.text_similarity >= 0.99 && signals.period_match && signals.context_match) {
       return "potential_duplicate";
     }
     
@@ -312,12 +314,10 @@ export class DedupAIService {
         return "cancel";
         
       case "potential_duplicate":
-        // Si pages différentes pour un document 1 page, demander à l'utilisateur
-        if (this.isSinglePageDocument(tempFile.detected_type) && 
-            signals.pages_new !== signals.pages_existing) {
-          return "ask_user";
-        }
-        return "ask_user";
+        // Pour les doublons potentiels, suggérer "keep_both" par défaut
+        // L'utilisateur pourra toujours choisir de remplacer ou annuler
+        // Cela évite de bloquer l'upload de documents légitimement différents
+        return "keep_both";
         
       default:
         return "proceed";

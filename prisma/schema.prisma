@@ -353,6 +353,7 @@ model Lease {
   Property                               Property             @relation(fields: [propertyId], references: [id])
   Tenant                                 Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   LeaseVersion                           LeaseVersion[]
+  RentIndexation                         RentIndexation[]
   Payment                                Payment[]
   Transaction_Transaction_bailIdToLease  Transaction[]        @relation("Transaction_bailIdToLease")
   Transaction_Transaction_leaseIdToLease Transaction[]        @relation("Transaction_leaseIdToLease")
@@ -370,6 +371,27 @@ model LeaseVersion {
   Lease     Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
 
   @@index([leaseId, createdAt])
+}
+
+model RentIndexation {
+  id                String    @id @default(cuid())
+  leaseId           String
+  organizationId    String    @default("default")
+  previousRentAmount Float
+  newRentAmount     Float
+  effectiveDate     DateTime
+  indexType         String?   // 'IRL', 'ILAT', 'ICC', 'MANUAL'
+  indexValue        Float?    // Valeur de l'indice utilisé
+  indexDate         DateTime? // Date de référence de l'indice
+  reason            String?   // Raison de la réindexation
+  notes             String?
+  createdAt         DateTime  @default(now())
+  createdBy         String?
+  Lease             Lease     @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  Organization      Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([leaseId, effectiveDate])
+  @@index([organizationId])
 }
 
 model Loan {
@@ -939,6 +961,7 @@ model Organization {
   UploadItems         UploadStagedItem[]
   UserProfiles        UserProfile[]
   ManagementCompanies ManagementCompany[]
+  RentIndexations     RentIndexation[]
 }
 
 model User {

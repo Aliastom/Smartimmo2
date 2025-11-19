@@ -37,8 +37,8 @@ export function AppShell({ children, className, requiresAuth }: AppShellProps) {
       {/* Skip to content */}
       <SkipToContent />
 
-      {/* Topbar - Masquée sur pages auth */}
-      {!isAuthPage && (
+      {/* Topbar - Masquée complètement (demande utilisateur) */}
+      {false && !isAuthPage && (
         <Topbar 
           onMenuClick={toggleSidebar}
           showSearch={true}
@@ -58,7 +58,7 @@ export function AppShell({ children, className, requiresAuth }: AppShellProps) {
         <div className={cn(
           "fixed inset-y-0 left-0 z-30 lg:translate-x-0 transition-transform duration-300",
           sidebarOpen ? "translate-x-0" : "-translate-x-full",
-          "lg:top-16" // Laisser de l'espace pour la topbar sur desktop
+          "lg:top-0" // Topbar masquée
         )}>
           <Sidebar
             collapsed={sidebarCollapsed}
@@ -70,8 +70,8 @@ export function AppShell({ children, className, requiresAuth }: AppShellProps) {
       {/* Main content */}
       <div className={cn(
         "flex-1 flex flex-col",
-        !isAuthPage && (sidebarCollapsed ? "lg:pl-16" : "lg:pl-64"),
-        !isAuthPage && "lg:pt-16" // Laisser de l'espace pour la topbar sur desktop
+        !isAuthPage && (sidebarCollapsed ? "lg:pl-16" : "lg:pl-64")
+        // lg:pt-16 supprimé car topbar masquée
       )}
       >
         {/* Page content */}

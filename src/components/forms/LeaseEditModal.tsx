@@ -36,7 +36,9 @@ import {
   CheckCircle,
   Plus,
   Send,
-  Upload
+  Upload,
+  TrendingUp,
+  History
 } from 'lucide-react';
 
 const leaseSchema = z.object({
@@ -105,6 +107,9 @@ export default function LeaseEditModal({
     message: string;
     missingFields: string[];
   } | null>(null);
+  const [showIndexationModal, setShowIndexationModal] = useState(false);
+  const [indexationHistory, setIndexationHistory] = useState<any[]>([]);
+  const [isLoadingIndexation, setIsLoadingIndexation] = useState(false);
   
   // Hook pour la modal d'upload unifiée
   const { openModalWithDocumentType } = useUploadReviewModal();
@@ -113,24 +118,44 @@ export default function LeaseEditModal({
   const loadData = async () => {
     setIsLoadingData(true);
     try {
+      // Augmenter la limite à 1000 pour récupérer tous les biens et locataires
       const [propertiesRes, tenantsRes] = await Promise.all([
-        fetch('/api/properties'),
-        fetch('/api/tenants')
+        fetch('/api/properties?limit=1000'),
+        fetch('/api/tenants?limit=1000')
       ]);
 
       if (propertiesRes.ok) {
         const propertiesData = await propertiesRes.json();
-        setProperties(propertiesData.data || propertiesData || []);
+        // L'API peut retourner { data: [...], total, ... } ou directement un tableau
+        const propertiesList = propertiesData.data || propertiesData.properties || propertiesData.items || (Array.isArray(propertiesData) ? propertiesData : []);
+        setProperties(Array.isArray(propertiesList) ? propertiesList : []);
       }
 
       if (tenantsRes.ok) {
         const tenantsData = await tenantsRes.json();
-        setTenants(tenantsData.data || tenantsData || []);
+        // L'API peut retourner { data: [...], total, ... } ou directement un tableau
+        const tenantsList = tenantsData.data || tenantsData.tenants || tenantsData.items || (Array.isArray(tenantsData) ? tenantsData : []);
+        setTenants(Array.isArray(tenantsList) ? tenantsList : []);
       }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
       setIsLoadingData(false);
+    }
+  };
+
+  // Charger l'historique des réindexations
+  const loadIndexationHistory = async () => {
+    if (!lease?.id) return;
+    
+    try {
+      const response = await fetch(`/api/leases/${lease.id}/index-rent`);
+      if (response.ok) {
+        const data = await response.json();
+        setIndexationHistory(data.indexations || []);
+      }
+    } catch (error) {
+      console.error('Error loading indexation history:', error);
     }
   };
 
@@ -146,6 +171,11 @@ export default function LeaseEditModal({
       } else {
         console.log('[LeaseEditModal] Chargement des données depuis l\'API');
         loadData();
+      }
+      
+      // Charger l'historique des réindexations si bail existant
+      if (lease?.id) {
+        loadIndexationHistory();
       }
       
       if (lease) {
@@ -321,7 +351,9 @@ export default function LeaseEditModal({
           });
           
           if (!profileValidation.ok) {
-            throw new Error('Erreur lors de la validation du profil');
+            setIsWorkflowActionLoading(false);
+            notify2.error('Erreur de validation', 'Impossible de valider le profil utilisateur');
+            return; // Ne pas changer le statut en cas d'erreur
           }
           
           const validationResult = await profileValidation.json();
@@ -338,7 +370,7 @@ export default function LeaseEditModal({
             });
             setShowProfileAlert(true);
             setIsWorkflowActionLoading(false);
-            return; // Arrêter l'exécution
+            return; // Arrêter l'exécution, ne pas changer le statut
           }
           
           // Générer PDF et EML côté serveur
@@ -352,8 +384,10 @@ export default function LeaseEditModal({
           });
           
           if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Erreur lors de la génération PDF/EML');
+            const errorData = await response.json().catch(() => ({ error: 'Erreur inconnue' }));
+            setIsWorkflowActionLoading(false);
+            notify2.error('Erreur lors de l\'envoi', errorData.error || 'Impossible d\'envoyer le bail pour signature');
+            return; // Ne pas changer le statut en cas d'erreur
           }
           
           result = await response.json();
@@ -368,8 +402,9 @@ export default function LeaseEditModal({
             document.body.removeChild(link);
           }
           
-          successMessage = 'Bail envoyé pour signature avec succès - EML téléchargé !';
+          successMessage = 'Bail envoyé pour signature avec succès';
           newStatus = 'ENVOYÉ';
+          notify2.success(successMessage, 'Le fichier EML a été téléchargé automatiquement');
           break;
         case 'mark-active':
           const activeResponse = await fetch(`/api/leases/${formData.id}/mark-active`, {
@@ -476,18 +511,23 @@ export default function LeaseEditModal({
         setFormData(prev => ({ ...prev, status: newStatus as any }));
       }
       
-      // Fermer la modal et recharger la page immédiatement
+      // Fermer la modal et recharger la page immédiatement pour certaines actions
       if (action === 'terminate' || action === 'delete' || action === 'mark-active' || action === 'send-for-signature' || action === 'cancel-send' || action === 'mark-unsigned') {
-        onClose();
-        window.location.reload();
-      } else {
-        // Pour les autres actions, afficher l'alerte
-        alert(successMessage);
+        // Attendre un peu pour que le toast soit visible avant le rechargement
+        setTimeout(() => {
+          onClose();
+          window.location.reload();
+        }, 1500);
+      } else if (successMessage) {
+        // Pour les autres actions, afficher un toast de succès
+        notify2.success(successMessage);
       }
       
     } catch (error) {
       console.error('Error executing workflow action:', error);
-      alert(`Erreur lors de l'exécution de l'action: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+      notify2.error('Erreur lors de l\'exécution de l\'action', errorMessage);
+      // Ne pas changer le statut en cas d'erreur
     } finally {
       setIsWorkflowActionLoading(false);
     }
@@ -843,56 +883,54 @@ export default function LeaseEditModal({
       </div>
 
       {/* Granularité des charges */}
-      {process.env.NEXT_PUBLIC_ENABLE_GESTION_SOCIETE === 'true' && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h4 className="text-sm font-medium text-blue-900 mb-3">
-            Granularité des charges (optionnel)
-          </h4>
-          <p className="text-xs text-blue-700 mb-4">
-            Ces montants permettront de préremplir automatiquement les transactions de loyer mensuelles
-          </p>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Charges récupérables mensuelles (€)
-                <span className="text-xs text-gray-500 block mt-1">
-                  Refacturées au locataire
-                </span>
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.chargesRecupMensuelles || ''}
-                onChange={(e) => handleChange('chargesRecupMensuelles', parseFloat(e.target.value) || 0)}
-                disabled={isContractualFieldLocked('chargesRecupMensuelles')}
-                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-                  isContractualFieldLocked('chargesRecupMensuelles') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
-                }`}
-                placeholder="Ex: 20.00"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Charges non récupérables mensuelles (€)
-                <span className="text-xs text-gray-500 block mt-1">
-                  À la charge du propriétaire
-                </span>
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.chargesNonRecupMensuelles || ''}
-                onChange={(e) => handleChange('chargesNonRecupMensuelles', parseFloat(e.target.value) || 0)}
-                disabled={isContractualFieldLocked('chargesNonRecupMensuelles')}
-                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-                  isContractualFieldLocked('chargesNonRecupMensuelles') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
-                }`}
-                placeholder="Ex: 35.00"
-              />
-            </div>
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-blue-900 mb-3">
+          Granularité des charges (optionnel)
+        </h4>
+        <p className="text-xs text-blue-700 mb-4">
+          Ces montants permettront de préremplir automatiquement les transactions de loyer mensuelles
+        </p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Charges récupérables mensuelles (€)
+              <span className="text-xs text-gray-500 block mt-1">
+                Refacturées au locataire
+              </span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={formData.chargesRecupMensuelles || ''}
+              onChange={(e) => handleChange('chargesRecupMensuelles', parseFloat(e.target.value) || 0)}
+              disabled={isContractualFieldLocked('chargesRecupMensuelles')}
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                isContractualFieldLocked('chargesRecupMensuelles') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
+              }`}
+              placeholder="Ex: 20.00"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Charges non récupérables mensuelles (€)
+              <span className="text-xs text-gray-500 block mt-1">
+                À la charge du propriétaire
+              </span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={formData.chargesNonRecupMensuelles || ''}
+              onChange={(e) => handleChange('chargesNonRecupMensuelles', parseFloat(e.target.value) || 0)}
+              disabled={isContractualFieldLocked('chargesNonRecupMensuelles')}
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                isContractualFieldLocked('chargesNonRecupMensuelles') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
+              }`}
+              placeholder="Ex: 35.00"
+            />
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 
@@ -1182,9 +1220,12 @@ export default function LeaseEditModal({
             {/* Upload bail signé - seulement pour ENVOYÉ */}
             {isSent(formData.status) && (
               <Button
+                type="button"
                 variant="outline"
                 className="h-auto p-4 flex flex-col items-center gap-2 w-full cursor-pointer"
-                onClick={() => {
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   openModalWithDocumentType('BAIL_SIGNE', 'Bail signé', {
                     autoLinkingContext: {
                       leaseId: formData.id,
@@ -1284,9 +1325,77 @@ export default function LeaseEditModal({
                 <span className="text-xs text-gray-500">Statut → RÉSILIÉ</span>
               </Button>
             )}
+
+            {/* Réindexer le loyer - pour baux ACTIF ou SIGNÉ */}
+            {(formData.status === 'ACTIF' || formData.status === 'SIGNÉ' || formData.status === 'SIGNE') && lease && (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-auto p-4 flex flex-col items-center gap-2 border-blue-200 text-blue-600 hover:bg-blue-50"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  loadIndexationHistory();
+                  setShowIndexationModal(true);
+                }}
+              >
+                <TrendingUp className="h-6 w-6 text-blue-500" />
+                <span className="font-medium">Réindexer le loyer</span>
+                <span className="text-xs text-gray-500">Mettre à jour le montant</span>
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
+
+      {/* Historique des réindexations */}
+      {lease && indexationHistory.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Historique des réindexations
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {indexationHistory.map((indexation, idx) => (
+                <div key={indexation.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-blue-500" />
+                      <span className="font-medium text-sm">
+                        {new Date(indexation.effectiveDate).toLocaleDateString('fr-FR')}
+                      </span>
+                      {indexation.indexType && (
+                        <Badge variant="outline" className="text-xs">
+                          {indexation.indexType}
+                        </Badge>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500">
+                      {new Date(indexation.createdAt).toLocaleDateString('fr-FR')}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Ancien loyer :</span>
+                      <span className="ml-2 font-medium">{indexation.previousRentAmount.toFixed(2)} €</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Nouveau loyer :</span>
+                      <span className="ml-2 font-medium text-green-600">{indexation.newRentAmount.toFixed(2)} €</span>
+                    </div>
+                  </div>
+                  {indexation.reason && (
+                    <p className="text-xs text-gray-500 mt-2">{indexation.reason}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 
@@ -1420,6 +1529,277 @@ export default function LeaseEditModal({
           showCancel={true}
         />
       )}
+
+      {/* Modal de réindexation */}
+      {showIndexationModal && lease && (
+        <RentIndexationModal
+          isOpen={showIndexationModal}
+          onClose={() => setShowIndexationModal(false)}
+          lease={lease}
+          currentRentAmount={formData.rentAmount}
+          onSuccess={async () => {
+            // Recharger les données du bail
+            const leaseResponse = await fetch(`/api/leases/${lease.id}`);
+            if (leaseResponse.ok) {
+              const updatedLease = await leaseResponse.json();
+              setFormData(prev => ({
+                ...prev,
+                rentAmount: updatedLease.rentAmount || prev.rentAmount
+              }));
+            }
+            // Recharger l'historique
+            await loadIndexationHistory();
+            notify2.success('Réindexation effectuée', 'Le loyer a été mis à jour avec succès');
+          }}
+        />
+      )}
+    </Modal>
+  );
+}
+
+// Composant modal de réindexation
+interface RentIndexationModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  lease: any;
+  currentRentAmount: number;
+  onSuccess: () => void;
+}
+
+function RentIndexationModal({ isOpen, onClose, lease, currentRentAmount, onSuccess }: RentIndexationModalProps) {
+  const [formData, setFormData] = useState({
+    newRentAmount: currentRentAmount,
+    effectiveDate: new Date().toISOString().split('T')[0],
+    indexType: 'MANUAL' as 'IRL' | 'ILAT' | 'ICC' | 'MANUAL' | '',
+    indexValue: undefined as number | undefined,
+    indexDate: undefined as string | undefined,
+    reason: '',
+    notes: ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Mettre à jour le nouveau loyer quand le loyer actuel change
+  useEffect(() => {
+    if (isOpen) {
+      setFormData(prev => ({
+        ...prev,
+        newRentAmount: currentRentAmount
+      }));
+    }
+  }, [currentRentAmount, isOpen]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrors({});
+    setIsSubmitting(true);
+
+    try {
+      // Validation
+      if (formData.newRentAmount <= 0) {
+        setErrors({ newRentAmount: 'Le nouveau loyer doit être positif' });
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!formData.effectiveDate) {
+        setErrors({ effectiveDate: 'La date d\'effet est requise' });
+        setIsSubmitting(false);
+        return;
+      }
+
+      const response = await fetch(`/api/leases/${lease.id}/index-rent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          newRentAmount: formData.newRentAmount,
+          effectiveDate: formData.effectiveDate,
+          indexType: formData.indexType || undefined,
+          indexValue: formData.indexValue || undefined,
+          indexDate: formData.indexDate || undefined,
+          reason: formData.reason || undefined,
+          notes: formData.notes || undefined
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erreur lors de la réindexation');
+      }
+
+      onSuccess();
+      onClose();
+    } catch (error) {
+      console.error('Error indexing rent:', error);
+      notify2.error('Erreur', error instanceof Error ? error.message : 'Erreur lors de la réindexation');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Réindexer le loyer"
+      size="md"
+      footer={
+        <div className="flex gap-3">
+          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
+            Annuler
+          </Button>
+          <Button onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? 'Enregistrement...' : 'Enregistrer la réindexation'}
+          </Button>
+        </div>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Informations actuelles */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h4 className="font-medium text-blue-900 mb-2">Loyer actuel</h4>
+          <p className="text-2xl font-bold text-blue-900">{currentRentAmount.toFixed(2)} €</p>
+        </div>
+
+        {/* Nouveau loyer */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            <span className="text-red-500">*</span> Nouveau loyer mensuel (€)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            value={formData.newRentAmount}
+            onChange={(e) => setFormData(prev => ({ ...prev, newRentAmount: parseFloat(e.target.value) || 0 }))}
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              errors.newRentAmount ? 'border-red-500' : 'border-gray-300'
+            }`}
+            required
+          />
+          {errors.newRentAmount && <p className="text-red-500 text-sm mt-1">{errors.newRentAmount}</p>}
+        </div>
+
+        {/* Date d'effet */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            <span className="text-red-500">*</span> Date d'effet
+          </label>
+          <input
+            type="date"
+            value={formData.effectiveDate}
+            onChange={(e) => setFormData(prev => ({ ...prev, effectiveDate: e.target.value }))}
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              errors.effectiveDate ? 'border-red-500' : 'border-gray-300'
+            }`}
+            required
+          />
+          {errors.effectiveDate && <p className="text-red-500 text-sm mt-1">{errors.effectiveDate}</p>}
+        </div>
+
+        {/* Type d'indice */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Type d'indice (optionnel)
+          </label>
+          <select
+            value={formData.indexType}
+            onChange={(e) => setFormData(prev => ({ ...prev, indexType: e.target.value as any }))}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          >
+            <option value="">Aucun indice</option>
+            <option value="IRL">IRL (Indice de Référence des Loyers)</option>
+            <option value="ILAT">ILAT (Indice des Loyers à l'Ancien)</option>
+            <option value="ICC">ICC (Indice du Coût de la Construction)</option>
+            <option value="MANUAL">Manuel</option>
+          </select>
+        </div>
+
+        {/* Valeur de l'indice (si indice sélectionné) */}
+        {formData.indexType && formData.indexType !== '' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Valeur de l'indice
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.indexValue || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, indexValue: parseFloat(e.target.value) || undefined }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Ex: 123.45"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Date de référence de l'indice
+              </label>
+              <input
+                type="date"
+                value={formData.indexDate || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, indexDate: e.target.value || undefined }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Raison */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Raison de la réindexation (optionnel)
+          </label>
+          <input
+            type="text"
+            value={formData.reason}
+            onChange={(e) => setFormData(prev => ({ ...prev, reason: e.target.value }))}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            placeholder="Ex: Révision annuelle selon IRL"
+          />
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Notes (optionnel)
+          </label>
+          <textarea
+            value={formData.notes}
+            onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+            rows={3}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            placeholder="Notes supplémentaires..."
+          />
+        </div>
+
+        {/* Aperçu de la variation */}
+        {formData.newRentAmount !== currentRentAmount && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <h4 className="font-medium text-green-900 mb-2">Variation</h4>
+            <div className="flex items-center gap-4">
+              <div>
+                <span className="text-sm text-gray-600">Ancien :</span>
+                <span className="ml-2 font-medium">{currentRentAmount.toFixed(2)} €</span>
+              </div>
+              <div>→</div>
+              <div>
+                <span className="text-sm text-gray-600">Nouveau :</span>
+                <span className="ml-2 font-medium text-green-600">{formData.newRentAmount.toFixed(2)} €</span>
+              </div>
+              <div className="ml-auto">
+                <span className="text-sm text-gray-600">Différence :</span>
+                <span className={`ml-2 font-medium ${formData.newRentAmount > currentRentAmount ? 'text-green-600' : 'text-red-600'}`}>
+                  {formData.newRentAmount > currentRentAmount ? '+' : ''}
+                  {(formData.newRentAmount - currentRentAmount).toFixed(2)} €
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </form>
     </Modal>
   );
 }

@@ -44,18 +44,23 @@ export default function LeaseFormModal({
   
   useEffect(() => {
     if (isOpen) {
-      // Charger les propriétés
-      fetch('/api/properties')
-        .then(res => res.json())
-        .then(data => setProperties(data || []))
-        .catch(err => console.error('Error loading properties:', err));
-      
-      // Charger les locataires
-      fetch('/api/tenants')
+      // Charger les propriétés avec une limite élevée pour récupérer tous les biens
+      fetch('/api/properties?limit=1000')
         .then(res => res.json())
         .then(data => {
-          // L'API peut retourner soit un tableau direct, soit { tenants: [] }
-          setTenants(Array.isArray(data) ? data : (data.tenants || []));
+          // L'API peut retourner { data: [...], total, ... } ou directement un tableau
+          const propertiesList = data?.data || data?.properties || data?.items || (Array.isArray(data) ? data : []);
+          setProperties(Array.isArray(propertiesList) ? propertiesList : []);
+        })
+        .catch(err => console.error('Error loading properties:', err));
+      
+      // Charger les locataires avec une limite élevée pour récupérer tous les locataires
+      fetch('/api/tenants?limit=1000')
+        .then(res => res.json())
+        .then(data => {
+          // L'API peut retourner { data: [...], total, ... } ou directement un tableau
+          const tenantsList = data?.data || data?.tenants || data?.items || (Array.isArray(data) ? data : []);
+          setTenants(Array.isArray(tenantsList) ? tenantsList : []);
         })
         .catch(err => console.error('Error loading tenants:', err));
     }
