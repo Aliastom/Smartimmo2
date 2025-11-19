@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { SkipToContent } from '@/components/ui/SkipToContent';
+import { AppVersionBadge } from './AppVersionBadge';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/utils/cn';
 
@@ -81,6 +82,13 @@ export function AppShell({ children, className, requiresAuth }: AppShellProps) {
         )}>
           {children}
         </main>
+        
+        {/* Footer avec version - Affiché uniquement si ce n'est pas une page d'auth */}
+        {!isAuthPage && (
+          <footer className="w-full flex justify-end px-4 py-2">
+            <AppVersionBadge />
+          </footer>
+        )}
       </div>
     </div>
   );
