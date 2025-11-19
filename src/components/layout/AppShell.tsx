@@ -34,7 +34,7 @@ export function AppShell({ children, className, requiresAuth }: AppShellProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
       {/* Skip to content */}
       <SkipToContent />
 
@@ -81,9 +81,9 @@ export function AppShell({ children, className, requiresAuth }: AppShellProps) {
             />
           </div>
 
-          {/* Sidebar desktop - Relative dans le flow */}
+          {/* Sidebar desktop - Fixed à gauche */}
           <div className={cn(
-            "hidden lg:block lg:relative lg:h-screen",
+            "hidden lg:block lg:fixed lg:inset-y-0 lg:left-0 lg:z-30",
             sidebarCollapsed ? "lg:w-16" : "lg:w-64"
           )}>
             <Sidebar
@@ -96,7 +96,7 @@ export function AppShell({ children, className, requiresAuth }: AppShellProps) {
 
       {/* Main content */}
       <div className={cn(
-        "flex-1 flex flex-col min-h-0",
+        "flex-1 flex flex-col min-h-0 w-full",
         !isAuthPage && (sidebarCollapsed ? "lg:pl-16" : "lg:pl-64")
       )}
       >
