@@ -24,6 +24,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
 import { UserDisplay } from '@/components/auth/UserDisplay';
+import { AppVersionBadge } from './AppVersionBadge';
 
 interface UserInfo {
   id: string;
@@ -146,8 +147,8 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
     <aside className={cn(
       "h-full bg-white border-r border-gray-200 transition-all duration-300 flex flex-col",
       collapsed ? "w-16" : "w-64 max-w-[85vw] sm:max-w-none", // Limiter à 85% de la largeur d'écran sur mobile
-      "lg:relative lg:translate-x-0",
-      "fixed inset-y-0 left-0 z-30",
+      // Sur desktop, la sidebar est relative (gérée par AppShell)
+      // Sur mobile, elle est fixed (gérée par AppShell)
       className
     )}>
       {/* Collapse button */}
@@ -213,6 +214,21 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
           );
         })}
       </nav>
+
+      {/* Badge de version - Au-dessus du profil utilisateur */}
+      <div className="border-t border-gray-200 px-4 py-2 flex-shrink-0">
+        {!collapsed ? (
+          <div className="flex justify-center">
+            <AppVersionBadge />
+          </div>
+        ) : (
+          <div className="flex justify-center">
+            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
+              <span className="text-[8px] text-slate-400 font-mono">v</span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Utilisateur connecté - Le badge Administrateur est géré par UserDisplay - Toujours en bas */}
       {isAuthenticated && (

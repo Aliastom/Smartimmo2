@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { SkipToContent } from '@/components/ui/SkipToContent';
-import { AppVersionBadge } from './AppVersionBadge';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/utils/cn';
 
@@ -56,16 +55,30 @@ export function AppShell({ children, className, requiresAuth }: AppShellProps) {
 
       {/* Sidebar - Masquée sur pages auth */}
       {!isAuthPage && (
-        <div className={cn(
-          "fixed inset-y-0 left-0 z-30 lg:translate-x-0 transition-transform duration-300",
-          sidebarOpen ? "translate-x-0" : "-translate-x-full",
-          "lg:top-16" // Laisser de l'espace pour la topbar sur desktop
-        )}>
-          <Sidebar
-            collapsed={sidebarCollapsed}
-            onCollapsedChange={setSidebarCollapsed}
-          />
-        </div>
+        <>
+          {/* Sidebar mobile - Overlay fixed */}
+          <div className={cn(
+            "fixed inset-y-0 left-0 z-30 transition-transform duration-300 lg:hidden",
+            sidebarOpen ? "translate-x-0" : "-translate-x-full",
+            "top-16" // Laisser de l'espace pour la topbar
+          )}>
+            <Sidebar
+              collapsed={sidebarCollapsed}
+              onCollapsedChange={setSidebarCollapsed}
+            />
+          </div>
+
+          {/* Sidebar desktop - Relative dans le flow */}
+          <div className={cn(
+            "hidden lg:block lg:relative lg:top-16 lg:h-[calc(100vh-4rem)]",
+            sidebarCollapsed ? "lg:w-16" : "lg:w-64"
+          )}>
+            <Sidebar
+              collapsed={sidebarCollapsed}
+              onCollapsedChange={setSidebarCollapsed}
+            />
+          </div>
+        </>
       )}
 
       {/* Main content */}
@@ -82,13 +95,6 @@ export function AppShell({ children, className, requiresAuth }: AppShellProps) {
         )}>
           {children}
         </main>
-        
-        {/* Footer avec version - Affiché uniquement si ce n'est pas une page d'auth */}
-        {!isAuthPage && (
-          <footer className="w-full flex justify-end items-center px-4 py-2 bg-gray-50 border-t border-gray-100 shrink-0">
-            <AppVersionBadge />
-          </footer>
-        )}
       </div>
     </div>
   );
