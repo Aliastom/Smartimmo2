@@ -156,27 +156,68 @@ export async function POST(req: Request) {
         
         console.log(`[OCR] pdf-parse extracted ${raw.length} chars`);
         
-        // Si texte < 80 chars → PDF scanné → fallback OCR Tesseract
+        // Si texte < 80 chars → PDF scanné → fallback OCR.space (plus fiable que Tesseract)
         if (raw.length < 80) {
-          console.log('[OCR] PDF appears scanned (< 80 chars), switching to Tesseract OCR');
-          source = 'tesseract';
+          console.log('[OCR] PDF appears scanned (< 80 chars), switching to OCR.space API');
+          source = 'tesseract'; // Garder le même nom de source pour compatibilité
           
           try {
-            const { createWorker } = await import('tesseract.js');
-            const worker = await createWorker('fra+eng');
-            await worker.setParameters({ preserve_interword_spaces: '1' });
+            // Convertir le buffer PDF en base64 pour l'API
+            const pdfContent = processBuffer.toString('base64');
             
-            // Pour un PDF scanné, on OCR le buffer directement
-            // (Tesseract peut gérer les PDF multi-pages)
-            const { data: ocrData } = await worker.recognize(processBuffer);
-            raw2 = ensureText(ocrData?.text).trim();
+            // Optionnel : clé API OCR.space (gratuit sans clé, mais limité à 25k/jour avec clé)
+            const ocrSpaceApiKey = process.env.OCR_SPACE_API_KEY || 'helloworld'; // 'helloworld' = clé par défaut gratuite
             
-            await worker.terminate();
+            console.log('[OCR] Appel OCR.space API pour le PDF scanné...');
             
-            console.log(`[OCR] Tesseract extracted ${raw2.length} chars from PDF`);
+            // Appel à l'API REST OCR.space pour PDF (gratuit, 25 000 requêtes/jour)
+            const ocrSpaceResponse = await fetch(
+              'https://api.ocr.space/parse/pdf',
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                  base64PDF: `data:${actualFileType};base64,${pdfContent}`,
+                  apikey: ocrSpaceApiKey,
+                  language: 'fre', // Français
+                  isOverlayRequired: 'false',
+                  detectOrientation: 'true',
+                  scale: 'true',
+                }),
+              }
+            );
+
+            console.log('[OCR] Réponse OCR.space API status:', ocrSpaceResponse.status);
+
+            if (!ocrSpaceResponse.ok) {
+              const errorData = await ocrSpaceResponse.json().catch(() => ({}));
+              console.error('[OCR] Erreur OCR.space API pour PDF:', errorData);
+              // Continuer avec le texte de pdf-parse même s'il est court
+              raw2 = '';
+            } else {
+              const ocrSpaceResult = await ocrSpaceResponse.json();
+              console.log('[OCR] Résultat OCR.space API pour PDF:', JSON.stringify(ocrSpaceResult).substring(0, 500));
+              
+              // Vérifier si l'OCR a réussi
+              if (ocrSpaceResult.OCRExitCode === 1 && ocrSpaceResult.ParsedResults && ocrSpaceResult.ParsedResults.length > 0) {
+                // Pour les PDFs, concaténer le texte de toutes les pages
+                const allText = ocrSpaceResult.ParsedResults
+                  .map((page: any) => page.ParsedText || '')
+                  .join('\n\n')
+                  .trim();
+                
+                raw2 = allText;
+                console.log(`[OCR] OCR.space extrait ${raw2.length} caractères du PDF scanné (${ocrSpaceResult.ParsedResults.length} page(s))`);
+              } else {
+                console.log('[OCR] Aucun texte détecté dans le PDF scanné (ExitCode:', ocrSpaceResult.OCRExitCode, ')');
+                raw2 = '';
+              }
+            }
             
-          } catch (tesseractError) {
-            console.error('[OCR] Erreur Tesseract fallback:', tesseractError);
+          } catch (ocrError) {
+            console.error('[OCR] Erreur OCR.space pour PDF:', ocrError);
             // Continuer avec le texte de pdf-parse même s'il est court
             raw2 = '';
           }
