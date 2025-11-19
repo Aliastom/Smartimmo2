@@ -64,13 +64,6 @@ export default function RootLayout({
         <ThemeProvider>
           <QueryProvider>
             <LoadingProvider>
-              <SmartTopLoader
-                color="#0ea5e9"
-                height={5}
-                shadowColor="rgba(14, 165, 233, 0.5)"
-                initialProgress={20}
-                zIndex={9999}
-              />
               <AlertProvider>
               <TooltipProvider>
                 {/* RouteProgressProvider désactivé - SmartTopLoader gère maintenant les navigations */}
