@@ -33,8 +33,9 @@ export function PropertySubNav({ propertyId, activeTab, counts }: PropertySubNav
   const { isLoading } = useLoading();
 
   return (
-    <div className="property-glass-nav">
-      {tabs.map((tab, index) => {
+    <div className="w-full overflow-x-auto sm:overflow-x-visible">
+      <div className="property-glass-nav min-w-max sm:min-w-0">
+        {tabs.map((tab, index) => {
           const href = `/biens/${propertyId}${tab.href}`;
           const isActive = activeTab ? tab.id === activeTab : pathname.startsWith(href);
           const count = tab.countKey && counts ? counts[tab.countKey] : undefined;
@@ -80,6 +81,7 @@ export function PropertySubNav({ propertyId, activeTab, counts }: PropertySubNav
             </Link>
           );
         })}
+      </div>
     </div>
   );
 }

@@ -46,7 +46,7 @@ export function AppShell({ children, className, requiresAuth }: AppShellProps) {
           className={cn(
             "fixed top-4 left-4 z-50 lg:hidden",
             "h-12 w-12 rounded-full shadow-lg",
-            "bg-primary-600 hover:bg-primary-700 text-white"
+            "bg-sky-400 hover:bg-sky-500 text-white"
           )}
           onClick={toggleSidebar}
           aria-label={sidebarOpen ? "Fermer le menu" : "Ouvrir le menu"}
