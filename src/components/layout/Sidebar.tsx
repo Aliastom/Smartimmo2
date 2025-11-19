@@ -145,7 +145,7 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
   return (
     <aside className={cn(
       "h-full bg-white border-r border-gray-200 transition-all duration-300 flex flex-col",
-      collapsed ? "w-16" : "w-64",
+      collapsed ? "w-16" : "w-64 max-w-[85vw] sm:max-w-none", // Limiter à 85% de la largeur d'écran sur mobile
       "lg:relative lg:translate-x-0",
       "fixed inset-y-0 left-0 z-30",
       className
@@ -159,7 +159,7 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
           variant="ghost"
           size="icon"
           onClick={toggleCollapse}
-          className="ml-auto lg:block hidden"
+          className="ml-auto hidden lg:block"
           aria-label={collapsed ? "Étendre la sidebar" : "Réduire la sidebar"}
         >
           {collapsed ? (
