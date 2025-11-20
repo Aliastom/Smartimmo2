@@ -149,6 +149,7 @@ export async function GET(
       size: document.size,
       mime: document.mime,
       url: document.url,
+      uploadSessionId: document.uploadSessionId, // Inclure l'ID de session pour réutilisation
       extractedText: document.extractedText, // Inclure le texte OCR pour les suggestions
       // Prédictions avec le vrai processus de reconnaissance
       predictions: await getRealPredictions(document),

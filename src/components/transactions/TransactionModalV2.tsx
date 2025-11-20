@@ -1094,15 +1094,54 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           
           sessionInitializedRef.current = true;
           
-          // FORCER le nettoyage complet pour une nouvelle transaction
-          await clearStaging();
-          setLinkedDocuments([]);
-          setStagedDocuments([]);
-          setStagedLinks([]); // Clear staged links
-          const newSessionId = await createUploadSession({ scope: 'transaction:new' });
+          let sessionIdToUse: string | null = null;
+          
+          // Si on a un document suggéré, récupérer sa session d'upload
+          if (suggestionMeta?.documentId) {
+            try {
+              console.log('[TransactionModal] 📄 Récupération de la session du document uploadé:', suggestionMeta.documentId);
+              const docResponse = await fetch(`/api/uploads/staged/${suggestionMeta.documentId}`);
+              if (docResponse.ok) {
+                const docData = await docResponse.json();
+                if (docData.uploadSessionId) {
+                  sessionIdToUse = docData.uploadSessionId;
+                  console.log('[TransactionModal] ✅ Session du document récupérée:', sessionIdToUse);
+                  
+                  // Charger les documents de la session existante
+                  await loadStagedDocuments(sessionIdToUse);
+                  
+                  // Charger aussi les liens vers documents existants
+                  try {
+                    const sessionResponse = await fetch(`/api/uploads/session/${sessionIdToUse}`);
+                    if (sessionResponse.ok) {
+                      const sessionData = await sessionResponse.json();
+                      if (sessionData.success) {
+                        setStagedLinks(sessionData.links || []);
+                        console.log('[TransactionModal] Liens vers documents existants chargés:', sessionData.links?.length || 0);
+                      }
+                    }
+                  } catch (error) {
+                    console.error('[TransactionModal] Erreur lors du chargement des liens:', error);
+                  }
+                }
+              }
+            } catch (error) {
+              console.warn('[TransactionModal] ⚠️ Erreur lors de la récupération de la session du document:', error);
+            }
+          }
+          
+          // Si pas de session existante, créer une nouvelle
+          if (!sessionIdToUse) {
+            // FORCER le nettoyage complet pour une nouvelle transaction
+            await clearStaging();
+            setLinkedDocuments([]);
+            setStagedDocuments([]);
+            setStagedLinks([]); // Clear staged links
+            sessionIdToUse = await createUploadSession({ scope: 'transaction:new' });
+          }
           
           // Stocker l'ID pour la liaison du document
-          (window as any).__currentUploadSessionId = newSessionId;
+          (window as any).__currentUploadSessionId = sessionIdToUse;
           
           // En mode création, le montant est en mode auto par défaut
           setIsAutoAmount(true);
