@@ -105,13 +105,60 @@ export function UploadReviewModalProvider({ children }: { children: ReactNode })
       console.log('[UploadReviewModalContext] Mobile détecté, utilisation du menu natif iOS');
     }
     
-    input.onchange = (e) => {
-      const files = Array.from((e.target as HTMLInputElement).files || []);
-      console.log('[UploadReviewModalContext] Files selected:', files.length, files.map(f => ({ name: f.name, type: f.type, size: f.size })));
+    // Gérer l'événement change (plus fiable sur iOS)
+    const handleFileChange = (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      const files = Array.from(target.files || []);
+      console.log('[UploadReviewModalContext] handleFileChange triggered:', files.length, 'files');
+      console.log('[UploadReviewModalContext] Files details:', files.map(f => ({ name: f.name, type: f.type, size: f.size })));
+      
       if (files.length > 0) {
-        notify2.success(`✅ ${files.length} fichier(s) sélectionné(s)`);
-        openModal(files, config);
+        // Vérifier que les fichiers ont une taille valide (important pour iOS)
+        const validFiles = files.filter(f => f.size > 0);
+        
+        if (validFiles.length === 0) {
+          console.error('[UploadReviewModalContext] Aucun fichier valide (taille 0)');
+          notify2.error('Erreur', 'Le fichier est vide. Réessayez.');
+          return;
+        }
+        
+        console.log('[UploadReviewModalContext] Opening modal with', validFiles.length, 'valid files');
+        notify2.success(`✅ ${validFiles.length} fichier(s) sélectionné(s)`);
+        
+        // Utiliser setTimeout pour s'assurer que le fichier est complètement chargé (surtout sur iOS)
+        setTimeout(() => {
+          openModal(validFiles, config);
+        }, 100);
+      } else {
+        console.warn('[UploadReviewModalContext] Aucun fichier sélectionné');
       }
+    };
+    
+    // Ajouter les deux événements pour meilleure compatibilité iOS
+    input.addEventListener('change', handleFileChange);
+    input.addEventListener('input', handleFileChange);
+    
+    // Cleanup après utilisation
+    const cleanup = () => {
+      input.removeEventListener('change', handleFileChange);
+      input.removeEventListener('input', handleFileChange);
+    };
+    
+    // Timeout de sécurité pour nettoyer si rien ne se passe
+    const timeout = setTimeout(() => {
+      cleanup();
+    }, 30000); // 30 secondes
+    
+    input.onchange = (e) => {
+      clearTimeout(timeout);
+      handleFileChange(e);
+      cleanup();
+    };
+    
+    input.oninput = (e) => {
+      clearTimeout(timeout);
+      handleFileChange(e);
+      cleanup();
     };
     
     input.click();

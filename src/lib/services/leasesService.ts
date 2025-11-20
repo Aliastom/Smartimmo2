@@ -338,17 +338,26 @@ export class LeasesService {
       const daysUntilIndexation = getDaysUntilIndexation(lease);
 
       // VÃ©rifier si le bail a un document BAIL_SIGNE liÃ©
-      const hasBailSigneDocument = await prisma.documentLink.count({
-        where: {
-          linkedType: 'lease',
-          linkedId: lease.id,
-          Document: {
-            DocumentType: {
-              code: 'BAIL_SIGNE'
+      // Gestion d'erreur pour éviter que l'échec de cette requête fasse échouer toute la recherche
+      let hasBailSigneDocument = false;
+      try {
+        hasBailSigneDocument = await prisma.documentLink.count({
+          where: {
+            linkedType: 'lease',
+            linkedId: lease.id,
+            Document: {
+              DocumentType: {
+                code: 'BAIL_SIGNE'
+              }
             }
           }
-        }
-      }) > 0;
+        }) > 0;
+      } catch (error) {
+        // En cas d'erreur (ex: problème de connexion DB), on continue avec false
+        // On log l'erreur pour le débogage mais on ne fait pas échouer toute la requête
+        console.error(`[LeasesService] Erreur lors de la vérification du document BAIL_SIGNE pour le lease ${lease.id}:`, error);
+        hasBailSigneDocument = false;
+      }
 
       return {
         id: lease.id,
