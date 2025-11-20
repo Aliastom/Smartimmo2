@@ -1541,8 +1541,9 @@ export function UploadReviewModal({
   return (
     <>
     <Dialog open={isOpen && !showTransactionModal} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto" aria-describedby={modalDescId}>
-        <DialogHeader>
+      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col p-0" aria-describedby={modalDescId}>
+        {/* Header fixe */}
+        <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b">
           <DialogTitle>
             Revuess de l'upload - {currentIndex + 1} / {previews.length}
           </DialogTitle>
@@ -1551,13 +1552,15 @@ export function UploadReviewModal({
           </DialogDescription>
         </DialogHeader>
 
-        {!currentPreview ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            <span className="ml-3">Chargement...</span>
-          </div>
-        ) : (
-          <div className="space-y-6">
+        {/* Contenu scrollable */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
+          {!currentPreview ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+              <span className="ml-3">Chargement...</span>
+            </div>
+          ) : (
+            <div className="space-y-6">
             {/* Statut */}
             <div className="flex items-center gap-2">
               {currentPreview.status === 'uploading' && (
@@ -1924,51 +1927,55 @@ export function UploadReviewModal({
               </TabsContent>
             </Tabs>
 
-            {/* Actions */}
-            <div className="flex justify-between items-center pt-4 border-t">
+            </div>
+          )}
+        </div>
+
+        {/* Footer fixe */}
+        {currentPreview && (
+          <div className="flex justify-between items-center px-6 py-4 border-t flex-shrink-0 bg-white">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (currentIndex > 0) {
+                  setCurrentIndex(currentIndex - 1);
+                  setKeepDuplicate(false);
+                }
+              }}
+              disabled={currentIndex === 0}
+            >
+              Précédent
+            </Button>
+
+            <div className="flex gap-2">
               <Button
                 variant="outline"
-                onClick={() => {
-                  if (currentIndex > 0) {
-                    setCurrentIndex(currentIndex - 1);
-                    setKeepDuplicate(false);
-                  }
-                }}
-                disabled={currentIndex === 0}
+                onClick={onClose}
               >
-                Précédent
+                <X className="h-4 w-4 mr-1" />
+                Annuler
               </Button>
-
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={onClose}
-                >
-                  <X className="h-4 w-4 mr-1" />
-                  Annuler
-                </Button>
-                <Button
-                  onClick={handleConfirm}
-                  disabled={
-                    !selectedType ||
-                    (currentPreview.status !== 'ready' && currentPreview.status !== 'duplicate_detected') ||
-                    isConfirming ||
-                    (currentPreview.duplicate.isDuplicate && !keepDuplicate)
-                  }
-                >
-                  {isConfirming ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                      Enregistrement...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-4 w-4 mr-1" />
-                      {currentIndex < previews.length - 1 ? 'Enregistrer et suivant' : 'Enregistrer'}
-                    </>
-                  )}
-                </Button>
-              </div>
+              <Button
+                onClick={handleConfirm}
+                disabled={
+                  !selectedType ||
+                  (currentPreview.status !== 'ready' && currentPreview.status !== 'duplicate_detected') ||
+                  isConfirming ||
+                  (currentPreview.duplicate.isDuplicate && !keepDuplicate)
+                }
+              >
+                {isConfirming ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    Enregistrement...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 mr-1" />
+                    {currentIndex < previews.length - 1 ? 'Enregistrer et suivant' : 'Enregistrer'}
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         )}
