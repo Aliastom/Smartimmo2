@@ -154,28 +154,55 @@ export async function POST(request: NextRequest) {
     let extractionSource: 'pdf-parse' | 'tesseract' | 'pdf-ocr' = 'pdf-parse';
     
     try {
+      console.log('[Upload] Début de l\'appel OCR pour:', file.name, file.type, file.size, 'bytes');
+      
       // Appel OCR
       const ocrFormData = new FormData();
       ocrFormData.append('file', file);
       
-      const ocrResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/ocr`, {
+      const ocrUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/ocr`;
+      console.log('[Upload] Appel OCR à:', ocrUrl);
+      
+      const ocrResponse = await fetch(ocrUrl, {
         method: 'POST',
         body: ocrFormData,
       });
 
+      console.log('[Upload] Réponse OCR status:', ocrResponse.status, ocrResponse.statusText);
+
       if (ocrResponse.ok) {
         const ocrResult = await ocrResponse.json();
+        console.log('[Upload] Résultat OCR:', {
+          ok: ocrResult.ok,
+          textLength: ocrResult?.text?.length || 0,
+          source: ocrResult.meta?.source,
+          hasError: !!ocrResult.error
+        });
+        
         if (ocrResult.ok) {
           rawText = ensureText(ocrResult?.text);
           extractionSource = ocrResult.meta?.source || 'pdf-parse';
+          console.log('[Upload] ✅ OCR réussi:', rawText.length, 'caractères extraits (source:', extractionSource, ')');
+          
+          // Afficher un aperçu du texte extrait (premiers 200 caractères)
+          if (rawText.length > 0) {
+            console.log('[Upload] Aperçu texte OCR:', rawText.substring(0, 200));
+          }
+        } else {
+          console.error('[Upload] ❌ OCR échoué:', ocrResult.error);
         }
+      } else {
+        const errorText = await ocrResponse.text().catch(() => 'Erreur inconnue');
+        console.error('[Upload] ❌ Erreur HTTP OCR:', ocrResponse.status, errorText);
       }
     } catch (ocrError) {
-      console.error('[Upload] Erreur extraction OCR:', ocrError);
+      console.error('[Upload] ❌ Exception lors de l\'appel OCR:', ocrError);
     }
 
     if (!rawText) {
-      console.warn('[Upload] OCR vide ou non exploitable pour', file.name);
+      console.warn('[Upload] ⚠️ OCR vide ou non exploitable pour', file.name, '- Longueur du texte:', rawText.length);
+    } else {
+      console.log('[Upload] ✅ Texte OCR extrait avec succès:', rawText.length, 'caractères');
     }
 
     // Classification

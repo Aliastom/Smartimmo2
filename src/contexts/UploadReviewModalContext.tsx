@@ -1,8 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, ReactNode, Suspense } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { notify2 } from '@/lib/notify2';
-import { MobileUploadOptions } from '@/components/documents/MobileUploadOptions';
 
 export interface UploadReviewModalConfig {
   // Contexte de liaison automatique
@@ -62,8 +61,6 @@ export function UploadReviewModalProvider({ children }: { children: ReactNode })
     files: [],
     config: {}
   });
-  const [showMobileUploadModal, setShowMobileUploadModal] = useState(false);
-  const [pendingConfig, setPendingConfig] = useState<UploadReviewModalConfig>({});
 
   // Ouvrir la modal avec des fichiers et une configuration
   const openModal = useCallback((files: File[], config: UploadReviewModalConfig = {}) => {
@@ -93,24 +90,26 @@ export function UploadReviewModalProvider({ children }: { children: ReactNode })
     console.log('[UploadReviewModalContext] openModalWithFileSelection called');
     notify2.info('📤 Ouverture de la sélection...');
     
-    // Sur mobile, ouvrir une modal intermédiaire avec MobileUploadOptions
-    if (isMobile()) {
-      console.log('[UploadReviewModalContext] Mobile détecté, ouverture de la modal mobile');
-      setPendingConfig(config);
-      setShowMobileUploadModal(true);
-      return;
-    }
-    
-    // Sur desktop, utiliser l'input file classique
+    // Utiliser l'input file natif (iOS affichera le menu natif avec photothèque, caméra, fichiers)
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx';
+    input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,image/*';
     input.multiple = true;
+    
+    // Sur mobile, permettre la capture de caméra directement
+    // iOS utilisera son menu natif avec les options
+    if (isMobile()) {
+      // Sur iOS, avec accept="image/*" ou accept="image/*,application/pdf", 
+      // le menu natif affiche : Photothèque, Prendre une photo, Choisir fichier
+      // Pas besoin de modal intermédiaire
+      console.log('[UploadReviewModalContext] Mobile détecté, utilisation du menu natif iOS');
+    }
     
     input.onchange = (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
+      console.log('[UploadReviewModalContext] Files selected:', files.length, files.map(f => ({ name: f.name, type: f.type, size: f.size })));
       if (files.length > 0) {
-        console.log('[UploadReviewModalContext] Files selected on desktop:', files.length);
+        notify2.success(`✅ ${files.length} fichier(s) sélectionné(s)`);
         openModal(files, config);
       }
     };
@@ -163,16 +162,6 @@ export function UploadReviewModalProvider({ children }: { children: ReactNode })
     closeModal();
   }, [modalState.config, closeModal]);
 
-  // Handler pour les fichiers sélectionnés depuis la modal mobile
-  const handleMobileFilesSelected = useCallback((files: File[]) => {
-    console.log('[UploadReviewModalContext] handleMobileFilesSelected called with:', files.length, 'files');
-    if (files.length > 0) {
-      setShowMobileUploadModal(false);
-      openModal(files, pendingConfig);
-      setPendingConfig({});
-    }
-  }, [openModal, pendingConfig]);
-
   const value: UploadReviewModalContextType = {
     // État de la modal
     isOpen: modalState.isOpen,
@@ -191,57 +180,7 @@ export function UploadReviewModalProvider({ children }: { children: ReactNode })
   return (
     <UploadReviewModalContext.Provider value={value}>
       {children}
-      {/* Modal mobile pour sélection de fichiers */}
-      {showMobileUploadModal && (
-        <MobileUploadModal
-          isOpen={showMobileUploadModal}
-          onClose={() => {
-            setShowMobileUploadModal(false);
-            setPendingConfig({});
-          }}
-          onFilesSelected={handleMobileFilesSelected}
-        />
-      )}
     </UploadReviewModalContext.Provider>
-  );
-}
-
-// Modal mobile pour sélection de fichiers
-function MobileUploadModal({
-  isOpen,
-  onClose,
-  onFilesSelected
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onFilesSelected: (files: File[]) => void;
-}) {
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 md:hidden">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-900">Sélectionner un fichier</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-            aria-label="Fermer"
-          >
-            ✕
-          </button>
-        </div>
-        <div className="space-y-3">
-          <Suspense fallback={<div className="p-4 text-center text-gray-500">Chargement...</div>}>
-            <MobileUploadOptions
-              onFilesSelected={onFilesSelected}
-              acceptedTypes={['application/pdf', 'image/jpeg', 'image/png', 'image/jpg', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']}
-              maxFiles={10}
-            />
-          </Suspense>
-        </div>
-      </div>
-    </div>
   );
 }
 
