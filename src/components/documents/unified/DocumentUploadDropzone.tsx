@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
 import { MobileUploadOptions } from '../MobileUploadOptions';
+import { notify2 } from '@/lib/notify2';
 
 interface DocumentUploadDropzoneProps {
   onSuccess?: (documents: any[]) => void;
@@ -39,8 +40,12 @@ export function DocumentUploadDropzone({
       console.log('[DocumentUploadDropzone] onDrop called with files:', acceptedFiles.length);
       console.log('[DocumentUploadDropzone] Files details:', acceptedFiles.map(f => ({ name: f.name, type: f.type, size: f.size })));
       
+      // Toast visible pour debug
+      notify2.info(`📁 ${acceptedFiles.length} fichier(s) reçu(s)`);
+      
       if (acceptedFiles.length === 0) {
         console.log('[DocumentUploadDropzone] No files, returning');
+        notify2.warning('Aucun fichier sélectionné');
         return;
       }
 
@@ -77,6 +82,17 @@ export function DocumentUploadDropzone({
       });
       
       try {
+        console.log('[DocumentUploadDropzone] Opening modal with config:', {
+          scope: modalScope,
+          propertyId,
+          leaseId,
+          tenantId,
+          autoLinkingDocumentType: hintedTypeKey,
+          filesCount: acceptedFiles.length
+        });
+        
+        notify2.info('📤 Ouverture de la fenêtre d\'upload...');
+        
         openModal(acceptedFiles, {
           scope: modalScope,
           propertyId,
@@ -89,8 +105,10 @@ export function DocumentUploadDropzone({
           }
         });
         console.log('[DocumentUploadDropzone] Modal opened successfully');
+        notify2.success('✅ Fenêtre ouverte', 'OCR en cours...');
       } catch (error) {
         console.error('[DocumentUploadDropzone] Error opening modal:', error);
+        notify2.error('Erreur', 'Impossible d\'ouvrir la fenêtre d\'upload');
         onError?.('Erreur lors de l\'ouverture de la modal');
       }
     },
