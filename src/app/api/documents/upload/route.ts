@@ -556,7 +556,7 @@ function extractFields(text: string): Record<string, string> {
   }
   
   // Dates
-  const datePattern = /\b(\d{1,2})[\/\-.](\ d{1,2})[\/\-.](\d{2,4})\b/g;
+  const datePattern = /\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/g;
   const dates = [...normalized.matchAll(datePattern)];
   if (dates.length > 0) {
     fields.date = dates[0][0];
