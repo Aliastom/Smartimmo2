@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { writeFile } from 'fs/promises';
+import { writeFile, mkdir } from 'fs/promises';
+import { tmpdir } from 'os';
 import path from 'path';
 import { renderToBuffer } from '@react-pdf/renderer';
 import LeasePdf from '@/pdf/LeasePdf';
 import { getProfileData } from '@/lib/services/profileService';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import React from 'react';
 
 
@@ -20,6 +22,10 @@ export async function POST(
     const body = await request.json();
     const { email, message } = body;
 
+    // Authentification
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+
     // Vérifier que le bail existe
     const lease = await prisma.lease.findUnique({
       where: { id: leaseId },
@@ -33,10 +39,28 @@ export async function POST(
       return NextResponse.json({ error: 'Bail non trouvé' }, { status: 404 });
     }
 
+    // Vérifier que le bail appartient à l'organisation
+    if (lease.organizationId !== organizationId) {
+      return NextResponse.json({ error: 'Accès non autorisé' }, { status: 403 });
+    }
+
     // Vérifier que le bail est en statut BROUILLON
     if (lease.status !== 'BROUILLON') {
       return NextResponse.json({ 
         error: 'Le bail doit être en statut BROUILLON pour être envoyé pour signature' 
+      }, { status: 400 });
+    }
+
+    // Vérifier que Property et Tenant existent
+    if (!lease.Property) {
+      return NextResponse.json({ 
+        error: 'Le bien associé au bail est introuvable' 
+      }, { status: 400 });
+    }
+
+    if (!lease.Tenant) {
+      return NextResponse.json({ 
+        error: 'Le locataire associé au bail est introuvable' 
       }, { status: 400 });
     }
 
@@ -54,7 +78,7 @@ export async function POST(
     });
 
     // Récupérer les données du profil pour la signature
-    const profileData = await getProfileData();
+    const profileData = await getProfileData(organizationId);
     
     // Générer le PDF côté serveur avec les données du profil
     const pdfBuffer = await renderToBuffer(React.createElement(LeasePdf, { 
@@ -64,21 +88,25 @@ export async function POST(
       profile: profileData
     }));
     
+    // Utiliser /tmp pour Vercel (lecture seule sur public/)
+    const tempDir = path.join(tmpdir(), 'smartimmo', 'leases');
+    await mkdir(tempDir, { recursive: true });
+    
     // Sauvegarder le PDF
-    const propertyName = lease.Property?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'bien';
-    const tenantName = `${lease.Tenant?.firstName}_${lease.Tenant?.lastName}`.replace(/[^a-zA-Z0-9_]/g, '_');
+    const propertyName = lease.Property.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'bien';
+    const tenantName = `${lease.Tenant.firstName}_${lease.Tenant.lastName}`.replace(/[^a-zA-Z0-9_]/g, '_');
     const pdfFileName = `Bail_${propertyName}_${tenantName}_${new Date(lease.startDate).getFullYear()}.pdf`;
-    const pdfPath = path.join(process.cwd(), 'public', 'uploads', 'leases', pdfFileName);
+    const pdfPath = path.join(tempDir, pdfFileName);
     await writeFile(pdfPath, pdfBuffer);
     
     // Créer l'EML avec le PDF en pièce jointe
     const pdfBase64 = pdfBuffer.toString('base64');
     const emlFileName = `bail-signature-${leaseId}-${Date.now()}.eml`;
-    const emlPath = path.join(process.cwd(), 'public', 'uploads', 'emails', emlFileName);
+    const emlPath = path.join(tempDir, emlFileName);
     
     const emlContent = `From: noreply@smartimmo.fr
-To: ${email || lease.Tenant?.email || 'tenant@example.com'}
-Subject: =?UTF-8?B?${Buffer.from(`Bail à signer - ${lease.Property?.name}`).toString('base64')}?=
+To: ${email || lease.Tenant.email || 'tenant@example.com'}
+Subject: =?UTF-8?B?${Buffer.from(`Bail à signer - ${lease.Property.name}`).toString('base64')}?=
 MIME-Version: 1.0
 Content-Type: multipart/mixed; boundary="boundary123"
 
@@ -88,11 +116,11 @@ Content-Type: multipart/alternative; boundary="boundary456"
 --boundary456
 Content-Type: text/plain; charset=UTF-8
 
-Bonjour ${lease.Tenant?.firstName} ${lease.Tenant?.lastName},
+Bonjour ${lease.Tenant.firstName} ${lease.Tenant.lastName},
 
-Veuillez trouver ci-joint votre bail à signer pour le bien ${lease.Property?.name}.
+Veuillez trouver ci-joint votre bail à signer pour le bien ${lease.Property.name}.
 
-Adresse : ${lease.Property?.address}
+Adresse : ${lease.Property.address || 'Non renseignée'}
 Loyer : ${lease.rentAmount}€/mois
 Charges : ${lease.chargesRecupMensuelles || 0}€/mois
 Début du bail : ${new Date(lease.startDate).toLocaleDateString('fr-FR')}
@@ -108,11 +136,11 @@ L'équipe Smartimmo
 Content-Type: text/html; charset=UTF-8
 
 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-  <h2 style="color: #2563eb;">Bail à signer - ${lease.Property?.name}</h2>
-  <p>Bonjour <strong>${lease.Tenant?.firstName} ${lease.Tenant?.lastName}</strong>,</p>
+  <h2 style="color: #2563eb;">Bail à signer - ${lease.Property.name}</h2>
+  <p>Bonjour <strong>${lease.Tenant.firstName} ${lease.Tenant.lastName}</strong>,</p>
   <p>Veuillez trouver ci-joint votre bail à signer pour le bien :</p>
   <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 15px 0;">
-    <p><strong>Adresse :</strong> ${lease.Property?.address}</p>
+    <p><strong>Adresse :</strong> ${lease.Property.address || 'Non renseignée'}</p>
     <p><strong>Loyer :</strong> ${lease.rentAmount}€/mois</p>
     <p><strong>Charges :</strong> ${lease.chargesRecupMensuelles || 0}€/mois</p>
     <p><strong>Début du bail :</strong> ${new Date(lease.startDate).toLocaleDateString('fr-FR')}</p>
@@ -141,26 +169,49 @@ ${pdfBase64}
 
     console.log('Bail envoyé pour signature:', {
       leaseId,
-      to: email || lease.Tenant?.email,
-      Property: lease.Property?.name,
-      tenant: `${lease.Tenant?.firstName} ${lease.Tenant?.lastName}`,
+      to: email || lease.Tenant.email,
+      Property: lease.Property.name,
+      tenant: `${lease.Tenant.firstName} ${lease.Tenant.lastName}`,
       status: 'SENT'
     });
 
+    // Retourner les URLs de l'API pour servir les fichiers
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    
     return NextResponse.json({
       message: 'Bail envoyé pour signature avec succès',
       lease: updatedLease,
       files: {
-        pdf: `/uploads/leases/${pdfFileName}`,
-        eml: `/uploads/emails/${emlFileName}`
+        pdf: `${baseUrl}/api/leases/${leaseId}/download-pdf?file=${encodeURIComponent(pdfFileName)}`,
+        eml: `${baseUrl}/api/leases/${leaseId}/download-eml?file=${encodeURIComponent(emlFileName)}`
       },
-      downloadUrl: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/uploads/emails/${emlFileName}`
+      downloadUrl: `${baseUrl}/api/leases/${leaseId}/download-eml?file=${encodeURIComponent(emlFileName)}`
     });
 
   } catch (error) {
     console.error('Error sending lease for signature:', error);
+    
+    // Log détaillé pour le débogage
+    if (error instanceof Error) {
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+    }
+    
+    // Retourner un message d'erreur plus détaillé en développement
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? `Erreur lors de l'envoi pour signature: ${error instanceof Error ? error.message : 'Erreur inconnue'}`
+      : 'Erreur lors de l\'envoi pour signature';
+    
     return NextResponse.json(
-      { error: 'Erreur lors de l\'envoi pour signature' },
+      { 
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' && error instanceof Error 
+          ? error.stack 
+          : undefined
+      },
       { status: 500 }
     );
   }
