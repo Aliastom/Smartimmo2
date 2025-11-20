@@ -6,6 +6,18 @@ import { requireAuth } from '@/lib/auth/getCurrentUser';
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
+// Ajouter OPTIONS pour gérer les preflight requests CORS
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const user = await requireAuth();
