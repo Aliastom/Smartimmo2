@@ -2049,7 +2049,7 @@ export function UploadReviewModal({
           }
         }}
         context={{
-          type: transactionSuggestion.suggestions.propertyId ? 'property' : 'global',
+          type: 'global', // Toujours 'global' pour ne pas verrouiller la combobox bien
           propertyId: transactionSuggestion.suggestions.propertyId
         }}
         mode="create"
