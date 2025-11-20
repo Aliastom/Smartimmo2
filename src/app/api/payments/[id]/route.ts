@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { writeFile, mkdir, unlink } from 'fs/promises';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import { validateNatureCategoryType } from '@/utils/accountingStyles';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 // GET /api/payments/[id] - Récupérer un paiement
 
@@ -278,16 +276,33 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         }
       });
 
-      // Supprimer les fichiers physiques depuis /tmp
+      // Supprimer les fichiers depuis Supabase Storage
+      const storageService = getStorageService();
       for (const attachment of attachmentsToDelete) {
         try {
-          // Extraire le nom de fichier de l'URL
-          const urlParts = attachment.url.split('/');
-          const filename = urlParts[urlParts.length - 1];
-          const decodedFilename = decodeURIComponent(filename);
-          const tempDir = join(tmpdir(), 'smartimmo', 'payments', params.id);
-          const filePath = join(tempDir, decodedFilename);
-          await unlink(filePath);
+          // Extraire la clé de stockage de l'URL
+          let storageKey: string | null = null;
+          
+          if (attachment.url.includes('supabase.co')) {
+            // URL Supabase : extraire la clé depuis l'URL
+            const urlParts = attachment.url.split('/');
+            const bucketIndex = urlParts.findIndex(part => part === 'storage' || part === 'v1');
+            if (bucketIndex !== -1 && bucketIndex + 2 < urlParts.length) {
+              storageKey = urlParts.slice(bucketIndex + 2).join('/');
+            }
+          } else if (attachment.url.includes('/api/payments/')) {
+            // Ancien format API : convertir en clé de stockage
+            const urlParts = attachment.url.split('/');
+            const attachmentIndex = urlParts.findIndex(part => part === 'attachment');
+            if (attachmentIndex !== -1 && attachmentIndex + 1 < urlParts.length) {
+              const filename = decodeURIComponent(urlParts[attachmentIndex + 1]);
+              storageKey = `payments/${params.id}/${filename}`;
+            }
+          }
+          
+          if (storageKey) {
+            await storageService.deleteDocument(storageKey);
+          }
         } catch (error) {
           console.warn(`Failed to delete file ${attachment.url}:`, error);
         }
@@ -305,9 +320,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     // Ajouter les nouveaux attachments
     const newAttachments = [];
     if (addAttachments.length > 0) {
-      // Utiliser /tmp pour Vercel (lecture seule sur public/)
-      const tempDir = join(tmpdir(), 'smartimmo', 'payments', params.id);
-      await mkdir(tempDir, { recursive: true });
+      // Utiliser Supabase Storage pour stocker les pièces jointes
+      const storageService = getStorageService();
 
       for (const attachment of addAttachments) {
         // Vérifier la taille (10 Mo max)
@@ -334,11 +348,13 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         const timestamp = Date.now();
         const extension = attachment.filename.split('.').pop();
         const filename = `${timestamp}_${attachment.filename}`;
-        const filePath = join(tempDir, filename);
-        const url = `/api/payments/${params.id}/attachment/${encodeURIComponent(filename)}`;
+        const attachmentKey = `payments/${params.id}/${filename}`;
 
-        // Sauvegarder le fichier
-        await writeFile(filePath, buffer);
+        // Upload vers Supabase Storage
+        await storageService.uploadWithKey(buffer, attachmentKey, attachment.mime);
+        
+        // Obtenir l'URL publique depuis Supabase Storage
+        const url = await storageService.getDocumentUrl(attachmentKey);
 
         // Créer l'entrée en DB
         const newAttachment = await prisma.paymentAttachment.create({
@@ -460,16 +476,33 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: 'Paiement non trouvé' }, { status: 404 });
     }
 
-    // Supprimer les fichiers physiques des pièces jointes depuis /tmp
+    // Supprimer les fichiers depuis Supabase Storage
+    const storageService = getStorageService();
     for (const attachment of payment.PaymentAttachment) {
       try {
-        // Extraire le nom de fichier de l'URL
-        const urlParts = attachment.url.split('/');
-        const filename = urlParts[urlParts.length - 1];
-        const decodedFilename = decodeURIComponent(filename);
-        const tempDir = join(tmpdir(), 'smartimmo', 'payments', params.id);
-        const filePath = join(tempDir, decodedFilename);
-        await unlink(filePath);
+        // Extraire la clé de stockage de l'URL
+        let storageKey: string | null = null;
+        
+        if (attachment.url.includes('supabase.co')) {
+          // URL Supabase : extraire la clé depuis l'URL
+          const urlParts = attachment.url.split('/');
+          const bucketIndex = urlParts.findIndex(part => part === 'storage' || part === 'v1');
+          if (bucketIndex !== -1 && bucketIndex + 2 < urlParts.length) {
+            storageKey = urlParts.slice(bucketIndex + 2).join('/');
+          }
+        } else if (attachment.url.includes('/api/payments/')) {
+          // Ancien format API : convertir en clé de stockage
+          const urlParts = attachment.url.split('/');
+          const attachmentIndex = urlParts.findIndex(part => part === 'attachment');
+          if (attachmentIndex !== -1 && attachmentIndex + 1 < urlParts.length) {
+            const filename = decodeURIComponent(urlParts[attachmentIndex + 1]);
+            storageKey = `payments/${params.id}/${filename}`;
+          }
+        }
+        
+        if (storageKey) {
+          await storageService.deleteDocument(storageKey);
+        }
       } catch (error) {
         console.warn(`Failed to delete file ${attachment.url}:`, error);
       }

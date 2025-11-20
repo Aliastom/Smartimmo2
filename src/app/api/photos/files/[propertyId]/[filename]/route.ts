@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile } from 'fs/promises';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { prisma } from '@/lib/prisma';
+import { getStorageService } from '@/services/storage.service';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,12 +42,12 @@ export async function GET(
       return NextResponse.json({ error: 'Photo non trouvée' }, { status: 404 });
     }
 
-    // Lire le fichier depuis /tmp
-    const tempDir = join(tmpdir(), 'smartimmo', 'photos', propertyId);
-    const filePath = join(tempDir, filename);
+    // Lire le fichier depuis Supabase Storage
+    const storageService = getStorageService();
+    const photoKey = `photos/${propertyId}/${filename}`;
 
     try {
-      const fileBuffer = await readFile(filePath);
+      const fileBuffer = await storageService.downloadDocument(photoKey);
       
       return new NextResponse(fileBuffer, {
         headers: {
@@ -60,7 +58,7 @@ export async function GET(
         },
       });
     } catch (error) {
-      console.error('Error reading photo file:', error);
+      console.error('Error reading photo file from storage:', error);
       return NextResponse.json({ error: 'Fichier photo introuvable' }, { status: 404 });
     }
   } catch (error) {

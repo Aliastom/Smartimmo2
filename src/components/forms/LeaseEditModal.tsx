@@ -397,12 +397,13 @@ export default function LeaseEditModal({
           
           result = await response.json();
           
-          // Télécharger le fichier EML via fetch (nécessaire pour les URLs authentifiées)
+          // Télécharger le fichier EML (URL Supabase signée, publique)
           if (result.downloadUrl) {
             try {
+              // Les URLs Supabase signées sont publiques, pas besoin de credentials
               const fileResponse = await fetch(result.downloadUrl, {
-                credentials: 'include',
                 method: 'GET',
+                // Pas de credentials pour éviter les erreurs CORS avec Supabase
               });
               
               if (!fileResponse.ok) {

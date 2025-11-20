@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile } from 'fs/promises';
-import { tmpdir } from 'os';
-import path from 'path';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { prisma } from '@/lib/prisma';
+import { getStorageService } from '@/services/storage.service';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,12 +33,12 @@ export async function GET(
       return NextResponse.json({ error: 'Accès non autorisé' }, { status: 403 });
     }
 
-    // Lire le fichier depuis /tmp
-    const tempDir = path.join(tmpdir(), 'smartimmo', 'leases');
-    const filePath = path.join(tempDir, fileName);
+    // Lire le fichier depuis Supabase Storage
+    const storageService = getStorageService();
+    const emlKey = `leases/${leaseId}/${fileName}`;
 
     try {
-      const fileBuffer = await readFile(filePath);
+      const fileBuffer = await storageService.downloadDocument(emlKey);
       
       // Encoder le nom de fichier pour le Content-Disposition header
       const encodedFileName = encodeURIComponent(fileName);
@@ -53,7 +51,7 @@ export async function GET(
         },
       });
     } catch (error) {
-      console.error('Error reading EML file:', error);
+      console.error('Error reading EML file from storage:', error);
       return NextResponse.json({ error: 'Fichier EML introuvable' }, { status: 404 });
     }
   } catch (error) {

@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile } from 'fs/promises';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { prisma } from '@/lib/prisma';
+import { getStorageService } from '@/services/storage.service';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,13 +41,13 @@ export async function GET(
       return NextResponse.json({ error: 'Pièce jointe non trouvée' }, { status: 404 });
     }
 
-    // Lire le fichier depuis /tmp
-    const tempDir = join(tmpdir(), 'smartimmo', 'payments', paymentId);
+    // Lire le fichier depuis Supabase Storage
+    const storageService = getStorageService();
     const decodedFilename = decodeURIComponent(filename);
-    const filePath = join(tempDir, decodedFilename);
+    const attachmentKey = `payments/${paymentId}/${decodedFilename}`;
 
     try {
-      const fileBuffer = await readFile(filePath);
+      const fileBuffer = await storageService.downloadDocument(attachmentKey);
       
       return new NextResponse(fileBuffer, {
         headers: {
@@ -60,7 +58,7 @@ export async function GET(
         },
       });
     } catch (error) {
-      console.error('Error reading attachment file:', error);
+      console.error('Error reading attachment file from storage:', error);
       return NextResponse.json({ error: 'Fichier introuvable' }, { status: 404 });
     }
   } catch (error) {

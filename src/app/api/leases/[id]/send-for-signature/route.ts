@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { writeFile, mkdir } from 'fs/promises';
-import { tmpdir } from 'os';
-import path from 'path';
 import { renderToBuffer } from '@react-pdf/renderer';
 import LeasePdf from '@/pdf/LeasePdf';
 import { getProfileData } from '@/lib/services/profileService';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 import React from 'react';
 
 
@@ -88,21 +86,24 @@ export async function POST(
       profile: profileData
     }));
     
-    // Utiliser /tmp pour Vercel (lecture seule sur public/)
-    const tempDir = path.join(tmpdir(), 'smartimmo', 'leases');
-    await mkdir(tempDir, { recursive: true });
+    // Utiliser Supabase Storage pour stocker les fichiers
+    const storageService = getStorageService();
     
-    // Sauvegarder le PDF
+    // Générer les noms de fichiers
     const propertyName = lease.Property.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'bien';
     const tenantName = `${lease.Tenant.firstName}_${lease.Tenant.lastName}`.replace(/[^a-zA-Z0-9_]/g, '_');
     const pdfFileName = `Bail_${propertyName}_${tenantName}_${new Date(lease.startDate).getFullYear()}.pdf`;
-    const pdfPath = path.join(tempDir, pdfFileName);
-    await writeFile(pdfPath, pdfBuffer);
+    const emlFileName = `bail-signature-${leaseId}-${Date.now()}.eml`;
+    
+    // Clés de stockage dans Supabase
+    const pdfKey = `leases/${leaseId}/${pdfFileName}`;
+    const emlKey = `leases/${leaseId}/${emlFileName}`;
+    
+    // Upload du PDF vers Supabase Storage
+    await storageService.uploadWithKey(pdfBuffer, pdfKey, 'application/pdf');
     
     // Créer l'EML avec le PDF en pièce jointe
     const pdfBase64 = pdfBuffer.toString('base64');
-    const emlFileName = `bail-signature-${leaseId}-${Date.now()}.eml`;
-    const emlPath = path.join(tempDir, emlFileName);
     
     const emlContent = `From: noreply@smartimmo.fr
 To: ${email || lease.Tenant.email || 'tenant@example.com'}
@@ -165,7 +166,9 @@ ${pdfBase64}
 --boundary123--
 `;
     
-    await writeFile(emlPath, emlContent);
+    // Upload de l'EML vers Supabase Storage
+    const emlBuffer = Buffer.from(emlContent, 'utf-8');
+    await storageService.uploadWithKey(emlBuffer, emlKey, 'message/rfc822');
 
     console.log('Bail envoyé pour signature:', {
       leaseId,
@@ -175,17 +178,18 @@ ${pdfBase64}
       status: 'SENT'
     });
 
-    // Retourner les URLs de l'API pour servir les fichiers
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    // Obtenir les URLs publiques depuis Supabase Storage
+    const pdfUrl = await storageService.getDocumentUrl(pdfKey);
+    const emlUrl = await storageService.getDocumentUrl(emlKey);
     
     return NextResponse.json({
       message: 'Bail envoyé pour signature avec succès',
       lease: updatedLease,
       files: {
-        pdf: `${baseUrl}/api/leases/${leaseId}/download-pdf?file=${encodeURIComponent(pdfFileName)}`,
-        eml: `${baseUrl}/api/leases/${leaseId}/download-eml?file=${encodeURIComponent(emlFileName)}`
+        pdf: pdfUrl,
+        eml: emlUrl
       },
-      downloadUrl: `${baseUrl}/api/leases/${leaseId}/download-eml?file=${encodeURIComponent(emlFileName)}`
+      downloadUrl: emlUrl
     });
 
   } catch (error) {

@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { unlink } from 'fs/promises';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -72,17 +70,33 @@ export async function DELETE(
       );
     }
 
-    // Supprimer le fichier physique depuis /tmp
+    // Supprimer le fichier depuis Supabase Storage
     try {
-      // Extraire le nom de fichier de l'URL
-      const urlParts = photo.url.split('/');
-      const filename = urlParts[urlParts.length - 1];
-      const decodedFilename = decodeURIComponent(filename);
+      // Extraire la clé de stockage de l'URL
+      // L'URL peut être soit une URL Supabase, soit une URL API
+      let storageKey: string | null = null;
       
-      if (photo.Property) {
-        const tempDir = join(tmpdir(), 'smartimmo', 'photos', photo.Property.id);
-        const filePath = join(tempDir, decodedFilename);
-        await unlink(filePath);
+      if (photo.url.includes('supabase.co')) {
+        // URL Supabase : extraire la clé depuis l'URL
+        const urlParts = photo.url.split('/');
+        const bucketIndex = urlParts.findIndex(part => part === 'storage' || part === 'v1');
+        if (bucketIndex !== -1 && bucketIndex + 2 < urlParts.length) {
+          storageKey = urlParts.slice(bucketIndex + 2).join('/');
+        }
+      } else if (photo.url.includes('/api/photos/files/')) {
+        // Ancien format API : convertir en clé de stockage
+        const urlParts = photo.url.split('/');
+        const propertyIdIndex = urlParts.findIndex(part => part === 'files');
+        if (propertyIdIndex !== -1 && propertyIdIndex + 2 < urlParts.length) {
+          const propertyId = urlParts[propertyIdIndex + 1];
+          const filename = decodeURIComponent(urlParts[propertyIdIndex + 2]);
+          storageKey = `photos/${propertyId}/${filename}`;
+        }
+      }
+      
+      if (storageKey) {
+        const storageService = getStorageService();
+        await storageService.deleteDocument(storageKey);
       }
     } catch (error) {
       console.warn(`Failed to delete file ${photo.url}:`, error);
