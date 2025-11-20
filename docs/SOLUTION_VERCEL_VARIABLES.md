@@ -53,3 +53,4 @@ Après déploiement sur Vercel :
 - Elles sont **statiques** : une fois le build terminé, elles ne changent pas jusqu'au prochain build
 - En local, les variables Vercel ne sont pas disponibles, donc le mode debug s'active automatiquement
 
+

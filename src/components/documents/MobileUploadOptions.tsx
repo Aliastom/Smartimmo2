@@ -91,6 +91,7 @@ export function MobileUploadOptions({
         type="file"
         accept="image/*"
         onChange={handleFileChange}
+        onInput={handleFileChange}
         className="hidden"
         multiple={maxFiles > 1}
         disabled={disabled}
@@ -112,6 +113,7 @@ export function MobileUploadOptions({
         type="file"
         accept={acceptedTypes.join(',')}
         onChange={handleFileChange}
+        onInput={handleFileChange}
         className="hidden"
         multiple={maxFiles > 1}
         disabled={disabled}

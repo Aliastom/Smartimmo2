@@ -430,7 +430,9 @@ export function UploadReviewModal({
 
   // 1) Réinitialiser et uploader les fichiers quand la modale s'ouvre
   useEffect(() => {
+    console.log('[UploadReviewModal] useEffect triggered:', { isOpen, filesCount: files.length, filesNames: files.map(f => f.name) });
     if (isOpen && files.length > 0) {
+      console.log('[UploadReviewModal] Opening modal with files, starting upload...');
       // Vider les anciens previews et relancer l'analyse
       setPreviews([]);
       setCurrentIndex(0);
@@ -469,6 +471,8 @@ export function UploadReviewModal({
   }, [currentIndex, currentPreview?.assignedTypeCode, autoLinkingDocumentType]);
 
   const uploadFiles = async () => {
+    console.log('[UploadReviewModal] uploadFiles called with', files.length, 'files:', files.map(f => ({ name: f.name, type: f.type, size: f.size })));
+    
     const initialPreviews: UploadPreview[] = files.map(file => ({
       file,
       filename: file.name,
@@ -493,15 +497,27 @@ export function UploadReviewModal({
     for (let i = 0; i < files.length; i++) {
       try {
         const file = files[i];
+        console.log(`[UploadReviewModal] Uploading file ${i + 1}/${files.length}:`, file.name, file.type, file.size, 'bytes');
         const formData = new FormData();
         formData.append('file', file);
 
+        console.log('[UploadReviewModal] Calling /api/documents/upload...');
         const response = await fetch('/api/documents/upload', {
           method: 'POST',
           body: formData,
         });
 
+        console.log('[UploadReviewModal] Response status:', response.status, response.statusText);
+
         const result = await response.json();
+        console.log('[UploadReviewModal] Upload result:', {
+          success: result.success,
+          hasData: !!result.data,
+          hasPredictions: !!result.data?.predictions,
+          predictionsCount: result.data?.predictions?.length || 0,
+          hasExtractedPreview: !!result.data?.extractedPreview,
+          extractedTextLength: result.data?.extractedPreview?.textLength || 0
+        });
 
         if (result.success && result.data) {
           // Validation robuste des données reçues

@@ -37,6 +37,7 @@ export function DocumentUploadDropzone({
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       console.log('[DocumentUploadDropzone] onDrop called with files:', acceptedFiles.length);
+      console.log('[DocumentUploadDropzone] Files details:', acceptedFiles.map(f => ({ name: f.name, type: f.type, size: f.size })));
       
       if (acceptedFiles.length === 0) {
         console.log('[DocumentUploadDropzone] No files, returning');
