@@ -42,10 +42,13 @@ export async function GET(
     try {
       const fileBuffer = await readFile(filePath);
       
+      // Encoder le nom de fichier pour le Content-Disposition header
+      const encodedFileName = encodeURIComponent(fileName);
+      
       return new NextResponse(fileBuffer, {
         headers: {
           'Content-Type': 'message/rfc822',
-          'Content-Disposition': `attachment; filename="${fileName}"`,
+          'Content-Disposition': `attachment; filename="${fileName}"; filename*=UTF-8''${encodedFileName}`,
           'Content-Length': fileBuffer.length.toString(),
         },
       });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { writeFile, mkdir, unlink } from 'fs/promises';
+import { tmpdir } from 'os';
 import { join } from 'path';
 import { validateNatureCategoryType } from '@/utils/accountingStyles';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
@@ -277,10 +278,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         }
       });
 
-      // Supprimer les fichiers physiques
+      // Supprimer les fichiers physiques depuis /tmp
       for (const attachment of attachmentsToDelete) {
         try {
-          const filePath = join(process.cwd(), 'public', attachment.url);
+          // Extraire le nom de fichier de l'URL
+          const urlParts = attachment.url.split('/');
+          const filename = urlParts[urlParts.length - 1];
+          const decodedFilename = decodeURIComponent(filename);
+          const tempDir = join(tmpdir(), 'smartimmo', 'payments', params.id);
+          const filePath = join(tempDir, decodedFilename);
           await unlink(filePath);
         } catch (error) {
           console.warn(`Failed to delete file ${attachment.url}:`, error);
@@ -299,8 +305,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     // Ajouter les nouveaux attachments
     const newAttachments = [];
     if (addAttachments.length > 0) {
-      const uploadDir = join(process.cwd(), 'public', 'uploads', 'payments', params.id);
-      await mkdir(uploadDir, { recursive: true });
+      // Utiliser /tmp pour Vercel (lecture seule sur public/)
+      const tempDir = join(tmpdir(), 'smartimmo', 'payments', params.id);
+      await mkdir(tempDir, { recursive: true });
 
       for (const attachment of addAttachments) {
         // Vérifier la taille (10 Mo max)
@@ -327,8 +334,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         const timestamp = Date.now();
         const extension = attachment.filename.split('.').pop();
         const filename = `${timestamp}_${attachment.filename}`;
-        const filePath = join(uploadDir, filename);
-        const url = `/uploads/payments/${params.id}/${filename}`;
+        const filePath = join(tempDir, filename);
+        const url = `/api/payments/${params.id}/attachment/${encodeURIComponent(filename)}`;
 
         // Sauvegarder le fichier
         await writeFile(filePath, buffer);
@@ -453,10 +460,15 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: 'Paiement non trouvé' }, { status: 404 });
     }
 
-    // Supprimer les fichiers physiques des pièces jointes
+    // Supprimer les fichiers physiques des pièces jointes depuis /tmp
     for (const attachment of payment.PaymentAttachment) {
       try {
-        const filePath = join(process.cwd(), 'public', attachment.url);
+        // Extraire le nom de fichier de l'URL
+        const urlParts = attachment.url.split('/');
+        const filename = urlParts[urlParts.length - 1];
+        const decodedFilename = decodeURIComponent(filename);
+        const tempDir = join(tmpdir(), 'smartimmo', 'payments', params.id);
+        const filePath = join(tempDir, decodedFilename);
         await unlink(filePath);
       } catch (error) {
         console.warn(`Failed to delete file ${attachment.url}:`, error);

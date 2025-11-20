@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { unlink } from 'fs/promises';
+import { tmpdir } from 'os';
 import { join } from 'path';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 
@@ -55,6 +56,13 @@ export async function DELETE(
 
     const photo = await prisma.photo.findFirst({
       where: { id: params.id, organizationId },
+      include: {
+        Property: {
+          select: {
+            id: true
+          }
+        }
+      }
     });
 
     if (!photo) {
@@ -64,10 +72,18 @@ export async function DELETE(
       );
     }
 
-    // Supprimer le fichier physique
+    // Supprimer le fichier physique depuis /tmp
     try {
-      const filePath = join(process.cwd(), 'public', photo.url);
-      await unlink(filePath);
+      // Extraire le nom de fichier de l'URL
+      const urlParts = photo.url.split('/');
+      const filename = urlParts[urlParts.length - 1];
+      const decodedFilename = decodeURIComponent(filename);
+      
+      if (photo.Property) {
+        const tempDir = join(tmpdir(), 'smartimmo', 'photos', photo.Property.id);
+        const filePath = join(tempDir, decodedFilename);
+        await unlink(filePath);
+      }
     } catch (error) {
       console.warn(`Failed to delete file ${photo.url}:`, error);
       // Continue même si le fichier n'existe pas

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { writeFile, mkdir } from 'fs/promises';
+import { tmpdir } from 'os';
 import { join } from 'path';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
@@ -139,16 +140,16 @@ export async function POST(request: NextRequest) {
     const extension = file.name.split('.').pop();
     const filename = `${timestamp}_${file.name}`;
     
-    // Dossier de destination
-    const uploadDir = `uploads/photos/properties/${propertyId}`;
-    const filePath = join(process.cwd(), 'public', uploadDir, filename);
-    const url = `/${uploadDir}/${filename}`;
-
-    // Créer le dossier s'il n'existe pas
-    await mkdir(join(process.cwd(), 'public', uploadDir), { recursive: true });
-
+    // Utiliser /tmp pour Vercel (lecture seule sur public/)
+    const tempDir = join(tmpdir(), 'smartimmo', 'photos', propertyId);
+    await mkdir(tempDir, { recursive: true });
+    const filePath = join(tempDir, filename);
+    
     // Sauvegarder le fichier
     await writeFile(filePath, buffer);
+
+    // URL de l'API pour servir le fichier
+    const url = `/api/photos/${propertyId}/file/${encodeURIComponent(filename)}`;
 
     // Créer l'entrée en DB
     const photo = await prisma.photo.create({

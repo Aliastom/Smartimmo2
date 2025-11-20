@@ -397,14 +397,31 @@ export default function LeaseEditModal({
           
           result = await response.json();
           
-          // Télécharger le fichier EML
+          // Télécharger le fichier EML via fetch (nécessaire pour les URLs authentifiées)
           if (result.downloadUrl) {
-            const link = document.createElement('a');
-            link.href = result.downloadUrl;
-            link.download = `bail-signature-${formData.id}.eml`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            try {
+              const fileResponse = await fetch(result.downloadUrl, {
+                credentials: 'include',
+                method: 'GET',
+              });
+              
+              if (!fileResponse.ok) {
+                throw new Error('Erreur lors du téléchargement du fichier');
+              }
+              
+              const blob = await fileResponse.blob();
+              const url = window.URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = `bail-signature-${formData.id}.eml`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              window.URL.revokeObjectURL(url);
+            } catch (downloadError) {
+              console.error('Erreur lors du téléchargement du fichier EML:', downloadError);
+              notify2.error('Erreur de téléchargement', 'Impossible de télécharger le fichier EML');
+            }
           }
           
           successMessage = 'Bail envoyé pour signature avec succès';

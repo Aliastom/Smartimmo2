@@ -61,7 +61,8 @@ export async function POST(request: NextRequest) {
     // Générer un nom de fichier unique
     const fileExtension = file.name.split('.').pop();
     const uniqueFilename = `${uuidv4()}.${fileExtension}`;
-    const tempDir = join(process.cwd(), 'storage', 'tmp');
+    // Utiliser /tmp pour Vercel (lecture seule sur storage/)
+    const tempDir = join(tmpdir(), 'smartimmo', 'staged');
     const filePath = join(tempDir, uniqueFilename);
 
     // Créer le dossier tmp s'il n'existe pas
@@ -216,7 +217,7 @@ export async function POST(request: NextRequest) {
         fileSha256,
         textSha256,
         size: file.size,
-        url: `/storage/tmp/${uniqueFilename}`,
+        url: '', // Sera mis à jour après création avec l'ID du document
         status: 'draft',
         source: 'staged-upload',
         organizationId,
@@ -230,6 +231,14 @@ export async function POST(request: NextRequest) {
         ocrConfidence: analysisResult.success ? 0.8 : undefined,
         ocrError: !analysisResult.success ? analysisResult.error : undefined,
         extractedText: textContent // Ajouter le texte extrait par OCR
+      }
+    });
+
+    // Mettre à jour l'URL avec l'ID du document pour utiliser l'API
+    await prisma.document.update({
+      where: { id: document.id },
+      data: {
+        url: `/api/documents/${document.id}/file`
       }
     });
 
