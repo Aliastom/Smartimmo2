@@ -1096,10 +1096,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           
           let sessionIdToUse: string | null = null;
           
-          // Si on a un document suggéré, récupérer sa session d'upload
+          // Si on a un document suggéré, récupérer sa session d'upload ou le document finalisé
           if (suggestionMeta?.documentId) {
             try {
               console.log('[TransactionModal] 📄 Récupération de la session du document uploadé:', suggestionMeta.documentId);
+              
+              // D'abord, essayer de récupérer le document en staging
               const docResponse = await fetch(`/api/uploads/staged/${suggestionMeta.documentId}`);
               if (docResponse.ok) {
                 const docData = await docResponse.json();
@@ -1123,6 +1125,50 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   } catch (error) {
                     console.error('[TransactionModal] Erreur lors du chargement des liens:', error);
                   }
+                }
+              } else if (docResponse.status === 404) {
+                // Le document n'est pas en staging, c'est un document finalisé
+                // Créer une nouvelle session et lier le document finalisé
+                console.log('[TransactionModal] 📄 Document finalisé détecté, création d\'un lien dans la session');
+                
+                // Créer une nouvelle session d'abord
+                if (!sessionIdToUse) {
+                  sessionIdToUse = await createUploadSession({ scope: 'transaction:new' });
+                }
+                
+                // Créer un lien vers le document finalisé dans la session
+                try {
+                  const linkResponse = await fetch('/api/uploads/staged/link-existing', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      uploadSessionId: sessionIdToUse,
+                      existingDocumentId: suggestionMeta.documentId,
+                      context: {
+                        type: 'transaction',
+                        tempKey: 'new'
+                      }
+                    })
+                  });
+                  
+                  if (linkResponse.ok) {
+                    const linkData = await linkResponse.json();
+                    console.log('[TransactionModal] ✅ Lien vers document finalisé créé:', linkData.itemId);
+                    
+                    // Charger les liens de la session
+                    const sessionResponse = await fetch(`/api/uploads/session/${sessionIdToUse}`);
+                    if (sessionResponse.ok) {
+                      const sessionData = await sessionResponse.json();
+                      if (sessionData.success) {
+                        setStagedLinks(sessionData.links || []);
+                        console.log('[TransactionModal] Liens vers documents existants chargés:', sessionData.links?.length || 0);
+                      }
+                    }
+                  } else {
+                    console.warn('[TransactionModal] ⚠️ Erreur lors de la création du lien:', await linkResponse.text());
+                  }
+                } catch (error) {
+                  console.error('[TransactionModal] ⚠️ Erreur lors de la création du lien vers document finalisé:', error);
                 }
               }
             } catch (error) {
