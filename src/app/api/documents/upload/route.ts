@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Lire le fichier en buffer
-    // Validation du fichier
+    // Validation du fichier (comme sur le web - pas de nettoyage spécial)
     console.log('[Upload] File received:', {
       name: file.name,
       type: file.type,
@@ -115,37 +115,15 @@ export async function POST(request: NextRequest) {
       lastModified: file.lastModified
     });
 
-    // Nettoyer le nom de fichier pour éviter les problèmes (caractères spéciaux iOS)
-    const sanitizedFileName = file.name
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-      .replace(/\s+/g, '_')
-      .replace(/_{2,}/g, '_')
-      .replace(/^_+|_+$/g, '');
-    
-    console.log('[Upload] Sanitized filename:', {
-      original: file.name,
-      sanitized: sanitizedFileName
-    });
-
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-
-    // Vérifier que le buffer n'est pas vide
-    if (buffer.length === 0) {
-      console.error('[Upload] Buffer vide pour le fichier:', file.name);
-      return NextResponse.json(
-        { success: false, error: 'Le fichier est vide' },
-        { status: 400 }
-      );
-    }
 
     // Calculer le hash SHA-256
     const sha256 = sha256Hex(buffer);
 
     // GÃ©nÃ©rer tempId et extension
     const tempId = generateTempId();
-    // Utiliser le nom nettoyé pour l'extension
-    const ext = sanitizedFileName.split('.').pop() || 'bin';
+    const ext = file.name.split('.').pop() || 'bin';
     const tempFileName = `${tempId}.${ext}`;
     
     // Stocker le fichier temporaire (local ou Supabase selon STORAGE_TYPE)
@@ -247,7 +225,7 @@ export async function POST(request: NextRequest) {
       try {
         // Utiliser la classification complÃ¨te pour rÃ©cupÃ©rer les seuils configurÃ©s
         const classificationResult = await classificationService.classify(rawText, {
-          name: sanitizedFileName, // Utiliser le nom nettoyé
+          name: file.name, // Utiliser le nom original comme sur le web
           size: file.size,
           ocrStatus: 'unknown'
         });
