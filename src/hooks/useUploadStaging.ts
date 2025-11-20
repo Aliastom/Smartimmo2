@@ -42,6 +42,13 @@ export const useUploadStaging = () => {
         body: JSON.stringify(options || {})
       });
       
+      // Vérifier le statut HTTP avant de parser le JSON
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[useUploadStaging] Erreur HTTP:', response.status, response.statusText, errorText);
+        throw new Error(`Erreur ${response.status}: ${response.statusText || 'Erreur lors de la création de la session'}`);
+      }
+      
       const result = await response.json();
       
       if (result.success) {
@@ -53,7 +60,8 @@ export const useUploadStaging = () => {
       }
     } catch (err: any) {
       console.error('[useUploadStaging] Erreur création session:', err);
-      setError(err.message);
+      const errorMessage = err.message || 'Erreur lors de la création de la session';
+      setError(errorMessage);
       throw err;
     } finally {
       setLoading(false);
@@ -67,6 +75,14 @@ export const useUploadStaging = () => {
     
     try {
       const response = await fetch(`/api/uploads/session/${sessionId}`);
+      
+      // Vérifier le statut HTTP avant de parser le JSON
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[useUploadStaging] Erreur HTTP lors du chargement:', response.status, response.statusText, errorText);
+        throw new Error(`Erreur ${response.status}: ${response.statusText || 'Erreur lors du chargement des documents'}`);
+      }
+      
       const result = await response.json();
       
       if (result.success) {
@@ -78,7 +94,8 @@ export const useUploadStaging = () => {
         throw new Error(result.error || 'Erreur lors du chargement des documents');
       }
     } catch (err: any) {
-      setError(err.message);
+      const errorMessage = err.message || 'Erreur lors du chargement des documents';
+      setError(errorMessage);
       throw err;
     } finally {
       setLoading(false);
@@ -97,6 +114,13 @@ export const useUploadStaging = () => {
         method: 'DELETE'
       });
       
+      // Vérifier le statut HTTP avant de parser le JSON
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[useUploadStaging] Erreur HTTP lors de la suppression:', response.status, response.statusText, errorText);
+        throw new Error(`Erreur ${response.status}: ${response.statusText || 'Erreur lors de la suppression'}`);
+      }
+      
       const result = await response.json();
       
       if (result.success) {
@@ -106,7 +130,8 @@ export const useUploadStaging = () => {
         throw new Error(result.error || 'Erreur lors de la suppression');
       }
     } catch (err: any) {
-      setError(err.message);
+      const errorMessage = err.message || 'Erreur lors de la suppression';
+      setError(errorMessage);
       return false;
     }
   }, []);
@@ -120,6 +145,13 @@ export const useUploadStaging = () => {
         method: 'DELETE'
       });
       
+      // Vérifier le statut HTTP avant de parser le JSON
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[useUploadStaging] Erreur HTTP lors de la suppression de session:', response.status, response.statusText, errorText);
+        throw new Error(`Erreur ${response.status}: ${response.statusText || 'Erreur lors de la suppression de la session'}`);
+      }
+      
       const result = await response.json();
       
       if (result.success) {
@@ -130,7 +162,8 @@ export const useUploadStaging = () => {
         throw new Error(result.error || 'Erreur lors de la suppression de la session');
       }
     } catch (err: any) {
-      setError(err.message);
+      const errorMessage = err.message || 'Erreur lors de la suppression de la session';
+      setError(errorMessage);
       return false;
     }
   }, []);
