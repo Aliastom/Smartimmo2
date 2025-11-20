@@ -64,7 +64,7 @@ export function RobotAvatar({ size = 56, animated = true, className = '' }: Robo
             stroke="currentColor"
             strokeWidth="3"
             strokeLinecap="round"
-            animate={shouldAnimate ? { y1: [15, 13, 15] } : {}}
+            animate={shouldAnimate ? { y1: ["15", "13", "15"] } : {}}
             transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
           />
           <motion.circle
@@ -88,7 +88,7 @@ export function RobotAvatar({ size = 56, animated = true, className = '' }: Robo
             stroke="currentColor"
             strokeWidth="3"
             strokeLinecap="round"
-            animate={shouldAnimate ? { y1: [15, 13, 15] } : {}}
+            animate={shouldAnimate ? { y1: ["15", "13", "15"] } : {}}
             transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
           />
           <motion.circle
@@ -116,7 +116,7 @@ export function RobotAvatar({ size = 56, animated = true, className = '' }: Robo
           stroke="rgba(0, 0, 0, 0.2)"
           strokeWidth="2"
           animate={shouldAnimate ? {
-            y: [20, 18, 20],
+            y: ["20", "18", "20"],
           } : {}}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
         />
@@ -153,8 +153,8 @@ export function RobotAvatar({ size = 56, animated = true, className = '' }: Robo
             r="3"
             fill="rgba(0, 0, 0, 0.6)"
             animate={shouldAnimate && !isBlinked ? {
-              cx: [37, 39, 37, 35, 37],
-              cy: [45, 46, 45, 46, 45],
+              cx: ["37", "39", "37", "35", "37"],
+              cy: ["45", "46", "45", "46", "45"],
             } : {}}
             transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
           />
@@ -177,8 +177,8 @@ export function RobotAvatar({ size = 56, animated = true, className = '' }: Robo
             r="3"
             fill="rgba(0, 0, 0, 0.6)"
             animate={shouldAnimate && !isBlinked ? {
-              cx: [63, 65, 63, 61, 63],
-              cy: [45, 46, 45, 46, 45],
+              cx: ["63", "65", "63", "61", "63"],
+              cy: ["45", "46", "45", "46", "45"],
             } : {}}
             transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
           />
@@ -224,7 +224,7 @@ export function RobotAvatar({ size = 56, animated = true, className = '' }: Robo
           rx="2"
           fill="currentColor"
           opacity="0.8"
-          animate={shouldAnimate ? { height: [15, 17, 15] } : {}}
+          animate={shouldAnimate ? { height: ["15", "17", "15"] } : {}}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
         />
         <motion.rect
@@ -235,7 +235,7 @@ export function RobotAvatar({ size = 56, animated = true, className = '' }: Robo
           rx="2"
           fill="currentColor"
           opacity="0.8"
-          animate={shouldAnimate ? { height: [15, 17, 15] } : {}}
+          animate={shouldAnimate ? { height: ["15", "17", "15"] } : {}}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
         />
 

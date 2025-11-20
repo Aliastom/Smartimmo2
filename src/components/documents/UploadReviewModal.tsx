@@ -431,9 +431,13 @@ export function UploadReviewModal({
 
   // 1) Réinitialiser et uploader les fichiers quand la modale s'ouvre
   useEffect(() => {
-    console.log('[UploadReviewModal] useEffect triggered:', { isOpen, filesCount: files.length, filesNames: files.map(f => f.name) });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[UploadReviewModal] useEffect triggered:', { isOpen, filesCount: files.length, filesNames: files.map(f => f.name) });
+    }
     if (isOpen && files.length > 0) {
-      console.log('[UploadReviewModal] Opening modal with files, starting upload...');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[UploadReviewModal] Opening modal with files, starting upload...');
+      }
       // Vider les anciens previews et relancer l'analyse
       setPreviews([]);
       setCurrentIndex(0);

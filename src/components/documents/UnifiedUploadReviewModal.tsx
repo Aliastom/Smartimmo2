@@ -18,11 +18,13 @@ export function UnifiedUploadReviewModal() {
   } = useUploadReviewModal();
 
   useEffect(() => {
-    console.log('[UnifiedUploadReviewModal] State changed:', {
-      isOpen,
-      filesCount: files.length,
-      config
-    });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[UnifiedUploadReviewModal] State changed:', {
+        isOpen,
+        filesCount: files.length,
+        config
+      });
+    }
   }, [isOpen, files, config]);
 
   return (

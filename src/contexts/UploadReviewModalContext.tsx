@@ -64,11 +64,13 @@ export function UploadReviewModalProvider({ children }: { children: ReactNode })
 
   // Ouvrir la modal avec des fichiers et une configuration
   const openModal = useCallback((files: File[], config: UploadReviewModalConfig = {}) => {
-    console.log('[UploadReviewModalContext] openModal called with:', {
-      filesCount: files.length,
-      filesNames: files.map(f => f.name),
-      config
-    });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[UploadReviewModalContext] openModal called with:', {
+        filesCount: files.length,
+        filesNames: files.map(f => f.name),
+        config
+      });
+    }
     
     setModalState({
       isOpen: true,
@@ -76,7 +78,9 @@ export function UploadReviewModalProvider({ children }: { children: ReactNode })
       config
     });
     
-    console.log('[UploadReviewModalContext] Modal state updated, isOpen: true');
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[UploadReviewModalContext] Modal state updated, isOpen: true');
+    }
   }, []);
 
   // Détecter si on est sur mobile
