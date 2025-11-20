@@ -25,6 +25,7 @@ import { ConfirmDeleteDocumentModal } from '@/components/documents/ConfirmDelete
 import { UnclassifiedDocumentsModal } from './UnclassifiedDocumentsModal';
 import { TransactionSuggestionConfirmModal } from './TransactionSuggestionConfirmModal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
+import { SearchableSelect } from '@/components/forms/SearchableSelect';
 
 // Configuration des natures avec libellés clairs et groupes
 const getNatureOptions = (getNatureLabel: (key: string) => string) => [
@@ -834,10 +835,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       
       setIsLoading(true);
       try {
-        // Charger les propriétés
-        const propertiesResponse = await fetch('/api/properties');
+        // Charger les propriétés avec une limite élevée pour récupérer tous les biens
+        const propertiesResponse = await fetch('/api/properties?limit=10000');
         const propertiesData = await propertiesResponse.json();
-        setProperties(propertiesData.data || []);
+        // L'API retourne { data: [...], pagination: {...} }
+        const propertiesList = propertiesData.data || propertiesData.properties || propertiesData.items || (Array.isArray(propertiesData) ? propertiesData : []);
+        const finalList = Array.isArray(propertiesList) ? propertiesList : [];
+        console.log('[TransactionModal] Propriétés chargées:', finalList.length, 'sur', propertiesData?.pagination?.total || '?');
+        setProperties(finalList);
 
         // Charger les baux
         const leasesResponse = await fetch('/api/leases');
@@ -1725,32 +1730,54 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               {/* Bien */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="propertyId" className="text-sm font-medium text-gray-700">
-                    Bien *
-                  </Label>
-                  <div className="relative">
-                    <select
-                      {...register('propertyId')}
-                      disabled={context.type === 'property' || mode === 'edit'}
-                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                        errors.propertyId ? 'border-red-500' : 'border-gray-300'
-                      } ${context.type === 'property' || mode === 'edit' ? 'bg-gray-100' : ''}`}
-                    >
-                      <option value="">Sélectionner un bien</option>
-                      {(properties || []).map((property) => (
-                        <option key={property.id} value={property.id}>
-                          {property.name} - {property.address}
-                        </option>
-                      ))}
-                    </select>
-                    {context.type === 'property' && (
-                      <Badge variant="secondary" className="absolute right-2 top-2">
-                        Verrouillé
-                      </Badge>
-                    )}
-                  </div>
-                  {errors.propertyId && (
-                    <p className="text-red-500 text-sm mt-1">{errors.propertyId.message}</p>
+                  {context.type === 'property' || mode === 'edit' ? (
+                    // Mode verrouillé : affichage en lecture seule
+                    <div>
+                      <Label htmlFor="propertyId" className="text-sm font-medium text-gray-700">
+                        Bien *
+                      </Label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={properties.find(p => p.id === watch('propertyId'))?.name + ' - ' + properties.find(p => p.id === watch('propertyId'))?.address || 'Bien sélectionné'}
+                          disabled
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-600 cursor-not-allowed"
+                        />
+                        {context.type === 'property' && (
+                          <Badge variant="secondary" className="absolute right-2 top-2">
+                            Verrouillé
+                          </Badge>
+                        )}
+                      </div>
+                      {/* Champ caché pour react-hook-form */}
+                      <input type="hidden" {...register('propertyId')} />
+                    </div>
+                  ) : (
+                    // Mode création : SearchableSelect
+                    <div>
+                      <SearchableSelect
+                        options={(properties || []).map(p => ({
+                          id: p.id,
+                          value: p.id,
+                          label: `${p.name} - ${p.address}`
+                        }))}
+                        value={watch('propertyId') || ''}
+                        onChange={(value) => {
+                          setValue('propertyId', value, { shouldValidate: true });
+                          // Réinitialiser le bail si le bien change
+                          setValue('leaseId', '');
+                        }}
+                        placeholder="Rechercher un bien..."
+                        required
+                        label="Bien *"
+                        className={errors.propertyId ? 'border-red-500' : ''}
+                      />
+                      {/* Champ caché pour react-hook-form */}
+                      <input type="hidden" {...register('propertyId')} />
+                      {errors.propertyId && (
+                        <p className="text-red-500 text-sm mt-1">{errors.propertyId.message}</p>
+                      )}
+                    </div>
                   )}
                 </div>
 

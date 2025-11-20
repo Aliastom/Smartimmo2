@@ -15,6 +15,7 @@ import { useDedupFlow } from '@/hooks/useDedupFlow';
 import { DedupFlowInput, DedupFlowContext } from '@/types/dedup-flow';
 import { TransactionSuggestionPayload } from '@/services/TransactionSuggestionService';
 import { TransactionModal as TransactionModalV2 } from '@/components/transactions/TransactionModalV2';
+import { SearchableSelect } from '@/components/forms/SearchableSelect';
 // Note: Les descriptions de liaison sont maintenant générées côté client
 
 type UploadSaveMode = 'immediate' | 'staged' | 'review-draft';
@@ -1403,37 +1404,45 @@ export function UploadReviewModal({
 
               {/* Type de document */}
               <div className="space-y-2">
-                <Label htmlFor="draft-type">Type de document</Label>
-                <select
-                  id="draft-type"
-                  value={selectedType}
-                  onChange={(e) => {
-                    console.log('[UploadReview] Changement de type sélectionné:', e.target.value);
-                    setSelectedType(e.target.value);
-                  }}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    autoLinkingDocumentType && !documentTypeEditable 
-                      ? 'bg-gray-100 text-gray-600 cursor-not-allowed' 
-                      : ''
-                  }`}
-                  disabled={autoLinkingDocumentType && !documentTypeEditable}
-                >
-                  <option value="">Sélectionner un type</option>
-                  {documentTypes.map((type) => (
-                    <option key={type.code} value={type.code}>
-                      {type.label}
-                    </option>
-                  ))}
-                </select>
-                {autoLinkingDocumentType && !documentTypeEditable && (
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                      <FileText className="h-4 w-4 mr-1" />
-                      Type pré-rempli: {documentTypes.find(t => t.code === autoLinkingDocumentType)?.label || autoLinkingDocumentType}
-                    </Badge>
-                    <span className="text-sm text-gray-500">
-                      Non modifiable
-                    </span>
+                {autoLinkingDocumentType && !documentTypeEditable ? (
+                  // Mode verrouillé : affichage en lecture seule
+                  <div>
+                    <Label htmlFor="draft-type">Type de document</Label>
+                    <input
+                      type="text"
+                      value={documentTypes.find(t => t.code === autoLinkingDocumentType)?.label || autoLinkingDocumentType}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-600 cursor-not-allowed"
+                    />
+                    <div className="flex items-center gap-2 mt-2">
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                        <FileText className="h-4 w-4 mr-1" />
+                        Type pré-rempli: {documentTypes.find(t => t.code === autoLinkingDocumentType)?.label || autoLinkingDocumentType}
+                      </Badge>
+                      <span className="text-sm text-gray-500">
+                        Non modifiable
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  // Mode création/édition : SearchableSelect
+                  <div>
+                    <SearchableSelect
+                      options={documentTypes.map(type => ({
+                        id: type.code,
+                        value: type.code,
+                        label: type.label
+                      }))}
+                      value={selectedType || ''}
+                      onChange={(value) => {
+                        console.log('[UploadReview] Changement de type sélectionné:', value);
+                        setSelectedType(value);
+                      }}
+                      placeholder="Rechercher un type de document..."
+                      required
+                      label="Type de document"
+                      className=""
+                    />
                   </div>
                 )}
               </div>
@@ -1673,27 +1682,16 @@ export function UploadReviewModal({
                 </div>
               </div>
               <div>
-                <Label htmlFor="docType">Type de document *</Label>
-                <div className="space-y-2">
-                  <select
-                    id="docType"
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 ${
-                      autoLinkingDocumentType && !documentTypeEditable 
-                        ? 'bg-gray-100 text-gray-600 cursor-not-allowed' 
-                        : 'bg-white'
-                    }`}
-                    value={selectedType}
-                    onChange={(e) => setSelectedType(e.target.value)}
-                    disabled={autoLinkingDocumentType && !documentTypeEditable}
-                  >
-                    <option value="">Sélectionner un type</option>
-                    {documentTypes.map(type => (
-                      <option key={type.code} value={type.code}>
-                        {type.label}
-                      </option>
-                    ))}
-                  </select>
-                  {autoLinkingDocumentType && !documentTypeEditable && (
+                {autoLinkingDocumentType && !documentTypeEditable ? (
+                  // Mode verrouillé : affichage en lecture seule
+                  <div className="space-y-2">
+                    <Label htmlFor="docType">Type de document *</Label>
+                    <input
+                      type="text"
+                      value={documentTypes.find(t => t.code === autoLinkingDocumentType)?.label || autoLinkingDocumentType}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                    />
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                         <FileText className="h-4 w-4 mr-1" />
@@ -1703,8 +1701,25 @@ export function UploadReviewModal({
                         Non modifiable
                       </span>
                     </div>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  // Mode création/édition : SearchableSelect
+                  <div className="space-y-2">
+                    <SearchableSelect
+                      options={documentTypes.map(type => ({
+                        id: type.code,
+                        value: type.code,
+                        label: type.label
+                      }))}
+                      value={selectedType || ''}
+                      onChange={(value) => setSelectedType(value)}
+                      placeholder="Rechercher un type de document..."
+                      required
+                      label="Type de document *"
+                      className=""
+                    />
+                  </div>
+                )}
               </div>
             </div>
 

@@ -107,15 +107,45 @@ export async function POST(request: NextRequest) {
     }
 
     // Lire le fichier en buffer
+    // Validation du fichier
+    console.log('[Upload] File received:', {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      lastModified: file.lastModified
+    });
+
+    // Nettoyer le nom de fichier pour éviter les problèmes (caractères spéciaux iOS)
+    const sanitizedFileName = file.name
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .replace(/\s+/g, '_')
+      .replace(/_{2,}/g, '_')
+      .replace(/^_+|_+$/g, '');
+    
+    console.log('[Upload] Sanitized filename:', {
+      original: file.name,
+      sanitized: sanitizedFileName
+    });
+
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+
+    // Vérifier que le buffer n'est pas vide
+    if (buffer.length === 0) {
+      console.error('[Upload] Buffer vide pour le fichier:', file.name);
+      return NextResponse.json(
+        { success: false, error: 'Le fichier est vide' },
+        { status: 400 }
+      );
+    }
 
     // Calculer le hash SHA-256
     const sha256 = sha256Hex(buffer);
 
     // GÃ©nÃ©rer tempId et extension
     const tempId = generateTempId();
-    const ext = file.name.split('.').pop() || 'bin';
+    // Utiliser le nom nettoyé pour l'extension
+    const ext = sanitizedFileName.split('.').pop() || 'bin';
     const tempFileName = `${tempId}.${ext}`;
     
     // Stocker le fichier temporaire (local ou Supabase selon STORAGE_TYPE)
@@ -214,26 +244,36 @@ export async function POST(request: NextRequest) {
     if (rawText && rawText.trim().length > 0) {
       console.log('[Upload] Classification du texte extrait:', rawText.length, 'caractÃ¨res');
       
-      // Utiliser la classification complÃ¨te pour rÃ©cupÃ©rer les seuils configurÃ©s
-      const classificationResult = await classificationService.classify(rawText, {
-        name: file.name,
-        size: file.size,
-        ocrStatus: 'unknown'
-      });
+      try {
+        // Utiliser la classification complÃ¨te pour rÃ©cupÃ©rer les seuils configurÃ©s
+        const classificationResult = await classificationService.classify(rawText, {
+          name: sanitizedFileName, // Utiliser le nom nettoyé
+          size: file.size,
+          ocrStatus: 'unknown'
+        });
       
-      predictions = Array.isArray(classificationResult.classification.top3) 
-        ? classificationResult.classification.top3.map(r => ({
-            typeCode: r.typeCode,
-            label: r.typeLabel,
-            score: r.normalizedScore,
-            threshold: r.threshold
-          }))
-        : [];
+        predictions = Array.isArray(classificationResult.classification.top3) 
+          ? classificationResult.classification.top3.map(r => ({
+              typeCode: r.typeCode,
+              label: r.typeLabel,
+              score: r.normalizedScore,
+              threshold: r.threshold
+            }))
+          : [];
 
-      // Auto-assigner selon le seuil configurÃ© pour le meilleur type
-      if (classificationResult.classification.autoAssigned && classificationResult.classification.top3.length > 0) {
-        autoAssigned = true;
-        assignedTypeCode = classificationResult.classification.top3[0].typeCode;
+        // Auto-assigner selon le seuil configurÃ© pour le meilleur type
+        if (classificationResult.classification.autoAssigned && classificationResult.classification.top3.length > 0) {
+          autoAssigned = true;
+          assignedTypeCode = classificationResult.classification.top3[0].typeCode;
+        }
+      } catch (classifyError: any) {
+        console.error('[Upload] ❌ Erreur lors de la classification:', classifyError);
+        console.error('[Upload] Message d\'erreur:', classifyError?.message);
+        // Continuer sans prédictions plutôt que de bloquer
+        predictions = [];
+        if (classifyError?.message?.includes('pattern')) {
+          console.error('[Upload] ⚠️ Erreur de pattern regex détectée - peut-être liée au nom de fichier iOS');
+        }
       }
     } else {
       // Fallback : analyse par nom de fichier pour les images sans OCR
@@ -267,7 +307,18 @@ export async function POST(request: NextRequest) {
       : rawText || '';
 
     // Tentative d'extraction de champs (seulement si on a du texte)
-    const extractedFields = rawText ? extractFields(rawText) : {};
+    let extractedFields: Record<string, string> = {};
+    try {
+      extractedFields = rawText ? extractFields(rawText) : {};
+    } catch (extractError: any) {
+      console.error('[Upload] ❌ Erreur lors de l\'extraction de champs:', extractError);
+      console.error('[Upload] Message d\'erreur:', extractError?.message);
+      if (extractError?.message?.includes('pattern')) {
+        console.error('[Upload] ⚠️ Erreur de pattern regex dans extractFields');
+      }
+      // Continuer avec des champs vides plutôt que de bloquer
+      extractedFields = {};
+    }
 
     // === AGENT DEDUP - DÃ©tection intelligente de doublons ===
     let dedupResult = null;
@@ -492,10 +543,13 @@ export async function POST(request: NextRequest) {
  */
 function extractFields(text: string): Record<string, string> {
   const fields: Record<string, string> = {};
-  const normalized = text.normalize('NFKC').toLowerCase();
   
-  // Montants
-  const amountPattern = /(\d[\d\s\u00A0.,]{2,})\s*â‚¬/g;
+  try {
+    // Normaliser le texte avec gestion d'erreur
+    const normalized = text.normalize('NFKC').toLowerCase();
+    
+    // Montants
+    const amountPattern = /(\d[\d\s\u00A0.,]{2,})\s*â‚¬/g;
   const amounts = [...normalized.matchAll(amountPattern)];
   if (amounts.length > 0) {
     fields.amount_paid = amounts[0][1].replace(/\s/g, ' ').trim() + ' â‚¬';
@@ -521,6 +575,13 @@ function extractFields(text: string): Record<string, string> {
   const yearMatch = text.match(yearPattern);
   if (yearMatch && !fields.period_year) {
     fields.period_year = yearMatch[1];
+  }
+  
+  } catch (error: any) {
+    console.error('[Upload] ❌ Erreur dans extractFields:', error);
+    console.error('[Upload] Message:', error?.message);
+    // Retourner un objet vide en cas d'erreur
+    return {};
   }
   
   return fields;
