@@ -6,6 +6,15 @@ import { prisma } from '@/lib/prisma';
 import { calcCommission, type ModeCalcul } from '@/lib/gestion';
 import { isGestionDelegueEnabled, getGestionCodes } from '@/lib/settings/appSettings';
 
+interface Facture {
+  date?: string;
+  numero?: string;
+  fournisseur?: string;
+  dateService?: string;
+  description?: string;
+  montant: number;
+}
+
 interface CreateCommissionParams {
   transactionId: string;
   propertyId: string;
@@ -23,6 +32,8 @@ interface CreateCommissionParams {
   notes?: string | null;
   rapprochementStatus?: string;
   bankRef?: string | null;
+  // Factures de la section DÉPENSES ET AUTRES RECETTES
+  factures?: Facture[];
 }
 
 interface CommissionResult {
@@ -71,8 +82,8 @@ export async function createManagementCommission(
       return {};
     }
 
-    // Calculer la commission
-    const { commissionTTC } = calcCommission({
+    // Calculer la commission de base
+    const { commissionTTC: commissionBase } = calcCommission({
       montantLoyer: params.montantLoyer,
       chargesRecup: params.chargesRecup || 0,
       modeCalcul: company.modeCalcul as ModeCalcul,
@@ -81,6 +92,10 @@ export async function createManagementCommission(
       tvaApplicable: company.tvaApplicable,
       tauxTva: company.tauxTva ?? undefined,
     });
+
+    // Ajouter le montant des factures à la commission
+    const montantFactures = params.factures?.reduce((sum, f) => sum + f.montant, 0) || 0;
+    const commissionTTC = commissionBase + montantFactures;
 
     // Si la commission est nulle ou négative, ne rien créer
     if (commissionTTC <= 0) {
@@ -102,6 +117,33 @@ export async function createManagementCommission(
       };
     }
 
+    // Construire le libellé avec les factures si présentes
+    let label = `Commission de gestion`;
+    let notes = params.notes || '';
+    
+    if (params.factures && params.factures.length > 0) {
+      // Option 1 : Libellé court avec "dont facture"
+      label = `Commission de gestion dont facture - ${company.nom}`;
+      
+      // Option 2 : Ajouter les détails dans les notes
+      const facturesDetails = params.factures.map(f => {
+        const parts: string[] = [];
+        if (f.numero) parts.push(`Facture ${f.numero}`);
+        if (f.fournisseur) parts.push(f.fournisseur);
+        if (f.dateService) parts.push(`du ${f.dateService}`);
+        if (f.description) parts.push(f.description);
+        return parts.join(' ');
+      }).join(' ; ');
+      
+      if (notes) {
+        notes = `${notes}\n\nComprend la ${facturesDetails}`;
+      } else {
+        notes = `Comprend la ${facturesDetails}`;
+      }
+    } else {
+      label = `Commission de gestion - ${company.nom}`;
+    }
+
     // Créer la transaction de commission (montant négatif = dépense)
     const commissionTransaction = await prismaClient.transaction.create({
       data: {
@@ -110,7 +152,7 @@ export async function createManagementCommission(
         leaseId: params.leaseId || null,
         bailId: params.bailId || null,
         categoryId: fraisGestionCategory.id,
-        label: `Commission de gestion - ${company.nom}`,
+        label: label,
         amount: -commissionTTC, // Négatif car c'est une dépense
         date: params.date,
         accounting_month: params.accountingMonth, // Prisma utilise snake_case
@@ -124,7 +166,7 @@ export async function createManagementCommission(
         reference: params.reference || null,
         paidAt: params.paidAt || null,
         method: params.method || null,
-        notes: params.notes || null,
+        notes: notes,
         rapprochementStatus: params.rapprochementStatus || 'non_rapprochee',
         bankRef: params.bankRef || null,
         source: 'MANUAL', // Ou 'AUTO' si vous avez ce type

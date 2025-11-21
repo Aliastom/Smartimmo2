@@ -185,3 +185,4 @@ else if (module.id === 'fiscal-params') window.location.href = '/admin/impots/pa
 
 
 
+

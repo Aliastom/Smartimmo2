@@ -78,6 +78,17 @@ interface TransactionModalProps {
     montantLoyer?: number;
     chargesRecup?: number;
     chargesNonRecup?: number;
+    // Date de paiement
+    paymentDate?: string;
+    // Factures de la section DÉPENSES ET AUTRES RECETTES
+    factures?: Array<{
+      date?: string;
+      numero?: string;
+      fournisseur?: string;
+      dateService?: string;
+      description?: string;
+      montant: number;
+    }>;
   };
   // Métadonnées de suggestion (pour affichage)
   suggestionMeta?: {
@@ -1236,6 +1247,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           if (prefill.montantLoyer) setValue('montantLoyer', prefill.montantLoyer);
           if (prefill.chargesRecup) setValue('chargesRecup', prefill.chargesRecup);
           if (prefill.chargesNonRecup) setValue('chargesNonRecup', prefill.chargesNonRecup);
+          
+          // Date de paiement
+          if (prefill.paymentDate) {
+            console.log('[TransactionModal] 🤖 Applique paymentDate depuis prefill:', prefill.paymentDate);
+            setValue('paymentDate', prefill.paymentDate);
+          }
           // Activer le calcul auto si breakdown présent
           if (prefill.montantLoyer || prefill.chargesRecup) {
             setIsAutoAmount(true);
@@ -1467,6 +1484,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       
       const suggestion = suggestionPayload.suggestions;
       console.log('[TransactionModal] 🤖 Suggestions extraites:', suggestion);
+      console.log('[TransactionModal] 🤖 paymentDate dans suggestions:', (suggestion as any).paymentDate);
       
       // Appliquer les suggestions au formulaire
       // ⚠️ IMPORTANT: Appliquer propertyId et leaseId EN DERNIER pour éviter que le useEffect du bail ne s'exécute avant
@@ -1519,6 +1537,18 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         console.log('[TransactionModal] 🤖 Applique label:', suggestion.label);
         setValue('label', suggestion.label);
         setLocalFormData(prev => ({ ...prev, label: suggestion.label }));
+      }
+      console.log('[TransactionModal] 🤖 Vérification paymentDate:', {
+        hasPaymentDate: !!(suggestion as any).paymentDate,
+        paymentDate: (suggestion as any).paymentDate,
+        allKeys: Object.keys(suggestion)
+      });
+      if ((suggestion as any).paymentDate) {
+        console.log('[TransactionModal] 🤖 Applique paymentDate:', (suggestion as any).paymentDate);
+        setValue('paymentDate', (suggestion as any).paymentDate);
+        console.log('[TransactionModal] 🤖 paymentDate appliqué avec setValue');
+      } else {
+        console.log('[TransactionModal] ⚠️ paymentDate non trouvé dans les suggestions');
       }
       
       // Activer le mode auto-calcul si montants détaillés présents
@@ -1635,7 +1665,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         montantLoyer: (data as any).montantLoyer || undefined,
         chargesRecup: (data as any).chargesRecup || undefined,
         chargesNonRecup: (data as any).chargesNonRecup || undefined,
-        isAutoAmount: isAutoAmount
+        isAutoAmount: isAutoAmount,
+        // Factures de la section DÉPENSES ET AUTRES RECETTES
+        factures: (prefill as any)?.factures || undefined
       };
       
       console.log('[TransactionModalV2] Mode:', mode);
@@ -2208,11 +2240,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         {...register('montantLoyer', {
                           valueAsNumber: true,
                           onChange: (e) => {
+                            // Arrondir à 2 décimales pour éviter les erreurs de précision flottante
+                            const value = parseFloat(e.target.value) || 0;
+                            const rounded = Math.round(value * 100) / 100;
+                            if (value !== rounded) {
+                              e.target.value = rounded.toString();
+                              setValue('montantLoyer', rounded);
+                            }
                             // Si Auto ON, recalculer le montant total (SANS charges non récup)
                             if (isAutoAmount) {
-                              const montantLoyer = parseFloat(e.target.value) || 0;
                               const chargesRecup = watch('chargesRecup') || 0;
-                              setValue('amount', montantLoyer + chargesRecup);
+                              setValue('amount', Math.round((rounded + chargesRecup) * 100) / 100);
                             }
                           }
                         })}
@@ -2230,11 +2268,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         {...register('chargesRecup', {
                           valueAsNumber: true,
                           onChange: (e) => {
+                            // Arrondir à 2 décimales pour éviter les erreurs de précision flottante
+                            const value = parseFloat(e.target.value) || 0;
+                            const rounded = Math.round(value * 100) / 100;
+                            if (value !== rounded) {
+                              e.target.value = rounded.toString();
+                              setValue('chargesRecup', rounded);
+                            }
                             // Si Auto ON, recalculer le montant total (SANS charges non récup)
                             if (isAutoAmount) {
                               const montantLoyer = watch('montantLoyer') || 0;
-                              const chargesRecup = parseFloat(e.target.value) || 0;
-                              setValue('amount', montantLoyer + chargesRecup);
+                              setValue('amount', Math.round((montantLoyer + rounded) * 100) / 100);
                             }
                           }
                         })}
@@ -2250,9 +2294,18 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         type="number"
                         step="0.01"
                         {...register('chargesNonRecup', {
-                          valueAsNumber: true
-                          // Note: chargesNonRecup ne sont PAS incluses dans le calcul du montant
-                          // car ce sont des charges à la charge du propriétaire, pas du locataire
+                          valueAsNumber: true,
+                          onChange: (e) => {
+                            // Arrondir à 2 décimales pour éviter les erreurs de précision flottante
+                            const value = parseFloat(e.target.value) || 0;
+                            const rounded = Math.round(value * 100) / 100;
+                            if (value !== rounded) {
+                              e.target.value = rounded.toString();
+                              setValue('chargesNonRecup', rounded);
+                            }
+                            // Note: chargesNonRecup ne sont PAS incluses dans le calcul du montant
+                            // car ce sont des charges à la charge du propriétaire, pas du locataire
+                          }
                         })}
                         placeholder="Ex: 35.00"
                       />
@@ -2301,7 +2354,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 const montantLoyer = watch('montantLoyer') || 0;
                 const chargesRecup = watch('chargesRecup') || 0;
                 
-                // Calcul de la commission
+                // Récupérer les factures depuis prefill ou suggestions
+                const factures = (prefill as any)?.factures || [];
+                const montantFactures = factures.reduce((sum: number, f: any) => sum + (f.montant || 0), 0);
+                
+                // Calcul de la commission de base
                 const base = company.modeCalcul === 'REVENUS_TOTAUX' 
                   ? montantLoyer + chargesRecup
                   : montantLoyer;
@@ -2311,9 +2368,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   commission = Math.max(commission, company.fraisMin);
                 }
                 
-                const commissionTTC = company.tvaApplicable 
+                const commissionBaseTTC = company.tvaApplicable 
                   ? commission * (1 + (company.tauxTva || 0) / 100)
                   : commission;
+                
+                // Ajouter le montant des factures à la commission
+                const commissionTTC = commissionBaseTTC + montantFactures;
                 
                 return (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4">
@@ -2348,10 +2408,40 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       )}
                       
                       <span className="text-gray-700 font-medium">Commission {company.tvaApplicable ? 'TTC' : 'HT'}:</span>
+                      <span className="font-medium text-right">
+                        {commissionBaseTTC.toFixed(2)} €
+                      </span>
+                      
+                      {montantFactures > 0 && (
+                        <>
+                          <span className="text-gray-600">+ Factures:</span>
+                          <span className="font-medium text-right">
+                            {montantFactures.toFixed(2)} €
+                          </span>
+                        </>
+                      )}
+                      
+                      <span className="text-gray-700 font-medium">Total commission:</span>
                       <span className="font-bold text-green-900 text-right text-lg">
                         {commissionTTC.toFixed(2)} €
                       </span>
                     </div>
+                    
+                    {montantFactures > 0 && factures.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-green-200">
+                        <p className="text-xs text-gray-600 mb-1">Factures incluses:</p>
+                        <ul className="text-xs text-gray-500 space-y-1">
+                          {factures.map((f: any, idx: number) => (
+                            <li key={idx}>
+                              • {f.numero ? `Facture ${f.numero}` : 'Facture'} 
+                              {f.fournisseur ? ` - ${f.fournisseur}` : ''}
+                              {f.description ? ` - ${f.description}` : ''}
+                              : <span className="font-medium">{f.montant.toFixed(2)} €</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     
                     <p className="text-xs text-gray-500 mt-3 flex items-center gap-1">
                       <span>💡</span>

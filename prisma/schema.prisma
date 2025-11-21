@@ -880,6 +880,7 @@ model Transaction {
   @@index([organizationId])
   @@index([propertyId, date])
   @@index([rapprochementStatus])
+  @@map("Transaction")
 }
 
 model TypeSignal {

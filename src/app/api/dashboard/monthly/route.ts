@@ -68,20 +68,14 @@ export async function GET(request: NextRequest) {
     // 1. CALCUL DES KPIs
     // ========================================================================
     
-    // Filtres de base pour les transactions
+    // Filtres de base pour les transactions (utiliser uniquement accounting_month)
     const whereTransaction: any = {
-      date: {
-        gte: firstDay,
-        lte: lastDay,
-      },
+      accounting_month: month,
       organizationId,
     };
 
     const wherePrevTransaction: any = {
-      date: {
-        gte: prevFirstDay,
-        lte: prevLastDay,
-      },
+      accounting_month: prevMonthStr,
       organizationId,
     };
     
@@ -114,7 +108,7 @@ export async function GET(request: NextRequest) {
       .filter(n => n.code.includes('LOYER') || n.label.toLowerCase().includes('loyer'))
       .map(n => n.code);
     
-    // Transactions du mois courant
+    // Transactions du mois courant (filtrées par accounting_month)
     const transactions = await prisma.transaction.findMany({
       where: whereTransaction,
       select: {
@@ -123,6 +117,7 @@ export async function GET(request: NextRequest) {
         nature: true,
         paidAt: true,
         date: true,
+        accounting_month: true,
         leaseId: true,
         Property: {
           select: {
@@ -144,7 +139,36 @@ export async function GET(request: NextRequest) {
       },
     });
     
-    // Transactions du mois précédent
+    // Debug: logger le nombre de transactions trouvées
+    const paidTransactions = transactions.filter(t => t.paidAt);
+    const unpaidTransactions = transactions.filter(t => !t.paidAt);
+    const withAccountingMonth = transactions.filter(t => t.accounting_month === month);
+    const withNullAccountingMonth = transactions.filter(t => !t.accounting_month);
+    
+    logDebug('[Dashboard Monthly] Transactions trouvées:', {
+      count: transactions.length,
+      month,
+      withAccountingMonth: withAccountingMonth.length,
+      withNullAccountingMonth: withNullAccountingMonth.length,
+      paidCount: paidTransactions.length,
+      unpaidCount: unpaidTransactions.length,
+      samplePaid: paidTransactions.slice(0, 3).map(t => ({
+        id: t.id,
+        accounting_month: t.accounting_month,
+        paidAt: t.paidAt,
+        amount: t.amount,
+        nature: t.nature,
+      })),
+      sampleUnpaid: unpaidTransactions.slice(0, 3).map(t => ({
+        id: t.id,
+        accounting_month: t.accounting_month,
+        paidAt: t.paidAt,
+        amount: t.amount,
+        nature: t.nature,
+      })),
+    });
+    
+    // Transactions du mois précédent (filtrées par accounting_month)
     const prevTransactions = await prisma.transaction.findMany({
       where: wherePrevTransaction,
       select: {
@@ -152,13 +176,23 @@ export async function GET(request: NextRequest) {
         amount: true,
         nature: true,
         paidAt: true,
+        accounting_month: true,
       },
     });
     
     // Calcul des KPIs mois courant
+    // IMPORTANT: Les KPIs se basent sur accounting_month, pas sur paidAt
     let loyersEncaisses = 0;
     let chargesPayees = 0;
     let cashflow = 0;
+    
+    // Debug: compter les transactions par type
+    let debugStats = {
+      total: transactions.length,
+      loyers: 0,
+      charges: 0,
+      filteredOut: 0,
+    };
     
     for (const transaction of transactions) {
       const natureData = transaction.nature ? natureMap.get(transaction.nature) : null;
@@ -166,30 +200,53 @@ export async function GET(request: NextRequest) {
       const amount = transaction.amount;
       
       // Appliquer filtre source
-      if (sourceFilter === 'loyer' && !isLoyer) continue;
-      if (sourceFilter === 'hors_loyer' && isLoyer) continue;
+      if (sourceFilter === 'loyer' && !isLoyer) {
+        debugStats.filteredOut++;
+        continue;
+      }
+      if (sourceFilter === 'hors_loyer' && isLoyer) {
+        debugStats.filteredOut++;
+        continue;
+      }
       
-      // Appliquer filtre statut
-      if (statutFilter === 'paye' && !transaction.paidAt) continue;
-      if (statutFilter === 'en_retard' && transaction.paidAt) continue;
-      if (statutFilter === 'a_venir' && transaction.paidAt) continue;
+      // Appliquer filtre statut (seulement pour l'affichage, pas pour les KPIs)
+      if (statutFilter === 'paye' && !transaction.paidAt) {
+        debugStats.filteredOut++;
+        continue;
+      }
+      if (statutFilter === 'en_retard' && transaction.paidAt) {
+        debugStats.filteredOut++;
+        continue;
+      }
+      if (statutFilter === 'a_venir' && transaction.paidAt) {
+        debugStats.filteredOut++;
+        continue;
+      }
       
-      if (transaction.paidAt) {
-        // Transaction payée
-        if (isLoyer) {
-          loyersEncaisses += Math.abs(amount);
-        }
-        
-        if (natureData?.flow === 'INCOME') {
-          cashflow += Math.abs(amount);
-        } else if (natureData?.flow === 'EXPENSE') {
-          chargesPayees += Math.abs(amount);
-          cashflow -= Math.abs(amount);
-        }
+      // Compter TOUTES les transactions du mois comptable (indépendamment de paidAt)
+      if (isLoyer) {
+        loyersEncaisses += Math.abs(amount);
+        debugStats.loyers++;
+      }
+      
+      if (natureData?.flow === 'INCOME') {
+        cashflow += Math.abs(amount);
+      } else if (natureData?.flow === 'EXPENSE') {
+        chargesPayees += Math.abs(amount);
+        cashflow -= Math.abs(amount);
+        debugStats.charges++;
       }
     }
     
+    logDebug('[Dashboard Monthly] Calcul KPIs:', {
+      ...debugStats,
+      loyersEncaisses,
+      chargesPayees,
+      cashflow,
+    });
+    
     // Calcul des KPIs mois précédent
+    // IMPORTANT: Les KPIs se basent sur accounting_month, pas sur paidAt
     let prevLoyersEncaisses = 0;
     let prevChargesPayees = 0;
     let prevCashflow = 0;
@@ -199,17 +256,16 @@ export async function GET(request: NextRequest) {
       const isLoyer = transaction.nature && loyerNatures.includes(transaction.nature);
       const amount = transaction.amount;
       
-      if (transaction.paidAt) {
-        if (isLoyer) {
-          prevLoyersEncaisses += Math.abs(amount);
-        }
-        
-        if (natureData?.flow === 'INCOME') {
-          prevCashflow += Math.abs(amount);
-        } else if (natureData?.flow === 'EXPENSE') {
-          prevChargesPayees += Math.abs(amount);
-          prevCashflow -= Math.abs(amount);
-        }
+      // Compter TOUTES les transactions du mois comptable (indépendamment de paidAt)
+      if (isLoyer) {
+        prevLoyersEncaisses += Math.abs(amount);
+      }
+      
+      if (natureData?.flow === 'INCOME') {
+        prevCashflow += Math.abs(amount);
+      } else if (natureData?.flow === 'EXPENSE') {
+        prevChargesPayees += Math.abs(amount);
+        prevCashflow -= Math.abs(amount);
       }
     }
     
@@ -322,13 +378,55 @@ export async function GET(request: NextRequest) {
     // ========================================================================
     
     // Loyers non encaissés / en retard (du mois courant)
+    // Récupérer toutes les transactions de loyer du mois (même non payées) pour les relances
+    const whereLoyersNonEncaisses: any = {
+      accounting_month: month,
+      organizationId,
+      nature: { in: loyerNatures },
+      paidAt: null, // Non payées
+    };
+    
+    if (bienIds.length > 0) {
+      whereLoyersNonEncaisses.propertyId = { in: bienIds };
+    }
+    
+    if (locataireIds.length > 0) {
+      whereLoyersNonEncaisses.Lease_Transaction_leaseIdToLease = {
+        tenantId: { in: locataireIds },
+      };
+    }
+    
+    const loyersNonEncaissesTransactions = await prisma.transaction.findMany({
+      where: whereLoyersNonEncaisses,
+      select: {
+        id: true,
+        amount: true,
+        date: true,
+        leaseId: true,
+        Property: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        Lease_Transaction_leaseIdToLease: {
+          select: {
+            id: true,
+            Tenant: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    
     const loyersNonEncaisses: LoyerNonEncaisse[] = [];
     const today = new Date();
     
-    for (const transaction of transactions) {
-      const isLoyer = transaction.nature && loyerNatures.includes(transaction.nature);
-      if (!isLoyer || transaction.paidAt) continue;
-      
+    for (const transaction of loyersNonEncaissesTransactions) {
       const dateEcheance = new Date(transaction.date);
       const retardJours = Math.floor((today.getTime() - dateEcheance.getTime()) / (1000 * 60 * 60 * 24));
       const statut = retardJours > 0 ? 'en_retard' : 'a_venir';
@@ -744,6 +842,7 @@ export async function GET(request: NextRequest) {
     // ========================================================================
     
     // Graphique intra-mensuel : encaissements vs dépenses par jour
+    // Utiliser les transactions payées du mois comptable sélectionné
     const intraMensuel: IntraMensuelDataPoint[] = [];
     const dailyMap = new Map<string, { encaissements: number; depenses: number }>();
     
@@ -753,11 +852,12 @@ export async function GET(request: NextRequest) {
       dailyMap.set(dateStr, { encaissements: 0, depenses: 0 });
     }
     
-    // Remplir avec les transactions
+    // Remplir avec les transactions du mois comptable (indépendamment de paidAt)
+    // Utiliser la date de la transaction (date) au lieu de paidAt pour le graphique
     for (const transaction of transactions) {
-      if (!transaction.paidAt) continue;
-      
-      const dateStr = new Date(transaction.paidAt).toISOString().split('T')[0];
+      // Utiliser la date de la transaction, ou paidAt si disponible
+      const transactionDate = transaction.paidAt || transaction.date;
+      const dateStr = new Date(transactionDate).toISOString().split('T')[0];
       if (!dailyMap.has(dateStr)) continue;
       
       const data = dailyMap.get(dateStr)!;

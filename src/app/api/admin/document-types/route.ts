@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
       description: type.description,
       isActive: type.isActive,
       autoAssignThreshold: type.autoAssignThreshold,
+      openTransaction: type.openTransaction,
       keywordsCount: type._count?.DocumentKeyword || 0,
       signalsCount: type._count?.TypeSignal || 0,
       rulesCount: type._count?.DocumentExtractionRule || 0,

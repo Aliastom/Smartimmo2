@@ -877,6 +877,8 @@ export async function POST(request: NextRequest) {
                 notes: body.notes || undefined,
                 rapprochementStatus: body.rapprochementStatus || 'non_rapprochee',
                 bankRef: body.bankRef || undefined,
+                // Factures de la section DÉPENSES ET AUTRES RECETTES
+                factures: body.factures || undefined,
               }, tx);
               
               if (commissionResult.commissionTransaction) {

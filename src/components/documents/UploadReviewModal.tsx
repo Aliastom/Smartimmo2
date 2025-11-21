@@ -4,10 +4,11 @@ import React, { useState, useEffect, useId } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Loader2, AlertTriangle, CheckCircle2, X, Eye, RefreshCw, Upload, FileText, Image as ImageIcon } from 'lucide-react';
+import { Loader2, AlertTriangle, CheckCircle2, X, Eye, RefreshCw, Upload, FileText, Image as ImageIcon, Info } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
+import { Checkbox } from '@/components/ui/Checkbox';
 // import { DocumentPreview } from '@/components/documents/DocumentPreview'; // Temporairement commenté
 // import { DuplicateDetectionModal } from '@/components/DuplicateDetectionModal'; // Supprimé - Remplacé par DedupFlow
 import { DedupFlowModal } from '@/components/DedupFlowModal';
@@ -124,11 +125,12 @@ export function UploadReviewModal({
 }: UploadReviewModalProps) {
   const [previews, setPreviews] = useState<UploadPreview[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [documentTypes, setDocumentTypes] = useState<Array<{code: string, label: string}>>([]);
+  const [documentTypes, setDocumentTypes] = useState<Array<{code: string, label: string, openTransaction?: boolean}>>([]);
   const [selectedType, setSelectedType] = useState<string>('');
   const [customName, setCustomName] = useState('');
   const [keepDuplicate, setKeepDuplicate] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [openTransactionModal, setOpenTransactionModal] = useState(true);
   const [linkingDescription, setLinkingDescription] = useState<string[]>([]);
   
   // États pour le mode review-draft
@@ -159,10 +161,18 @@ export function UploadReviewModal({
       .then(res => res.json())
       .then(data => {
         if (data.success) {
-          setDocumentTypes(data.data.map((t: any) => ({
+          const types = data.data.map((t: any) => ({
             code: t.code,
-            label: t.label
-          })));
+            label: t.label,
+            openTransaction: t.openTransaction || false
+          }));
+          console.log('[UploadReview] Types de documents chargés:', types);
+          // Log pour déboguer openTransaction
+          const typesWithOpenTransaction = types.filter((t: any) => t.openTransaction);
+          if (typesWithOpenTransaction.length > 0) {
+            console.log('[UploadReview] Types avec openTransaction=true:', typesWithOpenTransaction.map((t: any) => t.code));
+          }
+          setDocumentTypes(types);
         }
       })
       .catch(console.error);
@@ -456,6 +466,7 @@ export function UploadReviewModal({
       setCustomName('');
       setKeepDuplicate(false);
       setIsConfirming(false);
+      setOpenTransactionModal(true);
       setShowDedupFlowModal(false);
       resetDedupFlow();
     }
@@ -472,6 +483,7 @@ export function UploadReviewModal({
         setSelectedType(currentPreview.assignedTypeCode || '');
       }
       setCustomName(currentPreview.filename);
+      setOpenTransactionModal(true); // Réinitialiser la checkbox à chaque changement de fichier
     }
   }, [currentIndex, currentPreview?.assignedTypeCode, autoLinkingDocumentType]);
 
@@ -883,8 +895,11 @@ export function UploadReviewModal({
           status: 'confirmed' as const
         } : p));
 
-        // 🤖 Essayer de suggérer une transaction depuis le document
-        const suggestionShown = await tryTransactionSuggestion(result.documentId, finalTypeCode);
+        // 🤖 Essayer de suggérer une transaction depuis le document (seulement si la checkbox est cochée)
+        let suggestionShown = false;
+        if (openTransactionModal) {
+          suggestionShown = await tryTransactionSuggestion(result.documentId, finalTypeCode);
+        }
         
         // Si pas de suggestion affichée, continuer le flux normal
         if (!suggestionShown) {
@@ -1094,8 +1109,11 @@ export function UploadReviewModal({
           status: 'confirmed' as const
         } : p));
 
-        // 🤖 Essayer de suggérer une transaction depuis le document
-        const suggestionShown = await tryTransactionSuggestion(result.documentId, finalTypeCode);
+        // 🤖 Essayer de suggérer une transaction depuis le document (seulement si la checkbox est cochée)
+        let suggestionShown = false;
+        if (openTransactionModal) {
+          suggestionShown = await tryTransactionSuggestion(result.documentId, finalTypeCode);
+        }
         
         // Si pas de suggestion affichée, continuer le flux normal
         if (!suggestionShown) {
@@ -1447,6 +1465,20 @@ export function UploadReviewModal({
                       label="Type de document"
                       className=""
                     />
+                    {/* Message discret pour les types qui déclenchent une transaction IA */}
+                    {selectedType && (() => {
+                      const selectedDocType = documentTypes.find(t => t.code === selectedType);
+                      console.log('[UploadReview] Type sélectionné (draft):', selectedType, 'openTransaction:', selectedDocType?.openTransaction);
+                      if (selectedDocType?.openTransaction) {
+                        return (
+                          <div className="flex items-start gap-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-md p-2 mt-2">
+                            <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                            <span>Une modale de transaction sera ouverte automatiquement après l'enregistrement.</span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 )}
               </div>
@@ -1725,6 +1757,28 @@ export function UploadReviewModal({
                       label="Type de document *"
                       className=""
                     />
+                    {/* Message avec checkbox pour les types qui déclenchent une transaction IA */}
+                    {selectedType && (() => {
+                      const selectedDocType = documentTypes.find(t => t.code === selectedType);
+                      if (selectedDocType?.openTransaction) {
+                        return (
+                          <div className="flex items-start gap-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-md p-3 mt-1">
+                            <Checkbox
+                              id="openTransactionCheckbox"
+                              checked={openTransactionModal}
+                              onCheckedChange={(checked) => setOpenTransactionModal(checked === true)}
+                              className="mt-0.5"
+                            />
+                            <div className="flex-1">
+                              <label htmlFor="openTransactionCheckbox" className="cursor-pointer">
+                                Ouvrir la modale de transaction après l'enregistrement
+                              </label>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 )}
               </div>

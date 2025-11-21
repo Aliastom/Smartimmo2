@@ -120,10 +120,11 @@ async function calculateRealise(
     cashflowMap.set(month, 0);
   });
 
-  // Agréger par mois
+  // Agréger par mois (utiliser uniquement accounting_month)
   transactions.forEach((tx) => {
-    // Utiliser accountingMonth si disponible, sinon formater la date
-    const month = tx.accountingMonth || formatMonth(new Date(tx.date));
+    // Utiliser uniquement accounting_month
+    if (!tx.accounting_month) return; // Ignorer les transactions sans accounting_month
+    const month = tx.accounting_month;
     if (!months.includes(month)) return;
 
     const amount = Math.abs(tx.amount || 0);
@@ -579,8 +580,9 @@ async function calculateKPIs(
     const lastMonth = transactions
         .filter((tx) => {
         if (!tx.paidAt) return false;
-        const txMonth = formatMonth(new Date(tx.paidAt));
-        return txMonth === lastMonthStr;
+        // Utiliser uniquement accounting_month
+        if (!tx.accounting_month) return false;
+        return tx.accounting_month === lastMonthStr;
       })
       .reduce((sum, tx) => {
         return sum + (tx.amount || 0);

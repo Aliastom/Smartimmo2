@@ -16,6 +16,15 @@ export interface HighlightZone {
 /**
  * Payload de suggestion de transaction
  */
+export interface Facture {
+  date?: string;
+  numero?: string;
+  fournisseur?: string;
+  dateService?: string;
+  description?: string;
+  montant: number;
+}
+
 export interface TransactionSuggestionPayload {
   confidence: number;
   suggestions: {
@@ -34,6 +43,10 @@ export interface TransactionSuggestionPayload {
     montantLoyer?: number;
     chargesRecup?: number;
     chargesNonRecup?: number;
+    // Date de paiement
+    paymentDate?: string;
+    // Factures de la section DÉPENSES ET AUTRES RECETTES
+    factures?: Facture[];
   };
   meta: {
     documentId: string;
@@ -303,23 +316,98 @@ class TransactionSuggestionService {
         extracted[fieldName] = {
           value: match.value,
           groups: match.allGroups || [],
+          allMatches: match.allMatches || [], // Stocker tous les matches pour traitement ultérieur
           confidence: match.confidence
         };
-        console.log(`[TransactionSuggestion] ✅ ${fieldName}:`, match.value, `(${match.allGroups?.length || 0} groupes)`);
+        const matchCount = match.allMatches?.length || 1;
+        console.log(`[TransactionSuggestion] ✅ ${fieldName}:`, match.value, `(${match.allGroups?.length || 0} groupes, ${matchCount} match${matchCount > 1 ? 'es' : ''})`);
+      } else {
+        // Log pour déboguer les regex qui ne matchent pas
+        if (['loyer_principal', 'provisions_charges', 'regularisation_charges', 'entretien_chaudiere', 'ordures_menageres', 'facture'].includes(fieldName)) {
+          console.log(`[TransactionSuggestion] ⚠️ ${fieldName}: Aucun match trouvé avec le pattern: ${pattern.substring(0, 50)}...`);
+          // Afficher un extrait du texte pour déboguer
+          const textLower = text.toLowerCase();
+          const searchTerm = fieldName === 'loyer_principal' ? 'loyer principal' : 
+                           fieldName === 'provisions_charges' ? 'provisions charges' :
+                           fieldName === 'regularisation_charges' ? ['régularisation', 'regularisation', 'charges'] :
+                           fieldName === 'entretien_chaudiere' ? 'entretien chaudiere' :
+                           fieldName === 'ordures_menageres' ? ['ordures', 'menageres', 'taxe'] :
+                           fieldName === 'facture' ? ['facture', 'dépenses', 'depenses'] : [];
+          // Chercher toutes les occurrences
+          if (Array.isArray(searchTerm)) {
+            // Pour ordures_menageres, chercher plusieurs termes
+            searchTerm.forEach(term => {
+              const indices: number[] = [];
+              let searchIndex = textLower.indexOf(term);
+              while (searchIndex !== -1) {
+                indices.push(searchIndex);
+                searchIndex = textLower.indexOf(term, searchIndex + 1);
+              }
+              if (indices.length > 0) {
+                console.log(`[TransactionSuggestion] 🔍 Trouvé "${term}" ${indices.length} fois aux positions: ${indices.join(', ')}`);
+                indices.forEach((idx, i) => {
+                  const excerpt = text.substring(Math.max(0, idx - 30), Math.min(text.length, idx + 150));
+                  console.log(`[TransactionSuggestion] 🔍 Extrait ${i + 1}: "${excerpt}"`);
+                });
+              }
+            });
+          } else {
+            const indices: number[] = [];
+            let searchIndex = textLower.indexOf(searchTerm);
+            while (searchIndex !== -1) {
+              indices.push(searchIndex);
+              searchIndex = textLower.indexOf(searchTerm, searchIndex + 1);
+            }
+            if (indices.length > 0) {
+              console.log(`[TransactionSuggestion] 🔍 Trouvé "${searchTerm}" ${indices.length} fois aux positions: ${indices.join(', ')}`);
+              indices.forEach((idx, i) => {
+                const excerpt = text.substring(Math.max(0, idx - 30), Math.min(text.length, idx + 150));
+                console.log(`[TransactionSuggestion] 🔍 Extrait ${i + 1}: "${excerpt}"`);
+              });
+            } else {
+              console.log(`[TransactionSuggestion] 🔍 "${searchTerm}" non trouvé dans le texte`);
+            }
+          }
+        }
       }
     }
 
     // PHASE 2 : Appliquer le mapping si défini
     if (Object.keys(mapping).length > 0) {
       console.log('[TransactionSuggestion] 🗺️ Application du mapping...');
+      
+      // Liste des champs qui doivent être additionnés (montants uniquement)
+      const fieldsToSum = ['loyer_encaisse', 'charges_encaisse', 'regularisation_encaisse', 'chaudiere_encaisse', 'ordures_encaisse'];
+      
       for (const [targetField, mapConfig] of Object.entries(mapping)) {
         if (typeof mapConfig === 'object' && mapConfig.from) {
           const sourceData = extracted[mapConfig.from];
           if (sourceData) {
             const groupIndex = mapConfig.group || 1;
-            const value = sourceData.groups[groupIndex - 1] || sourceData.value;
-            rawData[targetField] = value;
-            console.log(`[TransactionSuggestion] 📍 ${targetField} = ${value} (depuis ${mapConfig.from} groupe ${groupIndex})`);
+            
+            // Si plusieurs matches ET que c'est un champ de montant, additionner
+            const shouldSum = sourceData.allMatches && sourceData.allMatches.length > 1 && fieldsToSum.includes(targetField);
+            
+            if (shouldSum) {
+              const total = sourceData.allMatches.reduce((sum, m) => {
+                let amountStr = m.groups[groupIndex - 1] || m.value;
+                // Corriger les montants collés aux dates (ex: "251 668,05" -> "1 668,05")
+                amountStr = this.fixCollidedAmount(amountStr);
+                const val = this.parseAmount(amountStr);
+                return sum + (val || 0);
+              }, 0);
+              rawData[targetField] = total.toFixed(2).replace('.', ',');
+              console.log(`[TransactionSuggestion] 📍 ${targetField} = ${rawData[targetField]} (somme de ${sourceData.allMatches.length} matches depuis ${mapConfig.from})`);
+            } else {
+              // Un seul match ou champ non-montant : comportement normal (prendre le premier match)
+              let value = sourceData.groups[groupIndex - 1] || sourceData.value;
+              // Corriger les montants collés aux dates
+              if (fieldsToSum.includes(targetField)) {
+                value = this.fixCollidedAmount(value);
+              }
+              rawData[targetField] = value;
+              console.log(`[TransactionSuggestion] 📍 ${targetField} = ${value} (depuis ${mapConfig.from} groupe ${groupIndex})`);
+            }
           }
         }
       }
@@ -343,16 +431,12 @@ class TransactionSuggestionService {
     // PHASE 3 : Appliquer le postprocess et mapper vers suggestions
     console.log('[TransactionSuggestion] 🔄 Postprocess et mapping vers suggestions...');
 
-    // Détail du loyer (breakdown)
+    // Détail du loyer (breakdown) - défini avant postprocess pour les valeurs brutes
     if (rawData.loyer_hc || rawData.loyer_encaisse) {
-      suggestions.montantLoyer = this.parseAmount(rawData.loyer_hc || rawData.loyer_encaisse);
+      const parsed = this.parseAmount(rawData.loyer_hc || rawData.loyer_encaisse);
+      suggestions.montantLoyer = parsed !== null ? Math.round(parsed * 100) / 100 : undefined;
       fieldsConfidence.montantLoyer = 0.9;
       console.log(`[TransactionSuggestion] 🏠 Loyer HC: ${suggestions.montantLoyer}`);
-    }
-    if (rawData.charges_hc || rawData.charges_encaisse) {
-      suggestions.chargesRecup = this.parseAmount(rawData.charges_hc || rawData.charges_encaisse);
-      fieldsConfidence.chargesRecup = 0.9;
-      console.log(`[TransactionSuggestion] 📦 Charges récup: ${suggestions.chargesRecup}`);
     }
     if (rawData.charges_non_recup) {
       suggestions.chargesNonRecup = this.parseAmount(rawData.charges_non_recup);
@@ -369,22 +453,26 @@ class TransactionSuggestionService {
         const sourceField = parseAmountMatch[1];
         const value = this.parseAmount(rawData[sourceField]);
         if (value !== null) {
-          (suggestions as any)[targetField] = value;
+          const rounded = Math.round(value * 100) / 100;
+          (suggestions as any)[targetField] = rounded;
           fieldsConfidence[targetField] = 0.9;
-          console.log(`[TransactionSuggestion] 💰 ${targetField} = parseAmount(${sourceField}) = ${value}`);
+          console.log(`[TransactionSuggestion] 💰 ${targetField} = parseAmount(${sourceField}) = ${rounded}`);
         }
         continue;
       }
       
-      // sum(field1, field2)
-      const sumMatch = expression.match(/sum\(([^,]+),\s*([^)]+)\)/);
+      // sum(field1, field2, ...) - supporte plusieurs arguments
+      const sumMatch = expression.match(/sum\(([^)]+)\)/);
       if (sumMatch) {
-        const val1 = this.parseAmount(rawData[sumMatch[1]]);
-        const val2 = this.parseAmount(rawData[sumMatch[2]]);
-        if (val1 !== null && val2 !== null) {
-          (suggestions as any)[targetField] = val1 + val2;
+        const fields = sumMatch[1].split(',').map(f => f.trim());
+        const values = fields.map(field => this.parseAmount(rawData[field])).filter(v => v !== null) as number[];
+        if (values.length > 0) {
+          const total = values.reduce((sum, val) => sum + val, 0);
+          // Arrondir à 2 décimales pour éviter les erreurs de précision flottante
+          const roundedTotal = Math.round(total * 100) / 100;
+          (suggestions as any)[targetField] = roundedTotal;
           fieldsConfidence[targetField] = 0.9;
-          console.log(`[TransactionSuggestion] 💰 ${targetField} = sum(${sumMatch[1]}, ${sumMatch[2]}) = ${val1} + ${val2} = ${val1 + val2}`);
+          console.log(`[TransactionSuggestion] 💰 ${targetField} = sum(${fields.join(', ')}) = ${values.join(' + ')} = ${roundedTotal}`);
         }
         continue;
       }
@@ -398,7 +486,8 @@ class TransactionSuggestionService {
         const val1 = (suggestions as any)[field1] ?? this.parseAmount(rawData[field1]);
         const val2 = (suggestions as any)[field2] ?? this.parseAmount(rawData[field2]);
         if (val1 !== null && val2 !== null) {
-          (suggestions as any)[targetField] = val1 - val2;
+          const result = val1 - val2;
+          (suggestions as any)[targetField] = Math.round(result * 100) / 100;
           fieldsConfidence[targetField] = 0.9;
           console.log(`[TransactionSuggestion] 💰 ${targetField} = subtract(${field1}, ${field2}) = ${val1} - ${val2} = ${val1 - val2}`);
         }
@@ -406,15 +495,76 @@ class TransactionSuggestionService {
       }
     }
     
+    // Définir chargesRecup APRÈS le postprocess pour utiliser la valeur calculée
+    // Utilise charges_encaisse du postprocess (somme calculée) si disponible, sinon rawData
+    if ((suggestions as any).charges_encaisse !== undefined) {
+      suggestions.chargesRecup = Math.round((suggestions as any).charges_encaisse * 100) / 100;
+      fieldsConfidence.chargesRecup = 0.9;
+      console.log(`[TransactionSuggestion] 📦 Charges récup (depuis postprocess): ${suggestions.chargesRecup}`);
+    } else if (rawData.charges_hc || rawData.charges_encaisse) {
+      const parsed = this.parseAmount(rawData.charges_hc || rawData.charges_encaisse);
+      suggestions.chargesRecup = parsed !== null ? Math.round(parsed * 100) / 100 : undefined;
+      fieldsConfidence.chargesRecup = 0.9;
+      console.log(`[TransactionSuggestion] 📦 Charges récup (depuis rawData): ${suggestions.chargesRecup}`);
+    }
+
+    // Construire le tableau de factures à partir des matches de la regex facture
+    console.log('[TransactionSuggestion] 🔍 Vérification factures - extracted.facture:', extracted.facture ? 'présent' : 'absent');
+    if (extracted.facture) {
+      console.log('[TransactionSuggestion] 🔍 extracted.facture.allMatches:', extracted.facture.allMatches?.length || 0, 'matches');
+      if (extracted.facture.allMatches && extracted.facture.allMatches.length > 0) {
+        console.log('[TransactionSuggestion] 🔍 Détails des matches facture:', JSON.stringify(extracted.facture.allMatches, null, 2));
+        const factures: Facture[] = [];
+        for (const match of extracted.facture.allMatches) {
+          console.log('[TransactionSuggestion] 🔍 Traitement match facture:', match);
+          // La regex facture capture : date (groupe 0), numero (groupe 1), fournisseur (groupe 2), dateService (groupe 3), description (groupe 4), montant (groupe 5)
+          // Note: match.groups[0] est le premier groupe capturé (date), pas le match complet
+          if (match.groups && match.groups.length >= 6) {
+            console.log('[TransactionSuggestion] 🔍 Match facture a', match.groups.length, 'groupes:', match.groups);
+            const montant = this.parseAmount(match.groups[5]); // Groupe 6 = index 5
+            console.log('[TransactionSuggestion] 🔍 Montant parsé:', montant);
+            if (montant !== null && montant > 0) {
+              const facture = {
+                date: match.groups[0]?.trim(),        // Groupe 1 = index 0
+                numero: match.groups[1]?.trim(),      // Groupe 2 = index 1
+                fournisseur: match.groups[2]?.trim(), // Groupe 3 = index 2
+                dateService: match.groups[3]?.trim(),  // Groupe 4 = index 3
+                description: match.groups[4]?.trim(),  // Groupe 5 = index 4
+                montant: Math.round(montant * 100) / 100
+              };
+              factures.push(facture);
+              console.log('[TransactionSuggestion] ✅ Facture ajoutée:', facture);
+            } else {
+              console.log('[TransactionSuggestion] ⚠️ Montant invalide ou nul pour facture');
+            }
+          } else {
+            console.log('[TransactionSuggestion] ⚠️ Match facture n\'a pas assez de groupes:', match.groups?.length || 0);
+          }
+        }
+        if (factures.length > 0) {
+          (suggestions as any).factures = factures;
+          fieldsConfidence.factures = 0.85;
+          console.log(`[TransactionSuggestion] 📄 Factures extraites: ${factures.length} facture(s)`, factures);
+        } else {
+          console.log('[TransactionSuggestion] ⚠️ Aucune facture valide construite');
+        }
+      } else {
+        console.log('[TransactionSuggestion] ⚠️ Aucun match trouvé pour facture');
+      }
+    } else {
+      console.log('[TransactionSuggestion] ⚠️ Regex facture non trouvée dans extracted');
+    }
+
     // Fallback si amount n'est pas calculé par postprocess
     if (!suggestions.amount) {
       if (suggestions.montantLoyer && suggestions.chargesRecup) {
         // Utiliser les valeurs du breakdown si disponibles
-        suggestions.amount = suggestions.montantLoyer + suggestions.chargesRecup;
+        suggestions.amount = Math.round((suggestions.montantLoyer + suggestions.chargesRecup) * 100) / 100;
         fieldsConfidence.amount = 0.9;
         console.log(`[TransactionSuggestion] 💰 Montant depuis breakdown: ${suggestions.amount}`);
       } else if (rawData.montant) {
-        suggestions.amount = this.parseAmount(rawData.montant);
+        const parsed = this.parseAmount(rawData.montant);
+        suggestions.amount = parsed !== null ? Math.round(parsed * 100) / 100 : undefined;
         fieldsConfidence.amount = 0.8;
       }
     }
@@ -472,6 +622,18 @@ class TransactionSuggestionService {
     if (rawData.reference) {
       suggestions.reference = rawData.reference;
       fieldsConfidence.reference = 0.8;
+    }
+
+    // Date de paiement : convertir DD/MM/YYYY vers YYYY-MM-DD
+    if (rawData.date_paiement) {
+      const dateMatch = rawData.date_paiement.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      if (dateMatch) {
+        const [, day, month, year] = dateMatch;
+        const paymentDate = `${year}-${month}-${day}`;
+        (suggestions as any).paymentDate = paymentDate;
+        fieldsConfidence.paymentDate = 0.9;
+        console.log(`[TransactionSuggestion] 💳 Date de paiement: ${rawData.date_paiement} -> ${paymentDate}`);
+      }
     }
 
     // Nature : depuis postprocess ou détection
@@ -535,35 +697,69 @@ class TransactionSuggestionService {
   }
 
   /**
-   * Extrait une valeur avec une regex (support groupes multiples)
+   * Extrait une valeur avec une regex (support groupes multiples et plusieurs matches)
    */
   private extractWithRegex(text: string, pattern: string, groupIndex: number = 1): {
     value: string;
     allGroups?: string[];
+    allMatches?: Array<{value: string; groups: string[]}>;
     confidence: number;
     position?: { page: number; start: number; end: number };
   } | null {
     try {
-      const regex = new RegExp(pattern, 'i');
-      const match = text.match(regex);
+      const regex = new RegExp(pattern, 'gi'); // 'g' pour global, 'i' pour insensible à la casse
+      const matches = [...text.matchAll(regex)];
       
-      if (match && match[groupIndex]) {
-        return {
-          value: match[groupIndex].trim(),
-          allGroups: match.slice(1), // Tous les groupes capturés (sans le match[0])
-          confidence: 0.85,
-          position: {
-            page: 1,
-            start: match.index || 0,
-            end: (match.index || 0) + match[0].length
-          }
-        };
+      if (matches.length === 0) {
+        return null;
       }
+      
+      // Pour compatibilité : retourner le premier match comme avant
+      const firstMatch = matches[0];
+      if (!firstMatch[groupIndex]) {
+        return null;
+      }
+      
+      // Stocker tous les matches pour traitement ultérieur
+      const allMatches = matches.map(m => ({
+        value: m[groupIndex]?.trim() || '',
+        groups: m.slice(1).map(g => g?.trim() || '')
+      }));
+      
+      return {
+        value: firstMatch[groupIndex].trim(),
+        allGroups: firstMatch.slice(1).map(g => g?.trim() || ''), // Tous les groupes du premier match
+        allMatches: allMatches, // Tous les matches (pour additionner les montants)
+        confidence: 0.85,
+        position: {
+          page: 1,
+          start: firstMatch.index || 0,
+          end: (firstMatch.index || 0) + firstMatch[0].length
+        }
+      };
     } catch (error) {
       console.warn('[TransactionSuggestion] Erreur regex:', pattern, error);
     }
     
     return null;
+  }
+
+  /**
+   * Corrige les montants collés aux dates (ex: "251 668,05" -> "1 668,05")
+   * Si le montant commence par 2 chiffres suivis d'un espace et d'un nombre avec espace dans milliers,
+   * c'est probablement une date collée (ex: "25" de "31.05.25" + "1 668,05")
+   */
+  private fixCollidedAmount(amountText: string): string {
+    if (!amountText) return amountText;
+    // Pattern : 2 chiffres + espace + nombre avec espace dans milliers (ex: "251 668,05")
+    const collidedPattern = /^(\d{2})\s(\d{1,3}[\s,]\d{3},\d{2})$/;
+    const match = amountText.match(collidedPattern);
+    if (match) {
+      // Probablement une date collée, garder seulement le deuxième groupe
+      console.log(`[TransactionSuggestion] 🔧 Montant collé détecté: "${amountText}" -> "${match[2]}"`);
+      return match[2];
+    }
+    return amountText;
   }
 
   /**
