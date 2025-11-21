@@ -48,6 +48,29 @@ export default function DashboardClientMonthly() {
     return params.toString();
   }, [month, bienIds, locataireIds, type, statut, source]);
 
+  // Récupérer les biens et locataires pour les filtres
+  const { data: propertiesData } = useQuery({
+    queryKey: ['properties-for-filter'],
+    queryFn: async () => {
+      const response = await fetch('/api/properties?limit=1000');
+      if (!response.ok) return { data: [] };
+      const data = await response.json();
+      return { data: data.data || [] };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: tenantsData } = useQuery({
+    queryKey: ['tenants-for-filter'],
+    queryFn: async () => {
+      const response = await fetch('/api/tenants?limit=1000');
+      if (!response.ok) return { data: [] };
+      const data = await response.json();
+      return { data: data.data || [] };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Utiliser React Query pour le cache et la gestion d'état
   const { data, isLoading, error } = useQuery<MonthlyDashboardData>({
     queryKey: ['dashboard-monthly', queryParams],
@@ -111,6 +134,8 @@ export default function DashboardClientMonthly() {
         statut={statut}
         source={source}
         onFilterChange={handleFilterChange}
+        biens={propertiesData?.data || []}
+        locataires={tenantsData?.data || []}
       />
 
       {/* Erreur */}
@@ -212,6 +237,7 @@ export default function DashboardClientMonthly() {
             bauxAEcheance={data.aTraiter.bauxAEcheance}
             documentsAValider={data.aTraiter.documentsAValider}
             layout="horizontal"
+            currentMonth={month}
           />
         ) : null}
       </div>

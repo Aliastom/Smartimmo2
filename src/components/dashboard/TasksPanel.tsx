@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Checkbox } from '@/components/ui/Checkbox';
 import {
   AlertCircle,
   Calendar,
@@ -37,6 +38,7 @@ export interface TasksPanelProps {
   bauxAEcheance: BailAEcheance[];
   documentsAValider: DocumentAValider[];
   layout?: 'vertical' | 'horizontal';
+  currentMonth?: string; // Format YYYY-MM (ex: "2025-11")
 }
 
 export function TasksPanel({
@@ -48,7 +50,15 @@ export function TasksPanel({
   bauxAEcheance,
   documentsAValider,
   layout = 'vertical',
+  currentMonth,
 }: TasksPanelProps) {
+  // État pour la case à cocher "mois sélectionné"
+  const [filterByCurrentMonth, setFilterByCurrentMonth] = useState(false);
+  
+  // Filtrer les relances par mois sélectionné si la case est cochée
+  const filteredRelances = filterByCurrentMonth && currentMonth
+    ? relances.filter(r => r.accountingMonth === currentMonth)
+    : relances;
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
@@ -154,7 +164,7 @@ export function TasksPanel({
         <div className="space-y-6">
           {/* Panneaux principaux en ligne */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Relances urgentes */}
+            {/* Loyers en retard */}
             {relances.length > 0 && (
               <Card>
                 <CardHeader>
@@ -162,10 +172,15 @@ export function TasksPanel({
                     <div>
                       <CardTitle className="flex items-center gap-2 text-base">
                         <AlertCircle className="h-5 w-5 text-red-500" />
-                        Relances urgentes
+                        Loyers en retard
                       </CardTitle>
                       <CardDescription className="text-xs">
-                        {relances.length} loyer{relances.length > 1 ? 's' : ''} en retard
+                        {filteredRelances.length} loyer{filteredRelances.length > 1 ? 's' : ''} en retard
+                        {filterByCurrentMonth && currentMonth && (
+                          <span className="ml-1 text-gray-500">
+                            ({formatAccountingMonth(currentMonth)})
+                          </span>
+                        )}
                       </CardDescription>
                     </div>
                     <Badge 
@@ -173,13 +188,28 @@ export function TasksPanel({
                       className="cursor-pointer hover:opacity-80 transition-opacity"
                       onClick={() => setShowAllRelances(true)}
                     >
-                      {relances.length}
+                      {filteredRelances.length}
                     </Badge>
                   </div>
+                  {currentMonth && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <Checkbox
+                        id="filter-month-relances-horizontal"
+                        checked={filterByCurrentMonth}
+                        onCheckedChange={(checked) => setFilterByCurrentMonth(checked === true)}
+                      />
+                      <label
+                        htmlFor="filter-month-relances-horizontal"
+                        className="text-xs text-gray-700 cursor-pointer"
+                      >
+                        Mois sélectionné ({formatAccountingMonth(currentMonth)})
+                      </label>
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {relances.slice(0, 3).map((loyer) => (
+                    {filteredRelances.slice(0, 3).map((loyer) => (
                     <TaskCard
                       key={loyer.id}
                       icon={Euro}
@@ -208,75 +238,68 @@ export function TasksPanel({
             </Card>
           )}
 
-          {/* Échéances de prêts */}
-          {echeancesPrets.length > 0 && (
+          {/* Échéances du mois */}
+          {(echeancesPrets.length > 0 || echeancesCharges.length > 0) && (
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-2 text-base">
-                      <CreditCard className="h-5 w-5 text-purple-500" />
-                      Échéances de prêts
+                      <Calendar className="h-5 w-5 text-blue-500" />
+                      Échéances du mois
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      Mensualités du mois
+                      Prêts et charges récurrentes
                     </CardDescription>
                   </div>
-                  <Badge variant="info">{echeancesPrets.length}</Badge>
+                  <Badge variant="info">{echeancesPrets.length + echeancesCharges.length}</Badge>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  {echeancesPrets.slice(0, 3).map((pret) => (
-                    <TaskCard
-                      key={pret.id}
-                      icon={CreditCard}
-                      title={pret.propertyName}
-                      subtitle={
-                        pret.capital && pret.interets
-                          ? `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}`
-                          : undefined
-                      }
-                      date={pret.dateEcheance}
-                      amount={pret.montantTotal}
-                      priority="medium"
-                    />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                <div className="space-y-3">
+                  {/* Échéances de prêts */}
+                  {echeancesPrets.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-600 mb-2">Prêts</h4>
+                      <div className="space-y-2">
+                        {echeancesPrets.slice(0, 3).map((pret) => (
+                          <TaskCard
+                            key={pret.id}
+                            icon={CreditCard}
+                            title={pret.propertyName}
+                            subtitle={
+                              pret.capital && pret.interets
+                                ? `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}`
+                                : undefined
+                            }
+                            date={pret.dateEcheance}
+                            amount={pret.montantTotal}
+                            priority="medium"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-          {/* Charges à prévoir */}
-          {echeancesCharges.length > 0 && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <FileText className="h-5 w-5 text-amber-500" />
-                      Charges à prévoir
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      Échéances récurrentes
-                    </CardDescription>
-                  </div>
-                  <Badge variant="warning">{echeancesCharges.length}</Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {echeancesCharges.slice(0, 3).map((charge) => (
-                    <TaskCard
-                      key={charge.id}
-                      icon={FileText}
-                      title={charge.label}
-                      subtitle={charge.propertyName || charge.type}
-                      date={charge.dateEcheance}
-                      amount={charge.montant}
-                      priority="low"
-                    />
-                  ))}
+                  {/* Échéances de charges */}
+                  {echeancesCharges.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-600 mb-2">Charges récurrentes</h4>
+                      <div className="space-y-2">
+                        {echeancesCharges.slice(0, 3).map((charge) => (
+                          <TaskCard
+                            key={charge.id}
+                            icon={FileText}
+                            title={charge.label}
+                            subtitle={charge.propertyName || charge.type}
+                            date={charge.dateEcheance}
+                            amount={charge.montant}
+                            priority="low"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -431,9 +454,14 @@ export function TasksPanel({
                 <div className="flex items-center gap-2">
                   <AlertCircle className="h-6 w-6 text-red-500" />
                   <h2 className="text-xl font-semibold text-gray-900">
-                    Toutes les relances urgentes
+                    Tous les loyers en retard
                   </h2>
-                  <Badge variant="danger">{relances.length}</Badge>
+                  <Badge variant="danger">{filteredRelances.length}</Badge>
+                  {filterByCurrentMonth && currentMonth && (
+                    <span className="text-sm text-gray-500">
+                      ({formatAccountingMonth(currentMonth)})
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={() => setShowAllRelances(false)}
@@ -446,7 +474,7 @@ export function TasksPanel({
               {/* Content */}
               <div className="flex-1 overflow-y-auto p-6">
                 <div className="space-y-3">
-                  {relances.map((loyer) => (
+                  {filteredRelances.map((loyer) => (
                     <TaskCard
                       key={loyer.id}
                       icon={Euro}
@@ -493,7 +521,7 @@ export function TasksPanel({
   return (
     <>
       <div className="space-y-6">
-        {/* Loyers non encaissés / Relances urgentes */}
+        {/* Loyers en retard */}
         {relances.length > 0 && (
           <Card>
             <CardHeader>
@@ -501,10 +529,15 @@ export function TasksPanel({
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <AlertCircle className="h-5 w-5 text-red-500" />
-                    Relances urgentes
+                    Loyers en retard
                   </CardTitle>
                   <CardDescription>
-                    {relances.length} loyer{relances.length > 1 ? 's' : ''} en retard
+                    {filteredRelances.length} loyer{filteredRelances.length > 1 ? 's' : ''} en retard
+                    {filterByCurrentMonth && currentMonth && (
+                      <span className="ml-2 text-xs text-gray-500">
+                        ({formatAccountingMonth(currentMonth)})
+                      </span>
+                    )}
                   </CardDescription>
                 </div>
                 <Badge 
@@ -512,13 +545,28 @@ export function TasksPanel({
                   className="cursor-pointer hover:opacity-80 transition-opacity"
                   onClick={() => setShowAllRelancesVertical(true)}
                 >
-                  {relances.length}
+                  {filteredRelances.length}
                 </Badge>
               </div>
+              {currentMonth && (
+                <div className="mt-3 flex items-center gap-2">
+                  <Checkbox
+                    id="filter-month-relances"
+                    checked={filterByCurrentMonth}
+                    onCheckedChange={(checked) => setFilterByCurrentMonth(checked === true)}
+                  />
+                  <label
+                    htmlFor="filter-month-relances"
+                    className="text-sm text-gray-700 cursor-pointer"
+                  >
+                    Mois sélectionné ({formatAccountingMonth(currentMonth)})
+                  </label>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {relances.slice(0, 5).map((loyer) => (
+                {filteredRelances.slice(0, 5).map((loyer) => (
                 <TaskCard
                   key={loyer.id}
                   icon={Euro}
@@ -626,75 +674,68 @@ export function TasksPanel({
         </Card>
       )}
 
-      {/* Échéances de prêts */}
-      {echeancesPrets.length > 0 && (
+      {/* Échéances du mois */}
+      {(echeancesPrets.length > 0 || echeancesCharges.length > 0) && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <CreditCard className="h-5 w-5 text-purple-500" />
-                  Échéances de prêts
+                  <Calendar className="h-5 w-5 text-blue-500" />
+                  Échéances du mois
                 </CardTitle>
                 <CardDescription>
-                  Mensualités du mois
+                  Prêts et charges récurrentes
                 </CardDescription>
               </div>
-              <Badge variant="info">{echeancesPrets.length}</Badge>
+              <Badge variant="info">{echeancesPrets.length + echeancesCharges.length}</Badge>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {echeancesPrets.slice(0, 3).map((pret) => (
-                <TaskCard
-                  key={pret.id}
-                  icon={CreditCard}
-                  title={pret.propertyName}
-                  subtitle={
-                    pret.capital && pret.interets
-                      ? `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}`
-                      : undefined
-                  }
-                  date={pret.dateEcheance}
-                  amount={pret.montantTotal}
-                  priority="medium"
-                />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            <div className="space-y-3">
+              {/* Échéances de prêts */}
+              {echeancesPrets.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-600 mb-2">Prêts</h4>
+                  <div className="space-y-2">
+                    {echeancesPrets.slice(0, 3).map((pret) => (
+                      <TaskCard
+                        key={pret.id}
+                        icon={CreditCard}
+                        title={pret.propertyName}
+                        subtitle={
+                          pret.capital && pret.interets
+                            ? `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}`
+                            : undefined
+                        }
+                        date={pret.dateEcheance}
+                        amount={pret.montantTotal}
+                        priority="medium"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
 
-      {/* Échéances récurrentes (charges) */}
-      {echeancesCharges.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-amber-500" />
-                  Charges à prévoir
-                </CardTitle>
-                <CardDescription>
-                  Échéances récurrentes
-                </CardDescription>
-              </div>
-              <Badge variant="warning">{echeancesCharges.length}</Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {echeancesCharges.slice(0, 5).map((charge) => (
-                <TaskCard
-                  key={charge.id}
-                  icon={FileText}
-                  title={charge.label}
-                  subtitle={charge.propertyName || charge.type}
-                  date={charge.dateEcheance}
-                  amount={charge.montant}
-                  priority="low"
-                />
-              ))}
+              {/* Échéances de charges */}
+              {echeancesCharges.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-600 mb-2">Charges récurrentes</h4>
+                  <div className="space-y-2">
+                    {echeancesCharges.slice(0, 5).map((charge) => (
+                      <TaskCard
+                        key={charge.id}
+                        icon={FileText}
+                        title={charge.label}
+                        subtitle={charge.propertyName || charge.type}
+                        date={charge.dateEcheance}
+                        amount={charge.montant}
+                        priority="low"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -711,7 +752,7 @@ export function TasksPanel({
                   Baux à renouveler
                 </CardTitle>
                 <CardDescription>
-                  Échéances dans les 30 jours
+                  Échéances dans les 3 mois
                 </CardDescription>
               </div>
               <Badge variant="warning">{bauxAEcheance.length}</Badge>
@@ -807,26 +848,31 @@ export function TasksPanel({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-6 w-6 text-red-500" />
-                <h2 className="text-xl font-semibold text-gray-900">
-                  Toutes les relances urgentes
-                </h2>
-                <Badge variant="danger">{relances.length}</Badge>
+              <div className="flex items-center justify-between p-6 border-b">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-6 w-6 text-red-500" />
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Toutes les relances urgentes
+                  </h2>
+                  <Badge variant="danger">{filteredRelances.length}</Badge>
+                  {filterByCurrentMonth && currentMonth && (
+                    <span className="text-sm text-gray-500">
+                      ({formatAccountingMonth(currentMonth)})
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setShowAllRelancesVertical(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="h-6 w-6" />
+                </button>
               </div>
-              <button
-                onClick={() => setShowAllRelancesVertical(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6">
-              <div className="space-y-3">
-                {relances.map((loyer) => (
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="space-y-3">
+                  {filteredRelances.map((loyer) => (
                   <TaskCard
                     key={loyer.id}
                     icon={Euro}

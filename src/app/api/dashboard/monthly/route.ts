@@ -412,6 +412,8 @@ export async function GET(request: NextRequest) {
         Lease_Transaction_leaseIdToLease: {
           select: {
             id: true,
+            startDate: true,
+            endDate: true,
             Tenant: {
               select: {
                 firstName: true,
@@ -427,17 +429,45 @@ export async function GET(request: NextRequest) {
     const today = new Date();
     
     for (const transaction of loyersNonEncaissesTransactions) {
+      // IMPORTANT: Ne pas compter les transactions dont le bail n'existait pas encore
+      if (!transaction.Lease_Transaction_leaseIdToLease) {
+        continue; // Pas de bail associé, on ignore
+      }
+      
+      const lease = transaction.Lease_Transaction_leaseIdToLease;
+      const leaseStartDate = new Date(lease.startDate);
+      const transactionDate = new Date(transaction.date);
+      
+      // Vérifier que la transaction est après le début du bail
+      // Si le bail commence en avril 2025, on ne doit pas compter une transaction de février 2021
+      const transactionMonth = new Date(transactionDate.getFullYear(), transactionDate.getMonth(), 1);
+      const firstRentDueMonth = new Date(leaseStartDate.getFullYear(), leaseStartDate.getMonth(), 1);
+      
+      if (transactionMonth < firstRentDueMonth) {
+        // La transaction est antérieure au début du bail, on l'ignore
+        continue;
+      }
+      
+      // Vérifier aussi que le bail n'était pas terminé à la date de la transaction
+      if (lease.endDate) {
+        const leaseEndDate = new Date(lease.endDate);
+        if (transactionDate > leaseEndDate) {
+          // La transaction est postérieure à la fin du bail, on l'ignore
+          continue;
+        }
+      }
+      
       const dateEcheance = new Date(transaction.date);
       const retardJours = Math.floor((today.getTime() - dateEcheance.getTime()) / (1000 * 60 * 60 * 24));
       const statut = retardJours > 0 ? 'en_retard' : 'a_venir';
       
       loyersNonEncaisses.push({
         id: transaction.id,
-        leaseId: transaction.Lease_Transaction_leaseIdToLease?.id || '',
+        leaseId: lease.id || '',
         propertyId: transaction.Property?.id || '',
         propertyName: transaction.Property?.name || '',
-        tenantName: transaction.Lease_Transaction_leaseIdToLease?.Tenant 
-          ? `${transaction.Lease_Transaction_leaseIdToLease.Tenant.firstName} ${transaction.Lease_Transaction_leaseIdToLease.Tenant.lastName}`
+        tenantName: lease.Tenant 
+          ? `${lease.Tenant.firstName} ${lease.Tenant.lastName}`
           : '',
         montant: Math.abs(transaction.amount),
         dateEcheance: dateEcheance.toISOString().split('T')[0],
@@ -446,28 +476,28 @@ export async function GET(request: NextRequest) {
       });
     }
     
-    // Relances : Calculer les loyers attendus par bail et vérifier les paiements
-    // On récupère la nature du loyer depuis la configuration
+    // Relances : Calculer les loyers attendus par bien et vérifier les paiements
+    // NOUVELLE LOGIQUE : Pour chaque bien, vérifier TOUS ses baux (actifs ou pas)
+    // et ne compter comme en retard que les mois manquants pendant la durée d'un bail
+    
     const gestionCodes = await getGestionCodes();
     const rentNature = gestionCodes.rentNature;
     
-    // Récupérer tous les baux actifs (avec filtres)
-    const whereLeasesForRelances: any = {
-      status: 'ACTIF',
-      startDate: { lte: today },
+    // Récupérer TOUS les baux (actifs ou pas) pour les biens concernés
+    const whereAllLeases: any = {
       organizationId,
     };
     
     if (bienIds.length > 0) {
-      whereLeasesForRelances.propertyId = { in: bienIds };
+      whereAllLeases.propertyId = { in: bienIds };
     }
     
     if (locataireIds.length > 0) {
-      whereLeasesForRelances.tenantId = { in: locataireIds };
+      whereAllLeases.tenantId = { in: locataireIds };
     }
     
-    const leasesForRelances = await prisma.lease.findMany({
-      where: whereLeasesForRelances,
+    const allLeases = await prisma.lease.findMany({
+      where: whereAllLeases,
       select: {
         id: true,
         rentAmount: true,
@@ -487,65 +517,87 @@ export async function GET(request: NextRequest) {
           },
         },
       },
+      orderBy: {
+        startDate: 'asc',
+      },
     });
     
-    // Pour chaque bail, générer les mois attendus et vérifier les paiements
-    const relances: LoyerNonEncaisse[] = [];
+    // Récupérer TOUTES les transactions de nature "Loyer" (payées ou non) pour vérifier ce qui existe
+    const whereAllRentTransactions: any = {
+      nature: rentNature,
+      organizationId,
+    };
     
-    if (leasesForRelances.length === 0) {
-      // Pas de baux actifs, donc pas de relances
-    } else {
-      // Récupérer TOUTES les transactions de loyer payées pour les baux concernés (optimisation)
-      const whereRentTransactions: any = {
-        leaseId: { in: leasesForRelances.map(l => l.id) },
-        nature: rentNature,
-        paidAt: { not: null },
-        organizationId,
+    if (bienIds.length > 0) {
+      whereAllRentTransactions.propertyId = { in: bienIds };
+    }
+    
+    if (locataireIds.length > 0) {
+      whereAllRentTransactions.Lease_Transaction_leaseIdToLease = {
+        tenantId: { in: locataireIds },
       };
+    }
+    
+    const allRentTransactions = await prisma.transaction.findMany({
+      where: whereAllRentTransactions,
+      select: {
+        id: true,
+        leaseId: true,
+        accounting_month: true,
+        propertyId: true,
+      },
+    });
+    
+    // Créer un Set pour une recherche rapide : "leaseId-accountingMonth"
+    // On vérifie par bail (leaseId + accounting_month)
+    const paidMonths = new Set<string>();
+    allRentTransactions.forEach(tx => {
+      if (tx.accounting_month && tx.leaseId) {
+        paidMonths.add(`${tx.leaseId}-${tx.accounting_month}`);
+      }
+    });
+    
+    // Grouper les baux par bien
+    const leasesByProperty = new Map<string, typeof allLeases>();
+    for (const lease of allLeases) {
+      const propertyId = lease.propertyId || 'unknown';
+      if (!leasesByProperty.has(propertyId)) {
+        leasesByProperty.set(propertyId, []);
+      }
+      leasesByProperty.get(propertyId)!.push(lease);
+    }
+    
+    const relances: LoyerNonEncaisse[] = [];
+    const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    
+    // Pour chaque bien, vérifier tous ses baux
+    for (const [propertyId, leases] of leasesByProperty.entries()) {
+      if (leases.length === 0) continue;
       
-      const paidRentTransactions = await prisma.transaction.findMany({
-        where: whereRentTransactions,
-        select: {
-          id: true,
-          leaseId: true,
-          accounting_month: true,
-        },
-      });
+      const property = leases[0].Property;
       
-      // Créer un Set pour une recherche rapide : "leaseId-accountingMonth"
-      const paidMonths = new Set<string>();
-      paidRentTransactions.forEach(tx => {
-        if (tx.accounting_month) {
-          paidMonths.add(`${tx.leaseId}-${tx.accounting_month}`);
-        }
-      });
-      
-      const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-      
-      for (const lease of leasesForRelances) {
+      // Pour chaque bail de ce bien
+      for (const lease of leases) {
         const leaseStartDate = new Date(lease.startDate);
         const leaseEndDate = lease.endDate ? new Date(lease.endDate) : null;
         
-        // Générer tous les mois depuis le début du bail jusqu'à maintenant
+        // Générer tous les mois entre startDate et endDate (ou aujourd'hui si pas de fin)
         const startMonth = new Date(leaseStartDate.getFullYear(), leaseStartDate.getMonth(), 1);
-        const endMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const endMonth = leaseEndDate 
+          ? new Date(leaseEndDate.getFullYear(), leaseEndDate.getMonth(), 1)
+          : new Date(today.getFullYear(), today.getMonth(), 1);
         
         const currentMonthDate = new Date(startMonth);
         
         while (currentMonthDate <= endMonth) {
           const accountingMonth = `${currentMonthDate.getFullYear()}-${String(currentMonthDate.getMonth() + 1).padStart(2, '0')}`;
           
-          // Si le bail est terminé avant ce mois, on s'arrête
-          if (leaseEndDate && currentMonthDate > leaseEndDate) {
-            break;
-          }
-          
-          // Ne pas vérifier le mois en cours (seulement les mois passés)
+          // Ne vérifier que les mois passés (pas le mois en cours ni les mois futurs)
           if (accountingMonth < currentMonthStr) {
-            // Vérifier si ce mois a été payé
+            // Vérifier si ce mois a une transaction de nature "Loyer" pour ce bail
             const isPaid = paidMonths.has(`${lease.id}-${accountingMonth}`);
             
-            // Si pas de transaction payée pour ce mois = loyer en retard
+            // Si pas de transaction = loyer en retard
             if (!isPaid) {
               // Calculer le nombre de jours de retard depuis la fin du mois
               const endOfMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0);
@@ -554,14 +606,14 @@ export async function GET(request: NextRequest) {
               relances.push({
                 id: `${lease.id}-${accountingMonth}`, // ID virtuel unique
                 leaseId: lease.id,
-                propertyId: lease.Property?.id || '',
-                propertyName: lease.Property?.name || '',
+                propertyId: property?.id || propertyId,
+                propertyName: property?.name || '',
                 tenantName: lease.Tenant
                   ? `${lease.Tenant.firstName} ${lease.Tenant.lastName}`
                   : '',
                 montant: lease.rentAmount,
                 dateEcheance: endOfMonth.toISOString().split('T')[0],
-                accountingMonth: accountingMonth, // Ajouter le mois comptable
+                accountingMonth: accountingMonth,
                 retardJours,
                 statut: 'en_retard' as const,
               });
@@ -572,10 +624,10 @@ export async function GET(request: NextRequest) {
           currentMonthDate.setMonth(currentMonthDate.getMonth() + 1);
         }
       }
-      
-      // Trier les relances par nombre de jours de retard (les plus anciennes en premier)
-      relances.sort((a, b) => b.retardJours - a.retardJours);
     }
+    
+    // Trier les relances par nombre de jours de retard (les plus anciennes en premier)
+    relances.sort((a, b) => b.retardJours - a.retardJours);
     
     // Indexations à traiter (anniversaires de baux dans le mois ± 15j)
     const indexationStart = new Date(firstDay.getTime() - 15 * 24 * 60 * 60 * 1000);
@@ -752,9 +804,9 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    // Baux arrivant à échéance (dans les 30 jours)
+    // Baux arrivant à échéance (dans les 3 mois)
     const bauxAEcheance: BailAEcheance[] = [];
-    const echeanceLimit = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const echeanceLimit = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000); // 3 mois = 90 jours
     
     const leasesExpiring = await prisma.lease.findMany({
       where: {
