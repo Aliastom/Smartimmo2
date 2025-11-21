@@ -67,6 +67,18 @@ const pwaConfig = withPWA({
   ],
   // Stratégies de cache intelligentes pour ne pas casser Supabase
   runtimeCaching: [
+    // ⚠️ CRITIQUE: Ne JAMAIS intercepter les routes API (POST, PUT, DELETE, etc.)
+    // Le service worker doit laisser passer toutes les requêtes API directement au réseau
+    {
+      urlPattern: /^\/api\/.*/,
+      handler: 'NetworkOnly',
+      options: {
+        cacheName: 'api-requests',
+        expiration: {
+          maxEntries: 0, // Pas de cache
+        },
+      },
+    },
     // Ne JAMAIS mettre en cache les endpoints d'authentification Supabase
     {
       urlPattern: /^https:\/\/.*\.supabase\.co\/auth\/v1\//,
