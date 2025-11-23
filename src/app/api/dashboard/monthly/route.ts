@@ -508,6 +508,7 @@ export async function GET(request: NextRequest) {
           select: {
             id: true,
             name: true,
+            acquisitionDate: true, // Date d'acquisition du bien (héritage)
           },
         },
         Tenant: {
@@ -581,8 +582,20 @@ export async function GET(request: NextRequest) {
         const leaseStartDate = new Date(lease.startDate);
         const leaseEndDate = lease.endDate ? new Date(lease.endDate) : null;
         
-        // Générer tous les mois entre startDate et endDate (ou aujourd'hui si pas de fin)
-        const startMonth = new Date(leaseStartDate.getFullYear(), leaseStartDate.getMonth(), 1);
+        // Date d'acquisition du bien (héritage) - ne pas compter les retards avant cette date
+        const propertyAcquisitionDate = property?.acquisitionDate 
+          ? new Date(property.acquisitionDate) 
+          : null;
+        
+        // Date de début de vérification : maximum entre début du bail et date d'acquisition
+        // Si le bail a commencé avant l'héritage, on ne vérifie qu'à partir de l'héritage
+        let effectiveStartDate = leaseStartDate;
+        if (propertyAcquisitionDate && propertyAcquisitionDate > leaseStartDate) {
+          effectiveStartDate = propertyAcquisitionDate;
+        }
+        
+        // Générer tous les mois entre effectiveStartDate et endDate (ou aujourd'hui si pas de fin)
+        const startMonth = new Date(effectiveStartDate.getFullYear(), effectiveStartDate.getMonth(), 1);
         const endMonth = leaseEndDate 
           ? new Date(leaseEndDate.getFullYear(), leaseEndDate.getMonth(), 1)
           : new Date(today.getFullYear(), today.getMonth(), 1);
@@ -592,16 +605,33 @@ export async function GET(request: NextRequest) {
         while (currentMonthDate <= endMonth) {
           const accountingMonth = `${currentMonthDate.getFullYear()}-${String(currentMonthDate.getMonth() + 1).padStart(2, '0')}`;
           
-          // Ne vérifier que les mois passés (pas le mois en cours ni les mois futurs)
-          if (accountingMonth < currentMonthStr) {
+          // Vérifier les mois passés ET le mois en cours (si on est déjà dans le mois)
+          // Pour le mois en cours, on considère qu'il est en retard si pas de transaction
+          const isPastMonth = accountingMonth < currentMonthStr;
+          const isCurrentMonth = accountingMonth === currentMonthStr;
+          
+          if (isPastMonth || isCurrentMonth) {
             // Vérifier si ce mois a une transaction de nature "Loyer" pour ce bail
             const isPaid = paidMonths.has(`${lease.id}-${accountingMonth}`);
             
             // Si pas de transaction = loyer en retard
             if (!isPaid) {
-              // Calculer le nombre de jours de retard depuis la fin du mois
+              // Calculer le nombre de jours de retard
+              // Pour le mois en cours, on calcule depuis le 1er du mois
+              // Pour les mois passés, on calcule depuis la fin du mois
+              let retardJours = 0;
+              if (isCurrentMonth) {
+                // Mois en cours : retard depuis le 1er du mois
+                const firstOfMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth(), 1);
+                retardJours = Math.floor((today.getTime() - firstOfMonth.getTime()) / (1000 * 60 * 60 * 24));
+              } else {
+                // Mois passé : retard depuis la fin du mois
+                const endOfMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0);
+                retardJours = Math.floor((today.getTime() - endOfMonth.getTime()) / (1000 * 60 * 60 * 24));
+              }
+              
+              // Date d'échéance : fin du mois pour l'affichage
               const endOfMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0);
-              const retardJours = Math.floor((today.getTime() - endOfMonth.getTime()) / (1000 * 60 * 60 * 24));
               
               relances.push({
                 id: `${lease.id}-${accountingMonth}`, // ID virtuel unique

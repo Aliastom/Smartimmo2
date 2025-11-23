@@ -53,7 +53,7 @@ export function TasksPanel({
   currentMonth,
 }: TasksPanelProps) {
   // État pour la case à cocher "mois sélectionné"
-  const [filterByCurrentMonth, setFilterByCurrentMonth] = useState(false);
+  const [filterByCurrentMonth, setFilterByCurrentMonth] = useState(true);
   
   // Filtrer les relances par mois sélectionné si la case est cochée
   const filteredRelances = filterByCurrentMonth && currentMonth
