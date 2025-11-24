@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { notify2 } from '@/lib/notify2';
-import { Plus } from 'lucide-react';
+import { Plus, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { SectionTitle } from '@/components/ui/SectionTitle';
 import { Pagination } from '@/components/ui/Pagination';
@@ -123,11 +123,14 @@ export default function TransactionsClient() {
   const [showDeleteTransactionModal, setShowDeleteTransactionModal] = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
   const [transactionHasDocuments, setTransactionHasDocuments] = useState(false);
+  const [loadingTransactionId, setLoadingTransactionId] = useState<string | null>(null);
   
   // États pour la sélection multiple
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<string[]>([]);
   const [showDeleteMultipleModal, setShowDeleteMultipleModal] = useState(false);
   const [transactionsToDelete, setTransactionsToDelete] = useState<Transaction[]>([]);
+  const [isLoadingDeleteModal, setIsLoadingDeleteModal] = useState(false);
+  const [deletingProgress, setDeletingProgress] = useState<{ current: number; total: number } | null>(null);
 
   // États pour la période (format YYYY-MM)
   const now = new Date();
@@ -445,6 +448,50 @@ export default function TransactionsClient() {
     setRefreshKey(prev => prev + 1);
   }, [loadData]);
 
+  // Fonction pour récupérer toutes les IDs des transactions correspondant aux filtres
+  const loadAllTransactionIds = useCallback(async (): Promise<string[]> => {
+    try {
+      const params = new URLSearchParams();
+      
+      // Ajouter les filtres (sauf status qui sera géré par activeKpiFilter)
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value && key !== 'status') params.append(key, value);
+      });
+
+      // Appliquer le filtre KPI actif
+      if (activeKpiFilter === 'recettes') {
+        params.append('flow', 'INCOME');
+      } else if (activeKpiFilter === 'depenses') {
+        params.append('flow', 'EXPENSE');
+      } else if (activeKpiFilter === 'nonRapprochees') {
+        params.append('status', 'non_rapprochee');
+      }
+
+      // Ajouter la période au format comptable
+      params.append('accountingMonthStart', periodStart);
+      params.append('accountingMonthEnd', periodEnd);
+
+      // Récupérer toutes les transactions (limite très élevée)
+      params.append('page', '1');
+      params.append('limit', '10000');
+
+      const response = await fetch(`/api/transactions?${params.toString()}`);
+      const data = await response.json();
+
+      // Appliquer le filtre includeManagementFees comme dans l'affichage
+      let allTransactions = data.data || [];
+      if (!filters.includeManagementFees) {
+        allTransactions = allTransactions.filter((t: Transaction) => t.autoSource !== 'gestion');
+      }
+
+      return allTransactions.map((t: Transaction) => t.id);
+    } catch (error) {
+      console.error('Erreur lors de la récupération de toutes les transactions:', error);
+      // En cas d'erreur, retourner les IDs des transactions visibles
+      return transactions.map(t => t.id);
+    }
+  }, [filters, periodStart, periodEnd, activeKpiFilter, transactions]);
+
   // Gestion de la sélection
   const handleSelectTransaction = useCallback((id: string) => {
     setSelectedTransactionIds(prev => 
@@ -454,27 +501,59 @@ export default function TransactionsClient() {
     );
   }, []);
 
-  const handleSelectAll = useCallback((selected: boolean) => {
+  const handleSelectAll = useCallback(async (selected: boolean) => {
     if (selected) {
-      const currentTransactionIds = transactions.map(t => t.id);
-      setSelectedTransactionIds(currentTransactionIds);
+      // Récupérer toutes les IDs des transactions correspondant aux filtres
+      const allIds = await loadAllTransactionIds();
+      setSelectedTransactionIds(allIds);
     } else {
       setSelectedTransactionIds([]);
     }
-  }, [transactions]);
+  }, [loadAllTransactionIds]);
 
-  const handleDeleteMultipleTransactions = useCallback(() => {
-    const selected = transactions.filter(t => selectedTransactionIds.includes(t.id));
-    setTransactionsToDelete(selected);
-    setShowDeleteMultipleModal(true);
-  }, [transactions, selectedTransactionIds]);
+  const handleDeleteMultipleTransactions = useCallback(async () => {
+    // Récupérer toutes les transactions sélectionnées (même celles non visibles)
+    // En utilisant les IDs sélectionnés directement
+    setIsLoadingDeleteModal(true);
+    try {
+      // Charger les détails des transactions sélectionnées pour la confirmation
+      const transactionDetails = await Promise.all(
+        selectedTransactionIds.map(async (id) => {
+          try {
+            const response = await fetch(`/api/transactions/${id}`);
+            if (response.ok) {
+              return await response.json();
+            }
+            return null;
+          } catch (error) {
+            console.error(`Erreur lors du chargement de la transaction ${id}:`, error);
+            return null;
+          }
+        })
+      );
+      
+      // Filtrer les transactions valides (celles qui existent encore)
+      const validTransactions = transactionDetails.filter(t => t !== null) as Transaction[];
+      setTransactionsToDelete(validTransactions);
+      setShowDeleteMultipleModal(true);
+    } catch (error) {
+      console.error('Erreur lors de la préparation de la suppression multiple:', error);
+      notify2.error('Erreur lors de la préparation de la suppression');
+    } finally {
+      setIsLoadingDeleteModal(false);
+    }
+  }, [selectedTransactionIds]);
 
   const handleDeleteMultipleConfirmed = useCallback(async (mode: 'delete_docs' | 'keep_docs_globalize') => {
+    const total = transactionsToDelete.length;
+    setDeletingProgress({ current: 0, total });
+    
     try {
       let deletedCount = 0;
       let skippedCount = 0;
       
-      for (const transaction of transactionsToDelete) {
+      for (let i = 0; i < transactionsToDelete.length; i++) {
+        const transaction = transactionsToDelete[i];
         try {
           const response = await fetch(`/api/transactions/${transaction.id}?mode=${mode}`, {
             method: 'DELETE',
@@ -495,6 +574,9 @@ export default function TransactionsClient() {
           // Si une transaction individuelle échoue, on continue avec les autres
           skippedCount++;
         }
+        
+        // Mettre à jour le progrès
+        setDeletingProgress({ current: i + 1, total });
       }
       
       // ⚙️ GESTION DÉLÉGUÉE: Afficher le nombre total de transactions sélectionnées
@@ -510,11 +592,14 @@ export default function TransactionsClient() {
       loadData();
       setTransactionsToDelete([]);
       setSelectedTransactionIds([]);
+      setDeletingProgress(null);
+      setShowDeleteMultipleModal(false);
       // Forcer le rafraîchissement des KPI et graphiques
       setRefreshKey(prev => prev + 1);
     } catch (error) {
       console.error('Erreur lors de la suppression multiple:', error);
       notify2.error('Erreur lors de la suppression des transactions');
+      setDeletingProgress(null);
     }
   }, [transactionsToDelete, loadData]);
 
@@ -523,6 +608,9 @@ export default function TransactionsClient() {
   }, []);
 
   const handleRowClick = useCallback(async (transaction: Transaction) => {
+    // Activer l'animation de chargement sur la ligne
+    setLoadingTransactionId(transaction.id);
+    
     // Charger les détails de la transaction avec les documents
     try {
       const response = await fetch(`/api/transactions/${transaction.id}`);
@@ -534,6 +622,11 @@ export default function TransactionsClient() {
       // En cas d'erreur, utiliser les données du tableau
       setSelectedTransaction(transaction);
       setIsDrawerOpen(true);
+    } finally {
+      // Désactiver l'animation de chargement après un court délai pour que l'animation soit visible
+      setTimeout(() => {
+        setLoadingTransactionId(null);
+      }, 300);
     }
   }, []);
 
@@ -657,8 +750,16 @@ export default function TransactionsClient() {
                 variant="outline" 
                 size="sm" 
                 onClick={handleDeleteMultipleTransactions}
+                disabled={isLoadingDeleteModal}
               >
-                Supprimer
+                {isLoadingDeleteModal ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin sidebar-loader-orange" />
+                    Chargement...
+                  </>
+                ) : (
+                  'Supprimer'
+                )}
               </Button>
               <Button 
                 variant="ghost" 
@@ -699,6 +800,7 @@ export default function TransactionsClient() {
         selectedTransactionIds={selectedTransactionIds}
         onSelectTransaction={handleSelectTransaction}
         onSelectAll={handleSelectAll}
+        loadingTransactionId={loadingTransactionId}
       />
         </CardContent>
       </Card>
@@ -758,9 +860,11 @@ export default function TransactionsClient() {
         onClose={() => {
           setShowDeleteMultipleModal(false);
           setTransactionsToDelete([]);
+          setDeletingProgress(null);
         }}
         onConfirm={handleDeleteMultipleConfirmed}
         transactions={transactionsToDelete}
+        deletingProgress={deletingProgress}
       />
     </div>
   );

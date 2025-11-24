@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, AlertTriangle } from 'lucide-react';
+import { X, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
 interface Transaction {
@@ -14,6 +14,7 @@ interface ConfirmDeleteMultipleTransactionsModalProps {
   onClose: () => void;
   onConfirm: (mode: 'delete_docs' | 'keep_docs_globalize') => void;
   transactions: Transaction[];
+  deletingProgress?: { current: number; total: number } | null;
 }
 
 export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMultipleTransactionsModalProps> = ({
@@ -21,6 +22,7 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
   onClose,
   onConfirm,
   transactions,
+  deletingProgress,
 }) => {
   const [selectedMode, setSelectedMode] = useState<'delete_docs' | 'keep_docs_globalize'>('keep_docs_globalize');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -34,7 +36,7 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
     setIsDeleting(true);
     try {
       await onConfirm(selectedMode);
-      onClose();
+      // Ne pas fermer immédiatement, laisser onConfirm gérer la fermeture après la suppression
     } finally {
       setIsDeleting(false);
     }
@@ -46,7 +48,7 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
       <div 
         className="fixed inset-0 bg-black bg-opacity-50"
         style={{ zIndex: 9998 }}
-        onClick={onClose}
+        onClick={isDeleting || deletingProgress !== null ? undefined : onClose}
       />
       
       {/* Modal */}
@@ -62,6 +64,7 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
           <button
             className="btn btn-sm btn-circle absolute right-2 top-2"
             onClick={onClose}
+            disabled={isDeleting || deletingProgress !== null}
           >
             <X className="h-4 w-4" />
           </button>
@@ -73,15 +76,37 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
             </h3>
             
             <div className="text-center mb-6">
-              <p className="text-gray-700 mb-2">
-                Vous êtes sur le point de supprimer <strong>{transactions.length} transaction{transactions.length > 1 ? 's' : ''}</strong>.
-              </p>
-              
-              {transactionsWithDocs.length > 0 && (
-                <p className="text-gray-600">
-                  {transactionsWithDocs.length} transaction{transactionsWithDocs.length > 1 ? 's' : ''} contiennent des documents 
-                  ({totalDocuments} document{totalDocuments > 1 ? 's' : ''} au total).
-                </p>
+              {deletingProgress ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin sidebar-loader-orange" />
+                    <p className="text-gray-700 font-medium">
+                      Suppression en cours... {deletingProgress.current} / {deletingProgress.total}
+                    </p>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-orange-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${(deletingProgress.current / deletingProgress.total) * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    {deletingProgress.total - deletingProgress.current} transaction{deletingProgress.total - deletingProgress.current > 1 ? 's' : ''} restante{deletingProgress.total - deletingProgress.current > 1 ? 's' : ''}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-gray-700 mb-2">
+                    Vous êtes sur le point de supprimer <strong>{transactions.length} transaction{transactions.length > 1 ? 's' : ''}</strong>.
+                  </p>
+                  
+                  {transactionsWithDocs.length > 0 && (
+                    <p className="text-gray-600">
+                      {transactionsWithDocs.length} transaction{transactionsWithDocs.length > 1 ? 's' : ''} contiennent des documents 
+                      ({totalDocuments} document{totalDocuments > 1 ? 's' : ''} au total).
+                    </p>
+                  )}
+                </>
               )}
             </div>
 
@@ -92,13 +117,14 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
                 </p>
                 
                 <div className="space-y-3">
-                  <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <label className={`flex items-start gap-3 p-3 border rounded-lg ${isDeleting || deletingProgress !== null ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'}`}>
                     <input
                       type="radio"
                       name="deleteMode"
                       value="delete_docs"
                       checked={selectedMode === 'delete_docs'}
                       onChange={(e) => setSelectedMode(e.target.value as 'delete_docs')}
+                      disabled={isDeleting || deletingProgress !== null}
                       className="mt-1"
                     />
                     <div className="flex-1">
@@ -111,13 +137,14 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
                     </div>
                   </label>
                   
-                  <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <label className={`flex items-start gap-3 p-3 border rounded-lg ${isDeleting || deletingProgress !== null ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'}`}>
                     <input
                       type="radio"
                       name="deleteMode"
                       value="keep_docs_globalize"
                       checked={selectedMode === 'keep_docs_globalize'}
                       onChange={(e) => setSelectedMode(e.target.value as 'keep_docs_globalize')}
+                      disabled={isDeleting || deletingProgress !== null}
                       className="mt-1"
                     />
                     <div className="flex-1">
@@ -138,16 +165,23 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
                 variant="outline"
                 onClick={onClose}
                 className="flex-1"
-                disabled={isDeleting}
+                disabled={isDeleting || deletingProgress !== null}
               >
                 Annuler
               </Button>
               <Button
                 onClick={handleConfirm}
                 className="flex-1 btn-error"
-                disabled={isDeleting}
+                disabled={isDeleting || deletingProgress !== null}
               >
-                {isDeleting ? 'Suppression...' : 'Supprimer les transactions'}
+                {isDeleting || deletingProgress !== null ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin sidebar-loader-orange" />
+                    Suppression...
+                  </>
+                ) : (
+                  'Supprimer les transactions'
+                )}
               </Button>
             </div>
           </div>

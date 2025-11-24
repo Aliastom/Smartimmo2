@@ -5,7 +5,8 @@ import { Table, TableHeader, TableHeaderCell, TableBody, TableRow, TableCell } f
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { SkeletonTable, EmptyState, useLoadingDelay } from '@/components/ui';
-import { Edit, Trash2, CheckCircle, AlertTriangle, FileText, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Edit, Trash2, CheckCircle, AlertTriangle, FileText, X, ArrowUpDown, ArrowUp, ArrowDown, Loader2 } from 'lucide-react';
+import { cn } from '@/utils/cn';
 
 interface Transaction {
   id: string;
@@ -56,6 +57,7 @@ interface TransactionsTableProps {
   selectedTransactionIds?: string[];
   onSelectTransaction?: (id: string) => void;
   onSelectAll?: (selected: boolean) => void;
+  loadingTransactionId?: string | null; // ID de la transaction en cours de chargement
 }
 
 const NATURE_COLORS = {
@@ -83,7 +85,8 @@ export default function TransactionsTable({
   hidePropertyColumn = false,
   selectedTransactionIds = [],
   onSelectTransaction,
-  onSelectAll
+  onSelectAll,
+  loadingTransactionId = null
 }: TransactionsTableProps) {
   const [sortField, setSortField] = useState<SortField>('accountingMonth');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -94,7 +97,9 @@ export default function TransactionsTable({
   // Fonctions de gestion de sélection - déléguer au parent
   const handleSelectAll = () => {
     if (onSelectAll) {
-      const shouldSelectAll = selectedTransactions.length !== transactions.length;
+      // Vérifier si toutes les transactions visibles sont sélectionnées
+      const allVisibleSelected = transactions.length > 0 && transactions.every(t => selectedTransactions.includes(t.id));
+      const shouldSelectAll = !allVisibleSelected;
       onSelectAll(shouldSelectAll);
     }
   };
@@ -331,7 +336,18 @@ export default function TransactionsTable({
               <TableHeaderCell>
                 <input
                   type="checkbox"
-                  checked={selectedTransactions.length === transactions.length && transactions.length > 0}
+                  checked={
+                    transactions.length > 0 && 
+                    transactions.every(t => selectedTransactions.includes(t.id))
+                  }
+                  ref={(input) => {
+                    if (input) {
+                      // État indéterminé si certaines transactions sont sélectionnées mais pas toutes les visibles
+                      const allVisibleSelected = transactions.every(t => selectedTransactions.includes(t.id));
+                      const someSelected = selectedTransactions.length > 0;
+                      input.indeterminate = someSelected && !allVisibleSelected;
+                    }
+                  }}
                   onChange={handleSelectAll}
                   className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                 />
@@ -347,25 +363,32 @@ export default function TransactionsTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedTransactions.map((transaction) => (
+            {sortedTransactions.map((transaction) => {
+              const isLoading = loadingTransactionId === transaction.id;
+              return (
               <TableRow
                 key={transaction.id}
-                className={`hover:bg-gray-50 cursor-pointer ${
-                  (transaction as any).isChild ? 'bg-gray-50/50' : ''
-                }`}
+                className={cn(
+                  (transaction as any).isChild && "bg-gray-50/50"
+                )}
                 onClick={() => onRowClick(transaction)}
               >
                 <TableCell onClick={(e) => e.stopPropagation()}>
-                  <input
-                    type="checkbox"
-                    checked={selectedTransactions.includes(transaction.id)}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      handleSelectTransaction(transaction.id);
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                  />
+                  <div className="flex items-center gap-2">
+                    {isLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin sidebar-loader-orange" />
+                    ) : null}
+                    <input
+                      type="checkbox"
+                      checked={selectedTransactions.includes(transaction.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        handleSelectTransaction(transaction.id);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                  </div>
                 </TableCell>
                 <TableCell className="font-medium">
                   {transaction.accountingMonth ? formatAccountingMonth(transaction.accountingMonth) : formatDate(transaction.date)}
@@ -465,7 +488,8 @@ export default function TransactionsTable({
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
+            );
+            })}
           </TableBody>
         </Table>
       </div>
