@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
+import { protectRouteWithRole } from '@/lib/auth/protectRouteWithRole';
 
 // GET /api/admin/signals - Récupérer tous les signaux du catalogue
+// Accessible aux utilisateurs authentifiés (USER et ADMIN)
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  // Protection ADMIN
-  const authError = await protectAdminRoute();
+  // Vérifier l'authentification (USER et ADMIN peuvent lire)
+  const authError = await protectRouteWithRole('GET');
   if (authError) return authError;
 
   // TODO: Ajouter protection authentification admin
@@ -72,13 +73,11 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/admin/signals - Créer un nouveau signal
+// Accessible uniquement aux ADMIN
 export async function POST(request: NextRequest) {
-  // Protection ADMIN
-  const authError = await protectAdminRoute();
+  // Vérifier l'authentification (seuls les ADMIN peuvent écrire)
+  const authError = await protectRouteWithRole('POST');
   if (authError) return authError;
-
-  const guard = await requireAdmin(request as any);
-  if (guard) return guard;
   try {
     const body = await request.json();
     const { code, label, regex, flags = 'iu', description } = body;

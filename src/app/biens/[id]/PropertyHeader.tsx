@@ -7,6 +7,7 @@ import { usePropertyHeaderActions } from './PropertyHeaderActionsContext';
 interface PropertyHeaderProps {
   propertyId: string;
   propertyName: string;
+  rentalMode?: string;
 }
 
 // Configuration des titres, descriptions et couleurs pour chaque sous-page
@@ -48,7 +49,7 @@ function hueToColor(hue: number): string {
   return `hsl(${hue}, 70%, 50%)`;
 }
 
-export function PropertyHeader({ propertyId, propertyName }: PropertyHeaderProps) {
+export function PropertyHeader({ propertyId, propertyName, rentalMode }: PropertyHeaderProps) {
   const pathname = usePathname();
   const { actions } = usePropertyHeaderActions();
   
@@ -78,6 +79,7 @@ export function PropertyHeader({ propertyId, propertyName }: PropertyHeaderProps
         <div className="flex justify-start sm:justify-center w-full sm:w-auto order-2 sm:order-none">
           <PropertySubNav
             propertyId={propertyId}
+            rentalMode={rentalMode}
             counts={{}}
           />
         </div>

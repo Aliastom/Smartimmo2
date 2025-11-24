@@ -75,10 +75,9 @@ export default function EcheancesFilters({
         mode = 'monthly';
         break;
       case '12-months':
-        const twelveMonthsLater = new Date(now);
-        twelveMonthsLater.setMonth(twelveMonthsLater.getMonth() + 11);
-        start = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
-        end = `${twelveMonthsLater.getFullYear()}-${String(twelveMonthsLater.getMonth() + 1).padStart(2, '0')}`;
+        // Limiter à une seule année complète (12 mois)
+        start = `${currentYear}-01`;
+        end = `${currentYear}-12`;
         mode = 'monthly';
         break;
       case 'current-year':
@@ -116,9 +115,23 @@ export default function EcheancesFilters({
     if (periodStart === currentMonth && periodEnd === currentMonth) {
       return 'current-month';
     }
+    
+    // Vérifier si c'est l'année en cours (12 mois)
     if (periodStart === `${currentYear}-01` && periodEnd === `${currentYear}-12`) {
       return 'current-year';
     }
+    
+    // Vérifier si c'est une année complète (12 mois) d'une autre année
+    const startYear = parseInt(periodStart.split('-')[0]);
+    const startMonth = periodStart.split('-')[1];
+    const endYear = parseInt(periodEnd.split('-')[0]);
+    const endMonth = periodEnd.split('-')[1];
+    
+    if (startMonth === '01' && endMonth === '12' && startYear === endYear && viewMode === 'monthly') {
+      // C'est une année complète, mais pas l'année en cours
+      return 'custom';
+    }
+    
     if (periodEnd === `${currentYear + 2}-12` && viewMode === 'yearly') {
       return '3-years';
     }
@@ -243,6 +256,36 @@ export default function EcheancesFilters({
             >
               10 années à venir
             </button>
+          </div>
+          
+          {/* Sélecteur d'année pour afficher une année spécifique */}
+          <div className="mt-3 flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700">Afficher l'année:</label>
+            <Select
+              value={(() => {
+                // Extraire l'année de periodStart
+                const year = periodStart.split('-')[0];
+                return year;
+              })()}
+              onChange={(e) => {
+                const selectedYear = parseInt(e.target.value);
+                onPeriodChange(`${selectedYear}-01`, `${selectedYear}-12`);
+                // S'assurer qu'on est en mode mensuel
+                if (viewMode !== 'monthly') {
+                  onViewModeChange('monthly');
+                }
+              }}
+              className="w-32"
+            >
+              {Array.from({ length: 15 }, (_, i) => {
+                const year = new Date().getFullYear() - 5 + i;
+                return (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                );
+              })}
+            </Select>
           </div>
         </div>
 

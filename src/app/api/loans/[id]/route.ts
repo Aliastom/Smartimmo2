@@ -21,6 +21,10 @@ const updateLoanSchema = z.object({
   feesUpfront: z.number().min(0).optional().nullable(),
   startDate: z.string().datetime().optional(),
   rateType: z.enum(['FIXED']).optional(),
+  loanType: z.string().optional().nullable(),
+  repaymentType: z.string().optional().nullable(),
+  amortizationProfile: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
 });
 
@@ -107,6 +111,10 @@ export async function GET(
         startDate: loan.startDate.toISOString(),
         endDate: loan.endDate?.toISOString() || null,
         rateType: loan.rateType,
+        loanType: loan.loanType,
+        repaymentType: loan.repaymentType,
+        amortizationProfile: loan.amortizationProfile,
+        notes: loan.notes,
         isActive: loan.isActive,
         createdAt: loan.createdAt.toISOString(),
         updatedAt: loan.updatedAt.toISOString(),
@@ -208,6 +216,10 @@ export async function PATCH(
       updateData.endDate = newEndDate;
     }
     if (data.rateType !== undefined) updateData.rateType = data.rateType;
+    if (data.loanType !== undefined) updateData.loanType = data.loanType;
+    if (data.repaymentType !== undefined) updateData.repaymentType = data.repaymentType;
+    if (data.amortizationProfile !== undefined) updateData.amortizationProfile = data.amortizationProfile;
+    if (data.notes !== undefined) updateData.notes = data.notes;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
     // Mettre à jour le prêt
@@ -238,6 +250,10 @@ export async function PATCH(
       startDate: loan.startDate.toISOString(),
       endDate: loan.endDate?.toISOString() || null,
       rateType: loan.rateType,
+      loanType: loan.loanType,
+      repaymentType: loan.repaymentType,
+      amortizationProfile: loan.amortizationProfile,
+      notes: loan.notes,
       isActive: loan.isActive,
       createdAt: loan.createdAt.toISOString(),
       updatedAt: loan.updatedAt.toISOString(),

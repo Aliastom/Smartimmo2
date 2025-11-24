@@ -27,7 +27,7 @@ export function useDocumentTypes() {
       }
 
       const data = await response.json();
-      setTypes(data.types || []);
+      setTypes(data.documentTypes || []);
     } catch (err: any) {
       setError(err.message);
       console.error('Error fetching document types:', err);

@@ -321,6 +321,34 @@ class TransactionSuggestionService {
         };
         const matchCount = match.allMatches?.length || 1;
         console.log(`[TransactionSuggestion] ✅ ${fieldName}:`, match.value, `(${match.allGroups?.length || 0} groupes, ${matchCount} match${matchCount > 1 ? 'es' : ''})`);
+        // Log détaillé pour loyer_principal pour déboguer
+        if (fieldName === 'loyer_principal' && match.allMatches && match.allMatches.length > 1) {
+          match.allMatches.forEach((m: any, i) => {
+            const matchText = m.fullText || m.value || 'N/A';
+            const matchIndex = m.index !== undefined ? m.index : -1;
+            const beforeMatch = matchIndex >= 0 ? text.substring(Math.max(0, matchIndex - 50), matchIndex) : '';
+            const afterMatch = matchIndex >= 0 ? text.substring(matchIndex + (m.fullText?.length || 0), Math.min(text.length, matchIndex + (m.fullText?.length || 0) + 50)) : '';
+            console.log(`[TransactionSuggestion] 🔍 Match ${i + 1} loyer_principal (index ${matchIndex}):`);
+            console.log(`  Texte complet: "${matchText}"`);
+            console.log(`  Avant (50 chars): "${beforeMatch}"`);
+            console.log(`  Après (50 chars): "${afterMatch}"`);
+            console.log(`  Groupes: [1]=${m.groups?.[0] || 'N/A'}, [2]=${m.groups?.[1] || 'N/A'}`);
+          });
+        }
+        // Log détaillé pour regularisation_charges pour déboguer
+        if (fieldName === 'regularisation_charges' && match.allMatches) {
+          match.allMatches.forEach((m: any, i) => {
+            const matchText = m.fullText || m.value || 'N/A';
+            const matchIndex = m.index !== undefined ? m.index : -1;
+            const beforeMatch = matchIndex >= 0 ? text.substring(Math.max(0, matchIndex - 50), matchIndex) : '';
+            const afterMatch = matchIndex >= 0 ? text.substring(matchIndex + (m.fullText?.length || 0), Math.min(text.length, matchIndex + (m.fullText?.length || 0) + 50)) : '';
+            console.log(`[TransactionSuggestion] 🔍 Match ${i + 1} regularisation_charges (index ${matchIndex}):`);
+            console.log(`  Texte complet: "${matchText}"`);
+            console.log(`  Avant (50 chars): "${beforeMatch}"`);
+            console.log(`  Après (50 chars): "${afterMatch}"`);
+            console.log(`  Groupes: [1]=${m.groups?.[0] || 'N/A'}, [2]=${m.groups?.[1] || 'N/A'}`);
+          });
+        }
       } else {
         // Log pour déboguer les regex qui ne matchent pas
         if (['loyer_principal', 'provisions_charges', 'regularisation_charges', 'entretien_chaudiere', 'ordures_menageres', 'facture'].includes(fieldName)) {
@@ -384,29 +412,123 @@ class TransactionSuggestionService {
           const sourceData = extracted[mapConfig.from];
           if (sourceData) {
             const groupIndex = mapConfig.group || 1;
+            const isAmountField = fieldsToSum.includes(targetField);
+            
+            // Fonction pour filtrer les matches invalides (total, loyer principal)
+            const filterInvalidMatches = (matches: any[], fieldName: string) => {
+              return matches.filter((m: any) => {
+                const fullText = m.fullText || m.value || '';
+                // Exclure les matches qui contiennent "total" (insensible à la casse)
+                // Utiliser /total/i au lieu de /\btotal\b/i car "total" peut être collé à un nombre (ex: "total180")
+                const hasTotal = /total/i.test(fullText);
+                // Pour regularisation_encaisse, ne pas exclure si "loyer principal" est présent
+                // car les montants corrects peuvent être avant "loyer principal"
+                // On extraira les montants corrects dans le code suivant
+                if (fieldName === 'regularisation_encaisse') {
+                  // Ne pas exclure, on gérera cela différemment
+                  if (hasTotal) {
+                    console.log(`[TransactionSuggestion] 🚫 Match exclu (contient "total"): "${fullText.substring(0, 100)}..."`);
+                    return false;
+                  }
+                  return true;
+                } else if (fieldName === 'loyer_encaisse') {
+                  // Pour loyer_encaisse, c'est normal qu'il contienne "loyer principal"
+                  // On exclut seulement les lignes de total
+                  if (hasTotal) {
+                    console.log(`[TransactionSuggestion] 🚫 Match exclu (contient "total"): "${fullText.substring(0, 100)}..."`);
+                    return false;
+                  }
+                  return true;
+                } else {
+                  // Pour les autres champs, exclure "loyer principal" aussi
+                  const hasLoyerPrincipal = /loyer\s+principal/i.test(fullText);
+                  if (hasTotal || hasLoyerPrincipal) {
+                    console.log(`[TransactionSuggestion] 🚫 Match exclu (contient "${hasTotal ? 'total' : 'loyer principal'}"): "${fullText.substring(0, 100)}..."`);
+                  }
+                  return !hasTotal && !hasLoyerPrincipal;
+                }
+              });
+            };
             
             // Si plusieurs matches ET que c'est un champ de montant, additionner
-            const shouldSum = sourceData.allMatches && sourceData.allMatches.length > 1 && fieldsToSum.includes(targetField);
+            const shouldSum = sourceData.allMatches && sourceData.allMatches.length > 1 && isAmountField;
             
-            if (shouldSum) {
-              const total = sourceData.allMatches.reduce((sum, m) => {
-                let amountStr = m.groups[groupIndex - 1] || m.value;
-                // Corriger les montants collés aux dates (ex: "251 668,05" -> "1 668,05")
-                amountStr = this.fixCollidedAmount(amountStr);
-                const val = this.parseAmount(amountStr);
-                return sum + (val || 0);
-              }, 0);
-              rawData[targetField] = total.toFixed(2).replace('.', ',');
-              console.log(`[TransactionSuggestion] 📍 ${targetField} = ${rawData[targetField]} (somme de ${sourceData.allMatches.length} matches depuis ${mapConfig.from})`);
-            } else {
-              // Un seul match ou champ non-montant : comportement normal (prendre le premier match)
-              let value = sourceData.groups[groupIndex - 1] || sourceData.value;
-              // Corriger les montants collés aux dates
-              if (fieldsToSum.includes(targetField)) {
+            // Pour regularisation_encaisse, extraire les montants avant "loyer principal"
+            if (targetField === 'regularisation_encaisse' && sourceData.allMatches && sourceData.allMatches.length > 0) {
+              const match = sourceData.allMatches[0];
+              const fullText = match.fullText || match.value || '';
+              
+              // Si le match contient "loyer principal", extraire les montants avant
+              if (/loyer\s+principal/i.test(fullText)) {
+                // Chercher les montants qui apparaissent après "charges" et avant "loyer principal"
+                // Format attendu: "...charges...173,2891,00...loyer principal..."
+                const beforeLoyer = fullText.split(/loyer\s+principal/i)[0];
+                // Chercher les deux derniers montants avant "loyer principal"
+                const amountMatches = beforeLoyer.match(/(\d{1,3}(?:[\s,]\d{3})*,\d{2})/g);
+                if (amountMatches && amountMatches.length >= 2) {
+                  // Prendre les deux derniers montants (ceux de la régularisation)
+                  const lastTwo = amountMatches.slice(-2);
+                  const amount1 = this.parseAmount(this.fixCollidedAmount(lastTwo[0]));
+                  const amount2 = this.parseAmount(this.fixCollidedAmount(lastTwo[1]));
+                  // Utiliser le deuxième montant (colonne encaissement)
+                  rawData[targetField] = amount2.toFixed(2).replace('.', ',');
+                  console.log(`[TransactionSuggestion] 📍 ${targetField} = ${rawData[targetField]} (extrait avant "loyer principal" depuis ${mapConfig.from})`);
+                } else {
+                  console.log(`[TransactionSuggestion] ⚠️ Impossible d'extraire les montants avant "loyer principal" pour ${targetField}`);
+                }
+              } else {
+                // Pas de "loyer principal", comportement normal
+                let value = sourceData.groups[groupIndex - 1] || sourceData.value;
                 value = this.fixCollidedAmount(value);
+                rawData[targetField] = value;
+                console.log(`[TransactionSuggestion] 📍 ${targetField} = ${rawData[targetField]} (depuis ${mapConfig.from} groupe ${groupIndex})`);
               }
-              rawData[targetField] = value;
-              console.log(`[TransactionSuggestion] 📍 ${targetField} = ${value} (depuis ${mapConfig.from} groupe ${groupIndex})`);
+            } else if (shouldSum) {
+              // Filtrer les matches invalides puis additionner
+              const validMatches = filterInvalidMatches(sourceData.allMatches, targetField);
+              
+              if (validMatches.length === 0) {
+                console.log(`[TransactionSuggestion] ⚠️ Aucun match valide après filtrage pour ${targetField}, utilisation du premier match`);
+                // Si tous les matches ont été exclus, prendre le premier quand même (fallback)
+                let value = sourceData.groups[groupIndex - 1] || sourceData.value;
+                value = this.fixCollidedAmount(value);
+                rawData[targetField] = value;
+              } else {
+                const total = validMatches.reduce((sum, m) => {
+                  let amountStr = m.groups[groupIndex - 1] || m.value;
+                  // Corriger les montants collés aux dates (ex: "251 668,05" -> "1 668,05")
+                  amountStr = this.fixCollidedAmount(amountStr);
+                  const val = this.parseAmount(amountStr);
+                  return sum + (val || 0);
+                }, 0);
+                rawData[targetField] = total.toFixed(2).replace('.', ',');
+                console.log(`[TransactionSuggestion] 📍 ${targetField} = ${rawData[targetField]} (somme de ${validMatches.length} matches valides sur ${sourceData.allMatches.length} depuis ${mapConfig.from})`);
+              }
+            } else {
+              // Un seul match ou champ non-montant : filtrer quand même si c'est un champ de montant
+              if (isAmountField && sourceData.allMatches && sourceData.allMatches.length > 0) {
+                const validMatches = filterInvalidMatches(sourceData.allMatches, targetField);
+                if (validMatches.length > 0) {
+                  // Prendre le premier match valide
+                  let value = validMatches[0].groups[groupIndex - 1] || validMatches[0].value;
+                  value = this.fixCollidedAmount(value);
+                  rawData[targetField] = value;
+                  console.log(`[TransactionSuggestion] 📍 ${targetField} = ${rawData[targetField]} (match valide filtré depuis ${mapConfig.from})`);
+                } else {
+                  // Tous les matches ont été exclus, ne pas définir la valeur (ou utiliser une valeur par défaut)
+                  console.log(`[TransactionSuggestion] ⚠️ Aucun match valide pour ${targetField}, champ non défini`);
+                  // Ne pas définir rawData[targetField] pour que le champ reste vide
+                }
+              } else {
+                // Comportement normal (prendre le premier match)
+                let value = sourceData.groups[groupIndex - 1] || sourceData.value;
+                // Corriger les montants collés aux dates
+                if (isAmountField) {
+                  value = this.fixCollidedAmount(value);
+                }
+                rawData[targetField] = value;
+                console.log(`[TransactionSuggestion] 📍 ${targetField} = ${value} (depuis ${mapConfig.from} groupe ${groupIndex})`);
+              }
             }
           }
         }
@@ -517,19 +639,55 @@ class TransactionSuggestionService {
         const factures: Facture[] = [];
         for (const match of extracted.facture.allMatches) {
           console.log('[TransactionSuggestion] 🔍 Traitement match facture:', match);
-          // La regex facture capture : date (groupe 0), numero (groupe 1), fournisseur (groupe 2), dateService (groupe 3), description (groupe 4), montant (groupe 5)
+          // La regex facture capture : date (groupe 1), tout entre Facture et du (groupe 2), dateService (groupe 3), description (groupe 4/5), montant (groupe 6)
           // Note: match.groups[0] est le premier groupe capturé (date), pas le match complet
           if (match.groups && match.groups.length >= 6) {
             console.log('[TransactionSuggestion] 🔍 Match facture a', match.groups.length, 'groupes:', match.groups);
-            const montant = this.parseAmount(match.groups[5]); // Groupe 6 = index 5
+            const date = match.groups[0]?.trim(); // Groupe 1 = index 0
+            const entreFactureEtDu = match.groups[1]?.trim() || ''; // Groupe 2 = index 1
+            const dateService = match.groups[2]?.trim(); // Groupe 3 = index 2
+            const description = (match.groups[3] || match.groups[4] || '').trim(); // Groupe 4 ou 5 = index 3 ou 4
+            const montantStr = match.groups[5]; // Groupe 6 = index 5
+            const montant = this.parseAmount(montantStr);
             console.log('[TransactionSuggestion] 🔍 Montant parsé:', montant);
+            
+            // Extraire numéro et fournisseur depuis "entreFactureEtDu"
+            // Format 1: "2025-140598 mr henninot" -> numéro avec tiret en premier
+            // Format 2: "TUTIN Thierry 1364" -> nom puis numéro simple
+            let numero, fournisseur;
+            
+            // Détecter si c'est Format 1 (numéro avec tiret ou format long en premier)
+            const matchFormat1 = entreFactureEtDu.match(/^([A-Z0-9\-]+)\s+(.+)$/);
+            if (matchFormat1 && (matchFormat1[1].includes('-') || matchFormat1[1].length > 5)) {
+              // Format 1: numéro puis fournisseur
+              numero = matchFormat1[1];
+              fournisseur = matchFormat1[2];
+            } else {
+              // Format 2: fournisseur puis numéro
+              const matchFormat2 = entreFactureEtDu.match(/^(.+?)\s+(\d+)$/);
+              if (matchFormat2) {
+                fournisseur = matchFormat2[1];
+                numero = matchFormat2[2];
+              } else {
+                // Fallback: essayer de trouver un numéro à la fin
+                const matchNumero = entreFactureEtDu.match(/(\d+)$/);
+                if (matchNumero) {
+                  numero = matchNumero[1];
+                  fournisseur = entreFactureEtDu.replace(/\s+\d+$/, '').trim();
+                } else {
+                  numero = '';
+                  fournisseur = entreFactureEtDu;
+                }
+              }
+            }
+            
             if (montant !== null && montant > 0) {
               const facture = {
-                date: match.groups[0]?.trim(),        // Groupe 1 = index 0
-                numero: match.groups[1]?.trim(),      // Groupe 2 = index 1
-                fournisseur: match.groups[2]?.trim(), // Groupe 3 = index 2
-                dateService: match.groups[3]?.trim(),  // Groupe 4 = index 3
-                description: match.groups[4]?.trim(),  // Groupe 5 = index 4
+                date: date,
+                numero: numero,
+                fournisseur: fournisseur,
+                dateService: dateService,
+                description: description,
                 montant: Math.round(montant * 100) / 100
               };
               factures.push(facture);
@@ -723,7 +881,9 @@ class TransactionSuggestionService {
       // Stocker tous les matches pour traitement ultérieur
       const allMatches = matches.map(m => ({
         value: m[groupIndex]?.trim() || '',
-        groups: m.slice(1).map(g => g?.trim() || '')
+        groups: m.slice(1).map(g => g?.trim() || ''),
+        index: m.index,
+        fullText: m[0] // Texte complet du match
       }));
       
       return {

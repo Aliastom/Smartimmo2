@@ -24,6 +24,9 @@ export function buildLinksForTx(
  * @param documentId ID du document
  * @param tx Transaction avec propertyId et leaseId optionnels
  * @throws Error si conflit de contexte détecté
+ * 
+ * Note: Un document peut être lié à plusieurs biens (partage de documents).
+ * On bloque uniquement si le document est déjà lié à un bail différent.
  */
 export async function ensureCompatibleContext(
   documentId: string, 
@@ -37,15 +40,16 @@ export async function ensureCompatibleContext(
     select: { linkedType: true, linkedId: true }
   });
 
-  // Conflit de bien
-  if (tx.propertyId && existingLinks.some(l => l.linkedType === 'property' && l.linkedId !== tx.propertyId)) {
-    throw new Error('CONTEXT_CONFLICT_PROPERTY'); // "Le document est déjà rattaché à un autre bien"
-  }
+  // Permettre les liens multiples vers différents biens (partage de documents)
+  // On ne bloque plus les conflits de bien car un document peut être partagé entre plusieurs biens
   
-  // Conflit de bail
+  // Conflit de bail uniquement : un document ne devrait généralement pas être lié à plusieurs baux différents
   if (tx.leaseId && existingLinks.some(l => l.linkedType === 'lease' && l.linkedId !== tx.leaseId)) {
     throw new Error('CONTEXT_CONFLICT_LEASE'); // "Le document est déjà rattaché à un autre bail"
   }
+  
+  // Si le document est déjà lié au même bien, c'est OK (pas de conflit)
+  // Si le document est lié à un autre bien, c'est aussi OK (partage autorisé)
 }
 
 /**

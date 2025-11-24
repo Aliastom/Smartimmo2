@@ -43,6 +43,11 @@ class LocalStorageProvider implements StorageProvider {
     if (key.startsWith('documents/')) {
       return path.join(process.cwd(), 'storage', key);
     }
+    // Si la clé commence par "tmp/", construire le chemin dans storage/tmp/
+    // (fichiers temporaires en staging)
+    if (key.startsWith('tmp/')) {
+      return path.join(process.cwd(), 'storage', key);
+    }
     // Sinon, utiliser le basePath (fallback pour compatibilité)
     return path.join(process.cwd(), this.basePath, key);
   }

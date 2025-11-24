@@ -25,6 +25,8 @@ const createPropertySchema = z.object({
   managementCompanyId: z.string().optional(),
   fiscalTypeId: z.string().optional(),
   fiscalRegimeId: z.string().optional(),
+  rentalMode: z.enum(['LONG_TERM', 'SEASONAL_AIRBNB']).optional(),
+  airbnbListingId: z.string().optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -71,6 +73,8 @@ export async function POST(request: NextRequest) {
       managementCompanyId: dataWithoutId.managementCompanyId || null,
       fiscalTypeId: dataWithoutId.fiscalTypeId || null,
       fiscalRegimeId: dataWithoutId.fiscalRegimeId || null,
+      rentalMode: dataWithoutId.rentalMode || 'LONG_TERM',
+      airbnbListingId: dataWithoutId.airbnbListingId || null,
     };
     
     const property = await PropertyRepo.create(user.organizationId, sanitizedData);

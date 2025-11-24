@@ -246,11 +246,12 @@ export default function TransactionFormTabs({
       const naturesResponse = await fetch('/api/natures');
       if (naturesResponse.ok) {
         const naturesData = await naturesResponse.json();
-        setNatures(Array.isArray(naturesData) ? naturesData : []);
+        const naturesList = naturesData.items || [];
+        setNatures(naturesList);
         
         // Pré-sélectionner la première nature si aucune
-        if (!formData.natureId && naturesData.length > 0) {
-          setFormData(prev => ({ ...prev, natureId: naturesData[0].code }));
+        if (!formData.natureId && naturesList.length > 0) {
+          setFormData(prev => ({ ...prev, natureId: naturesList[0].code }));
         }
       } else {
         console.error('Failed to load natures:', naturesResponse.status);
@@ -261,7 +262,7 @@ export default function TransactionFormTabs({
       const docTypesResponse = await fetch('/api/document-types');
       if (docTypesResponse.ok) {
         const docTypesData = await docTypesResponse.json();
-        setDocumentTypes(Array.isArray(docTypesData) ? docTypesData : []);
+        setDocumentTypes(docTypesData.documentTypes || []);
       } else {
         console.error('Failed to load document types:', docTypesResponse.status);
         setDocumentTypes([]);

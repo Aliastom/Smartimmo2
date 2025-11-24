@@ -98,16 +98,18 @@ export interface TableRowProps {
   hover?: boolean;
   compact?: boolean;
   onClick?: () => void;
+  className?: string;
 }
 
-export function TableRow({ children, striped = false, hover = true, compact = false, onClick }: TableRowProps) {
+export function TableRow({ children, striped = false, hover = true, compact = false, onClick, className }: TableRowProps) {
   return (
     <tr
       className={cn(
         "table-row",
         striped && "bg-gray-50",
         hover && "hover:bg-gray-100 cursor-pointer",
-        onClick && "cursor-pointer"
+        onClick && "cursor-pointer",
+        className
       )}
       onClick={onClick}
     >

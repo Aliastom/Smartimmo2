@@ -408,12 +408,17 @@ model Loan {
   startDate       DateTime
   endDate         DateTime?
   rateType        LoanRateType @default(FIXED)
+  loanType        String?      // Type de prêt : "IMMOBILIER", "TRAVAUX", "PERSONNEL", "AUTRE"
+  repaymentType   String?      // Type de remboursement : "CLASSIC", "IN_FINE"
+  amortizationProfile String?  // Profil d'amortissement : "CONSTANT_PAYMENT", "CONSTANT_AMORTIZATION"
+  notes           String?      // Notes libres
   isActive        Boolean      @default(true)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   property        Property     @relation(fields: [propertyId], references: [id])
   Document        Document[]
   Organization    Organization @relation(fields: [organizationId], references: [id])
+  LoanBorrower    LoanBorrower[]
 
   @@index([propertyId])
   @@index([isActive])
@@ -422,6 +427,25 @@ model Loan {
 
 enum LoanRateType {
   FIXED
+}
+
+model LoanBorrower {
+  id             String   @id @default(cuid())
+  loanId         String
+  organizationId String   @default("default")
+  firstName      String
+  lastName       String
+  birthDate      DateTime?
+  email          String?
+  phone          String?
+  responsibilityPct Decimal? @db.Decimal(5, 2) // Part de responsabilité en %
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  loan           Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  Organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([loanId])
+  @@index([organizationId])
 }
 
 model ManagementCompany {
@@ -580,6 +604,8 @@ model Property {
   managementCompanyId String?
   fiscalTypeId        String?
   fiscalRegimeId      String?
+  rentalMode          String               @default("LONG_TERM")
+  airbnbListingId     String?
   isArchived          Boolean              @default(false)
   archivedAt          DateTime?
   createdAt           DateTime             @default(now())
@@ -849,6 +875,8 @@ model Transaction {
   notes                            String?
   source                           String       @default("MANUAL")
   idempotencyKey                   String?      @unique
+  externalId                       String?
+  externalType                     String?
   monthsCovered                    String?
   parentTransactionId              String?
   moisIndex                        Int?
@@ -880,6 +908,7 @@ model Transaction {
   @@index([organizationId])
   @@index([propertyId, date])
   @@index([rapprochementStatus])
+  @@unique([propertyId, source, externalId, externalType])
   @@map("Transaction")
 }
 
@@ -951,6 +980,7 @@ model Organization {
   Tenants             Tenant[]
   Leases              Lease[]
   Loans               Loan[]
+  LoanBorrowers       LoanBorrower[]
   Transactions        Transaction[]
   Documents           Document[]
   Reminders           Reminder[]

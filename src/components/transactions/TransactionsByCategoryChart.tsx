@@ -76,12 +76,16 @@ export function TransactionsByCategoryChart({
   // Calculer le total et les pourcentages
   const total = data.reduce((sum, d) => sum + d.amount, 0);
   
-  const chartData = data.map((d, index) => ({
-    name: d.Category,
-    value: d.amount,
-    percentage: total > 0 ? ((d.amount / total) * 100).toFixed(1) : '0',
-    fill: d.color || COLORS[index % COLORS.length],
-  }));
+  const chartData = data.map((d, index) => {
+    const categoryName = d.category || (d as any).Category || 'Autre';
+    return {
+      name: categoryName,
+      shortName: categoryName.substring(0, 3).toUpperCase(), // 3 premières lettres
+      value: d.amount,
+      percentage: total > 0 ? ((d.amount / total) * 100).toFixed(1) : '0',
+      fill: d.color || COLORS[index % COLORS.length],
+    };
+  });
 
   if (isLoading) {
     return (
@@ -149,7 +153,9 @@ export function TransactionsByCategoryChart({
                       className="w-3 h-3 rounded-full flex-shrink-0" 
                       style={{ backgroundColor: entry.fill }}
                     />
-                    <span className="truncate text-gray-700">{entry.name}</span>
+                    <span className="truncate text-gray-700 font-medium" title={entry.name}>
+                      {entry.shortName}
+                    </span>
                   </div>
                   <span className="font-medium text-gray-900 flex-shrink-0">
                     {entry.percentage}%

@@ -18,6 +18,7 @@ export interface TopCostlyLoan {
   loanId: string;
   label: string;
   totalInterest: number;
+  borrowers?: Array<{ name: string; pct: number | null }>;
 }
 
 interface LoansTopCostlyChartProps {
@@ -33,12 +34,26 @@ const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
       <p className="font-semibold text-gray-900 mb-2">{data.label}</p>
-      <div className="flex justify-between gap-4">
+      <div className="flex justify-between gap-4 mb-2">
         <span className="text-gray-600">Coût total:</span>
         <span className="font-medium text-red-600">
           {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(data.totalInterest)}
         </span>
       </div>
+      {/* Afficher les co-emprunteurs dans le tooltip */}
+      {data.borrowers && data.borrowers.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-gray-200">
+          <div className="text-xs text-gray-500 mb-1">Co-emprunteurs:</div>
+          {data.borrowers.map((borrower: any, idx: number) => (
+            <div key={idx} className="flex items-center justify-between text-xs">
+              <span className="text-gray-600">{borrower.name}</span>
+              {borrower.pct !== null && (
+                <span className="font-medium text-gray-700 ml-2">{borrower.pct.toFixed(1)}%</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -98,18 +113,38 @@ export function LoansTopCostlyChart({
                 <Bar dataKey="totalInterest" fill="#ef4444" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-            <div className="mt-4 space-y-2">
+            <div className="mt-4 space-y-3">
               {data.map((item, index) => (
-                <div key={item.loanId} className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="w-5 h-5 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xs font-bold">
-                      {index + 1}
+                <div key={item.loanId} className="border-b border-gray-100 last:border-0 pb-3 last:pb-0">
+                  <div className="flex items-center justify-between text-sm mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xs font-bold">
+                        {index + 1}
+                      </div>
+                      <span className="text-gray-700 font-medium">{item.label}</span>
                     </div>
-                    <span className="text-gray-700">{item.label}</span>
+                    <span className="font-medium text-red-600">
+                      {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(item.totalInterest)}
+                    </span>
                   </div>
-                  <span className="font-medium text-red-600">
-                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(item.totalInterest)}
-                  </span>
+                  {/* Répartition des co-emprunteurs */}
+                  {item.borrowers && item.borrowers.length > 0 && (
+                    <div className="ml-7 mt-2 space-y-1">
+                      <div className="text-xs text-gray-500 mb-1">Co-emprunteurs:</div>
+                      {item.borrowers.map((borrower, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-xs">
+                          <span className="text-gray-600">
+                            {borrower.name.substring(0, 20)}{borrower.name.length > 20 ? '...' : ''}
+                          </span>
+                          {borrower.pct !== null && (
+                            <span className="font-medium text-gray-700 ml-2">
+                              {borrower.pct.toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

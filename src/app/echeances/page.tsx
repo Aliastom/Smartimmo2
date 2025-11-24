@@ -69,12 +69,12 @@ export default function EcheancesPage() {
   const [selectedEcheanceIds, setSelectedEcheanceIds] = useState<string[]>([]);
   const [showDeleteMultipleModal, setShowDeleteMultipleModal] = useState(false);
 
-  // États pour la période (format YYYY) - Par défaut : 5 années à venir
+  // États pour la période (format YYYY-MM) - Par défaut : année en cours (12 mois)
   const now = new Date();
   const currentYear = now.getFullYear();
-  const [periodStart, setPeriodStart] = useState(currentYear.toString());
-  const [periodEnd, setPeriodEnd] = useState((currentYear + 4).toString());
-  const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('yearly');
+  const [periodStart, setPeriodStart] = useState(`${currentYear}-01`);
+  const [periodEnd, setPeriodEnd] = useState(`${currentYear}-12`);
+  const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly');
 
   // État pour le filtre KPI actif
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
@@ -224,10 +224,50 @@ export default function EcheancesPage() {
     setPagination((prev) => ({ ...prev, page: 1 }));
   }, []);
 
+  // Fonction utilitaire pour limiter à 12 mois en mode mensuel
+  const limitToSingleYear = (start: string, end: string): [string, string] => {
+    const startYear = parseInt(start.split('-')[0]);
+    const startMonth = parseInt(start.split('-')[1]);
+    const endYear = parseInt(end.split('-')[0]);
+    const endMonth = parseInt(end.split('-')[1]);
+    
+    // Calculer le nombre de mois
+    const monthsDiff = (endYear - startYear) * 12 + (endMonth - startMonth) + 1;
+    
+    // Si on dépasse 12 mois ou si on couvre plusieurs années, limiter à 12 mois
+    if (monthsDiff > 12 || startYear !== endYear) {
+      // Limiter à l'année de début, de janvier à décembre
+      return [`${startYear}-01`, `${startYear}-12`];
+    }
+    
+    return [start, end];
+  };
+
   // Handlers de période
   const handlePeriodChange = (start: string, end: string) => {
-    setPeriodStart(start);
-    setPeriodEnd(end);
+    // Si on est en mode mensuel, limiter à 12 mois maximum
+    if (viewMode === 'monthly') {
+      const [limitedStart, limitedEnd] = limitToSingleYear(start, end);
+      setPeriodStart(limitedStart);
+      setPeriodEnd(limitedEnd);
+    } else {
+      setPeriodStart(start);
+      setPeriodEnd(end);
+    }
+  };
+
+  // Handler pour le changement de mode de vue
+  const handleViewModeChange = (mode: 'monthly' | 'yearly') => {
+    setViewMode(mode);
+    
+    // Si on passe en mode mensuel, limiter immédiatement à 12 mois
+    if (mode === 'monthly') {
+      const [limitedStart, limitedEnd] = limitToSingleYear(periodStart, periodEnd);
+      if (limitedStart !== periodStart || limitedEnd !== periodEnd) {
+        setPeriodStart(limitedStart);
+        setPeriodEnd(limitedEnd);
+      }
+    }
   };
 
   // CRUD Handlers
@@ -392,7 +432,7 @@ export default function EcheancesPage() {
             data={charts.cumulative}
             isLoading={chartsLoading}
             viewMode={viewMode}
-            onViewModeChange={setViewMode}
+            onViewModeChange={handleViewModeChange}
           />
           <EcheancesByTypeChart
             data={charts.byType}
@@ -423,7 +463,7 @@ export default function EcheancesPage() {
           periodEnd={periodEnd}
           onPeriodChange={handlePeriodChange}
           viewMode={viewMode}
-          onViewModeChange={setViewMode}
+          onViewModeChange={handleViewModeChange}
         />
 
         {/* Tableau */}

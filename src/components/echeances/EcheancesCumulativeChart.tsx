@@ -75,7 +75,7 @@ export function EcheancesCumulativeChart({
     if (viewMode === 'monthly') {
       if (period.includes('-')) {
         const [year, month] = period.split('-');
-        const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jui', 'Jui', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+        const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jui', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
         return monthNames[parseInt(month) - 1];
       }
       return period;

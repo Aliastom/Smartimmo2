@@ -23,6 +23,8 @@ export interface PropertyWithRelations {
   rooms: number;
   status: string;
   currentValue: number;
+  rentalMode?: string;
+  airbnbListingId?: string | null;
   isArchived: boolean;
   archivedAt?: Date | null;
   createdAt: Date;
@@ -197,6 +199,10 @@ export class PropertyRepo {
     occupation?: string;
     notes?: string;
     managementCompanyId?: string;
+    fiscalTypeId?: string;
+    fiscalRegimeId?: string;
+    rentalMode?: string;
+    airbnbListingId?: string;
   }) {
     return prisma.property.create({
       data: {

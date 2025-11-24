@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { protectRouteWithRole } from '@/lib/auth/protectRouteWithRole';
 
 /**
  * GET /api/categories
  * Récupère la liste des catégories avec recherche, filtre par nature, et pagination
+ * Accessible aux utilisateurs authentifiés (USER et ADMIN)
  * Query params:
  * - natureCode: filtre par nature (via le flow: INCOME/EXPENSE)
  * - search: recherche par label ou slug (ILIKE)
@@ -16,8 +17,11 @@ import { requireAuth } from '@/lib/auth/getCurrentUser';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Vérifier l'authentification (USER et ADMIN peuvent lire)
+  const authError = await protectRouteWithRole('GET');
+  if (authError) return authError;
+
   try {
-    await requireAuth();
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || '';
     const natureCode = searchParams.get('natureCode');

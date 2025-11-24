@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { protectRouteWithRole } from '@/lib/auth/protectRouteWithRole';
 
 /**
  * GET /api/natures
  * Récupère la liste des natures avec recherche et pagination
+ * Accessible aux utilisateurs authentifiés (USER et ADMIN)
  * Query params:
  * - search: recherche par label ou code (ILIKE)
  * - limit: nombre de résultats (default 20)
@@ -14,6 +16,10 @@ import { prisma } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Vérifier l'authentification (USER et ADMIN peuvent lire)
+  const authError = await protectRouteWithRole('GET');
+  if (authError) return authError;
+
   try {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || '';

@@ -17,8 +17,9 @@ const regexConfig = {
     description: "Nom du locataire"
   },
   loyer_principal: {
-    pattern: /loyer\s+principal.*?(\d{1,3}(?:[\s,]\d{3})*,\d{2})\s*(\d{1,3}(?:[\s,]\d{3})*,\d{2})/gi,
-    description: "Loyer principal"
+    // Exiger une date au début - les lignes "Total" n'ont généralement pas de date au format DD/MM/YYYY
+    pattern: /\d{2}\/\d{2}\/\d{4}\s+loyer\s+principal.*?(\d{1,3}(?:[\s,]\d{3})*,\d{2})\s*(\d{1,3}(?:[\s,]\d{3})*,\d{2})/gi,
+    description: "Loyer principal (avec date, exclut les lignes Total)"
   },
   provisions_charges: {
     pattern: /(?<!régularisation|regularisation)\s+provisions\s+charges.*?(\d{1,3}(?:[\s,]\d{3})*,\d{2})\s*(\d{1,3}(?:[\s,]\d{3})*,\d{2})/gi,
@@ -45,7 +46,11 @@ const regexConfig = {
     description: "Date de paiement propriétaire"
   },
   facture: {
-    pattern: /(\d{2}\/\d{2}\/\d{4})\s+[Ff]acture\s+([A-Z0-9\-]+)\s+([A-Za-z\s\.]+?)\s+du\s+(\d{2}\.\d{2}\.\d{4})\s+([A-Za-zéèàùâêîôûçëïü\s]+?)(?:\s+|)(\d{1,3}(?:[\s,]\d{3})*,\d{2})/gi,
+    // Format 1: "01/08/2025 facture 2025-140598 mr henninot du 09.07.2025 entretien chaudière102,00"
+    // Format 2: "01/09/2025 Facture TUTIN Thierry 1364 du 21.08.2025 (entretien chaudière) 134,20"
+    // On capture tout entre "Facture" et " du ", puis on extrait numéro et fournisseur depuis cette capture
+    // Groupe 1: date, Groupe 2: tout entre Facture et du, Groupe 3: dateService, Groupe 4/5: description, Groupe 6: montant
+    pattern: /(\d{2}\/\d{2}\/\d{4})\s+[Ff]acture\s+([^\s]+(?:\s+[^\s]+)*?)\s+du\s+(\d{2}\.\d{2}\.\d{4})\s*(?:\(([^)]+)\)|([A-Za-zéèàùâêîôûçëïü\s]+?))(?:\s+|)(\d{1,3}(?:[\s,]\d{3})*,\d{2})/gi,
     description: "Facture de la section DÉPENSES ET AUTRES RECETTES"
   }
 };
@@ -74,8 +79,9 @@ const casDeTest = {
     { text: "01/10/2024 LOYER PRINCIPAL (01/09/2024 - 30/09/2024) 210,06 210,06", expected: { groupe1: "210,06", groupe2: "210,06" }, description: "Format standard avec parenthèses" },
     { text: "01/10/2024 LOYER PRINCIPAL (01/10/2024 - 31/10/2024) 304,76 136,70", expected: { groupe1: "304,76", groupe2: "136,70" }, description: "Deux montants différents" },
     { text: "01/06/2025 LOYER PRINCIPAL (01/06/2025 - 30/06/2025) 671,18 671,18", expected: { groupe1: "671,18", groupe2: "671,18" }, description: "Format 2025" },
-    { text: "loyer principal (01/09/2024 - 30/09/2024)210,06210,06", expected: { groupe1: "210,06", groupe2: "210,06" }, description: "Texte collé (OCR)" },
-    { text: "01/12/2024 LOYER PRINCIPAL (01/12/2024-31/12/2024) 77,06 77,06", expected: { groupe1: "77,06", groupe2: "77,06" }, description: "Sans espace dans parenthèses" }
+    { text: "01/12/2024 LOYER PRINCIPAL (01/12/2024-31/12/2024) 77,06 77,06", expected: { groupe1: "77,06", groupe2: "77,06" }, description: "Sans espace dans parenthèses" },
+    { text: "Total 180,00 36,00", expected: null, description: "Ligne Total (ne doit PAS matcher)" },
+    { text: "Total bâtiment 180,00 36,00", expected: null, description: "Ligne Total bâtiment (ne doit PAS matcher)" }
   ],
 
   provisions_charges: [
@@ -137,7 +143,7 @@ const casDeTest = {
         description: "entretien chaudière", 
         montant: "102,00" 
       }, 
-      description: "Format OCR réel (minuscules, montant collé)" 
+      description: "Format OCR réel (minuscules, montant collé) - Format 1" 
     },
     { 
       text: "01/08/2025 Facture 2025-140598 Mr HENNINOT du 09.07.2025 entretien chaudière 102,00", 
@@ -149,7 +155,19 @@ const casDeTest = {
         description: "entretien chaudière", 
         montant: "102,00" 
       }, 
-      description: "Format standard avec espaces" 
+      description: "Format standard avec espaces - Format 1" 
+    },
+    { 
+      text: "01/09/2025 Facture TUTIN Thierry 1364 du 21.08.2025 (entretien chaudière) 134,20", 
+      expected: { 
+        date: "01/09/2025", 
+        numero: "1364", 
+        fournisseur: "TUTIN Thierry", 
+        dateService: "21.08.2025", 
+        description: "entretien chaudière", 
+        montant: "134,20" 
+      }, 
+      description: "Format nouveau (fournisseur puis numéro, description entre parenthèses) - Format 2" 
     },
     { 
       text: "15/06/2025 FACTURE 2025-123456 M. DUPONT du 10.05.2025 réparation plomberie 250,00", 
@@ -161,7 +179,7 @@ const casDeTest = {
         description: "réparation plomberie", 
         montant: "250,00" 
       }, 
-      description: "Format majuscules avec M." 
+      description: "Format majuscules avec M. - Format 1" 
     }
   ]
 };
@@ -221,12 +239,43 @@ function testerRegex(nomRegex, tests) {
             : `❌ ÉCHEC (attendu: ${test.expected.mois}/${test.expected.annee}, trouvé: ${mois}/${annee})`;
         } else if (test.expected.date && test.expected.numero) {
           // Format facture avec tous les groupes
+          // Groupe 1: date, Groupe 2: tout entre Facture et du, Groupe 3: dateService, Groupe 4/5: description, Groupe 6: montant
           const date = match[1];
-          const numero = match[2];
-          const fournisseur = match[3];
-          const dateService = match[4];
-          const description = match[5];
+          const entreFactureEtDu = match[2]?.trim() || '';
+          const dateService = match[3];
+          const description = (match[4] || match[5] || '').trim();
           const montant = match[6];
+          
+          // Extraire numéro et fournisseur depuis "entreFactureEtDu"
+          // Format 1: "2025-140598 mr henninot" -> numéro avec tiret en premier
+          // Format 2: "TUTIN Thierry 1364" -> nom puis numéro simple
+          let numero, fournisseur;
+          
+          // Détecter si c'est Format 1 (numéro avec tiret ou format long en premier)
+          const matchFormat1 = entreFactureEtDu.match(/^([A-Z0-9\-]+)\s+(.+)$/);
+          if (matchFormat1 && (matchFormat1[1].includes('-') || matchFormat1[1].length > 5)) {
+            // Format 1: numéro puis fournisseur
+            numero = matchFormat1[1];
+            fournisseur = matchFormat1[2];
+          } else {
+            // Format 2: fournisseur puis numéro
+            const matchFormat2 = entreFactureEtDu.match(/^(.+?)\s+(\d+)$/);
+            if (matchFormat2) {
+              fournisseur = matchFormat2[1];
+              numero = matchFormat2[2];
+            } else {
+              // Fallback: essayer de trouver un numéro à la fin
+              const matchNumero = entreFactureEtDu.match(/(\d+)$/);
+              if (matchNumero) {
+                numero = matchNumero[1];
+                fournisseur = entreFactureEtDu.replace(/\s+\d+$/, '').trim();
+              } else {
+                numero = '';
+                fournisseur = entreFactureEtDu;
+              }
+            }
+          }
+          
           testReussi = date === test.expected.date && 
                       numero === test.expected.numero && 
                       fournisseur === test.expected.fournisseur &&

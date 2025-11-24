@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { X, RotateCcw, Info, ChevronDown, Search, Upload, FileText, Eye, Link } from 'lucide-react';
+import { X, RotateCcw, Info, ChevronDown, Search, Upload, FileText, Eye, Link, AlertCircle } from 'lucide-react';
 import { notify2 } from '@/lib/notify2';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -148,6 +148,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   // États pour la modal d'avertissement des documents non classés
   const [showUnclassifiedModal, setShowUnclassifiedModal] = useState(false);
   const [unclassifiedDocuments, setUnclassifiedDocuments] = useState<any[]>([]);
+  
+  // État pour la modal d'avertissement du bien manquant
+  const [showMissingPropertyModal, setShowMissingPropertyModal] = useState(false);
 
   // Hook pour récupérer les libellés personnalisés des natures
   const { getNatureLabel, loading: natureLabelsLoading } = useNatureLabels();
@@ -1359,15 +1362,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         ocrStatus: lastDoc.ocrStatus
       });
       
-      // Récupérer le type de document détecté
-      let typeId = lastDoc.detectedTypeId || lastDoc.documentTypeId;
+      // Récupérer le type de document ASSIGNÉ (pas les prédictions)
+      // On ne vérifie openTransaction que si le document a un type réellement assigné
+      let typeId = lastDoc.documentTypeId || lastDoc.typeId; // Utiliser documentTypeId (type assigné)
       let finalDoc = lastDoc as any;
       
-      // Si pas de type détecté immédiatement, attendre et recharger plusieurs fois
+      // Si pas de type assigné immédiatement, attendre et recharger plusieurs fois
+      // MAIS on ne prend PAS les prédictions, seulement le type assigné
       if (!typeId) {
         const maxAttempts = 5;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          console.log(`[TransactionModal] 🤖 Pas de type détecté immédiatement, tentative ${attempt}/${maxAttempts} dans 1s...`);
+          console.log(`[TransactionModal] 🤖 Pas de type assigné immédiatement, tentative ${attempt}/${maxAttempts} dans 1s...`);
           await new Promise(resolve => setTimeout(resolve, 1000));
           try {
             const docResponse = await fetch(`/api/uploads/staged/${lastDoc.id}`);
@@ -1376,18 +1381,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               finalDoc = updatedDoc;
               console.log('[TransactionModal] 🤖 Document rechargé:', {
                 id: updatedDoc.id,
-                typeId: updatedDoc.typeId,
+                typeId: updatedDoc.typeId, // C'est le documentTypeId assigné
                 type: updatedDoc.type,
-                predictions: updatedDoc.predictions?.length || 0
+                hasPredictions: !!updatedDoc.predictions?.length
               });
-              typeId = updatedDoc.typeId || updatedDoc.type?.id || updatedDoc.detectedTypeId;
-              if (!typeId && Array.isArray(updatedDoc.predictions)) {
-                const predictionWithType = updatedDoc.predictions.find((pred: any) => pred.typeId);
-                if (predictionWithType?.typeId) {
-                  typeId = predictionWithType.typeId;
-                }
-              }
+              // IMPORTANT: On ne prend QUE le typeId assigné, PAS les prédictions
+              typeId = updatedDoc.typeId; // typeId correspond à documentTypeId dans l'API
               if (typeId) {
+                console.log('[TransactionModal] ✅ Type assigné trouvé:', typeId);
                 break;
               }
             } else {
@@ -1408,9 +1409,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         }
       }
       
-      // Si toujours pas de type après toutes les tentatives, abandonner
+      // Si toujours pas de type ASSIGNÉ après toutes les tentatives, abandonner
+      // On ne vérifie pas openTransaction si le document n'a pas de type assigné
       if (!typeId) {
-        console.log('[TransactionModal] 🤖 Aucun type détecté après plusieurs tentatives pour:', lastDoc.name);
+        console.log('[TransactionModal] 🤖 Aucun type assigné après plusieurs tentatives pour:', lastDoc.name, '- Pas de vérification openTransaction');
         processedDocIds.current.add(lastDoc.id); // Marquer comme traité pour éviter de réessayer
         return;
       }
@@ -1420,7 +1422,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       
       try {
         // Récupérer les infos du DocumentType pour vérifier openTransaction
-        console.log('[TransactionModal] 🤖 Vérification du type:', typeId);
+        // MAIS seulement si le document a un type réellement assigné
+        console.log('[TransactionModal] 🤖 Vérification du type assigné:', typeId);
         const response = await fetch(`/api/admin/document-types/${typeId}`);
         
         if (!response.ok) {
@@ -1433,13 +1436,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         console.log('[TransactionModal] 🤖 Type récupéré:', docType.label, 'openTransaction:', docType.openTransaction);
         
         // Si le type a openTransaction = true, proposer la suggestion
+        // MAIS seulement si le document a ce type réellement assigné (pas juste une prédiction)
         if (docType.openTransaction) {
-          console.log('[TransactionModal] 🎯 Document reconnu avec openTransaction, affichage modale suggestion');
+          console.log('[TransactionModal] 🎯 Document avec type assigné et openTransaction=true, affichage modale suggestion');
           setPendingSuggestion({
             documentId: lastDoc.id,
             documentTypeName: docType.label
           });
           setShowSuggestionModal(true);
+        } else {
+          console.log('[TransactionModal] ℹ️ Type assigné mais openTransaction=false, pas de suggestion');
         }
       } catch (error) {
         console.error('[TransactionModal] ❌ Erreur lors de la vérification du type:', error);
@@ -1720,6 +1726,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   // Gestion de la soumission
   const onSubmitForm = async (data: TransactionFormData) => {
     console.log('[TransactionModalV2] onSubmitForm appelé avec:', data);
+    
+    // Vérifier que le bien est sélectionné (sauf en mode property où il est pré-rempli)
+    if (context.type === 'global' && (!data.propertyId || data.propertyId.trim() === '')) {
+      setShowMissingPropertyModal(true);
+      return; // Arrêter la soumission pour afficher la modal
+    }
     
     // Vérifier les documents non classés avant la soumission
     const unclassifiedDocs = stagedDocuments.filter(doc => 
@@ -2763,21 +2775,20 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                               
                               return (
                                 <>
-                                  {isUnclassified ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedDraftId(doc.id);
-                                        setShowReviewDraftModal(true);
-                                      }}
-                                      className="text-orange-600 hover:text-orange-800 font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid transition-all"
-                                      title="Cliquer pour classer le document"
-                                    >
-                                      {documentType}
-                                    </button>
-                                  ) : (
-                                    <span className="text-gray-600">{documentType}</span>
-                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedDraftId(doc.id);
+                                      setShowReviewDraftModal(true);
+                                    }}
+                                    className={isUnclassified 
+                                      ? "text-orange-600 hover:text-orange-800 font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid transition-all"
+                                      : "text-gray-600 hover:text-gray-800 font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid transition-all"
+                                    }
+                                    title="Cliquer pour modifier le type du document"
+                                  >
+                                    {documentType}
+                                  </button>
                                   <span className="text-gray-400"> • {new Date(doc.uploadedAt).toLocaleDateString('fr-FR')}</span>
                                 </>
                               );
@@ -2791,8 +2802,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            setSelectedDraftId(doc.id);
-                            setShowReviewDraftModal(true);
+                            // Ouvrir le fichier dans un nouvel onglet
+                            window.open(`/api/documents/${doc.id}/file`, '_blank');
                           }}
                         >
                           <Eye className="h-4 w-4" />
@@ -2894,24 +2905,24 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                             {(() => {
                               const documentType = String(doc.DocumentType?.label || 'Type inconnu');
                               const isUnclassified = documentType === 'Non classé' || documentType === 'Type inconnu';
+                              const isDraft = doc.status === 'draft';
                               
                               return (
                                 <>
-                                  {isUnclassified ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        // Pour les documents liés, on peut ouvrir la modal de modification du document
-                                        window.open(`/api/documents/${doc.id}/file`, '_blank');
-                                      }}
-                                      className="text-orange-600 hover:text-orange-800 font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid transition-all"
-                                      title="Cliquer pour voir le document"
-                                    >
-                                      {documentType}
-                                    </button>
-                                  ) : (
-                                    <span className="text-gray-600">{documentType}</span>
-                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      // Ouvrir le fichier dans un nouvel onglet (même pour les brouillons)
+                                      window.open(`/api/documents/${doc.id}/file`, '_blank');
+                                    }}
+                                    className={isUnclassified 
+                                      ? "text-orange-600 hover:text-orange-800 font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid transition-all"
+                                      : "text-gray-600 hover:text-gray-800 font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid transition-all"
+                                    }
+                                    title="Cliquer pour voir le document"
+                                  >
+                                    {documentType}
+                                  </button>
                                   <span className="text-gray-400">•</span>
                                   <span className="text-gray-400">{new Date(doc.uploadedAt || doc.createdAt).toLocaleDateString('fr-FR')}</span>
                                 </>
@@ -3162,6 +3173,45 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         onConfirm={handleUnclassifiedConfirm}
         documents={unclassifiedDocuments}
       />
+
+      {/* Modal d'avertissement du bien manquant */}
+      <Dialog open={showMissingPropertyModal} onOpenChange={setShowMissingPropertyModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                <AlertCircle className="h-5 w-5 text-red-600" />
+              </div>
+              <span>Bien obligatoire</span>
+            </DialogTitle>
+            <DialogDescription className="pt-4">
+              <p className="text-gray-700 mb-2">
+                Le bien est obligatoire pour créer une transaction.
+              </p>
+              <p className="text-sm text-gray-500">
+                Veuillez sélectionner un bien dans l'onglet "Informations essentielles" avant de continuer.
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-6">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowMissingPropertyModal(false);
+                // Basculer vers l'onglet "Informations essentielles" pour que l'utilisateur puisse sélectionner le bien
+                setActiveTab('essentielles');
+              }}
+            >
+              Sélectionner un bien
+            </Button>
+            <Button
+              onClick={() => setShowMissingPropertyModal(false)}
+            >
+              Fermer
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal de suggestion de transaction depuis document */}
       {pendingSuggestion && (

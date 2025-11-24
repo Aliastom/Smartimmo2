@@ -3,17 +3,17 @@ import { prisma } from '@/lib/prisma';
 import { getGestionCodes } from '@/lib/settings/appSettings';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { logDebug } from '@/lib/utils/logger';
+import { buildSchedule } from '@/lib/finance/amortization';
 import type {
   MonthlyDashboardData,
   MonthlyKPIs,
   LoyerNonEncaisse,
+  TransactionNonRapprochee,
   IndexationATraiter,
   EcheancePret,
   EcheanceCharge,
   BailAEcheance,
   DocumentAValider,
-  IntraMensuelDataPoint,
-  CashflowCumuleDataPoint,
 } from '@/types/dashboard';
 
 // Force dynamic rendering for Vercel deployment
@@ -377,111 +377,23 @@ export async function GET(request: NextRequest) {
     // 2. LISTES ACTIONNABLES
     // ========================================================================
     
-    // Loyers non encaissés / en retard (du mois courant)
-    // Récupérer toutes les transactions de loyer du mois (même non payées) pour les relances
-    const whereLoyersNonEncaisses: any = {
-      accounting_month: month,
-      organizationId,
-      nature: { in: loyerNatures },
-      paidAt: null, // Non payées
-    };
-    
-    if (bienIds.length > 0) {
-      whereLoyersNonEncaisses.propertyId = { in: bienIds };
-    }
-    
-    if (locataireIds.length > 0) {
-      whereLoyersNonEncaisses.Lease_Transaction_leaseIdToLease = {
-        tenantId: { in: locataireIds },
-      };
-    }
-    
-    const loyersNonEncaissesTransactions = await prisma.transaction.findMany({
-      where: whereLoyersNonEncaisses,
-      select: {
-        id: true,
-        amount: true,
-        date: true,
-        leaseId: true,
-        Property: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Lease_Transaction_leaseIdToLease: {
-          select: {
-            id: true,
-            startDate: true,
-            endDate: true,
-            Tenant: {
-              select: {
-                firstName: true,
-                lastName: true,
-              },
-            },
-          },
-        },
-      },
-    });
-    
-    const loyersNonEncaisses: LoyerNonEncaisse[] = [];
-    const today = new Date();
-    
-    for (const transaction of loyersNonEncaissesTransactions) {
-      // IMPORTANT: Ne pas compter les transactions dont le bail n'existait pas encore
-      if (!transaction.Lease_Transaction_leaseIdToLease) {
-        continue; // Pas de bail associé, on ignore
-      }
-      
-      const lease = transaction.Lease_Transaction_leaseIdToLease;
-      const leaseStartDate = new Date(lease.startDate);
-      const transactionDate = new Date(transaction.date);
-      
-      // Vérifier que la transaction est après le début du bail
-      // Si le bail commence en avril 2025, on ne doit pas compter une transaction de février 2021
-      const transactionMonth = new Date(transactionDate.getFullYear(), transactionDate.getMonth(), 1);
-      const firstRentDueMonth = new Date(leaseStartDate.getFullYear(), leaseStartDate.getMonth(), 1);
-      
-      if (transactionMonth < firstRentDueMonth) {
-        // La transaction est antérieure au début du bail, on l'ignore
-        continue;
-      }
-      
-      // Vérifier aussi que le bail n'était pas terminé à la date de la transaction
-      if (lease.endDate) {
-        const leaseEndDate = new Date(lease.endDate);
-        if (transactionDate > leaseEndDate) {
-          // La transaction est postérieure à la fin du bail, on l'ignore
-          continue;
-        }
-      }
-      
-      const dateEcheance = new Date(transaction.date);
-      const retardJours = Math.floor((today.getTime() - dateEcheance.getTime()) / (1000 * 60 * 60 * 24));
-      const statut = retardJours > 0 ? 'en_retard' : 'a_venir';
-      
-      loyersNonEncaisses.push({
-        id: transaction.id,
-        leaseId: lease.id || '',
-        propertyId: transaction.Property?.id || '',
-        propertyName: transaction.Property?.name || '',
-        tenantName: lease.Tenant 
-          ? `${lease.Tenant.firstName} ${lease.Tenant.lastName}`
-          : '',
-        montant: Math.abs(transaction.amount),
-        dateEcheance: dateEcheance.toISOString().split('T')[0],
-        retardJours,
-        statut,
-      });
-    }
-    
     // Relances : Calculer les loyers attendus par bien et vérifier les paiements
     // NOUVELLE LOGIQUE : Pour chaque bien, vérifier TOUS ses baux (actifs ou pas)
     // et ne compter comme en retard que les mois manquants pendant la durée d'un bail
+    // On vérifie l'existence d'une transaction avec nature ET category = codes système
     
+    const today = new Date();
     const gestionCodes = await getGestionCodes();
     const rentNature = gestionCodes.rentNature;
+    const rentCategorySlug = gestionCodes.rentCategory;
+    
+    // Récupérer l'ID de la catégorie correspondant au slug
+    const rentCategory = await prisma.category.findUnique({
+      where: { slug: rentCategorySlug },
+      select: { id: true },
+    });
+    
+    const rentCategoryId = rentCategory?.id || null;
     
     // Récupérer TOUS les baux (actifs ou pas) pour les biens concernés
     const whereAllLeases: any = {
@@ -523,11 +435,16 @@ export async function GET(request: NextRequest) {
       },
     });
     
-    // Récupérer TOUTES les transactions de nature "Loyer" (payées ou non) pour vérifier ce qui existe
+    // Récupérer TOUTES les transactions avec nature ET category = codes système (payées ou non) pour vérifier ce qui existe
     const whereAllRentTransactions: any = {
       nature: rentNature,
       organizationId,
     };
+    
+    // Filtrer aussi par catégorie si le code système est défini
+    if (rentCategoryId) {
+      whereAllRentTransactions.categoryId = rentCategoryId;
+    }
     
     if (bienIds.length > 0) {
       whereAllRentTransactions.propertyId = { in: bienIds };
@@ -546,14 +463,20 @@ export async function GET(request: NextRequest) {
         leaseId: true,
         accounting_month: true,
         propertyId: true,
+        nature: true,
+        categoryId: true,
       },
     });
     
     // Créer un Set pour une recherche rapide : "leaseId-accountingMonth"
-    // On vérifie par bail (leaseId + accounting_month)
+    // On vérifie par bail (leaseId + accounting_month) avec nature ET category = codes système
     const paidMonths = new Set<string>();
     allRentTransactions.forEach(tx => {
-      if (tx.accounting_month && tx.leaseId) {
+      // Vérifier que la transaction a bien la nature ET la catégorie système
+      const hasCorrectNature = tx.nature === rentNature;
+      const hasCorrectCategory = rentCategoryId ? tx.categoryId === rentCategoryId : true;
+      
+      if (tx.accounting_month && tx.leaseId && hasCorrectNature && hasCorrectCategory) {
         paidMonths.add(`${tx.leaseId}-${tx.accounting_month}`);
       }
     });
@@ -611,7 +534,7 @@ export async function GET(request: NextRequest) {
           const isCurrentMonth = accountingMonth === currentMonthStr;
           
           if (isPastMonth || isCurrentMonth) {
-            // Vérifier si ce mois a une transaction de nature "Loyer" pour ce bail
+            // Vérifier si ce mois a une transaction avec nature ET category = codes système pour ce bail
             const isPaid = paidMonths.has(`${lease.id}-${accountingMonth}`);
             
             // Si pas de transaction = loyer en retard
@@ -726,6 +649,7 @@ export async function GET(request: NextRequest) {
         principal: true,
         annualRatePct: true,
         durationMonths: true,
+        defermentMonths: true,
         insurancePct: true,
         startDate: true,
         property: {
@@ -737,36 +661,42 @@ export async function GET(request: NextRequest) {
     });
     
     for (const loan of loans) {
-      // Calcul simplifié de la mensualité
-      const principal = Number(loan.principal);
-      const monthlyRate = Number(loan.annualRatePct) / 100 / 12;
-      const n = loan.durationMonths;
-      
-      let mensualite = 0;
-      if (monthlyRate > 0) {
-        mensualite = principal * (monthlyRate * Math.pow(1 + monthlyRate, n)) / (Math.pow(1 + monthlyRate, n) - 1);
-      } else {
-        mensualite = principal / n;
-      }
-      
-      const assurance = loan.insurancePct ? (principal * Number(loan.insurancePct) / 100 / 12) : 0;
-      const montantTotal = mensualite + assurance;
-      
       // Date d'échéance = jour de début du prêt
       const startDate = new Date(loan.startDate);
       const echeanceDate = new Date(year, monthNum - 1, startDate.getDate());
       
       if (echeanceDate >= firstDay && echeanceDate <= lastDay) {
-        echeancesPrets.push({
-          id: `pret-${loan.id}`,
-          loanId: loan.id,
-          propertyName: loan.property.name,
-          dateEcheance: echeanceDate.toISOString().split('T')[0],
-          montantTotal,
-          capital: mensualite - (mensualite * monthlyRate),
-          interets: mensualite * monthlyRate,
-          assurance,
+        // Utiliser buildSchedule pour calculer correctement les intérêts et le capital du mois
+        const schedule = buildSchedule({
+          principal: Number(loan.principal),
+          annualRatePct: Number(loan.annualRatePct),
+          durationMonths: loan.durationMonths,
+          defermentMonths: loan.defermentMonths || 0,
+          insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
+          startDate: loan.startDate,
         });
+        
+        // Trouver la ligne du schedule correspondant au mois en cours
+        const monthStr = `${year}-${String(monthNum).padStart(2, '0')}`;
+        const scheduleRow = schedule.find(row => row.date === monthStr);
+        
+        if (scheduleRow) {
+          const capital = scheduleRow.paymentPrincipal;
+          const interets = scheduleRow.paymentInterest;
+          const assurance = scheduleRow.paymentInsurance;
+          const montantTotal = scheduleRow.paymentTotal;
+          
+          echeancesPrets.push({
+            id: `pret-${loan.id}`,
+            loanId: loan.id,
+            propertyName: loan.property.name,
+            dateEcheance: echeanceDate.toISOString().split('T')[0],
+            montantTotal: Math.round(montantTotal * 100) / 100,
+            capital: Math.round(capital * 100) / 100,
+            interets: Math.round(interets * 100) / 100,
+            assurance: Math.round(assurance * 100) / 100,
+          });
+        }
       }
     }
     
@@ -881,6 +811,68 @@ export async function GET(request: NextRequest) {
       });
     }
     
+    // Transactions non rapprochées (du mois sélectionné)
+    const transactionsNonRapprochees: TransactionNonRapprochee[] = [];
+    const whereTransactionsNonRapprochees: any = {
+      accounting_month: month,
+      organizationId,
+      rapprochementStatus: { not: 'rapprochee' }, // Non rapprochées
+    };
+    
+    if (bienIds.length > 0) {
+      whereTransactionsNonRapprochees.propertyId = { in: bienIds };
+    }
+    
+    if (locataireIds.length > 0) {
+      whereTransactionsNonRapprochees.Lease_Transaction_leaseIdToLease = {
+        tenantId: { in: locataireIds },
+      };
+    }
+    
+    const transactionsNonRapprocheesData = await prisma.transaction.findMany({
+      where: whereTransactionsNonRapprochees,
+      select: {
+        id: true,
+        label: true,
+        amount: true,
+        date: true,
+        accounting_month: true,
+        nature: true,
+        propertyId: true,
+        Property: {
+          select: {
+            name: true,
+          },
+        },
+        Lease_Transaction_leaseIdToLease: {
+          select: {
+            Tenant: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    
+    for (const tx of transactionsNonRapprocheesData) {
+      transactionsNonRapprochees.push({
+        id: tx.id,
+        propertyId: tx.propertyId,
+        propertyName: tx.Property?.name || '',
+        tenantName: tx.Lease_Transaction_leaseIdToLease?.Tenant
+          ? `${tx.Lease_Transaction_leaseIdToLease.Tenant.firstName} ${tx.Lease_Transaction_leaseIdToLease.Tenant.lastName}`
+          : undefined,
+        label: tx.label,
+        montant: Math.abs(tx.amount),
+        date: tx.date.toISOString().split('T')[0],
+        accountingMonth: tx.accounting_month || undefined,
+        nature: tx.nature || undefined,
+      });
+    }
+    
     // Documents à valider
     const documentsAValider: DocumentAValider[] = [];
     const docsToValidate = await prisma.document.findMany({
@@ -920,63 +912,6 @@ export async function GET(request: NextRequest) {
     }
     
     // ========================================================================
-    // 3. GRAPHIQUES
-    // ========================================================================
-    
-    // Graphique intra-mensuel : encaissements vs dépenses par jour
-    // Utiliser les transactions payées du mois comptable sélectionné
-    const intraMensuel: IntraMensuelDataPoint[] = [];
-    const dailyMap = new Map<string, { encaissements: number; depenses: number }>();
-    
-    // Initialiser tous les jours du mois
-    for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0];
-      dailyMap.set(dateStr, { encaissements: 0, depenses: 0 });
-    }
-    
-    // Remplir avec les transactions du mois comptable (indépendamment de paidAt)
-    // Utiliser la date de la transaction (date) au lieu de paidAt pour le graphique
-    for (const transaction of transactions) {
-      // Utiliser la date de la transaction, ou paidAt si disponible
-      const transactionDate = transaction.paidAt || transaction.date;
-      const dateStr = new Date(transactionDate).toISOString().split('T')[0];
-      if (!dailyMap.has(dateStr)) continue;
-      
-      const data = dailyMap.get(dateStr)!;
-      const natureData = transaction.nature ? natureMap.get(transaction.nature) : null;
-      const amount = Math.abs(transaction.amount);
-      
-      if (natureData?.flow === 'INCOME') {
-        data.encaissements += amount;
-      } else if (natureData?.flow === 'EXPENSE') {
-        data.depenses += amount;
-      }
-      
-      dailyMap.set(dateStr, data);
-    }
-    
-    // Convertir en tableau
-    for (const [date, data] of Array.from(dailyMap.entries()).sort()) {
-      intraMensuel.push({
-        date,
-        encaissements: data.encaissements,
-        depenses: data.depenses,
-      });
-    }
-    
-    // Graphique cashflow cumulé
-    const cashflowCumule: CashflowCumuleDataPoint[] = [];
-    let cumulated = 0;
-    
-    for (const point of intraMensuel) {
-      cumulated += point.encaissements - point.depenses;
-      cashflowCumule.push({
-        date: point.date,
-        cashflow: cumulated,
-      });
-    }
-    
-    // ========================================================================
     // RÉPONSE
     // ========================================================================
     
@@ -988,8 +923,9 @@ export async function GET(request: NextRequest) {
       },
       kpis,
       aTraiter: {
-        loyersNonEncaisses,
+        loyersNonEncaisses: [], // Plus utilisé, on utilise uniquement relances maintenant
         relances,
+        transactionsNonRapprochees,
         indexations,
         echeancesPrets,
         echeancesCharges,
@@ -997,8 +933,9 @@ export async function GET(request: NextRequest) {
         documentsAValider,
       },
       graph: {
-        intraMensuel,
-        cashflowCumule,
+        intraMensuel: [],
+        cashflowCumule: [],
+        loyersRetardParMois: [], // Calculé côté client dans TasksPanel
       },
     };
     

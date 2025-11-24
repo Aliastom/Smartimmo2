@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSettingsByPrefix, setSetting, clearSettingsCache } from '@/lib/settings/appSettings';
 import { z } from 'zod';
-import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { protectRouteWithRole } from '@/lib/auth/protectRouteWithRole';
 
 // Schema de validation pour SET
 
@@ -17,10 +17,14 @@ const setSettingSchema = z.object({
 /**
  * GET /api/settings?prefix=gestion.
  * Récupère tous les paramètres avec le préfixe donné
+ * Accessible aux utilisateurs authentifiés (USER et ADMIN)
  */
 export async function GET(request: NextRequest) {
+  // Vérifier l'authentification (USER et ADMIN peuvent lire)
+  const authError = await protectRouteWithRole('GET');
+  if (authError) return authError;
+
   try {
-    await requireAuth();
     
     const { searchParams } = new URL(request.url);
     const prefix = searchParams.get('prefix') || '';
@@ -43,11 +47,15 @@ export async function GET(request: NextRequest) {
 /**
  * PATCH /api/settings
  * Met à jour (upsert) un paramètre avec validations pour les codes gestion
+ * Accessible uniquement aux ADMIN
  * Body: { key, value, description? }
  */
 export async function PATCH(request: NextRequest) {
+  // Vérifier l'authentification (seuls les ADMIN peuvent écrire)
+  const authError = await protectRouteWithRole('PATCH');
+  if (authError) return authError;
+
   try {
-    await requireAuth();
     
     const body = await request.json();
 
@@ -167,10 +175,14 @@ export async function PATCH(request: NextRequest) {
 /**
  * POST /api/settings/clear-cache
  * Invalide le cache des settings
+ * Accessible uniquement aux ADMIN
  */
 export async function POST(request: NextRequest) {
+  // Vérifier l'authentification (seuls les ADMIN peuvent écrire)
+  const authError = await protectRouteWithRole('POST');
+  if (authError) return authError;
+
   try {
-    await requireAuth();
     
     clearSettingsCache();
 

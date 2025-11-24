@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import { documentRecognitionService } from '@/services/DocumentRecognitionService';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { getStorageService } from '@/services/storage.service';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -61,17 +63,36 @@ export async function POST(request: NextRequest) {
     // Générer un nom de fichier unique
     const fileExtension = file.name.split('.').pop();
     const uniqueFilename = `${uuidv4()}.${fileExtension}`;
-    // Utiliser /tmp pour Vercel (lecture seule sur storage/)
-    const tempDir = join(tmpdir(), 'smartimmo', 'staged');
-    const filePath = join(tempDir, uniqueFilename);
-
-    // Créer le dossier tmp s'il n'existe pas
-    await mkdir(tempDir, { recursive: true });
-
+    
     // Sauvegarder le fichier temporairement
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    await writeFile(filePath, buffer);
+    
+    // Stocker le fichier temporaire (local ou Supabase selon STORAGE_TYPE)
+    const storageService = getStorageService();
+    const tempKey = `tmp/${uniqueFilename}`;
+    let filePath: string;
+    
+    // Sur Vercel avec Supabase, stocker dans Supabase Storage
+    // Sinon, stocker en local dans /tmp
+    if (process.env.STORAGE_TYPE === 'supabase') {
+      try {
+        // Upload vers Supabase Storage avec préfixe tmp/
+        await storageService.uploadWithKey(buffer, tempKey, file.type || 'application/octet-stream');
+        filePath = tempKey; // Utiliser la clé comme chemin pour Supabase
+        console.log('[API] POST /api/uploads/staged - Fichier temporaire stocké dans Supabase Storage:', tempKey);
+      } catch (uploadError: any) {
+        console.error('[API] POST /api/uploads/staged - Erreur upload vers Supabase Storage:', uploadError);
+        throw new Error(`Échec de l'upload vers Supabase: ${uploadError.message || 'Erreur inconnue'}`);
+      }
+    } else {
+      // Stockage local
+      const tempDir = join(tmpdir(), 'smartimmo', 'staged');
+      await mkdir(tempDir, { recursive: true });
+      filePath = join(tempDir, uniqueFilename);
+      await writeFile(filePath, buffer);
+      console.log('[API] POST /api/uploads/staged - Fichier temporaire stocké en local:', filePath);
+    }
 
     // Calculer le hash SHA256 du fichier
     const crypto = require('crypto');
@@ -210,7 +231,7 @@ export async function POST(request: NextRequest) {
     const document = await prisma.document.create({
       data: {
         ownerId: 'default',
-        bucketKey: `tmp/${uniqueFilename}`,
+        bucketKey: tempKey,
         filenameOriginal: file.name,
         fileName: file.name,
         mime: file.type,

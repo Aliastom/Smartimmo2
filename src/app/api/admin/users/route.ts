@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
+import { protectRouteWithRole } from '@/lib/auth/protectRouteWithRole';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/admin/users - Liste tous les utilisateurs (ADMIN uniquement)
+ * GET /api/admin/users - Liste tous les utilisateurs
+ * Accessible uniquement aux ADMIN (données sensibles)
  */
 export async function GET() {
-  // Protection ADMIN
-  const authError = await protectAdminRoute();
+  // Vérifier l'authentification (seuls les ADMIN peuvent lire les utilisateurs)
+  const authError = await protectRouteWithRole('GET', ['ADMIN']);
   if (authError) return authError;
 
   const users = await prisma.user.findMany({
@@ -30,11 +31,12 @@ export async function GET() {
 }
 
 /**
- * POST /api/admin/users - Créer ou mettre à jour un utilisateur (ADMIN uniquement)
+ * POST /api/admin/users - Créer ou mettre à jour un utilisateur
+ * Accessible uniquement aux ADMIN
  */
 export async function POST(request: NextRequest) {
-  // Protection ADMIN
-  const authError = await protectAdminRoute();
+  // Vérifier l'authentification (seuls les ADMIN peuvent écrire)
+  const authError = await protectRouteWithRole('POST');
   if (authError) return authError;
 
   const body = await request.json();

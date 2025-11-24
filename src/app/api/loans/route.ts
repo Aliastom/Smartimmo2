@@ -21,7 +21,21 @@ export const createLoanSchema = z.object({
   feesUpfront: z.number().min(0, 'Les frais doivent être positifs ou nuls').optional().nullable(),
   startDate: z.string().datetime('La date de début est invalide'),
   rateType: z.enum(['FIXED']).default('FIXED'),
+  loanType: z.string().optional().nullable(),
+  repaymentType: z.string().optional().nullable(),
+  amortizationProfile: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
   isActive: z.boolean().default(true),
+  stagedDocumentIds: z.array(z.string()).optional(),
+  stagedLinkItemIds: z.array(z.string()).optional(),
+  borrowers: z.array(z.object({
+    firstName: z.string(),
+    lastName: z.string(),
+    birthDate: z.string().optional().nullable(),
+    email: z.string().optional().nullable(),
+    phone: z.string().optional().nullable(),
+    responsibilityPct: z.number().optional().nullable(),
+  })).optional(),
 });
 
 // Schéma de validation pour les query params
@@ -136,12 +150,16 @@ export async function GET(request: NextRequest) {
     let monthlyPaymentSum = 0;
     let activeLoansCount = allActiveLoans.length;
 
+    // Map pour agréger les montants par co-emprunteur
+    const borrowersMap = new Map<string, { name: string; principal: number; crd: number; monthlyPayment: number }>();
+
     for (const loan of allActiveLoans) {
-      totalPrincipal += Number(loan.principal);
+      const principal = Number(loan.principal);
+      totalPrincipal += principal;
 
       // Calculer le schedule et le CRD au mois 'to'
       const schedule = buildSchedule({
-        principal: Number(loan.principal),
+        principal,
         annualRatePct: Number(loan.annualRatePct),
         durationMonths: loan.durationMonths,
         defermentMonths: loan.defermentMonths,
@@ -153,12 +171,69 @@ export async function GET(request: NextRequest) {
       totalCRD += crd;
 
       // Mensualité (dernière ligne du schedule pour avoir la mensualité typique)
-      if (schedule.length > 0) {
-        monthlyPaymentSum += schedule[schedule.length - 1].paymentTotal;
+      const monthlyPayment = schedule.length > 0 ? schedule[schedule.length - 1].paymentTotal : 0;
+      monthlyPaymentSum += monthlyPayment;
+
+      // Charger les co-emprunteurs pour ce prêt
+      const borrowers = await prisma.loanBorrower.findMany({
+        where: { loanId: loan.id, organizationId },
+        select: {
+          firstName: true,
+          lastName: true,
+          responsibilityPct: true,
+        },
+      });
+
+      if (borrowers.length > 0) {
+        // Répartir les montants selon les pourcentages
+        for (const borrower of borrowers) {
+          const name = `${borrower.firstName} ${borrower.lastName}`;
+          const pct = borrower.responsibilityPct ? Number(borrower.responsibilityPct) / 100 : 1 / borrowers.length;
+          
+          const existing = borrowersMap.get(name);
+          if (existing) {
+            existing.principal += principal * pct;
+            existing.crd += crd * pct;
+            existing.monthlyPayment += monthlyPayment * pct;
+          } else {
+            borrowersMap.set(name, {
+              name,
+              principal: principal * pct,
+              crd: crd * pct,
+              monthlyPayment: monthlyPayment * pct,
+            });
+          }
+        }
+      } else {
+        // Si pas de co-emprunteur, attribuer au propriétaire par défaut
+        const defaultName = 'Propriétaire';
+        const existing = borrowersMap.get(defaultName);
+        if (existing) {
+          existing.principal += principal;
+          existing.crd += crd;
+          existing.monthlyPayment += monthlyPayment;
+        } else {
+          borrowersMap.set(defaultName, {
+            name: defaultName,
+            principal,
+            crd,
+            monthlyPayment,
+          });
+        }
       }
     }
 
     const monthlyPaymentAvg = activeLoansCount > 0 ? monthlyPaymentSum / activeLoansCount : 0;
+
+    // Convertir la map en array et trier par montant décroissant
+    const borrowersData = Array.from(borrowersMap.values())
+      .map(b => ({
+        name: b.name,
+        principal: Math.round(b.principal * 100) / 100,
+        crd: Math.round(b.crd * 100) / 100,
+        monthlyPayment: Math.round(b.monthlyPayment * 100) / 100,
+      }))
+      .sort((a, b) => b.principal - a.principal);
 
     const items = loans.map((loan) => {
       // Calculer la mensualité pour chaque prêt
@@ -187,6 +262,10 @@ export async function GET(request: NextRequest) {
         startDate: loan.startDate.toISOString(),
         endDate: loan.endDate?.toISOString() || null,
         rateType: loan.rateType,
+        loanType: loan.loanType,
+        repaymentType: loan.repaymentType,
+        amortizationProfile: loan.amortizationProfile,
+        notes: loan.notes,
         isActive: loan.isActive,
         monthlyPayment: Math.round(monthlyPayment * 100) / 100,
         createdAt: loan.createdAt.toISOString(),
@@ -204,6 +283,7 @@ export async function GET(request: NextRequest) {
         totalCRD: Math.round(totalCRD * 100) / 100,
         monthlyPaymentAvg: Math.round(monthlyPaymentAvg * 100) / 100,
         activeLoansCount,
+        borrowers: borrowersData,
       },
     });
   } catch (error) {
@@ -252,50 +332,195 @@ export async function POST(request: NextRequest) {
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + data.durationMonths);
 
-    // Créer le prêt
-    const loan = await prisma.loan.create({
-      data: {
-        propertyId: data.propertyId,
-        label: data.label,
-        principal: new Decimal(data.principal),
-        annualRatePct: new Decimal(data.annualRatePct),
-        durationMonths: data.durationMonths,
-        defermentMonths: data.defermentMonths,
-        insurancePct: data.insurancePct != null ? new Decimal(data.insurancePct) : null,
-        feesUpfront: data.feesUpfront != null ? new Decimal(data.feesUpfront) : null,
-        startDate,
-        endDate,
-        rateType: data.rateType,
-        isActive: data.isActive,
-        organizationId,
-      },
-      include: {
-        property: {
-          select: {
-            id: true,
-            name: true,
+    // Créer le prêt dans une transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Créer le prêt
+      const loan = await tx.loan.create({
+        data: {
+          propertyId: data.propertyId,
+          label: data.label,
+          principal: new Decimal(data.principal),
+          annualRatePct: new Decimal(data.annualRatePct),
+          durationMonths: data.durationMonths,
+          defermentMonths: data.defermentMonths,
+          insurancePct: data.insurancePct != null ? new Decimal(data.insurancePct) : null,
+          feesUpfront: data.feesUpfront != null ? new Decimal(data.feesUpfront) : null,
+          startDate,
+          endDate,
+          rateType: data.rateType,
+          loanType: data.loanType || null,
+          repaymentType: data.repaymentType || null,
+          amortizationProfile: data.amortizationProfile || null,
+          notes: data.notes || null,
+          isActive: data.isActive,
+          organizationId,
+        },
+        include: {
+          property: {
+            select: {
+              id: true,
+              name: true,
+            },
           },
         },
-      },
+      });
+
+      // Créer les co-emprunteurs
+      if (data.borrowers && data.borrowers.length > 0) {
+        await Promise.all(data.borrowers.map(borrower =>
+          tx.loanBorrower.create({
+            data: {
+              loanId: loan.id,
+              organizationId,
+              firstName: borrower.firstName,
+              lastName: borrower.lastName,
+              birthDate: borrower.birthDate ? new Date(borrower.birthDate) : null,
+              email: borrower.email || null,
+              phone: borrower.phone || null,
+              responsibilityPct: borrower.responsibilityPct != null ? new Decimal(borrower.responsibilityPct) : null,
+            },
+          })
+        ));
+      }
+
+      // Mettre à jour le statut des documents (la finalisation sera faite après la transaction)
+      if (data.stagedDocumentIds && data.stagedDocumentIds.length > 0) {
+        await tx.document.updateMany({
+          where: {
+            id: { in: data.stagedDocumentIds },
+            organizationId,
+          },
+          data: {
+            loanId: loan.id,
+            status: 'active',
+            uploadSessionId: null,
+            intendedContextType: null,
+            intendedContextTempKey: null,
+          },
+        });
+      }
+
+      return loan;
     });
 
+    // Finaliser les documents et créer les liens APRÈS la transaction
+    if (data.stagedDocumentIds && data.stagedDocumentIds.length > 0) {
+      const { getStorageService } = await import('@/services/storage.service');
+      const storageService = getStorageService();
+      
+      // Finaliser chaque document : migrer de tmp/ vers documents/
+      for (const docId of data.stagedDocumentIds) {
+        const doc = await prisma.document.findFirst({
+          where: { id: docId, organizationId },
+          select: {
+            id: true,
+            bucketKey: true,
+            filenameOriginal: true,
+            fileName: true,
+            mime: true
+          }
+        });
+        
+        if (!doc || !doc.bucketKey) continue;
+        
+        // Si le bucketKey est déjà dans documents/, pas besoin de migrer
+        if (doc.bucketKey.startsWith('documents/')) continue;
+        
+        // Lire le fichier temporaire
+        let fileBuffer: Buffer;
+        try {
+          fileBuffer = await storageService.downloadDocument(doc.bucketKey);
+        } catch (error: any) {
+          console.error(`[API] Erreur lecture fichier temporaire pour ${docId}:`, error);
+          continue;
+        }
+        
+        // Générer le nom de fichier final
+        const fileExtension = doc.filenameOriginal?.split('.').pop() || 'pdf';
+        const finalFilename = `${doc.id}.${fileExtension}`;
+        
+        // Upload vers le stockage permanent
+        try {
+          const uploadResult = await storageService.uploadDocument(
+            fileBuffer,
+            doc.id,
+            finalFilename,
+            doc.mime || 'application/octet-stream'
+          );
+          
+          // Supprimer l'ancien fichier temporaire
+          try {
+            await storageService.deleteDocument(doc.bucketKey);
+          } catch (deleteError) {
+            console.warn(`[API] Impossible de supprimer l'ancien fichier ${doc.bucketKey}:`, deleteError);
+          }
+          
+          // Mettre à jour le document avec le nouveau bucketKey
+          await prisma.document.update({
+            where: { id: doc.id },
+            data: {
+              bucketKey: uploadResult.key,
+              url: `/api/documents/${doc.id}/file`
+            }
+          });
+        } catch (uploadError: any) {
+          console.error(`[API] Erreur upload document final pour ${docId}:`, uploadError);
+        }
+      }
+      
+      // Créer les liens DocumentLink
+      const { createDocumentLinks } = await import('@/lib/services/documentLinkService');
+      for (const docId of data.stagedDocumentIds) {
+        await createDocumentLinks(docId, result);
+      }
+    }
+
+    // Traiter les liens vers documents existants
+    if (data.stagedLinkItemIds && data.stagedLinkItemIds.length > 0) {
+      const stagedLinks = await prisma.uploadStagedItem.findMany({
+        where: {
+          id: { in: data.stagedLinkItemIds },
+          kind: 'link',
+          organizationId,
+        },
+        include: {
+          Document: {
+            select: {
+              id: true,
+            },
+          },
+        },
+      });
+
+      const { createDocumentLinks } = await import('@/lib/services/documentLinkService');
+      for (const stagedLink of stagedLinks) {
+        if (stagedLink.Document) {
+          await createDocumentLinks(stagedLink.Document.id, result);
+        }
+      }
+    }
+
     return NextResponse.json({
-      id: loan.id,
-      propertyId: loan.propertyId,
-      propertyName: loan.property.name,
-      label: loan.label,
-      principal: Number(loan.principal),
-      annualRatePct: Number(loan.annualRatePct),
-      durationMonths: loan.durationMonths,
-      defermentMonths: loan.defermentMonths,
-      insurancePct: loan.insurancePct ? Number(loan.insurancePct) : null,
-      feesUpfront: loan.feesUpfront ? Number(loan.feesUpfront) : null,
-      startDate: loan.startDate.toISOString(),
-      endDate: loan.endDate?.toISOString() || null,
-      rateType: loan.rateType,
-      isActive: loan.isActive,
-      createdAt: loan.createdAt.toISOString(),
-      updatedAt: loan.updatedAt.toISOString(),
+      id: result.id,
+      propertyId: result.propertyId,
+      propertyName: result.property.name,
+      label: result.label,
+      principal: Number(result.principal),
+      annualRatePct: Number(result.annualRatePct),
+      durationMonths: result.durationMonths,
+      defermentMonths: result.defermentMonths,
+      insurancePct: result.insurancePct ? Number(result.insurancePct) : null,
+      feesUpfront: result.feesUpfront ? Number(result.feesUpfront) : null,
+      startDate: result.startDate.toISOString(),
+      endDate: result.endDate?.toISOString() || null,
+      rateType: result.rateType,
+      loanType: result.loanType,
+      repaymentType: result.repaymentType,
+      amortizationProfile: result.amortizationProfile,
+      notes: result.notes,
+      isActive: result.isActive,
+      createdAt: result.createdAt.toISOString(),
+      updatedAt: result.updatedAt.toISOString(),
     }, { status: 201 });
   } catch (error) {
     console.error('Erreur lors de la création du prêt:', error);

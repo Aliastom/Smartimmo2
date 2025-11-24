@@ -59,24 +59,66 @@ export async function GET(
     // Cela fonctionne en local ET sur Vercel (si un provider cloud est configuré)
     const storageService = getStorageService();
     
-    // Normaliser le bucketKey pour gérer les anciens formats (rétrocompatibilité)
-    const normalizedKey = storageService.normalizeBucketKey(
-      document.bucketKey,
-      document.id,
-      document.filenameOriginal || document.fileName
-    );
+    // Pour les fichiers temporaires (tmp/), utiliser directement le bucketKey
+    // Sinon, normaliser le bucketKey pour gérer les anciens formats (rétrocompatibilité)
+    const isTemporaryFile = document.bucketKey.startsWith('tmp/');
+    const keyToUse = isTemporaryFile 
+      ? document.bucketKey 
+      : storageService.normalizeBucketKey(
+          document.bucketKey,
+          document.id,
+          document.filenameOriginal || document.fileName
+        );
+    
+    // Vérifier si le fichier existe avant d'essayer de le télécharger
+    try {
+      const fileExists = await storageService.exists(keyToUse);
+      if (!fileExists) {
+        console.error(`[Document File] Fichier non trouvé dans le stockage:`, {
+          bucketKey: document.bucketKey,
+          keyToUse,
+          isTemporaryFile,
+          documentId: document.id,
+          fileName: document.filenameOriginal || document.fileName
+        });
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Fichier non trouvé dans le stockage',
+            details: `Le document "${document.filenameOriginal || document.fileName}" existe dans la base de données mais le fichier physique est introuvable. Le fichier a peut-être été supprimé du stockage.`
+          },
+          { status: 404 }
+        );
+      }
+    } catch (error: any) {
+      console.error(`[Document File] Erreur lors de la vérification d'existence: ${error.message}`, {
+        bucketKey: document.bucketKey,
+        keyToUse,
+        documentId: document.id
+      });
+      // Continuer quand même, peut-être que le provider ne supporte pas exists()
+    }
     
     let fileBuffer: Buffer;
     try {
-      fileBuffer = await storageService.downloadDocument(normalizedKey);
+      fileBuffer = await storageService.downloadDocument(keyToUse);
     } catch (error: any) {
       console.error(`[Document File] Erreur lors du téléchargement: ${error.message}`, {
         bucketKey: document.bucketKey,
-        normalizedKey,
-        documentId: document.id
+        keyToUse,
+        isTemporaryFile,
+        documentId: document.id,
+        errorCode: error.code,
+        errorStack: error.stack
       });
       return NextResponse.json(
-        { success: false, error: 'Fichier non trouvé dans le stockage' },
+        { 
+          success: false, 
+          error: 'Fichier non trouvé dans le stockage',
+          details: `Impossible de télécharger le fichier. ${error.message || 'Erreur inconnue'}`,
+          bucketKey: document.bucketKey,
+          keyToUse
+        },
         { status: 404 }
       );
     }

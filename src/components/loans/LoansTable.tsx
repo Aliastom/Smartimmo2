@@ -17,7 +17,14 @@ export interface Loan {
   durationMonths: number;
   defermentMonths: number;
   insurancePct: number | null;
+  feesUpfront?: number | null;
   startDate: string;
+  endDate?: string | null;
+  rateType?: string;
+  loanType?: string | null;
+  repaymentType?: string | null;
+  amortizationProfile?: string | null;
+  notes?: string | null;
   isActive: boolean;
   monthlyPayment?: number;
 }

@@ -49,6 +49,11 @@ export function useToggleRapprochement() {
       queryClient.invalidateQueries({ queryKey: ['transactions-kpis'] });
       queryClient.invalidateQueries({ queryKey: ['transactions-charts'] });
       queryClient.invalidateQueries({ queryKey: ['transaction', variables.id] });
+      // Invalider aussi les queries du dashboard mensuel
+      queryClient.invalidateQueries({ 
+        queryKey: ['dashboard-monthly'],
+        exact: false 
+      });
 
       // Toast de succès
       const message = variables.status === 'rapprochee' 

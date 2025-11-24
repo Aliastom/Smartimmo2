@@ -920,17 +920,35 @@ export async function POST(request: NextRequest) {
               textSha256: doc.textSha256 || undefined,
               organizationId,
             });
-            if (duplicateCheck.hasExactDuplicate) {
+            if (duplicateCheck.hasExactDuplicate && duplicateCheck.exactDuplicate) {
+              // Récupérer les liens du document existant pour la modal
+              const existingDocLinks = await tx.DocumentLink.findMany({
+                where: {
+                  documentId: duplicateCheck.exactDuplicate.id
+                },
+                select: {
+                  linkedType: true,
+                  linkedId: true
+                }
+              });
+              
               return NextResponse.json({
                 success: false,
                 error: `Document "${doc.fileName}" est maintenant un doublon exact`,
-                duplicate: duplicateCheck.exactDuplicate
+                duplicate: {
+                  ...duplicateCheck.exactDuplicate,
+                  links: existingDocLinks.map(link => ({
+                    type: link.linkedType,
+                    id: link.linkedId
+                  }))
+                }
               }, { status: 409 });
             }
           }
         }
 
         // Mettre à jour le statut des documents de 'draft' à 'active'
+        // La finalisation (migration tmp/ → documents/) sera faite APRÈS la transaction
         await tx.Document.updateMany({
           where: { 
             id: { in: body.stagedDocumentIds },
@@ -945,7 +963,7 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        logDebug('Documents finalisés (liens créés après la transaction):', primaryTransaction.id);
+        logDebug('Documents marqués comme actifs (finalisation après transaction):', primaryTransaction.id);
       }
 
       // 3. Traiter les liens vers documents existants si présents
@@ -984,8 +1002,86 @@ export async function POST(request: NextRequest) {
       timeout: 15000, // 15 secondes timeout
     });
 
-    // Créer les liens APRÈS la transaction pour éviter le timeout
+    // Finaliser les documents et créer les liens APRÈS la transaction pour éviter le timeout
     if (body.stagedDocumentIds && body.stagedDocumentIds.length > 0) {
+      logDebug('[API] Finalisation des documents (migration tmp/ → documents/)...');
+      const { getStorageService } = await import('@/services/storage.service');
+      const storageService = getStorageService();
+      
+      // Finaliser chaque document : migrer de tmp/ vers documents/
+      for (const docId of body.stagedDocumentIds) {
+        const doc = await prisma.document.findFirst({
+          where: { id: docId, organizationId },
+          select: {
+            id: true,
+            bucketKey: true,
+            filenameOriginal: true,
+            fileName: true,
+            mime: true
+          }
+        });
+        
+        if (!doc || !doc.bucketKey) {
+          logDebug(`[API] Document ${docId} introuvable ou sans bucketKey, ignoré`);
+          continue;
+        }
+        
+        // Si le bucketKey est déjà dans documents/, pas besoin de migrer
+        if (doc.bucketKey.startsWith('documents/')) {
+          logDebug(`[API] Document ${docId} déjà dans documents/, pas de migration nécessaire`);
+          continue;
+        }
+        
+        // Lire le fichier temporaire
+        let fileBuffer: Buffer;
+        try {
+          fileBuffer = await storageService.downloadDocument(doc.bucketKey);
+          logDebug(`[API] Fichier temporaire lu pour ${docId}: ${doc.bucketKey}`);
+        } catch (error: any) {
+          console.error(`[API] Erreur lecture fichier temporaire pour ${docId}:`, error);
+          continue; // Passer au suivant
+        }
+        
+        // Générer le nom de fichier final
+        const fileExtension = doc.filenameOriginal?.split('.').pop() || 'pdf';
+        const finalFilename = `${doc.id}.${fileExtension}`;
+        
+        // Upload vers le stockage permanent
+        try {
+          const uploadResult = await storageService.uploadDocument(
+            fileBuffer,
+            doc.id,
+            finalFilename,
+            doc.mime || 'application/octet-stream'
+          );
+          
+          logDebug(`[API] Document ${docId} uploadé vers stockage permanent: ${uploadResult.key}`);
+          
+          // Supprimer l'ancien fichier temporaire
+          try {
+            await storageService.deleteDocument(doc.bucketKey);
+            logDebug(`[API] Ancien fichier temporaire supprimé: ${doc.bucketKey}`);
+          } catch (deleteError) {
+            console.warn(`[API] Impossible de supprimer l'ancien fichier ${doc.bucketKey}:`, deleteError);
+            // Ne pas faire échouer l'opération pour ça
+          }
+          
+          // Mettre à jour le document avec le nouveau bucketKey
+          await prisma.document.update({
+            where: { id: doc.id },
+            data: {
+              bucketKey: uploadResult.key,
+              url: `/api/documents/${doc.id}/file`
+            }
+          });
+          
+          logDebug(`[API] ✅ Document ${docId} finalisé: ${doc.bucketKey} → ${uploadResult.key}`);
+        } catch (uploadError: any) {
+          console.error(`[API] ❌ Erreur upload document final pour ${docId}:`, uploadError);
+          // Ne pas faire échouer la création de transaction, mais logger l'erreur
+        }
+      }
+      
       logDebug('[API] Création des liens pour les documents finalisés...');
       const { createDocumentLinks } = await import('@/lib/services/documentLinkService');
       

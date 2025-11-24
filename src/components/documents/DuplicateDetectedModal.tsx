@@ -73,11 +73,11 @@ export const DuplicateDetectedModal: React.FC<DuplicateDetectedModalProps> = ({
           </div>
 
           {/* Liens existants */}
-          {existing.DocumentLink.length > 0 && (
+          {existing.links && existing.links.length > 0 && (
             <div>
               <h4 className="font-medium text-gray-900 mb-2">Déjà lié à :</h4>
               <div className="space-y-2">
-                {existing.DocumentLink.map((link, index) => (
+                {existing.links.map((link, index) => (
                   <div key={index} className="flex items-center gap-2 text-sm">
                     <Badge variant="outline" className="capitalize">
                       {link.type}

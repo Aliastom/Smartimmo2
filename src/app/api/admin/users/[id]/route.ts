@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
+import { protectRouteWithRole } from '@/lib/auth/protectRouteWithRole';
 import { getCurrentUser } from '@/lib/auth/getCurrentUser';
 import { deleteUserSafely } from '@/lib/services/userDeletionService';
+import { prisma } from '@/lib/prisma';
 
+/**
+ * PATCH /api/admin/users/[id] - Mettre à jour un utilisateur
+ * Accessible uniquement aux ADMIN
+ */
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  // Protection ADMIN
-  const authError = await protectAdminRoute();
+  // Vérifier l'authentification (seuls les ADMIN peuvent écrire)
+  const authError = await protectRouteWithRole('PATCH');
   if (authError) return authError;
 
   try {
@@ -26,9 +31,13 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 }
 
+/**
+ * DELETE /api/admin/users/[id] - Supprimer un utilisateur
+ * Accessible uniquement aux ADMIN
+ */
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
-  // Protection ADMIN
-  const authError = await protectAdminRoute();
+  // Vérifier l'authentification (seuls les ADMIN peuvent écrire)
+  const authError = await protectRouteWithRole('DELETE');
   if (authError) return authError;
 
   try {

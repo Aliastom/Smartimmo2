@@ -17,7 +17,7 @@ import Link from 'next/link';
 import { MonthlyFilters } from '@/components/dashboard/MonthlyFilters';
 import { MonthlyKpiBar } from '@/components/dashboard/MonthlyKpiBar';
 import { TasksPanel } from '@/components/dashboard/TasksPanel';
-import { MonthlyGraphs } from '@/components/dashboard/MonthlyGraphs';
+import { GestionnaireDelegueReportPanel } from '@/components/dashboard/GestionnaireDelegueReportPanel';
 import type { MonthlyDashboardData } from '@/types/dashboard';
 
 export default function DashboardClientMonthly() {
@@ -231,6 +231,7 @@ export default function DashboardClientMonthly() {
           <TasksPanel
             loyersNonEncaisses={data.aTraiter.loyersNonEncaisses}
             relances={data.aTraiter.relances}
+            transactionsNonRapprochees={data.aTraiter.transactionsNonRapprochees}
             indexations={data.aTraiter.indexations}
             echeancesPrets={data.aTraiter.echeancesPrets}
             echeancesCharges={data.aTraiter.echeancesCharges}
@@ -242,21 +243,8 @@ export default function DashboardClientMonthly() {
         ) : null}
       </div>
 
-      {/* Graphiques en pleine largeur */}
-      <div>
-        {isLoading ? (
-          <MonthlyGraphs
-            intraMensuel={[]}
-            cashflowCumule={[]}
-            isLoading={true}
-          />
-        ) : data ? (
-          <MonthlyGraphs
-            intraMensuel={data.graph.intraMensuel}
-            cashflowCumule={data.graph.cashflowCumule}
-          />
-        ) : null}
-      </div>
+      {/* Rapport gestionnaire délégué */}
+      <GestionnaireDelegueReportPanel currentMonth={month} />
 
       {/* Actions rapides */}
       <Card>

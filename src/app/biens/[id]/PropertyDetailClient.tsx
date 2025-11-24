@@ -54,6 +54,7 @@ import {
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { UploadReviewModal } from '@/components/documents/UploadReviewModal';
+import { AirbnbImportButton } from '@/components/airbnb/AirbnbImportButton';
 import { usePropertyInsights, PropertyTransactionsInsights, PropertyDocumentsInsights, PropertyLeasesInsights } from '@/hooks/usePropertyInsights';
 import { BackToPropertyButton } from '@/components/shared/BackToPropertyButton';
 
@@ -494,7 +495,12 @@ export default function PropertyDetailClient({
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium text-gray-700">Statut</label>
-                <div className="mt-1">{getStatusBadge(property.status)}</div>
+                <div className="mt-1 flex gap-2 items-center">
+                  {getStatusBadge(property.status)}
+                  {property.rentalMode === 'SEASONAL_AIRBNB' && (
+                    <Badge variant="info">Airbnb – LMNP</Badge>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Valeur actuelle</label>
@@ -682,6 +688,12 @@ export default function PropertyDetailClient({
               propertyId={property.id} 
               propertyName={property.name}
             />
+            {property.rentalMode === 'SEASONAL_AIRBNB' && (
+              <AirbnbImportButton 
+                propertyId={property.id}
+                propertyName={property.name}
+              />
+            )}
             <Button onClick={() => setTransactionFormOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Nouvelle Transaction

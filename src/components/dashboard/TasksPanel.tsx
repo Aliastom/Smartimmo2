@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -22,16 +22,21 @@ import {
 import { cn } from '@/utils/cn';
 import type {
   LoyerNonEncaisse,
+  TransactionNonRapprochee,
   IndexationATraiter,
   EcheancePret,
   EcheanceCharge,
   BailAEcheance,
   DocumentAValider,
 } from '@/types/dashboard';
+import { LoyersRetardChart } from '@/components/dashboard/LoyersRetardChart';
+import { useToggleRapprochement } from '@/hooks/useToggleRapprochement';
+import { useQueryClient } from '@tanstack/react-query';
 
 export interface TasksPanelProps {
   loyersNonEncaisses: LoyerNonEncaisse[];
   relances: LoyerNonEncaisse[];
+  transactionsNonRapprochees: TransactionNonRapprochee[];
   indexations: IndexationATraiter[];
   echeancesPrets: EcheancePret[];
   echeancesCharges: EcheanceCharge[];
@@ -44,6 +49,7 @@ export interface TasksPanelProps {
 export function TasksPanel({
   loyersNonEncaisses,
   relances,
+  transactionsNonRapprochees,
   indexations,
   echeancesPrets,
   echeancesCharges,
@@ -52,13 +58,107 @@ export function TasksPanel({
   layout = 'vertical',
   currentMonth,
 }: TasksPanelProps) {
-  // État pour la case à cocher "mois sélectionné"
-  const [filterByCurrentMonth, setFilterByCurrentMonth] = useState(true);
+  // État pour la case à cocher "mois sélectionné" (loyers en retard)
+  const [filterByCurrentMonth, setFilterByCurrentMonth] = useState(false);
+  
+  // État pour la case à cocher "mois sélectionné" (transactions non rapprochées)
+  const [filterTransactionsByCurrentMonth, setFilterTransactionsByCurrentMonth] = useState(false);
+  
+  // État pour la modale des transactions non rapprochées
+  const [showAllTransactionsNonRapprochees, setShowAllTransactionsNonRapprochees] = useState(false);
+  
+  // État pour tracker les transactions en cours de rapprochement
+  const [transactionsEnCoursRapprochement, setTransactionsEnCoursRapprochement] = useState<Set<string>>(new Set());
+  
+  const queryClient = useQueryClient();
+  const toggleRapprochement = useToggleRapprochement();
   
   // Filtrer les relances par mois sélectionné si la case est cochée
   const filteredRelances = filterByCurrentMonth && currentMonth
     ? relances.filter(r => r.accountingMonth === currentMonth)
     : relances;
+  
+  // Filtrer les transactions non rapprochées par mois sélectionné si la case est cochée
+  const filteredTransactionsNonRapprochees = filterTransactionsByCurrentMonth && currentMonth
+    ? transactionsNonRapprochees.filter(t => t.accountingMonth === currentMonth)
+    : transactionsNonRapprochees;
+  
+  // Fonction pour rapprocher une transaction
+  const handleRapprocher = async (transactionId: string) => {
+    // Marquer la transaction comme en cours de rapprochement
+    setTransactionsEnCoursRapprochement(prev => new Set(prev).add(transactionId));
+    
+    try {
+      await toggleRapprochement.mutateAsync({
+        id: transactionId,
+        status: 'rapprochee',
+      });
+      // Invalider toutes les queries du dashboard pour rafraîchir les données
+      queryClient.invalidateQueries({ 
+        queryKey: ['dashboard-monthly'],
+        exact: false 
+      });
+      
+      // Attendre que les données soient rafraîchies avant de retirer de la liste
+      // On garde la transaction dans l'état jusqu'à ce qu'elle disparaisse de la liste
+      // (elle disparaîtra automatiquement quand les données seront rafraîchies)
+    } catch (error) {
+      console.error('Erreur lors du rapprochement:', error);
+      // En cas d'erreur, retirer de la liste des transactions en cours
+      setTransactionsEnCoursRapprochement(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(transactionId);
+        return newSet;
+      });
+    }
+  };
+  
+  // Retirer les transactions qui ne sont plus dans la liste des transactions non rapprochées
+  React.useEffect(() => {
+    const transactionIds = new Set(transactionsNonRapprochees.map(t => t.id));
+    setTransactionsEnCoursRapprochement(prev => {
+      const filtered = Array.from(prev).filter(id => transactionIds.has(id));
+      return filtered.length !== prev.size ? new Set(filtered) : prev;
+    });
+  }, [transactionsNonRapprochees]);
+  
+  // Calculer les données du graphique à partir des relances (même logique que l'encart)
+  const graphDataFromRelances = React.useMemo(() => {
+    // Utiliser les relances filtrées (même logique que l'encart)
+    const dataToUse = filteredRelances;
+    
+    // Agrégation par accounting_month
+    const monthMap = new Map<string, { count: number; montant: number }>();
+    
+    for (const relance of dataToUse) {
+      let monthKey: string | null = null;
+      
+      if (relance.accountingMonth) {
+        monthKey = relance.accountingMonth;
+      } else if (relance.dateEcheance) {
+        // Extraire YYYY-MM de la date d'échéance
+        const date = new Date(relance.dateEcheance);
+        monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      }
+      
+      if (monthKey) {
+        const existing = monthMap.get(monthKey) || { count: 0, montant: 0 };
+        existing.count += 1;
+        existing.montant += relance.montant;
+        monthMap.set(monthKey, existing);
+      }
+    }
+    
+    // Convertir en tableau et trier
+    const result = Array.from(monthMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, data]) => ({
+        month,
+        count: data.count,
+      }));
+    
+    return result;
+  }, [filteredRelances]);
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
@@ -112,19 +212,19 @@ export function TasksPanel({
     return (
       <div
         className={cn(
-          'bg-white rounded-lg border border-gray-200 p-3 hover:shadow-sm transition-shadow',
+          'bg-white rounded-lg border border-gray-200 p-2 hover:shadow-sm transition-shadow',
           priorityClasses[priority]
         )}
       >
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-2">
           <div className="flex-shrink-0 mt-0.5">
-            <Icon className="h-5 w-5 text-gray-400" />
+            <Icon className="h-4 w-4 text-gray-400" />
           </div>
           
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">
+                <p className="text-xs font-medium text-gray-900 truncate">
                   {title}
                 </p>
                 {subtitle && (
@@ -135,13 +235,13 @@ export function TasksPanel({
               </div>
               
               {amount !== undefined && (
-                <p className="text-sm font-semibold text-gray-900 flex-shrink-0">
+                <p className="text-xs font-semibold text-gray-900 flex-shrink-0">
                   {formatCurrency(amount)}
                 </p>
               )}
             </div>
             
-            <div className="flex items-center justify-end mt-2 gap-2">
+            <div className="flex items-center justify-end mt-1 gap-1">
               {actions && (
                 <div className="flex items-center gap-1">
                   {actions}
@@ -162,69 +262,168 @@ export function TasksPanel({
     return (
       <>
         <div className="space-y-6">
-          {/* Panneaux principaux en ligne */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Loyers en retard */}
-            {relances.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <AlertCircle className="h-5 w-5 text-red-500" />
-                        Loyers en retard
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        {filteredRelances.length} loyer{filteredRelances.length > 1 ? 's' : ''} en retard
-                        {filterByCurrentMonth && currentMonth && (
-                          <span className="ml-1 text-gray-500">
-                            ({formatAccountingMonth(currentMonth)})
-                          </span>
-                        )}
-                      </CardDescription>
+          {/* Loyers en retard avec graphique */}
+          {relances.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Encart loyers en retard */}
+              <div className="md:col-span-1">
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <AlertCircle className="h-5 w-5 text-red-500" />
+                          Loyers en retard
+                        </CardTitle>
+                        <CardDescription className="text-xs">
+                          {filteredRelances.length} loyer{filteredRelances.length > 1 ? 's' : ''} en retard
+                          {filterByCurrentMonth && currentMonth && (
+                            <span className="ml-1 text-gray-500">
+                              ({formatAccountingMonth(currentMonth)})
+                            </span>
+                          )}
+                        </CardDescription>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge 
+                          variant="danger" 
+                          className="cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => setShowAllRelances(true)}
+                        >
+                          {filteredRelances.length}
+                        </Badge>
+                        <Badge 
+                          variant="danger" 
+                          className="cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => setShowAllRelances(true)}
+                        >
+                          {formatCurrency(
+                            filteredRelances.reduce((sum, r) => sum + r.montant, 0)
+                          )}
+                        </Badge>
+                      </div>
                     </div>
-                    <Badge 
-                      variant="danger" 
-                      className="cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={() => setShowAllRelances(true)}
-                    >
-                      {filteredRelances.length}
-                    </Badge>
+                    {currentMonth && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <Checkbox
+                          id="filter-month-relances-horizontal"
+                          checked={filterByCurrentMonth}
+                          onCheckedChange={(checked) => setFilterByCurrentMonth(checked === true)}
+                        />
+                        <label
+                          htmlFor="filter-month-relances-horizontal"
+                          className="text-xs text-gray-700 cursor-pointer"
+                        >
+                          Mois sélectionné ({formatAccountingMonth(currentMonth)})
+                        </label>
+                      </div>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {filteredRelances.slice(0, 3).map((loyer) => (
+                        <TaskCard
+                          key={loyer.id}
+                          icon={Euro}
+                          title={`${loyer.tenantName} - ${loyer.propertyName}`}
+                          subtitle={loyer.accountingMonth ? formatAccountingMonth(loyer.accountingMonth) : `En retard de ${loyer.retardJours} jour${loyer.retardJours > 1 ? 's' : ''}`}
+                          date={loyer.accountingMonth ? undefined : loyer.dateEcheance}
+                          amount={loyer.montant}
+                          priority="high"
+                          actions={
+                            <div className="flex gap-1">
+                              <Button size="sm" variant="outline">
+                                <Send className="h-3 w-3 mr-1" />
+                                Relancer
+                              </Button>
+                              <Link href={`/biens/${loyer.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                                <Button size="sm" variant="ghost">
+                                  <ArrowRight className="h-3 w-3" />
+                                </Button>
+                              </Link>
+                            </div>
+                          }
+                        />
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+              
+              {/* Graphique des loyers en retard par mois */}
+              <div className="md:col-span-2">
+                <LoyersRetardChart data={graphDataFromRelances} />
+              </div>
+            </div>
+          )}
+
+          {/* Transactions non rapprochées */}
+          {transactionsNonRapprochees.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <FileText className="h-5 w-5 text-orange-500" />
+                      Transactions non rapprochées
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      {filteredTransactionsNonRapprochees.length} transaction{filteredTransactionsNonRapprochees.length > 1 ? 's' : ''} non rapprochée{filteredTransactionsNonRapprochees.length > 1 ? 's' : ''}
+                      {filterTransactionsByCurrentMonth && currentMonth && (
+                        <span className="ml-1 text-gray-500">
+                          ({formatAccountingMonth(currentMonth)})
+                        </span>
+                      )}
+                    </CardDescription>
                   </div>
-                  {currentMonth && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <Checkbox
-                        id="filter-month-relances-horizontal"
-                        checked={filterByCurrentMonth}
-                        onCheckedChange={(checked) => setFilterByCurrentMonth(checked === true)}
-                      />
-                      <label
-                        htmlFor="filter-month-relances-horizontal"
-                        className="text-xs text-gray-700 cursor-pointer"
-                      >
-                        Mois sélectionné ({formatAccountingMonth(currentMonth)})
-                      </label>
-                    </div>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {filteredRelances.slice(0, 3).map((loyer) => (
+                  <Badge
+                    variant="warning"
+                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => setShowAllTransactionsNonRapprochees(true)}
+                  >
+                    {filteredTransactionsNonRapprochees.length}
+                  </Badge>
+                </div>
+                {currentMonth && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <Checkbox
+                      id="filter-month-transactions-horizontal"
+                      checked={filterTransactionsByCurrentMonth}
+                      onCheckedChange={(checked) => setFilterTransactionsByCurrentMonth(checked === true)}
+                    />
+                    <label
+                      htmlFor="filter-month-transactions-horizontal"
+                      className="text-xs text-gray-700 cursor-pointer"
+                    >
+                      Mois sélectionné ({formatAccountingMonth(currentMonth)})
+                    </label>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {filteredTransactionsNonRapprochees.slice(0, 3).map((transaction) => (
                     <TaskCard
-                      key={loyer.id}
-                      icon={Euro}
-                      title={`${loyer.tenantName} - ${loyer.propertyName}`}
-                      subtitle={loyer.accountingMonth ? formatAccountingMonth(loyer.accountingMonth) : `En retard de ${loyer.retardJours} jour${loyer.retardJours > 1 ? 's' : ''}`}
-                      date={loyer.accountingMonth ? undefined : loyer.dateEcheance}
-                      amount={loyer.montant}
-                      priority="high"
+                      key={transaction.id}
+                      icon={FileText}
+                      title={transaction.label}
+                      subtitle={transaction.tenantName 
+                        ? `${transaction.tenantName} - ${transaction.propertyName}`
+                        : transaction.propertyName}
+                      date={transaction.date}
+                      amount={transaction.montant}
+                      priority="medium"
                       actions={
                         <div className="flex gap-1">
-                          <Button size="sm" variant="outline">
-                            <Send className="h-3 w-3 mr-1" />
-                            Relancer
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleRapprocher(transaction.id)}
+                            disabled={toggleRapprochement.isPending || transactionsEnCoursRapprochement.has(transaction.id)}
+                          >
+                            Rapprocher
                           </Button>
-                          <Link href={`/biens/${loyer.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                          <Link href={`/biens/${transaction.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
                             <Button size="sm" variant="ghost">
                               <ArrowRight className="h-3 w-3" />
                             </Button>
@@ -237,6 +436,9 @@ export function TasksPanel({
               </CardContent>
             </Card>
           )}
+
+          {/* Panneaux principaux en ligne */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
           {/* Échéances du mois */}
           {(echeancesPrets.length > 0 || echeancesCharges.length > 0) && (
@@ -268,8 +470,8 @@ export function TasksPanel({
                             icon={CreditCard}
                             title={pret.propertyName}
                             subtitle={
-                              pret.capital && pret.interets
-                                ? `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}`
+                              pret.capital !== undefined && pret.interets !== undefined
+                                ? `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}${pret.assurance && pret.assurance > 0 ? ` | Assurance: ${formatCurrency(pret.assurance)}` : ''}`
                                 : undefined
                             }
                             date={pret.dateEcheance}
@@ -307,47 +509,10 @@ export function TasksPanel({
         </div>
 
         {/* Autres panneaux en dessous si nécessaire */}
-        {(loyersNonEncaisses.filter(l => l.statut === 'a_venir').length > 0 ||
-          indexations.length > 0 ||
+        {(indexations.length > 0 ||
           bauxAEcheance.length > 0 ||
           documentsAValider.length > 0) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Loyers à venir */}
-            {loyersNonEncaisses.filter(l => l.statut === 'a_venir').length > 0 && (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="flex items-center gap-2 text-sm">
-                        <Clock className="h-4 w-4 text-blue-500" />
-                        Loyers à venir
-                      </CardTitle>
-                    </div>
-                    <Badge variant="warning" className="text-xs">
-                      {loyersNonEncaisses.filter(l => l.statut === 'a_venir').length}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {loyersNonEncaisses
-                      .filter(l => l.statut === 'a_venir')
-                      .slice(0, 2)
-                      .map((loyer) => (
-                        <TaskCard
-                          key={loyer.id}
-                          icon={Calendar}
-                          title={`${loyer.tenantName} - ${loyer.propertyName}`}
-                          subtitle="À encaisser"
-                          date={loyer.dateEcheance}
-                          amount={loyer.montant}
-                          priority="medium"
-                        />
-                      ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
             {/* Indexations */}
             {indexations.length > 0 && (
@@ -456,7 +621,14 @@ export function TasksPanel({
                   <h2 className="text-xl font-semibold text-gray-900">
                     Tous les loyers en retard
                   </h2>
-                  <Badge variant="danger">{filteredRelances.length}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="danger">{filteredRelances.length}</Badge>
+                    <Badge variant="danger">
+                      {formatCurrency(
+                        filteredRelances.reduce((sum, r) => sum + r.montant, 0)
+                      )}
+                    </Badge>
+                  </div>
                   {filterByCurrentMonth && currentMonth && (
                     <span className="text-sm text-gray-500">
                       ({formatAccountingMonth(currentMonth)})
@@ -510,6 +682,78 @@ export function TasksPanel({
             </div>
           </div>
         )}
+
+        {/* Modale pour toutes les transactions non rapprochées (layout horizontal) */}
+        {showAllTransactionsNonRapprochees && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between p-6 border-b">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-6 w-6 text-orange-500" />
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Toutes les transactions non rapprochées
+                  </h2>
+                  <Badge variant="warning">{filteredTransactionsNonRapprochees.length}</Badge>
+                  {filterTransactionsByCurrentMonth && currentMonth && (
+                    <span className="text-sm text-gray-500">
+                      ({formatAccountingMonth(currentMonth)})
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setShowAllTransactionsNonRapprochees(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="space-y-3">
+                  {filteredTransactionsNonRapprochees.map((transaction) => (
+                    <TaskCard
+                      key={transaction.id}
+                      icon={FileText}
+                      title={transaction.label}
+                      subtitle={transaction.tenantName 
+                        ? `${transaction.tenantName} - ${transaction.propertyName}`
+                        : transaction.propertyName}
+                      date={transaction.date}
+                      amount={transaction.montant}
+                      priority="medium"
+                      actions={
+                        <div className="flex gap-1">
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleRapprocher(transaction.id)}
+                            disabled={toggleRapprochement.isPending || transactionsEnCoursRapprochement.has(transaction.id)}
+                          >
+                            Rapprocher
+                          </Button>
+                          <Link href={`/biens/${transaction.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                            <Button size="sm" variant="ghost">
+                              <ArrowRight className="h-3 w-3" />
+                            </Button>
+                          </Link>
+                        </div>
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
+                <Button variant="outline" onClick={() => setShowAllTransactionsNonRapprochees(false)}>
+                  Fermer
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </>
     );
   }
@@ -540,13 +784,24 @@ export function TasksPanel({
                     )}
                   </CardDescription>
                 </div>
-                <Badge 
-                  variant="danger"
-                  className="cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={() => setShowAllRelancesVertical(true)}
-                >
-                  {filteredRelances.length}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge 
+                    variant="danger"
+                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => setShowAllRelancesVertical(true)}
+                  >
+                    {filteredRelances.length}
+                  </Badge>
+                  <Badge 
+                    variant="danger"
+                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => setShowAllRelancesVertical(true)}
+                  >
+                    {formatCurrency(
+                      filteredRelances.reduce((sum, r) => sum + r.montant, 0)
+                    )}
+                  </Badge>
+                </div>
               </div>
               {currentMonth && (
                 <div className="mt-3 flex items-center gap-2">
@@ -595,41 +850,81 @@ export function TasksPanel({
         </Card>
       )}
 
-      {/* Loyers à venir (non payés) */}
-      {loyersNonEncaisses.filter(l => l.statut === 'a_venir').length > 0 && (
+      {/* Transactions non rapprochées */}
+      {transactionsNonRapprochees.length > 0 && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-blue-500" />
-                  Loyers à venir
+                  <FileText className="h-5 w-5 text-orange-500" />
+                  Transactions non rapprochées
                 </CardTitle>
                 <CardDescription>
-                  En attente de paiement
+                  {filteredTransactionsNonRapprochees.length} transaction{filteredTransactionsNonRapprochees.length > 1 ? 's' : ''} non rapprochée{filteredTransactionsNonRapprochees.length > 1 ? 's' : ''}
+                  {filterTransactionsByCurrentMonth && currentMonth && (
+                    <span className="ml-2 text-xs text-gray-500">
+                      ({formatAccountingMonth(currentMonth)})
+                    </span>
+                  )}
                 </CardDescription>
               </div>
-              <Badge variant="warning">
-                {loyersNonEncaisses.filter(l => l.statut === 'a_venir').length}
+              <Badge
+                variant="warning"
+                className="cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => setShowAllTransactionsNonRapprochees(true)}
+              >
+                {filteredTransactionsNonRapprochees.length}
               </Badge>
             </div>
+            {currentMonth && (
+              <div className="mt-3 flex items-center gap-2">
+                <Checkbox
+                  id="filter-month-transactions"
+                  checked={filterTransactionsByCurrentMonth}
+                  onCheckedChange={(checked) => setFilterTransactionsByCurrentMonth(checked === true)}
+                />
+                <label
+                  htmlFor="filter-month-transactions"
+                  className="text-sm text-gray-700 cursor-pointer"
+                >
+                  Mois sélectionné ({formatAccountingMonth(currentMonth)})
+                </label>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {loyersNonEncaisses
-                .filter(l => l.statut === 'a_venir')
-                .slice(0, 5)
-                .map((loyer) => (
-                  <TaskCard
-                    key={loyer.id}
-                    icon={Calendar}
-                    title={`${loyer.tenantName} - ${loyer.propertyName}`}
-                    subtitle="À encaisser"
-                    date={loyer.dateEcheance}
-                    amount={loyer.montant}
-                    priority="medium"
-                  />
-                ))}
+              {filteredTransactionsNonRapprochees.slice(0, 3).map((transaction) => (
+                <TaskCard
+                  key={transaction.id}
+                  icon={FileText}
+                  title={transaction.label}
+                  subtitle={transaction.tenantName 
+                    ? `${transaction.tenantName} - ${transaction.propertyName}`
+                    : transaction.propertyName}
+                  date={transaction.date}
+                  amount={transaction.montant}
+                  priority="medium"
+                  actions={
+                    <div className="flex gap-1">
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => handleRapprocher(transaction.id)}
+                        disabled={toggleRapprochement.isPending || transactionsEnCoursRapprochement.has(transaction.id)}
+                      >
+                        Rapprocher
+                      </Button>
+                      <Link href={`/biens/${transaction.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                        <Button size="sm" variant="ghost">
+                          <ArrowRight className="h-3 w-3" />
+                        </Button>
+                      </Link>
+                    </div>
+                  }
+                />
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -704,8 +999,8 @@ export function TasksPanel({
                         icon={CreditCard}
                         title={pret.propertyName}
                         subtitle={
-                          pret.capital && pret.interets
-                            ? `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}`
+                          pret.capital !== undefined && pret.interets !== undefined
+                            ? `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}${pret.assurance && pret.assurance > 0 ? ` | Assurance: ${formatCurrency(pret.assurance)}` : ''}`
                             : undefined
                         }
                         date={pret.dateEcheance}
@@ -819,10 +1114,10 @@ export function TasksPanel({
         </Card>
       )}
 
-      {/* État vide */}
-      {relances.length === 0 &&
-        loyersNonEncaisses.filter(l => l.statut === 'a_venir').length === 0 &&
-        indexations.length === 0 &&
+                {/* État vide */}
+                {relances.length === 0 &&
+                  transactionsNonRapprochees.length === 0 &&
+                  indexations.length === 0 &&
         echeancesPrets.length === 0 &&
         echeancesCharges.length === 0 &&
         bauxAEcheance.length === 0 &&
@@ -854,7 +1149,14 @@ export function TasksPanel({
                   <h2 className="text-xl font-semibold text-gray-900">
                     Toutes les relances urgentes
                   </h2>
-                  <Badge variant="danger">{filteredRelances.length}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="danger">{filteredRelances.length}</Badge>
+                    <Badge variant="danger">
+                      {formatCurrency(
+                        filteredRelances.reduce((sum, r) => sum + r.montant, 0)
+                      )}
+                    </Badge>
+                  </div>
                   {filterByCurrentMonth && currentMonth && (
                     <span className="text-sm text-gray-500">
                       ({formatAccountingMonth(currentMonth)})
@@ -902,6 +1204,78 @@ export function TasksPanel({
             {/* Footer */}
             <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
               <Button variant="outline" onClick={() => setShowAllRelancesVertical(false)}>
+                Fermer
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale pour toutes les transactions non rapprochées */}
+      {showAllTransactionsNonRapprochees && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b">
+              <div className="flex items-center gap-2">
+                <FileText className="h-6 w-6 text-orange-500" />
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Toutes les transactions non rapprochées
+                </h2>
+                <Badge variant="warning">{filteredTransactionsNonRapprochees.length}</Badge>
+                {filterTransactionsByCurrentMonth && currentMonth && (
+                  <span className="text-sm text-gray-500">
+                    ({formatAccountingMonth(currentMonth)})
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setShowAllTransactionsNonRapprochees(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-3">
+                {filteredTransactionsNonRapprochees.map((transaction) => (
+                  <TaskCard
+                    key={transaction.id}
+                    icon={FileText}
+                    title={transaction.label}
+                    subtitle={transaction.tenantName 
+                      ? `${transaction.tenantName} - ${transaction.propertyName}`
+                      : transaction.propertyName}
+                    date={transaction.date}
+                    amount={transaction.montant}
+                    priority="medium"
+                    actions={
+                      <div className="flex gap-1">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleRapprocher(transaction.id)}
+                          disabled={toggleRapprochement.isPending}
+                        >
+                          Rapprocher
+                        </Button>
+                        <Link href={`/biens/${transaction.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                          <Button size="sm" variant="ghost">
+                            <ArrowRight className="h-3 w-3" />
+                          </Button>
+                        </Link>
+                      </div>
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
+              <Button variant="outline" onClick={() => setShowAllTransactionsNonRapprochees(false)}>
                 Fermer
               </Button>
             </div>

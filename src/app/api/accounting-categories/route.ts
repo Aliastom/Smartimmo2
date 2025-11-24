@@ -1,14 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { protectRouteWithRole } from '@/lib/auth/protectRouteWithRole';
 
+/**
+ * GET /api/accounting-categories
+ * Récupère la liste des catégories comptables
+ * Accessible aux utilisateurs authentifiés (USER et ADMIN)
+ */
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Vérifier l'authentification (USER et ADMIN peuvent lire)
+  const authError = await protectRouteWithRole('GET');
+  if (authError) return authError;
+
   try {
-    await requireAuth();
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');
     const nature = searchParams.get('nature'); // Nature pour filtrer

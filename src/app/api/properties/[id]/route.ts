@@ -26,6 +26,8 @@ const updatePropertySchema = z.object({
   managementCompanyId: z.string().optional(),
   fiscalTypeId: z.string().optional(),
   fiscalRegimeId: z.string().optional(),
+  rentalMode: z.enum(['LONG_TERM', 'SEASONAL_AIRBNB']).optional(),
+  airbnbListingId: z.string().optional(),
 });
 
 export async function GET(
@@ -78,6 +80,9 @@ export async function PUT(
     }
     if ('fiscalRegimeId' in sanitizedData) {
       sanitizedData.fiscalRegimeId = sanitizedData.fiscalRegimeId || null;
+    }
+    if ('airbnbListingId' in sanitizedData) {
+      sanitizedData.airbnbListingId = sanitizedData.airbnbListingId || null;
     }
     
     const property = await PropertyRepo.update(params.id, user.organizationId, sanitizedData);

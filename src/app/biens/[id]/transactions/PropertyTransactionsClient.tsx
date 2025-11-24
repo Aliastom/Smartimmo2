@@ -15,6 +15,7 @@ import TransactionsTable from '@/components/transactions/TransactionsTable';
 import TransactionDrawer from '@/components/transactions/TransactionDrawer';
 import { ConfirmDeleteTransactionModal } from '@/components/transactions/ConfirmDeleteTransactionModal';
 import { ConfirmDeleteMultipleTransactionsModal } from '@/components/transactions/ConfirmDeleteMultipleTransactionsModal';
+import { DuplicateDetectedModal } from '@/components/documents/DuplicateDetectedModal';
 import { TransactionsKpiBar } from '@/components/transactions/TransactionsKpiBar';
 import { TransactionsCumulativeChart } from '@/components/transactions/TransactionsCumulativeChart';
 import { TransactionsByCategoryChart } from '@/components/transactions/TransactionsByCategoryChart';
@@ -138,6 +139,10 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
   const [transactionsToDelete, setTransactionsToDelete] = useState<Transaction[]>([]);
   const [isLoadingDeleteModal, setIsLoadingDeleteModal] = useState(false);
   const [deletingProgress, setDeletingProgress] = useState<{ current: number; total: number } | null>(null);
+  
+  // États pour la modal de doublon
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateData, setDuplicateData] = useState<any>(null);
 
   // États pour la période (format YYYY-MM)
   const now = new Date();
@@ -549,7 +554,37 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
       });
 
       if (!response.ok) {
-        throw new Error('Erreur lors de la sauvegarde');
+        // Gérer spécifiquement les erreurs 409 (doublon détecté)
+        if (response.status === 409) {
+          const errorData = await response.json();
+          console.log('[PropertyTransactionsClient] Doublon détecté lors de la création:', errorData);
+          
+          // Construire les données pour la modal de doublon
+          if (errorData.duplicate) {
+            setDuplicateData({
+              code: 'DUPLICATE_FILE',
+              policy: 'block',
+              existing: {
+                id: errorData.duplicate.id,
+                fileName: errorData.duplicate.fileName || 'Document inconnu',
+                typeLabel: errorData.duplicate.DocumentType?.label || 'Type inconnu',
+                links: errorData.duplicate.links || []
+              }
+            });
+            setShowDuplicateModal(true);
+            return; // Arrêter ici, ne pas fermer la modal de transaction
+          }
+        }
+        
+        const errorText = await response.text();
+        let errorMessage = 'Erreur lors de la sauvegarde';
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
@@ -751,6 +786,27 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
         mode={modalMode}
         transactionId={selectedTransaction?.id}
         title={modalMode === 'create' ? 'Nouvelle transaction' : 'Modifier la transaction'}
+      />
+
+      {/* Modal de doublon détecté */}
+      <DuplicateDetectedModal
+        isOpen={showDuplicateModal}
+        onClose={() => {
+          setShowDuplicateModal(false);
+          setDuplicateData(null);
+        }}
+        onLinkExisting={() => {
+          // Pour l'instant, on ne peut pas lier directement car la transaction n'existe pas encore
+          // L'utilisateur doit d'abord annuler, lier le document, puis recréer la transaction
+          notify2.info('Veuillez d\'abord annuler la création de la transaction, lier le document existant, puis recréer la transaction.');
+          setShowDuplicateModal(false);
+          setDuplicateData(null);
+        }}
+        onCancel={() => {
+          setShowDuplicateModal(false);
+          setDuplicateData(null);
+        }}
+        duplicateData={duplicateData}
       />
 
       {/* Drawer */}

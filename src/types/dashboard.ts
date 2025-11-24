@@ -93,6 +93,18 @@ export interface LoyerNonEncaisse {
   statut: 'en_retard' | 'a_venir';
 }
 
+export interface TransactionNonRapprochee {
+  id: string;
+  propertyId: string;
+  propertyName: string;
+  tenantName?: string;
+  label: string;
+  montant: number;
+  date: string;
+  accountingMonth?: string; // Format YYYY-MM
+  nature?: string;
+}
+
 export interface IndexationATraiter {
   id: string;
   leaseId: string;
@@ -167,6 +179,12 @@ export interface CashflowCumuleDataPoint {
   cashflow: number;
 }
 
+export interface LoyersRetardParMoisDataPoint {
+  month: string; // Format: 'YYYY-MM' (accounting_month)
+  count: number; // Nombre de loyers en retard
+  montant: number; // Montant total en retard
+}
+
 export interface MonthlyDashboardData {
   period: {
     month: string; // Format: 'YYYY-MM'
@@ -177,6 +195,7 @@ export interface MonthlyDashboardData {
   aTraiter: {
     loyersNonEncaisses: LoyerNonEncaisse[];
     relances: LoyerNonEncaisse[]; // Même structure, filtrées par priorité
+    transactionsNonRapprochees: TransactionNonRapprochee[];
     indexations: IndexationATraiter[];
     echeancesPrets: EcheancePret[];
     echeancesCharges: EcheanceCharge[];
@@ -186,6 +205,7 @@ export interface MonthlyDashboardData {
   graph: {
     intraMensuel: IntraMensuelDataPoint[];
     cashflowCumule: CashflowCumuleDataPoint[];
+    loyersRetardParMois: LoyersRetardParMoisDataPoint[];
   };
   insights?: string; // Synthèse IA contextuelle (optionnel)
 }

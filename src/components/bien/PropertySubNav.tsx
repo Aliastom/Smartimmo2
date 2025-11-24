@@ -9,6 +9,7 @@ import { Loader2 } from 'lucide-react';
 interface PropertySubNavProps {
   propertyId: string;
   activeTab?: string;
+  rentalMode?: string;
   counts?: {
     transactions?: number;
     documents?: number;
@@ -19,7 +20,7 @@ interface PropertySubNavProps {
   };
 }
 
-  const tabs = [
+  const allTabs = [
     { id: 'transactions', label: 'Transactions', href: '/transactions', emoji: '💰', hue: 1, countKey: 'transactions' as const },
     { id: 'documents', label: 'Documents', href: '/documents', emoji: '📄', hue: 210, countKey: 'documents' as const },
     { id: 'photos', label: 'Photos', href: '/photos', emoji: '📷', hue: 280, countKey: 'photos' as const },
@@ -28,7 +29,14 @@ interface PropertySubNavProps {
     { id: 'loans', label: 'Prêts', href: '/loans', emoji: '💳', hue: 186, countKey: 'loans' as const },
   ];
 
-export function PropertySubNav({ propertyId, activeTab, counts }: PropertySubNavProps) {
+export function PropertySubNav({ propertyId, activeTab, rentalMode, counts }: PropertySubNavProps) {
+  // Filtrer les tabs : masquer "Baux" pour les biens Airbnb
+  const tabs = allTabs.filter(tab => {
+    if (tab.id === 'baux' && rentalMode === 'SEASONAL_AIRBNB') {
+      return false;
+    }
+    return true;
+  });
   const pathname = usePathname();
   const { isLoading } = useLoading();
 

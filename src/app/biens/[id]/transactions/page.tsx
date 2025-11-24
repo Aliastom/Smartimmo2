@@ -34,7 +34,11 @@ export default async function PropertyTransactionsPage({ params }: PropertyTrans
   return (
     <div className="space-y-6">
       <Suspense fallback={<div>Chargement...</div>}>
-        <PropertyTransactionsClient propertyId={params.id} propertyName={property.name} />
+        <PropertyTransactionsClient 
+          propertyId={params.id} 
+          propertyName={property.name}
+          rentalMode={property.rentalMode || undefined}
+        />
       </Suspense>
     </div>
   );

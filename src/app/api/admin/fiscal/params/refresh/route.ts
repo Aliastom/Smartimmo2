@@ -5,15 +5,19 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
+import { protectRouteWithRole } from '@/lib/auth/protectRouteWithRole';
 
+/**
+ * POST /api/admin/fiscal/params/refresh - Rafraîchir les paramètres fiscaux
+ * Accessible uniquement aux ADMIN
+ */
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-  // Protection ADMIN
-  const authError = await protectAdminRoute();
+  // Vérifier l'authentification (seuls les ADMIN peuvent écrire)
+  const authError = await protectRouteWithRole('POST');
   if (authError) return authError;
 
   try {

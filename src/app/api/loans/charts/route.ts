@@ -130,8 +130,8 @@ export async function GET(request: NextRequest) {
     // Trier par CRD décroissant
     crdByProperty.sort((a, b) => b.crd - a.crd);
 
-    // 3. Classement par coût d'intérêts (top 5)
-    const loanCosts: { loanId: string; label: string; totalInterest: number }[] = [];
+    // 3. Classement par coût d'intérêts (top 5) avec co-emprunteurs
+    const loanCosts: { loanId: string; label: string; totalInterest: number; borrowers?: Array<{ name: string; pct: number | null }> }[] = [];
     
     for (const loan of loans) {
       const schedule = buildSchedule({
@@ -148,10 +148,29 @@ export async function GET(request: NextRequest) {
         : 0;
       
       if (totalInterest > 0) {
+        // Charger les co-emprunteurs pour ce prêt
+        const borrowers = await prisma.loanBorrower.findMany({
+          where: { loanId: loan.id, organizationId },
+          select: {
+            firstName: true,
+            lastName: true,
+            responsibilityPct: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+        
+        const borrowersData = borrowers.length > 0
+          ? borrowers.map(b => ({
+              name: `${b.firstName} ${b.lastName}`,
+              pct: b.responsibilityPct ? Number(b.responsibilityPct) : null,
+            }))
+          : undefined;
+        
         loanCosts.push({
           loanId: loan.id,
           label: loan.label,
           totalInterest: Math.round(totalInterest * 100) / 100,
+          borrowers: borrowersData,
         });
       }
     }

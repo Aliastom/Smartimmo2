@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
+import { protectRouteWithRole } from '@/lib/auth/protectRouteWithRole';
 
 // GET /api/admin/signals/[id] - Récupérer un signal
+// Accessible aux utilisateurs authentifiés (USER et ADMIN)
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
@@ -11,8 +12,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  // Protection ADMIN
-  const authError = await protectAdminRoute();
+  // Vérifier l'authentification (USER et ADMIN peuvent lire)
+  const authError = await protectRouteWithRole('GET');
   if (authError) return authError;
 
   try {
@@ -44,7 +45,13 @@ export async function GET(
     return NextResponse.json({
       success: true,
       data: {
-        ...Signal,
+        id: signal.id,
+        code: signal.code,
+        label: signal.label,
+        regex: signal.regex,
+        flags: signal.flags,
+        description: signal.description,
+        protected: signal.protected || false,
         usages: signal.TypeSignal.length,
         documentTypes: signal.TypeSignal.map(ts => ({
           id: ts.documentTypeId,
@@ -64,12 +71,13 @@ export async function GET(
 }
 
 // PUT /api/admin/signals/[id] - Mettre à jour un signal
+// Accessible uniquement aux ADMIN
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  // Protection ADMIN
-  const authError = await protectAdminRoute();
+  // Vérifier l'authentification (seuls les ADMIN peuvent écrire)
+  const authError = await protectRouteWithRole('PUT');
   if (authError) return authError;
 
   try {
@@ -176,12 +184,13 @@ export async function PUT(
 }
 
 // DELETE /api/admin/signals/[id] - Supprimer un signal (soft delete)
+// Accessible uniquement aux ADMIN
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  // Protection ADMIN
-  const authError = await protectAdminRoute();
+  // Vérifier l'authentification (seuls les ADMIN peuvent écrire)
+  const authError = await protectRouteWithRole('DELETE');
   if (authError) return authError;
 
   try {

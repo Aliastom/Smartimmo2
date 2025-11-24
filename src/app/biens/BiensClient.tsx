@@ -42,7 +42,8 @@ import {
   Archive,
   Warehouse,
   Store,
-  Mountain
+  Mountain,
+  Loader2
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -78,7 +79,8 @@ export default function BiensClient({ initialData, stats, properties, transactio
   const { insights, loading: insightsLoading } = useDashboardInsights('biens');
   const { setStatusFilter } = usePropertyFilters();
   const { showAlert, showConfirm } = useAlert();
-  const { setLoading } = useLoading();
+  const { isLoading: checkLoading } = useLoading();
+  const [loadingPropertyId, setLoadingPropertyId] = useState<string | null>(null);
   
   // Détecter l'état actif des chips basé sur les paramètres URL
   const getActiveChip = () => {
@@ -172,6 +174,11 @@ export default function BiensClient({ initialData, stats, properties, transactio
   };
 
   const getNextStep = (property: PropertyWithRelations): { text: string; icon: React.ReactNode } | null => {
+    // Si le bien est en mode Airbnb, pas besoin de bail
+    if (property.rentalMode === 'SEASONAL_AIRBNB') {
+      return null;
+    }
+
     const hasActiveLease = property.Lease?.some(lease => lease.status === 'ACTIF') || false;
     const hasAnyLease = property.Lease && property.Lease.length > 0;
     
@@ -465,6 +472,8 @@ export default function BiensClient({ initialData, stats, properties, transactio
                       data-property-id={property.id}
                       onClick={() => {
                         const targetPath = `/biens/${property.id}/transactions`;
+                        // Activer l'animation de chargement sur la ligne
+                        setLoadingPropertyId(property.id);
                         // Le loader sera déclenché par SmartTopLoader via la détection du clic
                         router.push(targetPath);
                       }}
@@ -472,7 +481,11 @@ export default function BiensClient({ initialData, stats, properties, transactio
                       <TableCell>
                         <div>
                           <div className="flex items-center gap-2">
-                            {getPropertyTypeIcon(property.type)}
+                            {(loadingPropertyId === property.id || checkLoading(`/biens/${property.id}/transactions`)) ? (
+                              <Loader2 className="h-4 w-4 animate-spin sidebar-loader-orange" />
+                            ) : (
+                              getPropertyTypeIcon(property.type)
+                            )}
                             <span className={property.isArchived ? 'font-medium text-gray-500 line-through' : 'font-medium text-gray-900'}>
                               {property.name}
                             </span>

@@ -157,11 +157,11 @@ export function UploadReviewModal({
 
   // Charger les types de documents
   useEffect(() => {
-    fetch('/api/admin/document-types?includeInactive=false')
+    fetch('/api/document-types?isActive=true')
       .then(res => res.json())
       .then(data => {
-        if (data.success) {
-          const types = data.data.map((t: any) => ({
+        if (data.documentTypes) {
+          const types = data.documentTypes.map((t: any) => ({
             code: t.code,
             label: t.label,
             openTransaction: t.openTransaction || false

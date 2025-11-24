@@ -15,7 +15,7 @@ import { LoansCRDTimelineChart } from '@/components/loans/LoansCRDTimelineChart'
 import { LoansByPropertyChart } from '@/components/loans/LoansByPropertyChart';
 import { LoansTopCostlyChart } from '@/components/loans/LoansTopCostlyChart';
 import { Loan } from '@/components/loans/LoansTable';
-import { LoanForm } from '@/components/loans/LoanForm';
+import { LoanModalV2 } from '@/components/loans/LoanModalV2';
 import { LoanDrawer } from '@/components/loans/LoanDrawer';
 import { ConfirmDeleteLoanModal } from '@/components/loans/ConfirmDeleteLoanModal';
 import { ConfirmDeleteMultipleLoansModal } from '@/components/loans/ConfirmDeleteMultipleLoansModal';
@@ -237,7 +237,14 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
         insurancePct: data.insurancePct,
         feesUpfront: data.feesUpfront,
         startDate: new Date(data.startDate).toISOString(),
+        loanType: (data as any).loanType,
+        repaymentType: (data as any).repaymentType,
+        amortizationProfile: (data as any).amortizationProfile,
+        notes: (data as any).notes,
         isActive: data.isActive,
+        stagedDocumentIds: data.stagedDocumentIds,
+        stagedLinkItemIds: data.stagedLinkItemIds,
+        borrowers: data.borrowers,
       };
 
       const response = await fetch(url, {
@@ -534,9 +541,9 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
       </div>
 
       {/* Modal de formulaire */}
-      <LoanForm
-        open={isModalOpen}
-        onOpenChange={setIsModalOpen}
+      <LoanModalV2
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
         properties={properties}
         initialData={selectedLoan ? selectedLoan : { propertyId }}
         onSubmit={handleFormSubmit}

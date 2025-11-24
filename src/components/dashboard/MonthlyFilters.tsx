@@ -267,9 +267,102 @@ export function MonthlyFilters({
       {/* Filtres avancés (multi-select) */}
       {showAdvanced && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-200">
-          {/* TODO: Implémenter multi-select pour biens et locataires */}
-          <div className="text-sm text-gray-500">
-            Filtres avancés Biens/Locataires à implémenter avec composant multi-select
+          {/* Multi-select Biens */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Biens
+            </label>
+            <div className="border border-gray-300 rounded-md p-3 max-h-48 overflow-y-auto bg-white">
+              {biens.length === 0 ? (
+                <p className="text-gray-500 text-sm">Aucun bien disponible</p>
+              ) : (
+                <div className="space-y-2">
+                  <label className="flex items-center space-x-2 hover:bg-gray-50 p-1 rounded cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bienIds.length === 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          onFilterChange({ bienIds: [] });
+                        }
+                      }}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <span className="text-sm text-gray-700">Tous les biens</span>
+                  </label>
+                  {biens.map((bien) => (
+                    <label
+                      key={bien.id}
+                      className="flex items-center space-x-2 hover:bg-gray-50 p-1 rounded cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={bienIds.includes(bien.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            onFilterChange({ bienIds: [...bienIds, bien.id] });
+                          } else {
+                            onFilterChange({ bienIds: bienIds.filter((id) => id !== bien.id) });
+                          }
+                        }}
+                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="text-sm text-gray-700">{bien.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Multi-select Locataires */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Locataires
+            </label>
+            <div className="border border-gray-300 rounded-md p-3 max-h-48 overflow-y-auto bg-white">
+              {locataires.length === 0 ? (
+                <p className="text-gray-500 text-sm">Aucun locataire disponible</p>
+              ) : (
+                <div className="space-y-2">
+                  <label className="flex items-center space-x-2 hover:bg-gray-50 p-1 rounded cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={locataireIds.length === 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          onFilterChange({ locataireIds: [] });
+                        }
+                      }}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <span className="text-sm text-gray-700">Tous les locataires</span>
+                  </label>
+                  {locataires.map((locataire) => (
+                    <label
+                      key={locataire.id}
+                      className="flex items-center space-x-2 hover:bg-gray-50 p-1 rounded cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={locataireIds.includes(locataire.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            onFilterChange({ locataireIds: [...locataireIds, locataire.id] });
+                          } else {
+                            onFilterChange({ locataireIds: locataireIds.filter((id) => id !== locataire.id) });
+                          }
+                        }}
+                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="text-sm text-gray-700">
+                        {locataire.firstName} {locataire.lastName}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

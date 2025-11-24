@@ -1,14 +1,21 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { protectRouteWithRole } from '@/lib/auth/protectRouteWithRole';
 
 /**
- * GET /api/document-types - RÃ©cupÃ©rer les types de documents
+ * GET /api/document-types - Récupérer les types de documents
+ * Accessible aux utilisateurs authentifiés (USER et ADMIN)
+ * Retourne les informations nécessaires pour l'utilisation (code, label, openTransaction)
  */
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Vérifier l'authentification (USER et ADMIN peuvent lire)
+  const authError = await protectRouteWithRole('GET');
+  if (authError) return authError;
+
   try {
     const searchParams = request.nextUrl.searchParams;
     const scope = searchParams.get('scope');
@@ -26,13 +33,30 @@ export async function GET(request: NextRequest) {
     }
 
     if (isActive !== null) {
-      where.isActive = isActive !== 'false'; // Par dÃ©faut true
+      where.isActive = isActive !== 'false'; // Par défaut true
     } else {
-      where.isActive = true; // Par dÃ©faut, ne montrer que les actifs
+      where.isActive = true; // Par défaut, ne montrer que les actifs
     }
 
     const documentTypes = await prisma.documentType.findMany({
       where,
+      select: {
+        id: true,
+        code: true,
+        label: true,
+        description: true,
+        icon: true,
+        scope: true,
+        isSystem: true,
+        isRequired: true,
+        order: true,
+        isActive: true,
+        isSensitive: true,
+        autoAssignThreshold: true,
+        openTransaction: true,
+        createdAt: true,
+        updatedAt: true,
+      },
       orderBy: [
         { order: 'asc' },
         { label: 'asc' },
