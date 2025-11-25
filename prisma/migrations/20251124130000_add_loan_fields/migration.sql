@@ -4,3 +4,4 @@ ADD COLUMN "repaymentType" TEXT,
 ADD COLUMN "amortizationProfile" TEXT,
 ADD COLUMN "notes" TEXT;
 
+

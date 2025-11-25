@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 
-
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 // Ajouter OPTIONS pour gérer les preflight requests CORS
 export async function OPTIONS(request: NextRequest) {
@@ -19,6 +19,7 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  console.log('[API] POST /api/uploads/start - Début de la requête');
   try {
     const user = await requireAuth();
     const organizationId = user.organizationId;
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { scope, transactionId } = body;
 
-    console.log('[API] POST /api/uploads/start:', { scope, transactionId });
+    console.log('[API] POST /api/uploads/start:', { scope, transactionId, organizationId });
 
     // Expiration dans 2 jours
     const expiresAt = new Date();
