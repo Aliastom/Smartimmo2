@@ -217,7 +217,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
           // Charger les documents et liens existants de la session
           loadStagedDocuments(sessionId).then(() => {
             // Charger aussi les liens vers documents existants
-            fetch(`/api/uploads/session/${sessionId}`)
+            fetch(`/api/upload-session/${sessionId}`)
               .then(res => res.json())
               .then(data => {
                 if (data.success) {
@@ -231,7 +231,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
     } else if (isOpen && uploadSessionId) {
       // Recharger les documents et liens si la session existe déjà
       loadStagedDocuments(uploadSessionId).then(() => {
-        fetch(`/api/uploads/session/${uploadSessionId}`)
+        fetch(`/api/upload-session/${uploadSessionId}`)
           .then(res => res.json())
           .then(data => {
             if (data.success) {
@@ -376,7 +376,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
             
             // Recharger aussi les liens vers documents existants
             try {
-              const sessionResponse = await fetch(`/api/uploads/session/${uploadSessionId}`);
+              const sessionResponse = await fetch(`/api/upload-session/${uploadSessionId}`);
               if (sessionResponse.ok) {
                 const sessionData = await sessionResponse.json();
                 if (sessionData.success) {
@@ -436,7 +436,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
           await loadStagedDocuments(uploadSessionId);
           
           try {
-            const sessionResponse = await fetch(`/api/uploads/session/${uploadSessionId}`);
+            const sessionResponse = await fetch(`/api/upload-session/${uploadSessionId}`);
             if (sessionResponse.ok) {
               const sessionData = await sessionResponse.json();
               if (sessionData.success) {

@@ -48,7 +48,7 @@ export function useUploadSessionPolling(): UseUploadSessionPollingResult {
     setError(null);
 
     try {
-      const response = await fetch(`/api/uploads/session/${id}`);
+      const response = await fetch(`/api/upload-session/${id}`);
       const data = await response.json();
 
       if (!response.ok) {

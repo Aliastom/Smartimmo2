@@ -74,7 +74,7 @@ export const useUploadStaging = () => {
     setError(null);
     
     try {
-      const response = await fetch(`/api/uploads/session/${sessionId}`);
+      const response = await fetch(`/api/upload-session/${sessionId}`);
       
       // Vérifier le statut HTTP avant de parser le JSON
       if (!response.ok) {
@@ -141,7 +141,7 @@ export const useUploadStaging = () => {
     const idToDelete = sessionId || uploadSessionId;
     if (!idToDelete) return true; // Pas de session à supprimer
     try {
-      const response = await fetch(`/api/uploads/session/${idToDelete}`, {
+      const response = await fetch(`/api/upload-session/${idToDelete}`, {
         method: 'DELETE'
       });
       

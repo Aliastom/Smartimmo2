@@ -262,7 +262,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             
             // Recharger aussi les liens vers documents existants
             try {
-              const sessionResponse = await fetch(`/api/uploads/session/${uploadSessionId}`);
+              const sessionResponse = await fetch(`/api/upload-session/${uploadSessionId}`);
               if (sessionResponse.ok) {
                 const sessionData = await sessionResponse.json();
                 if (sessionData.success) {
@@ -1083,7 +1083,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             
             // Charger aussi les liens vers documents existants
             try {
-              const sessionResponse = await fetch(`/api/uploads/session/${sessionId}`);
+              const sessionResponse = await fetch(`/api/upload-session/${sessionId}`);
               if (sessionResponse.ok) {
                 const sessionData = await sessionResponse.json();
                 if (sessionData.success) {
@@ -1128,7 +1128,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   
                   // Charger aussi les liens vers documents existants
                   try {
-                    const sessionResponse = await fetch(`/api/uploads/session/${sessionIdToUse}`);
+                    const sessionResponse = await fetch(`/api/upload-session/${sessionIdToUse}`);
                     if (sessionResponse.ok) {
                       const sessionData = await sessionResponse.json();
                       if (sessionData.success) {
@@ -1170,7 +1170,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     console.log('[TransactionModal] ✅ Lien vers document finalisé créé:', linkData.itemId);
                     
                     // Charger les liens de la session
-                    const sessionResponse = await fetch(`/api/uploads/session/${sessionIdToUse}`);
+                    const sessionResponse = await fetch(`/api/upload-session/${sessionIdToUse}`);
                     if (sessionResponse.ok) {
                       const sessionData = await sessionResponse.json();
                       if (sessionData.success) {
