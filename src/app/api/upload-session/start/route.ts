@@ -19,7 +19,7 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  console.log('[API] POST /api/uploads/start - Début de la requête');
+  console.log('[API] POST /api/upload-session/start - Début de la requête');
   try {
     const user = await requireAuth();
     const organizationId = user.organizationId;
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { scope, transactionId } = body;
 
-    console.log('[API] POST /api/uploads/start:', { scope, transactionId, organizationId });
+    console.log('[API] POST /api/upload-session/start:', { scope, transactionId, organizationId });
 
     // Expiration dans 2 jours
     const expiresAt = new Date();
@@ -92,3 +92,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

@@ -36,7 +36,7 @@ export const useUploadStaging = () => {
     setError(null);
     
     try {
-      const response = await fetch('/api/uploads/start', {
+      const response = await fetch('/api/upload-session/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options || {})

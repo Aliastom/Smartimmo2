@@ -41,19 +41,6 @@ function generateHash(buffer: Buffer): string {
 }
 
 export async function POST(request: NextRequest) {
-  // Vérifier que la requête est bien pour /api/uploads (et non /api/uploads/start ou autre)
-  // /api/uploads/start envoie du JSON, /api/uploads envoie du FormData
-  const contentType = request.headers.get('content-type') || '';
-  
-  // Si c'est du JSON, c'est probablement pour /api/uploads/start
-  if (contentType.includes('application/json')) {
-    // Laisser passer pour que la route spécifique /api/uploads/start la gère
-    return NextResponse.json(
-      { error: 'Route non trouvée' },
-      { status: 404 }
-    );
-  }
-
   try {
     const user = await requireAuth();
     const organizationId = user.organizationId;
