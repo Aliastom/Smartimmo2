@@ -5,3 +5,4 @@ ADD COLUMN "amortizationProfile" TEXT,
 ADD COLUMN "notes" TEXT;
 
 
+

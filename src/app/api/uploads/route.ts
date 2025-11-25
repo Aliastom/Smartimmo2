@@ -42,10 +42,12 @@ function generateHash(buffer: Buffer): string {
 
 export async function POST(request: NextRequest) {
   // Vérifier que la requête est bien pour /api/uploads (et non /api/uploads/start ou autre)
-  const { pathname } = request.nextUrl;
-  if (pathname !== '/api/uploads') {
-    // Cette route ne doit gérer que /api/uploads exactement
-    // Les sous-routes comme /api/uploads/start sont gérées par leurs propres route.ts
+  // /api/uploads/start envoie du JSON, /api/uploads envoie du FormData
+  const contentType = request.headers.get('content-type') || '';
+  
+  // Si c'est du JSON, c'est probablement pour /api/uploads/start
+  if (contentType.includes('application/json')) {
+    // Laisser passer pour que la route spécifique /api/uploads/start la gère
     return NextResponse.json(
       { error: 'Route non trouvée' },
       { status: 404 }
