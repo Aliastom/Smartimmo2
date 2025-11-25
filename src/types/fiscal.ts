@@ -227,6 +227,8 @@ export interface FiscalInputs {
     baseCalcul: 'encaisse' | 'exigible';  // Base de calcul (encaissé vs exigible)
     optimiserRegimes: boolean;     // Optimiser automatiquement les régimes fiscaux
     regimeForce?: 'micro' | 'reel'; // Forcer un régime spécifique (override)
+    prelevementSourceDejaPaye?: number;  // 🆕 Impôt à la source déjà payé (€)
+    acomptesDejaPayes?: number;          // 🆕 Acomptes déjà payés (€)
   };
   
   // 🆕 Scope de l'agrégation (filtres optionnels)
@@ -244,6 +246,7 @@ export interface FiscalInputs {
     perEnabled?: boolean;                     // PER activé ou non
     regimeOverride?: 'auto' | 'micro' | 'reel'; // Override manuel du régime fiscal
     autofill?: boolean;                       // Autofill activé ou non
+    selectedBienIds?: string[];               // IDs des biens sélectionnés pour la simulation
   };
 }
 

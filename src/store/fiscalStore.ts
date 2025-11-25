@@ -112,10 +112,19 @@ export const useFiscalStore = create<FiscalStore>()(
         set({ status: 'calculating', error: null });
 
         try {
+          // ✅ Inclure le scope avec les IDs des biens sélectionnés si autofill est activé
+          const selectedBienIds = (simulationDraft._uiMetadata as any)?.selectedBienIds || [];
+          const payload = {
+            ...simulationDraft,
+            scope: simulationDraft.options?.autofill && selectedBienIds.length > 0 ? {
+              propertyIds: selectedBienIds,
+            } : undefined,
+          };
+          
           const response = await fetch('/api/fiscal/simulate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(simulationDraft),
+            body: JSON.stringify(payload),
           });
 
           if (!response.ok) {

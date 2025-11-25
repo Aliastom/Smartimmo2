@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useFiscalStore } from '@/store/fiscalStore';
 import { useFiscalTabs } from '@/hooks/useFiscalTabs';
 import { FiscalTabs } from '@/components/fiscal/unified/FiscalTabs';
@@ -23,6 +23,7 @@ import {
   Check, 
   Info,
 } from 'lucide-react';
+import { FiscalCalculatingOverlay } from '@/components/fiscal/FiscalCalculatingOverlay';
 
 // Lazy load des onglets lourds
 import dynamic from 'next/dynamic';
@@ -31,7 +32,7 @@ const SimulationTab = dynamic(() => import('@/components/fiscal/unified/tabs/Sim
   loading: () => <div className="p-6"><div className="h-96 bg-gray-100 animate-pulse rounded-2xl" /></div>,
 });
 
-const SyntheseTab = dynamic(() => import('@/components/fiscal/results/tabs/SyntheseTab').then(m => ({ default: m.SyntheseTab })), {
+const SyntheseTab = dynamic(() => import('@/components/fiscal/results/tabs/SyntheseTab').then(m => ({ default: m.default || m.SyntheseTab })), {
   loading: () => <div className="p-6"><div className="h-96 bg-gray-100 animate-pulse rounded-2xl" /></div>,
 });
 
@@ -69,22 +70,79 @@ export function FiscalPage() {
   const [loadingSimulations, setLoadingSimulations] = useState(false);
   const [optimizationCount, setOptimizationCount] = useState(0);
   const [optimizationSuggestions, setOptimizationSuggestions] = useState<any[]>([]);
+  const [isOptimizationLoading, setIsOptimizationLoading] = useState(false);
+  const optimizationAbortControllerRef = useRef<AbortController | null>(null);
+  const optimizationLoadedRef = useRef<string | null>(null); // Track which simulation ID has been loaded
+  const optimizationJustLoadedInCalculateRef = useRef<boolean>(false); // Flag pour éviter le double chargement après handleCalculate
+  
+  // États pour le suivi de progression du calcul
+  const [calculatingProgress, setCalculatingProgress] = useState({
+    stepsProcessed: 0,
+    totalSteps: 6, // ✅ 6 étapes maintenant (ajout de l'optimisation)
+    currentStep: '',
+    startTime: 0,
+  });
 
   // Charger le nombre d'optimisations depuis l'API (PER, régimes, travaux, etc.)
+  // ⚠️ Ne charger QUE lors du chargement d'une simulation sauvegardée, PAS après un calcul
+  // L'optimisation est déjà chargée dans handleCalculate et affichée dans la modal
   useEffect(() => {
-    if (!simulationResult) {
-      setOptimizationCount(0);
+    if (!simulationResult || status === 'calculating') {
+      if (status !== 'calculating') {
+        setOptimizationCount(0);
+        optimizationLoadedRef.current = null;
+        optimizationJustLoadedInCalculateRef.current = false;
+      }
+      return;
+    }
+
+    // ⚠️ Si l'optimisation vient d'être chargée dans handleCalculate, ne JAMAIS la recharger
+    // Le flag reste actif pour empêcher tout rechargement après la fermeture de la modal
+    if (optimizationJustLoadedInCalculateRef.current) {
+      return;
+    }
+
+    // ⚠️ DÉSACTIVER complètement le chargement automatique après un calcul
+    // Ne charger l'optimisation que si on charge explicitement une simulation sauvegardée
+    // (via handleLoadSimulation qui réinitialise le flag)
+    // Si pas de savedSimulationId, c'est un calcul récent = optimisation déjà chargée
+    if (!savedSimulationId) {
+      return;
+    }
+
+    // Créer une clé unique pour cette simulation
+    const simulationKey = savedSimulationId;
+    
+    // Si l'optimisation a déjà été chargée pour cette simulation, ne pas recharger
+    if (optimizationLoadedRef.current === simulationKey) {
+      return;
+    }
+    
+    // Si une optimisation est déjà en cours, ne pas en lancer une autre
+    if (isOptimizationLoading) {
       return;
     }
 
     const loadOptimizationCount = async () => {
+      // Annuler toute requête précédente
+      if (optimizationAbortControllerRef.current) {
+        optimizationAbortControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      optimizationAbortControllerRef.current = controller;
+      setIsOptimizationLoading(true);
+      
+      // Marquer cette simulation comme étant en cours de chargement IMMÉDIATEMENT pour éviter les appels multiples
+      optimizationLoadedRef.current = simulationKey;
+
       try {
         // Si on a un simulationId sauvegardé, l'utiliser, sinon utiliser la dernière simulation
         const url = savedSimulationId 
           ? `/api/fiscal/optimize?simulationId=${savedSimulationId}`
           : '/api/fiscal/optimize';
         
-        const response = await fetch(url);
+        const response = await fetch(url, { signal: controller.signal });
         
         if (response.ok) {
           const data = await response.json();
@@ -96,18 +154,37 @@ export function FiscalPage() {
           // Si erreur (pas encore de simulation sauvegardée), on peut pas avoir de suggestions
           setOptimizationCount(0);
           setOptimizationSuggestions([]);
+          optimizationLoadedRef.current = null; // Réinitialiser pour pouvoir réessayer
         }
-      } catch (error) {
-        console.error('Erreur chargement optimisations:', error);
-        setOptimizationCount(0);
-        setOptimizationSuggestions([]);
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          // Ne pas logger, c'est normal si on annule
+          optimizationLoadedRef.current = null; // Réinitialiser si annulé
+        } else {
+          console.error('Erreur chargement optimisations:', error);
+          setOptimizationCount(0);
+          setOptimizationSuggestions([]);
+          optimizationLoadedRef.current = null; // Réinitialiser pour pouvoir réessayer
+        }
+      } finally {
+        setIsOptimizationLoading(false);
+        if (optimizationAbortControllerRef.current === controller) {
+          optimizationAbortControllerRef.current = null;
+        }
       }
     };
 
-    // Attendre un peu après le calcul pour que la simulation soit sauvegardée
-    const timer = setTimeout(loadOptimizationCount, 500);
-    return () => clearTimeout(timer);
-  }, [simulationResult, savedSimulationId]);
+    // ⚠️ Charger immédiatement pour les simulations sauvegardées uniquement
+    // (le chargement automatique après un calcul est désactivé car fait dans handleCalculate)
+    loadOptimizationCount();
+    
+    return () => {
+      if (optimizationAbortControllerRef.current) {
+        optimizationAbortControllerRef.current.abort();
+        optimizationAbortControllerRef.current = null;
+      }
+    };
+  }, [simulationResult, savedSimulationId, status]); // ⚠️ Retirer isOptimizationLoading des dépendances
 
   // Charger la liste des simulations sauvegardées et réinitialiser
   useEffect(() => {
@@ -147,6 +224,9 @@ export function FiscalPage() {
   const handleLoadSimulation = async (simulationId: string) => {
     try {
       console.log('🔄 Chargement simulation:', simulationId);
+      
+      // ✅ Réinitialiser le flag pour permettre le chargement de l'optimisation pour cette simulation
+      optimizationJustLoadedInCalculateRef.current = false;
       
       // Charger depuis l'API pour avoir toutes les données
       const response = await fetch(`/api/fiscal/simulations/${simulationId}`);
@@ -204,12 +284,168 @@ export function FiscalPage() {
 
   // Calculer la simulation
   const handleCalculate = async () => {
+    const startTime = Date.now();
+    
+    // ✅ Réinitialiser le flag pour permettre le chargement de l'optimisation dans handleCalculate
+    optimizationJustLoadedInCalculateRef.current = false;
+    
+    // Initialiser la progression
+    setCalculatingProgress({
+      stepsProcessed: 0,
+      totalSteps: 6,
+      currentStep: '',
+      startTime,
+    });
+    
+    // Simuler la progression pendant le calcul
+    const steps = [
+      'Analyse des biens immobiliers',
+      'Calcul des revenus fonciers',
+      'Optimisation des régimes fiscaux',
+      'Calcul de l\'impôt sur le revenu',
+      'Optimisation fiscale',
+      'Finalisation de la simulation',
+    ];
+    
+    const progressInterval = setInterval(() => {
+      setCalculatingProgress((prev) => {
+        const elapsed = (Date.now() - prev.startTime) / 1000;
+        // Estimation: ~0.8-1 seconde par étape
+        const estimatedStep = Math.min(Math.floor(elapsed / 0.9), steps.length);
+        
+        return {
+          ...prev,
+          stepsProcessed: estimatedStep,
+          currentStep: estimatedStep < steps.length ? steps[estimatedStep] : '',
+        };
+      });
+    }, 600);
+    
     try {
+      // ✅ Garder le statut 'calculating' pendant toute la durée du calcul et de l'optimisation
+      // Le store met le status à 'done' après computeFiscalSimulation, mais on le remet à 'calculating'
+      // pour garder la modal ouverte pendant l'optimisation
+      
+      // Étape 1-4 : Simulation fiscale
       await computeFiscalSimulation();
+      
+      // ✅ Remettre le status à 'calculating' pour garder la modal ouverte pendant l'optimisation
+      setStatus('calculating');
+      
+      clearInterval(progressInterval);
+      
+      // Marquer les 4 premières étapes comme complétées
+      for (let i = 0; i < 4; i++) {
+        setCalculatingProgress({
+          stepsProcessed: i + 1,
+          totalSteps: 6,
+          currentStep: '',
+          startTime,
+        });
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+      
+      // Étape 5 : Charger l'optimisation fiscale et ATTENDRE qu'elle soit terminée
+      setCalculatingProgress({
+        stepsProcessed: 4,
+        totalSteps: 6,
+        currentStep: 'Optimisation fiscale',
+        startTime,
+      });
+      
+      // Annuler toute requête d'optimisation précédente
+      if (optimizationAbortControllerRef.current) {
+        optimizationAbortControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      optimizationAbortControllerRef.current = controller;
+      setIsOptimizationLoading(true);
+      
+      // Créer la même clé que dans le useEffect pour éviter les appels multiples
+      const simulationKey = savedSimulationId || `current-${simulationResult?.inputs?.year || 'unknown'}`;
+      
+      // Marquer immédiatement pour éviter que le useEffect ne se déclenche
+      optimizationLoadedRef.current = simulationKey;
+      optimizationJustLoadedInCalculateRef.current = true; // ✅ Empêcher le useEffect de recharger
+      
+      // ✅ Attendre que l'optimisation soit complètement terminée avant de continuer
+      try {
+        // Attendre un peu pour que la simulation soit disponible
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // L'API optimize charge automatiquement la dernière simulation
+        const response = await fetch('/api/fiscal/optimize', { signal: controller.signal });
+        if (response.ok) {
+          const data = await response.json();
+          const totalSuggestions = data.suggestions?.length || 0;
+          setOptimizationCount(totalSuggestions);
+          setOptimizationSuggestions(data.suggestions || []);
+          // S'assurer que la clé est bien marquée
+          optimizationLoadedRef.current = simulationKey;
+          // ✅ Garder le flag activé pour empêcher le useEffect de recharger
+          optimizationJustLoadedInCalculateRef.current = true;
+        } else {
+          // Si erreur, réinitialiser pour permettre un nouvel essai
+          optimizationLoadedRef.current = null;
+          optimizationJustLoadedInCalculateRef.current = false;
+        }
+      } catch (error: any) {
+        if (error.name !== 'AbortError') {
+          console.error('Erreur optimisation:', error);
+        }
+        // Ne pas bloquer si l'optimisation échoue
+        optimizationJustLoadedInCalculateRef.current = false;
+      } finally {
+        setIsOptimizationLoading(false);
+        if (optimizationAbortControllerRef.current === controller) {
+          optimizationAbortControllerRef.current = null;
+        }
+      }
+      
+      // Marquer l'étape 5 (Optimisation fiscale) comme complétée
+      setCalculatingProgress({
+        stepsProcessed: 5,
+        totalSteps: 6,
+        currentStep: 'Finalisation de la simulation',
+        startTime,
+      });
+      
+      // Petit délai pour voir l'étape de finalisation
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Marquer l'étape 6 (Finalisation) comme complétée
+      setCalculatingProgress({
+        stepsProcessed: 6,
+        totalSteps: 6,
+        currentStep: '',
+        startTime,
+      });
+      
+      // Petit délai avant de masquer l'overlay pour voir le 100%
+      await new Promise(resolve => setTimeout(resolve, 400));
+      
+      // ✅ Maintenant que l'optimisation est complètement terminée, mettre le status à 'done'
+      // Cela fermera la modal et le flag empêchera le useEffect de recharger
+      setStatus('done');
+      
+      // ✅ Garder le flag activé pour empêcher le useEffect de recharger l'optimisation
+      // Il sera réinitialisé quand on lancera un nouveau calcul ou qu'on chargera une autre simulation
+      
       // Basculer automatiquement sur Synthèse
       setActiveTab('synthese');
     } catch (error) {
+      clearInterval(progressInterval);
       console.error('Erreur calcul:', error);
+    } finally {
+      setCalculatingProgress({
+        stepsProcessed: 0,
+        totalSteps: 6,
+        currentStep: '',
+        startTime: 0,
+      });
+      // Ne pas réinitialiser optimizationJustLoadedInCalculateRef ici
+      // Il restera actif pour éviter le rechargement dans le useEffect
     }
   };
 
@@ -279,8 +515,26 @@ export function FiscalPage() {
 
   const hasSimulation = !!simulationResult;
 
+  // Calculer le temps estimé restant (ne jamais retourner 0, utiliser undefined à la place)
+  const estimatedTimeRemaining = calculatingProgress.startTime > 0 && calculatingProgress.totalSteps > 0
+    ? (() => {
+        const time = ((calculatingProgress.totalSteps - calculatingProgress.stepsProcessed) * 0.9);
+        return time > 0 ? time : undefined;
+      })()
+    : undefined;
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <>
+      {/* Overlay de calcul avec progression */}
+      <FiscalCalculatingOverlay
+        isCalculating={status === 'calculating'}
+        totalSteps={calculatingProgress.totalSteps}
+        stepsProcessed={calculatingProgress.stepsProcessed}
+        currentStep={calculatingProgress.currentStep}
+        estimatedTime={estimatedTimeRemaining}
+      />
+      
+      <div className="min-h-screen bg-gray-50">
       {/* Header sticky avec fond glassy/transparent */}
       <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-md shadow-sm border-b border-gray-200/50">
         <div className="max-w-7xl mx-auto px-4 py-4">
@@ -444,6 +698,7 @@ export function FiscalPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }
 

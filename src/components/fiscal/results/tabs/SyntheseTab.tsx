@@ -35,7 +35,7 @@ interface SyntheseTabProps {
   onGoToOptimizations: () => void;
 }
 
-export function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: SyntheseTabProps) {
+function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: SyntheseTabProps) {
   const formatEuro = (amount: number) =>
     new Intl.NumberFormat('fr-FR', {
       style: 'currency',
@@ -53,6 +53,12 @@ export function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: 
   const irSupplementaire = simulation.resume?.irSupplementaire || 0;
   const loyersTotal = simulation.biens?.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0) || 0;
   const chargesTotal = simulation.biens?.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0) || 0;
+  
+  // 🆕 Calculer l'impôt restant à payer (après déduction des montants déjà payés)
+  const prelevementSourceDejaPaye = simulation.inputs?.options?.prelevementSourceDejaPaye || 0;
+  const acomptesDejaPayes = simulation.inputs?.options?.acomptesDejaPayes || 0;
+  const totalDejaPaye = prelevementSourceDejaPaye + acomptesDejaPayes;
+  const impotRestantAPayer = Math.max(0, totalImpots - totalDejaPaye);
 
   // Calculer la variation de l'IR
   const imputableGlobal = simulation.consolidation?.deficitImputableRevenuGlobal || 0;
@@ -96,11 +102,13 @@ export function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: 
       {/* Section 1 : KPIs principales */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
-          title="Total impôts (IR + PS)"
-          value={formatEuro(totalImpots)}
-          subtitle={`IR: ${formatEuro(simulation.ir.impotNet)} • PS: ${formatEuro(simulation.ps.montant || 0)}`}
+          title={totalDejaPaye > 0 ? "Impôt restant à payer" : "Total impôts (IR + PS)"}
+          value={formatEuro(totalDejaPaye > 0 ? impotRestantAPayer : totalImpots)}
+          subtitle={totalDejaPaye > 0 
+            ? `Total: ${formatEuro(totalImpots)} • Déjà payé: ${formatEuro(totalDejaPaye)}`
+            : `IR: ${formatEuro(simulation.ir.impotNet)} • PS: ${formatEuro(simulation.ps.montant || 0)}`}
           icon={<Coins className="h-6 w-6 text-violet-400" />}
-          valueColor="text-violet-600"
+          valueColor={totalDejaPaye > 0 && impotRestantAPayer === 0 ? "text-emerald-600" : "text-violet-600"}
           className="bg-white/70"
         />
 
@@ -169,16 +177,22 @@ export function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: 
                 {impotsSuppTotal > 0 ? `-${formatEuro(impotsSuppTotal)}` : `${formatEuro(0)} (économie)`}
               </span>
             </div>
-            <div className="flex justify-between text-xs text-gray-500 ml-6">
-              <span>└ dont IR supplémentaire</span>
-              <span>
-                {irSupplementaire > 0 ? `-${formatEuro(irSupplementaire)}` : `${formatEuro(0)} (économie ${formatEuro(Math.abs(irSupplementaire))})`}
-              </span>
-            </div>
-            <div className="flex justify-between text-xs text-gray-500 ml-6">
-              <span>└ dont PS fonciers</span>
-              <span>{formatEuro(simulation.ps.montant || 0)}</span>
-            </div>
+            {impotsSuppTotal > 0 && (
+              <>
+                {irSupplementaire > 0 && (
+                  <div className="flex justify-between text-xs text-gray-500 ml-6">
+                    <span>└ dont IR supplémentaire</span>
+                    <span>-{formatEuro(irSupplementaire)}</span>
+                  </div>
+                )}
+                {(simulation.ps.montant || 0) > 0 && (
+                  <div className="flex justify-between text-xs text-gray-500 ml-6">
+                    <span>└ dont PS fonciers</span>
+                    <span>-{formatEuro(simulation.ps.montant || 0)}</span>
+                  </div>
+                )}
+              </>
+            )}
             
             <Separator className="bg-blue-300 my-2" />
             
@@ -362,4 +376,7 @@ export function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: 
     </div>
   );
 }
+
+export { SyntheseTab };
+export default SyntheseTab;
 

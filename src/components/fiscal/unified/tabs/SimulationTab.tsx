@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useFiscalStore } from '@/store/fiscalStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -27,6 +27,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { Separator } from '@/components/ui/Separator';
+import { FiscalLoadingOverlay } from '@/components/fiscal/FiscalLoadingOverlay';
 
 export default function SimulationTab() {
   const { simulationDraft, simulationResult, updateDraft } = useFiscalStore();
@@ -71,6 +72,22 @@ export default function SimulationTab() {
   const [autofillData, setAutofillData] = useState<any>(null);
   const [loadingAutofill, setLoadingAutofill] = useState(false);
   const [selectedBienIds, setSelectedBienIds] = useState<string[]>([]);
+  
+  // 🆕 États pour les impôts déjà payés
+  const [prelevementSourceDejaPaye, setPrelevementSourceDejaPaye] = useState(
+    simulationDraft.options?.prelevementSourceDejaPaye || 0
+  );
+  const [acomptesDejaPayes, setAcomptesDejaPayes] = useState(
+    simulationDraft.options?.acomptesDejaPayes || 0
+  );
+  
+  // États pour le suivi de progression du chargement
+  const [loadingProgress, setLoadingProgress] = useState({
+    totalBiens: 0,
+    biensProcessed: 0,
+    currentBien: '',
+    startTime: 0,
+  });
 
   // Charger les paramètres fiscaux au montage
   useEffect(() => {
@@ -110,81 +127,211 @@ export default function SimulationTab() {
 
   const netImposable = salaryMode === 'brut' ? calculateNetImposable(salaireBrut) : salaireBrut;
 
+  // ✅ Ref pour éviter les boucles infinies - tracker si on est en train de restaurer depuis le store
+  const isRestoringFromStore = useRef(false);
+  const lastRestoredMetadataRef = useRef<string | null>(null);
+  
   // ✅ Restaurer TOUS les états locaux depuis le store (quand une simulation est chargée)
   useEffect(() => {
-    if (simulationDraft._uiMetadata) {
+    // Éviter la restauration si on est déjà en train de synchroniser avec le store
+    if (isRestoringFromStore.current) {
+      return;
+    }
+    
+    // Créer une clé unique basée sur les métadonnées
+    const metadataKey = simulationDraft._uiMetadata 
+      ? JSON.stringify(simulationDraft._uiMetadata) 
+      : null;
+    
+    // Si les métadonnées n'ont pas changé, ne pas restaurer
+    if (lastRestoredMetadataRef.current === metadataKey) {
+      return;
+    }
+    
+    if (simulationDraft._uiMetadata && metadataKey) {
       const meta = simulationDraft._uiMetadata;
-      console.log('🔄 Restauration formulaire depuis métadonnées UI:', meta);
       
-      // Salaire
-      if (meta.salaryMode && meta.salaryMode !== salaryMode) {
-        setSalaryMode(meta.salaryMode);
-      }
-      if (meta.salaireBrutOriginal && meta.salaireBrutOriginal !== salaireBrut) {
-        setSalaireBrut(meta.salaireBrutOriginal);
-      }
+      // Marquer qu'on est en train de restaurer pour éviter la boucle
+      isRestoringFromStore.current = true;
+      lastRestoredMetadataRef.current = metadataKey;
       
-      // Déduction
-      if (meta.deductionMode && meta.deductionMode !== deductionMode) {
-        setDeductionMode(meta.deductionMode);
+      // Utiliser requestAnimationFrame pour différer les mises à jour et éviter les conflits
+      requestAnimationFrame(() => {
+        // Salaire
+        if (meta.salaryMode && meta.salaryMode !== salaryMode) {
+          setSalaryMode(meta.salaryMode);
+        }
+        if (meta.salaireBrutOriginal !== undefined && meta.salaireBrutOriginal !== salaireBrut) {
+          setSalaireBrut(meta.salaireBrutOriginal);
+        }
+        
+        // Déduction
+        if (meta.deductionMode && meta.deductionMode !== deductionMode) {
+          setDeductionMode(meta.deductionMode);
+        }
+        if (meta.fraisReels !== undefined && meta.fraisReels !== fraisReels) {
+          setFraisReels(meta.fraisReels);
+        }
+        
+        // PER
+        if (meta.perEnabled !== undefined && meta.perEnabled !== perEnabled) {
+          setPerEnabled(meta.perEnabled);
+        }
+        
+        // Régime override
+        if (meta.regimeOverride && meta.regimeOverride !== regimeOverride) {
+          setRegimeOverride(meta.regimeOverride);
+        }
+        
+        // Autofill
+        if (meta.autofill !== undefined && meta.autofill !== autofill) {
+          setAutofill(meta.autofill);
+        }
+        
+        // ✅ Restaurer les IDs des biens sélectionnés
+        if ((meta as any).selectedBienIds && Array.isArray((meta as any).selectedBienIds)) {
+          const savedIds = (meta as any).selectedBienIds as string[];
+          if (JSON.stringify(savedIds) !== JSON.stringify(selectedBienIds)) {
+            setSelectedBienIds(savedIds);
+          }
+        }
+        
+        // Réinitialiser le flag après que toutes les mises à jour soient faites
+        requestAnimationFrame(() => {
+          isRestoringFromStore.current = false;
+        });
+      });
+    }
+    
+    // ✅ Restaurer les impôts déjà payés depuis simulationDraft.options
+    if (simulationDraft.options) {
+      const options = simulationDraft.options;
+      if (options.prelevementSourceDejaPaye !== undefined && options.prelevementSourceDejaPaye !== prelevementSourceDejaPaye) {
+        setPrelevementSourceDejaPaye(options.prelevementSourceDejaPaye || 0);
       }
-      if (meta.fraisReels !== undefined && meta.fraisReels !== fraisReels) {
-        setFraisReels(meta.fraisReels);
-      }
-      
-      // PER
-      if (meta.perEnabled !== undefined && meta.perEnabled !== perEnabled) {
-        setPerEnabled(meta.perEnabled);
-      }
-      
-      // Régime override
-      if (meta.regimeOverride && meta.regimeOverride !== regimeOverride) {
-        setRegimeOverride(meta.regimeOverride);
-      }
-      
-      // Autofill
-      if (meta.autofill !== undefined && meta.autofill !== autofill) {
-        setAutofill(meta.autofill);
+      if (options.acomptesDejaPayes !== undefined && options.acomptesDejaPayes !== acomptesDejaPayes) {
+        setAcomptesDejaPayes(options.acomptesDejaPayes || 0);
       }
     }
     
-    // Restaurer PER depuis simulationDraft.per
-    if (simulationDraft.per && JSON.stringify(simulationDraft.per) !== JSON.stringify(per)) {
-      setPer(simulationDraft.per);
+    // Restaurer PER depuis simulationDraft.per (seulement si différent)
+    if (simulationDraft.per) {
+      const perKey = JSON.stringify(simulationDraft.per);
+      if (perKey !== JSON.stringify(per)) {
+        isRestoringFromStore.current = true;
+        requestAnimationFrame(() => {
+          setPer(simulationDraft.per);
+          requestAnimationFrame(() => {
+            isRestoringFromStore.current = false;
+          });
+        });
+      }
     }
-  }, [simulationDraft]);
+  }, [simulationDraft._uiMetadata, simulationDraft.per, simulationDraft.options?.prelevementSourceDejaPaye, simulationDraft.options?.acomptesDejaPayes]); // ⚠️ Seulement les métadonnées du store
 
   // Synchroniser avec le store (incluant TOUTES les métadonnées UI)
+  // ⚠️ Utiliser un ref pour tracker si on vient de restaurer pour éviter la boucle
+  const lastSyncedMetadataRef = useRef<string>('');
+  
   useEffect(() => {
-    updateDraft({
-      foyer: {
-        ...simulationDraft.foyer,
-        salaire: netImposable,
-      },
-      per: perEnabled ? per : undefined,
-      options: {
-        ...simulationDraft.options,
-        autofill,
-        regimeForce: regimeOverride !== 'auto' ? regimeOverride : undefined,
-      },
-      // ✅ Sauvegarder TOUTES les métadonnées UI pour restaurer le formulaire correctement
-      _uiMetadata: {
-        salaryMode,
-        salaireBrutOriginal: salaireBrut,
-        deductionMode,
-        fraisReels,
-        perEnabled,
-        regimeOverride,
-        autofill,
-      },
+    // Ne pas synchroniser si on est en train de restaurer depuis le store
+    if (isRestoringFromStore.current) {
+      return;
+    }
+    
+    // Créer une clé unique pour les métadonnées à synchroniser
+    const metadataToSync = JSON.stringify({
+      netImposable,
+      perEnabled,
+      per,
+      autofill,
+      regimeOverride,
+      salaryMode,
+      salaireBrut,
+      deductionMode,
+      fraisReels,
+      selectedBienIds,
+      prelevementSourceDejaPaye,
+      acomptesDejaPayes,
     });
-  }, [netImposable, perEnabled, per, autofill, regimeOverride, salaryMode, salaireBrut, deductionMode, fraisReels]);
+    
+    // Si les métadonnées n'ont pas changé, ne pas synchroniser
+    if (lastSyncedMetadataRef.current === metadataToSync) {
+      return;
+    }
+    
+    lastSyncedMetadataRef.current = metadataToSync;
+    
+    // Utiliser requestAnimationFrame pour différer la synchronisation et éviter les conflits
+    requestAnimationFrame(() => {
+      if (isRestoringFromStore.current) {
+        return;
+      }
+      
+      updateDraft({
+        foyer: {
+          ...simulationDraft.foyer,
+          salaire: netImposable,
+        },
+        per: perEnabled ? per : undefined,
+        options: {
+          ...simulationDraft.options,
+          autofill,
+          regimeForce: regimeOverride !== 'auto' ? regimeOverride : undefined,
+          prelevementSourceDejaPaye: prelevementSourceDejaPaye || undefined,
+          acomptesDejaPayes: acomptesDejaPayes || undefined,
+        },
+        // ✅ Sauvegarder TOUTES les métadonnées UI pour restaurer le formulaire correctement
+        _uiMetadata: {
+          salaryMode,
+          salaireBrutOriginal: salaireBrut,
+          deductionMode,
+          fraisReels,
+          perEnabled,
+          regimeOverride,
+          autofill,
+          selectedBienIds, // ✅ Sauvegarder les IDs des biens sélectionnés
+        },
+      });
+    });
+  }, [netImposable, perEnabled, per, autofill, regimeOverride, salaryMode, salaireBrut, deductionMode, fraisReels, selectedBienIds, prelevementSourceDejaPaye, acomptesDejaPayes]); // ⚠️ Retirer updateDraft et simulationDraft pour éviter la boucle
 
   // Charger les données SmartImmo
   const loadAutofillData = async () => {
     setLoadingAutofill(true);
+    const startTime = Date.now();
+    
+    // Initialiser la progression
+    setLoadingProgress({
+      totalBiens: 0,
+      biensProcessed: 0,
+      currentBien: '',
+      startTime,
+    });
+    
+    // Simuler la progression pendant le chargement
+    // Estimation basée sur le temps écoulé
+    const progressInterval = setInterval(() => {
+      setLoadingProgress((prev) => {
+        const elapsed = (Date.now() - prev.startTime) / 1000; // secondes
+        // Estimation: ~1-1.5 seconde par bien en moyenne
+        const estimatedBiens = Math.min(Math.floor(elapsed / 1.2), 20);
+        const estimatedTotal = Math.max(prev.totalBiens || 10, estimatedBiens + 5); // Estimation conservatrice
+        
+        return {
+          ...prev,
+          totalBiens: estimatedTotal,
+          biensProcessed: Math.min(estimatedBiens, estimatedTotal - 1), // Laisser 1 bien pour l'animation finale
+        };
+      });
+    }, 800); // Mise à jour toutes les 800ms pour un effet plus fluide
+    
     try {
       const currentYear = new Date().getFullYear();
+      // Appel avec timeout pour éviter les chargements trop longs
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // Timeout de 30 secondes
+      
       const response = await fetch('/api/fiscal/aggregate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -193,23 +340,71 @@ export default function SimulationTab() {
           year: currentYear,
           baseCalcul: 'encaisse',
         }),
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
+      clearInterval(progressInterval);
       
       if (response.ok) {
         const data = await response.json();
         const biens = data.biens || [];
+        
+        // Animer la progression finale avec les noms des biens
+        const biensNoms = biens.map((b: any) => b.name || b.id).filter(Boolean);
+        const totalBiens = biensNoms.length;
+        
+        // Animer chaque bien traité progressivement
+        for (let i = 0; i < totalBiens; i++) {
+          setLoadingProgress({
+            totalBiens,
+            biensProcessed: i + 1,
+            currentBien: biensNoms[i] || '',
+            startTime,
+          });
+          await new Promise(resolve => setTimeout(resolve, 150)); // Animation fluide
+        }
+        
+        // Afficher 100% avec tous les biens traités
+        setLoadingProgress({
+          totalBiens,
+          biensProcessed: totalBiens,
+          currentBien: '',
+          startTime,
+        });
+        
+        // Petit délai pour afficher la progression à 100%
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
         setAutofillData({
           biens,
           loyers: data.totaux?.loyers || 0,
           charges: data.totaux?.charges || 0,
           nombreBiens: data.totaux?.nombreBiens || 0,
         });
-        setSelectedBienIds(biens.map((b: any) => b.id));
+        // ✅ Initialiser selectedBienIds avec tous les biens si pas déjà défini dans le store
+        const savedIds = (simulationDraft._uiMetadata as any)?.selectedBienIds;
+        if (!savedIds || savedIds.length === 0) {
+          setSelectedBienIds(biens.map((b: any) => b.id));
+        }
+      } else {
+        console.error('Erreur chargement autofill: réponse non OK', response.status);
       }
-    } catch (error) {
-      console.error('Erreur chargement autofill:', error);
+    } catch (error: any) {
+      clearInterval(progressInterval);
+      if (error.name === 'AbortError') {
+        console.error('Timeout lors du chargement des données SmartImmo (30s)');
+      } else {
+        console.error('Erreur chargement autofill:', error);
+      }
     } finally {
       setLoadingAutofill(false);
+      setLoadingProgress({
+        totalBiens: 0,
+        biensProcessed: 0,
+        currentBien: '',
+        startTime: 0,
+      });
     }
   };
 
@@ -253,8 +448,23 @@ export default function SimulationTab() {
 
   const currentYear = new Date().getFullYear();
 
+  // Calculer le temps estimé restant
+  const estimatedTimeRemaining = loadingProgress.startTime > 0 && loadingProgress.totalBiens > 0
+    ? Math.max(0, ((loadingProgress.totalBiens - loadingProgress.biensProcessed) * 1.0)) // ~1 seconde par bien
+    : undefined;
+
   return (
-    <div className="space-y-6 p-6">
+    <>
+      {/* Overlay de chargement avec progression */}
+      <FiscalLoadingOverlay
+        isLoading={loadingAutofill}
+        totalBiens={loadingProgress.totalBiens || 0}
+        biensProcessed={loadingProgress.biensProcessed}
+        currentBien={loadingProgress.currentBien}
+        estimatedTime={estimatedTimeRemaining}
+      />
+      
+      <div className="space-y-6 p-6">
       {/* Intro */}
       <div className="text-center">
         <h2 className="text-3xl font-bold text-gray-900 mb-2">
@@ -542,6 +752,52 @@ export default function SimulationTab() {
 
                 <Separator />
 
+                {/* 🆕 Impôts déjà payés */}
+                <div>
+                  <Label className="text-sm font-medium mb-2 block">Impôts déjà payés</Label>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Déduire les montants déjà versés du total d'impôts à payer
+                  </p>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <Label htmlFor="prelevement-source" className="text-sm text-gray-600">
+                        Prélèvement à la source déjà payé (€)
+                      </Label>
+                      <div className="relative mt-1">
+                        <Euro className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                        <Input
+                          id="prelevement-source"
+                          type="number"
+                          value={prelevementSourceDejaPaye}
+                          onChange={(e) => setPrelevementSourceDejaPaye(Number(e.target.value) || 0)}
+                          className="pl-10"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="acomptes" className="text-sm text-gray-600">
+                        Acomptes déjà payés (€)
+                      </Label>
+                      <div className="relative mt-1">
+                        <Euro className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                        <Input
+                          id="acomptes"
+                          type="number"
+                          value={acomptesDejaPayes}
+                          onChange={(e) => setAcomptesDejaPayes(Number(e.target.value) || 0)}
+                          className="pl-10"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
                 {/* Autofill */}
                 <div>
                   <Label className="text-sm font-medium mb-2 block">Données SmartImmo</Label>
@@ -720,5 +976,6 @@ export default function SimulationTab() {
         </div>
       </div>
     </div>
+    </>
   );
 }

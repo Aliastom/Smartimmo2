@@ -766,6 +766,38 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                   </span>
                 </div>
                 
+                {/* 🆕 Impôt restant à payer */}
+                {(() => {
+                  const prelevementSourceDejaPaye = simulation.inputs?.options?.prelevementSourceDejaPaye || 0;
+                  const acomptesDejaPayes = simulation.inputs?.options?.acomptesDejaPayes || 0;
+                  const totalDejaPaye = prelevementSourceDejaPaye + acomptesDejaPayes;
+                  const totalImpots = simulation.ir.impotNet + (simulation.ps.montant || 0);
+                  const impotRestantAPayer = Math.max(0, totalImpots - totalDejaPaye);
+                  
+                  if (totalDejaPaye > 0) {
+                    return (
+                      <>
+                        <div className="flex justify-between text-xs text-gray-600 ml-4">
+                          <span>└ Prélèvement à la source déjà payé</span>
+                          <span>-{formatEuro(prelevementSourceDejaPaye)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-600 ml-4">
+                          <span>└ Acomptes déjà payés</span>
+                          <span>-{formatEuro(acomptesDejaPayes)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm font-semibold">
+                          <span className="text-gray-700">= Impôt restant à payer :</span>
+                          <span className={`font-bold text-base ${impotRestantAPayer > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            {formatEuro(impotRestantAPayer)}
+                          </span>
+                        </div>
+                        <Separator />
+                      </>
+                    );
+                  }
+                  return null;
+                })()}
+                
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-700">Résultat net après fiscalité :</span>
                   <span className={`font-bold text-base ${
