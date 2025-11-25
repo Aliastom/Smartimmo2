@@ -194,7 +194,7 @@ export function UploadReviewModal({
     console.log('[UploadReview] Chargement du document brouillon:', draftId);
     setIsLoadingDraft(true);
     try {
-      const response = await fetch(`/api/uploads/staged/${draftId}`);
+      const response = await fetch(`/api/upload-staged/${draftId}`);
       console.log('[UploadReview] Réponse API:', response.status, response.statusText);
       
       const data = await response.json();
@@ -276,7 +276,7 @@ export function UploadReviewModal({
 
       console.log('[UploadReview] Envoi de la requête PATCH:', requestData);
 
-      const response = await fetch(`/api/uploads/staged/${strategy.draftId}`, {
+      const response = await fetch(`/api/upload-staged/${strategy.draftId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1045,7 +1045,7 @@ export function UploadReviewModal({
           }
         }
 
-        response = await fetch('/api/uploads/staged', {
+        response = await fetch('/api/upload-staged', {
           method: 'POST',
           body: formData,
         });

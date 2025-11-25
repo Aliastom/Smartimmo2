@@ -356,7 +356,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
       formData.append('intendedContextTempKey', mode === 'create' ? 'loan:new' : (initialData?.id || 'loan:edit'));
 
       try {
-        const response = await fetch('/api/uploads/staged', {
+        const response = await fetch('/api/upload-staged', {
           method: 'POST',
           body: formData,
         });
@@ -413,7 +413,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
     if (!duplicateData || !uploadSessionId) return;
 
     try {
-      const response = await fetch('/api/uploads/staged/link-existing', {
+      const response = await fetch('/api/upload-staged/link-existing', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1046,7 +1046,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                               onClick={async () => {
                                 if (confirm('Êtes-vous sûr de vouloir supprimer ce lien ?')) {
                                   try {
-                                    const response = await fetch(`/api/uploads/staged-item/${link.id}`, {
+                                    const response = await fetch(`/api/upload-staged-item/${link.id}`, {
                                       method: 'DELETE'
                                     });
                                     

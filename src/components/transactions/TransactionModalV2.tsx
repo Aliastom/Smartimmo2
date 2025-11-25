@@ -241,7 +241,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         formData.append('intendedContextType', 'transaction');
         formData.append('intendedContextTempKey', mode === 'create' ? 'transaction:new' : 'transaction:edit');
 
-        const response = await fetch('/api/uploads/staged', {
+        const response = await fetch('/api/upload-staged', {
           method: 'POST',
           body: formData
         });
@@ -309,7 +309,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     if (!duplicateData || !uploadSessionId) return;
 
     try {
-      const response = await fetch('/api/uploads/staged/link-existing', {
+      const response = await fetch('/api/upload-staged/link-existing', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1116,7 +1116,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               console.log('[TransactionModal] 📄 Récupération de la session du document uploadé:', suggestionMeta.documentId);
               
               // D'abord, essayer de récupérer le document en staging
-              const docResponse = await fetch(`/api/uploads/staged/${suggestionMeta.documentId}`);
+              const docResponse = await fetch(`/api/upload-staged/${suggestionMeta.documentId}`);
               if (docResponse.ok) {
                 const docData = await docResponse.json();
                 if (docData.uploadSessionId) {
@@ -1152,7 +1152,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 
                 // Créer un lien vers le document finalisé dans la session
                 try {
-                  const linkResponse = await fetch('/api/uploads/staged/link-existing', {
+                  const linkResponse = await fetch('/api/upload-staged/link-existing', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1285,7 +1285,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 console.log('[TransactionModal] 📄 Liaison automatique du document:', suggestionMeta.documentId, 'session:', sessionId);
                 try {
                   // Créer un lien vers le document suggéré
-                  const linkResponse = await fetch('/api/uploads/staged/link-existing', {
+                  const linkResponse = await fetch('/api/upload-staged/link-existing', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1375,7 +1375,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           console.log(`[TransactionModal] 🤖 Pas de type assigné immédiatement, tentative ${attempt}/${maxAttempts} dans 1s...`);
           await new Promise(resolve => setTimeout(resolve, 1000));
           try {
-            const docResponse = await fetch(`/api/uploads/staged/${lastDoc.id}`);
+            const docResponse = await fetch(`/api/upload-staged/${lastDoc.id}`);
             if (docResponse.ok) {
               const updatedDoc = await docResponse.json();
               finalDoc = updatedDoc;
@@ -2861,7 +2861,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                           onClick={async () => {
                             if (confirm('Êtes-vous sûr de vouloir supprimer ce lien ?')) {
                               try {
-                                const response = await fetch(`/api/uploads/staged-item/${link.id}`, {
+                                const response = await fetch(`/api/upload-staged-item/${link.id}`, {
                                   method: 'DELETE'
                                 });
                                 

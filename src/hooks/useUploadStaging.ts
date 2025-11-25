@@ -110,7 +110,7 @@ export const useUploadStaging = () => {
   // Supprimer un document en staging
   const removeStagedDocument = useCallback(async (documentId: string) => {
     try {
-      const response = await fetch(`/api/uploads/staged/${documentId}`, {
+      const response = await fetch(`/api/upload-staged/${documentId}`, {
         method: 'DELETE'
       });
       

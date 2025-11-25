@@ -62,7 +62,7 @@ export const StagedUploadModal: React.FC<StagedUploadModalProps> = ({
           }
         }
 
-        const response = await fetch('/api/uploads/staged', {
+        const response = await fetch('/api/upload-staged', {
           method: 'POST',
           body: formData,
         });
