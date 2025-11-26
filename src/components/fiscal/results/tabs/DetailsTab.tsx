@@ -28,6 +28,9 @@ import {
   Download,
   Calculator,
   PiggyBank,
+  Minus,
+  Plus,
+  Equal,
 } from 'lucide-react';
 
 interface DetailsTabProps {
@@ -745,146 +748,318 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
           </BlockCard>
         )}
 
-        {/* Section 6 : Résumé final */}
+        {/* Section 6 : Résumé final - Version épurée et animée */}
         <BlockCard
           title="Résumé final"
           icon={<Calculator className="h-5 w-5" />}
         >
-          <Card 
-            className="border-slate-300 rounded-xl"
-            style={{ 
-              background: 'linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%)',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)'
-            }}
-          >
-            <CardContent className="p-4">
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-700">Total impôts (IR + PS) :</span>
-                  <span className="font-bold text-red-600 text-base">
-                    {formatEuro(simulation.ir.impotNet + (simulation.ps.montant || 0))}
-                  </span>
-                </div>
-                
-                {/* 🆕 Impôt restant à payer */}
-                {(() => {
-                  const prelevementSourceDejaPaye = simulation.inputs?.options?.prelevementSourceDejaPaye || 0;
-                  const acomptesDejaPayes = simulation.inputs?.options?.acomptesDejaPayes || 0;
-                  const totalDejaPaye = prelevementSourceDejaPaye + acomptesDejaPayes;
-                  const totalImpots = simulation.ir.impotNet + (simulation.ps.montant || 0);
-                  const impotRestantAPayer = Math.max(0, totalImpots - totalDejaPaye);
-                  
-                  if (totalDejaPaye > 0) {
-                    return (
-                      <>
-                        <div className="flex justify-between text-xs text-gray-600 ml-4">
-                          <span>└ Prélèvement à la source déjà payé</span>
-                          <span>-{formatEuro(prelevementSourceDejaPaye)}</span>
-                        </div>
-                        <div className="flex justify-between text-xs text-gray-600 ml-4">
-                          <span>└ Acomptes déjà payés</span>
-                          <span>-{formatEuro(acomptesDejaPayes)}</span>
-                        </div>
-                        <div className="flex justify-between text-sm font-semibold">
-                          <span className="text-gray-700">= Impôt restant à payer :</span>
-                          <span className={`font-bold text-base ${impotRestantAPayer > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                            {formatEuro(impotRestantAPayer)}
+          <div className="space-y-6">
+            {/* Calcul du total impôts - Version pédagogique */}
+            <div className="space-y-4">
+              {/* Étape 1 : IR */}
+              <div className="fiscal-step-1 animate-slide-in-up">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center text-violet-600 font-semibold text-sm">
+                    1
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <div className="text-sm font-medium text-gray-700">Impôt sur le revenu (IR)</div>
+                    <Card className="bg-gradient-to-br from-violet-50 to-purple-50 border-violet-200/50">
+                      <CardContent className="p-4 space-y-2">
+                        <div className="flex items-center justify-between text-xs text-gray-600">
+                          <span className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-violet-400"></span>
+                            IR hors foncier
+                          </span>
+                          <span className="font-medium text-gray-700">
+                            {(() => {
+                              const irSupp = simulation.resume?.irSupplementaire || 0;
+                              const irHorsFoncier = simulation.ir.impotNet - irSupp;
+                              return formatEuro(irHorsFoncier);
+                            })()}
                           </span>
                         </div>
-                        <Separator />
-                      </>
-                    );
-                  }
-                  return null;
-                })()}
-                
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-700">Résultat net après fiscalité :</span>
-                  <span className={`font-bold text-base ${
-                    (simulation.resume?.beneficeNetImmobilier || 0) >= 0 
-                      ? 'text-green-600' 
-                      : 'text-red-600'
-                  }`}>
-                    {formatEuro(simulation.resume?.beneficeNetImmobilier || 0)}
-                  </span>
-                </div>
-                
-                <Separator />
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Taux effectif :</span>
-                    <span className="font-medium">{formatPercent(simulation.resume?.tauxEffectif || 0)}</span>
+                        {(() => {
+                          const irSupp = simulation.resume?.irSupplementaire || 0;
+                          if (irSupp > 0) {
+                            return (
+                              <div className="flex items-center justify-between text-xs text-gray-600">
+                                <span className="flex items-center gap-2">
+                                  <Plus className="w-3 h-3 text-violet-500" />
+                                  IR supplémentaire (foncier)
+                                </span>
+                                <span className="font-medium text-violet-600">
+                                  +{formatEuro(irSupp)}
+                                </span>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                        <div className="pt-2 border-t border-violet-200/50 flex items-center justify-between">
+                          <span className="text-sm font-semibold text-violet-700">= IR total</span>
+                          <span className="text-base font-bold text-violet-600 animate-number-count">
+                            {formatEuro(simulation.ir.impotNet)}
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
-                  <div className="flex flex-col">
-                    <div className="flex justify-between">
-                      <span className="text-purple-600 font-medium">Rendement net :</span>
-                      <span className="font-semibold text-purple-700">
-                        {formatPercent(simulation.resume?.rendementNet || 0)}
+                </div>
+              </div>
+
+              {/* Étape 2 : PS */}
+              <div className="fiscal-step-2 animate-slide-in-up">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-600 font-semibold text-sm">
+                    2
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <div className="text-sm font-medium text-gray-700">Prélèvements sociaux (PS)</div>
+                    <Card className="bg-gradient-to-br from-cyan-50 to-blue-50 border-cyan-200/50">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-cyan-700">PS fonciers</span>
+                          <span className="text-base font-bold text-cyan-600 animate-number-count">
+                            {formatEuro(simulation.ps.montant || 0)}
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              </div>
+
+              {/* Étape 3 : Total impôts */}
+              <div className="fiscal-step-3 animate-slide-in-up">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-semibold text-sm">
+                    3
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <div className="text-sm font-medium text-gray-700">Total impôts (IR + PS)</div>
+                    <Card className="bg-gradient-to-br from-red-50 to-orange-50 border-red-200/50">
+                      <CardContent className="p-4 space-y-2">
+                        <div className="flex items-center justify-between text-xs text-gray-600">
+                          <span className="flex items-center gap-2">
+                            <span className="text-violet-600 font-medium">
+                              {formatEuro(simulation.ir.impotNet)}
+                            </span>
+                            <Plus className="w-3 h-3 text-gray-400" />
+                            <span className="text-cyan-600 font-medium">
+                              {formatEuro(simulation.ps.montant || 0)}
+                            </span>
+                          </span>
+                        </div>
+                        <div className="pt-2 border-t border-red-200/50 flex items-center justify-between">
+                          <span className="text-sm font-semibold text-red-700">= Total impôts</span>
+                          <span className="text-lg font-bold text-red-600 animate-number-count">
+                            {formatEuro(simulation.ir.impotNet + (simulation.ps.montant || 0))}
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              </div>
+
+              {/* Étape 4 : Déductions (si existantes) */}
+              {(() => {
+                const prelevementSourceDejaPaye = simulation.inputs?.options?.prelevementSourceDejaPaye || 0;
+                const acomptesDejaPayes = simulation.inputs?.options?.acomptesDejaPayes || 0;
+                const totalDejaPaye = prelevementSourceDejaPaye + acomptesDejaPayes;
+                
+                if (totalDejaPaye > 0) {
+                  return (
+                    <div className="fiscal-step-4 animate-slide-in-up">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-semibold text-sm">
+                          4
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          <div className="text-sm font-medium text-gray-700">Déductions</div>
+                          <Card className="bg-gradient-to-br from-amber-50 to-yellow-50 border-amber-200/50">
+                            <CardContent className="p-4 space-y-2">
+                              {prelevementSourceDejaPaye > 0 && (
+                                <div className="flex items-center justify-between text-xs text-gray-600">
+                                  <span className="flex items-center gap-2">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                    Prélèvement à la source
+                                  </span>
+                                  <span className="font-medium text-amber-600">
+                                    -{formatEuro(prelevementSourceDejaPaye)}
+                                  </span>
+                                </div>
+                              )}
+                              {acomptesDejaPayes > 0 && (
+                                <div className="flex items-center justify-between text-xs text-gray-600">
+                                  <span className="flex items-center gap-2">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                    Acomptes déjà payés
+                                  </span>
+                                  <span className="font-medium text-amber-600">
+                                    -{formatEuro(acomptesDejaPayes)}
+                                  </span>
+                                </div>
+                              )}
+                              <div className="pt-2 border-t border-amber-200/50 flex items-center justify-between">
+                                <span className="text-sm font-semibold text-amber-700">= Total déjà versé</span>
+                                <span className="text-base font-bold text-amber-600 animate-number-count">
+                                  -{formatEuro(totalDejaPaye)}
+                                </span>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Étape 5 : Total restant à payer */}
+              {(() => {
+                const prelevementSourceDejaPaye = simulation.inputs?.options?.prelevementSourceDejaPaye || 0;
+                const acomptesDejaPayes = simulation.inputs?.options?.acomptesDejaPayes || 0;
+                const totalDejaPaye = prelevementSourceDejaPaye + acomptesDejaPayes;
+                const totalImpots = simulation.ir.impotNet + (simulation.ps.montant || 0);
+                const impotRestantAPayer = Math.max(0, totalImpots - totalDejaPaye);
+                
+                if (totalDejaPaye > 0) {
+                  return (
+                    <div className="fiscal-step-5 animate-scale-in">
+                      <Card className="bg-gradient-to-br from-slate-50 to-gray-50 border-2 border-slate-300 shadow-lg">
+                        <CardContent className="p-5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center">
+                                <Equal className="w-5 h-5 text-white" />
+                              </div>
+                              <span className="text-base font-semibold text-gray-800">Total restant à payer</span>
+                            </div>
+                            <span className={`text-2xl font-bold animate-number-count ${
+                              impotRestantAPayer > 0 ? 'text-red-600' : 'text-green-600'
+                            }`}>
+                              {formatEuro(impotRestantAPayer)}
+                            </span>
+                          </div>
+                          <div className="mt-3 pt-3 border-t border-slate-200 flex items-center justify-between text-xs text-gray-500">
+                            <span>
+                              {formatEuro(totalImpots)} - {formatEuro(totalDejaPaye)}
+                            </span>
+                            <span className="font-medium">= {formatEuro(impotRestantAPayer)}</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+
+            {/* Résultat net et indicateurs */}
+            <div className="fiscal-step-6 animate-slide-in-up">
+              <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border-green-200/50">
+                <CardContent className="p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-700">Résultat net après fiscalité</span>
+                    <span className={`text-lg font-bold ${
+                      (simulation.resume?.beneficeNetImmobilier || 0) >= 0 
+                        ? 'text-green-600' 
+                        : 'text-red-600'
+                    }`}>
+                      {formatEuro(simulation.resume?.beneficeNetImmobilier || 0)}
+                    </span>
+                  </div>
+                  <Separator className="bg-green-200/50" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-600">Taux effectif</span>
+                      <span className="font-semibold text-gray-700">
+                        {formatPercent(simulation.resume?.tauxEffectif || 0)}
                       </span>
                     </div>
-                    <p className="text-gray-500 text-[10px] italic mt-0.5">
-                      Après IR et PS, hors valorisation patrimoniale
-                    </p>
+                    <div className="flex flex-col">
+                      <div className="flex justify-between items-center">
+                        <span className="text-purple-600 font-medium">Rendement net</span>
+                        <span className="font-bold text-purple-700">
+                          {formatPercent(simulation.resume?.rendementNet || 0)}
+                        </span>
+                      </div>
+                      <p className="text-gray-500 text-[10px] italic mt-1">
+                        Après IR et PS, hors valorisation patrimoniale
+                      </p>
+                    </div>
                   </div>
-                </div>
-                
-                {/* Imputation/Report */}
-                {deficitGlobal > 0 && (
-                  <div className="mt-3 pt-3 border-t border-gray-200 space-y-2.5">
-                    {/* Barre bleue : Imputation */}
-                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </BlockCard>
+
+        {/* Section 7 : Imputation/Report */}
+        {deficitGlobal > 0 && (
+          <BlockCard
+            title="Déficit foncier"
+            icon={<TrendingDown className="h-5 w-5" />}
+          >
+            <Card className="border-slate-300 rounded-xl">
+              <CardContent className="p-4">
+                <div className="space-y-2.5">
+                  {/* Barre bleue : Imputation */}
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                    <div className="flex justify-between mb-2">
+                      <span className="text-gray-700 font-semibold text-xs">
+                        Imputation opérée {simulation.inputs.year} :
+                      </span>
+                      <span className="font-bold text-blue-700 text-sm">
+                        {formatEuro(imputableGlobal)} / {formatEuro(simulation.taxParams?.deficitFoncier?.plafondImputationRevenuGlobal || 10700)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500 transition-all rounded-full"
+                          style={{ width: `${Math.min(100, (imputableGlobal / (simulation.taxParams?.deficitFoncier?.plafondImputationRevenuGlobal || 10700)) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold text-blue-700 min-w-[40px] text-right">
+                        {((imputableGlobal / (simulation.taxParams?.deficitFoncier?.plafondImputationRevenuGlobal || 10700)) * 100).toFixed(0)} %
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* Barre orange : Report */}
+                  {reportableGlobal > 0 && (
+                    <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl">
                       <div className="flex justify-between mb-2">
                         <span className="text-gray-700 font-semibold text-xs">
-                          Imputation opérée {simulation.inputs.year} :
+                          Report opéré (10 ans max) :
                         </span>
-                        <span className="font-bold text-blue-700 text-sm">
-                          {formatEuro(imputableGlobal)} / {formatEuro(simulation.taxParams?.deficitFoncier?.plafondImputationRevenuGlobal || 10700)}
+                        <span className="font-bold text-orange-700 text-sm">
+                          {formatEuro(reportableGlobal)}
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden">
                           <div 
-                            className="h-full bg-blue-500 transition-all rounded-full"
-                            style={{ width: `${Math.min(100, (imputableGlobal / (simulation.taxParams?.deficitFoncier?.plafondImputationRevenuGlobal || 10700)) * 100)}%` }}
+                            className="h-full bg-orange-500 transition-all rounded-full"
+                            style={{ width: '100%' }}
                           />
                         </div>
-                        <span className="text-xs font-bold text-blue-700 min-w-[40px] text-right">
-                          {((imputableGlobal / (simulation.taxParams?.deficitFoncier?.plafondImputationRevenuGlobal || 10700)) * 100).toFixed(0)} %
+                        <span className="text-xs font-bold text-orange-700 min-w-[40px] text-right">
+                          100 %
                         </span>
                       </div>
                     </div>
-                    
-                    {/* Barre orange : Report */}
-                    {reportableGlobal > 0 && (
-                      <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl">
-                        <div className="flex justify-between mb-2">
-                          <span className="text-gray-700 font-semibold text-xs">
-                            Report opéré (10 ans max) :
-                          </span>
-                          <span className="font-bold text-orange-700 text-sm">
-                            {formatEuro(reportableGlobal)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-orange-500 transition-all rounded-full"
-                              style={{ width: '100%' }}
-                            />
-                          </div>
-                          <span className="text-xs font-bold text-orange-700 min-w-[40px] text-right">
-                            100 %
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </BlockCard>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </BlockCard>
+        )}
       </div>
     </TooltipProvider>
   );
