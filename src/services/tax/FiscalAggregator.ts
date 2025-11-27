@@ -110,7 +110,7 @@ class FiscalAggregatorClass {
         mgmtCategory: cleanValue(codesMap['gestion.codes.mgmt.Category'] || 'frais-gestion'),
       };
       
-      console.log('📋 Codes système chargés:', this.systemCodesCache);
+      // Log supprimé pour réduire la verbosité
       return this.systemCodesCache;
     } catch (error) {
       console.error('[FiscalAggregator] Erreur chargement codes système:', error);
@@ -147,7 +147,7 @@ class FiscalAggregatorClass {
         this.naturesCache.set(nature.code, nature);
       }
       
-      console.log(`📋 ${natures.length} natures chargées`);
+      // Log supprimé pour réduire la verbosité
       return this.naturesCache;
     } catch (error) {
       console.error('[FiscalAggregator] Erreur chargement natures:', error);
@@ -179,7 +179,7 @@ class FiscalAggregatorClass {
         this.fiscalTypesCache.set(fiscalType.id, fiscalType);
       }
       
-      console.log(`📋 ${fiscalTypes.length} types fiscaux chargés: ${Array.from(this.fiscalTypesCache.keys()).join(', ')}`);
+      // Log supprimé pour réduire la verbosité
       return this.fiscalTypesCache;
     } catch (error) {
       console.error('[FiscalAggregator] Erreur chargement types fiscaux:', error);
@@ -278,8 +278,6 @@ class FiscalAggregatorClass {
     
     // Priorité 1 : fiscalTypeId explicite (défini dans l'UI "Modifier le bien")
     if (property.fiscalTypeId) {
-      const typeName = property.FiscalType?.label || property.fiscalTypeId;
-      console.log(`[FiscalAggregator] ✅ Bien "${propertyName}" → Type fiscal EXPLICITE depuis BDD: ${property.fiscalTypeId} (${typeName})`);
       return property.fiscalTypeId as TypeBien;
     }
     
@@ -287,7 +285,6 @@ class FiscalAggregatorClass {
     if (property.Lease && property.Lease.length > 0) {
       const lease = property.Lease[0];
       const typeBail = lease.type?.toLowerCase() || '';
-      console.log(`[FiscalAggregator] ⚠️ Bien "${propertyName}" : Pas de type fiscal explicite, déduction depuis bail (${typeBail})`);
       
       // ✅ Chercher dans le cache des types fiscaux
       if (this.fiscalTypesCache) {
@@ -301,19 +298,16 @@ class FiscalAggregatorClass {
             (typeBail === 'lmnp' && typeId === 'MEUBLE') ||
             (typeBail === 'lmp' && typeId === 'MEUBLE')
           ) {
-            console.log(`[FiscalAggregator] ✅ Mapping bail trouvé en BDD: ${typeBail} → ${typeId}`);
             return typeId as TypeBien;
           }
         }
       }
       
       // Fallback sur l'ancien mapping si le type n'est pas trouvé en BDD
-      console.warn(`[FiscalAggregator] ⚠️ Type bail '${typeBail}' non trouvé en BDD, fallback sur mapping hardcodé`);
       return BAIL_TYPE_TO_FISCAL_TYPE_FALLBACK[typeBail] || 'NU';
     }
     
     // Par défaut, considérer comme location nue
-    console.warn(`[FiscalAggregator] ⚠️ Bien "${propertyName}" : Ni type fiscal ni bail trouvé, fallback → NU`);
     return 'NU';
   }
   
@@ -367,19 +361,30 @@ class FiscalAggregatorClass {
     // Déterminer le type de bien (NU, LMNP, LMP, SCI IS)
     const typeBien = this.determinePropertyType(property);
     
-    // Récupérer TOUTES les transactions du bien pour cette année
+    // Récupérer les transactions du bien pour cette année
+    // ✅ Base "encaissé" : uniquement les transactions rapprochées (défaut)
+    // Base "exigible" : toutes les transactions (selon date comptable)
     const yearString = year.toString();
-    const transactions = await prisma.transaction.findMany({
-      where: {
+    const whereClause: any = {
         propertyId,
         accounting_month: { contains: yearString },
-      },
+    };
+    
+    // ✅ Pour base "encaissé", filtrer uniquement les transactions rapprochées
+    if (baseCalcul === 'encaisse') {
+      whereClause.rapprochementStatus = 'rapprochee';
+    }
+    
+    const transactions = await prisma.transaction.findMany({
+      where: whereClause,
       include: {
         Category: true,
         // Note: nature est un champ String, pas une relation
       },
       orderBy: { date: 'asc' },
     });
+    
+    // Log supprimé pour réduire la verbosité
     
     // logDebug(`📊 Bien ${property.name} : ${transactions.length} transaction(s) trouvée(s) pour ${year}`);
     
@@ -397,10 +402,8 @@ class FiscalAggregatorClass {
       const natureCode = transaction.nature || '';
       const nature = natures.get(natureCode);
       
-      console.log(`  📄 Transaction: ${transaction.label}, amount=${transaction.amount}, montant=|${montant}|, nature=${natureCode}`);
-      
       if (!nature) {
-        console.warn(`  ⚠️ Nature inconnue: ${natureCode} pour transaction ${transaction.label}`);
+        console.warn(`⚠️ Nature inconnue: ${natureCode} pour transaction ${transaction.label}`);
         continue;
       }
       
@@ -418,36 +421,28 @@ class FiscalAggregatorClass {
         const categoryCode = transaction.Category?.code || '';
         if (categoryCode === systemCodes.rentCategory) {
           recettesLoyer += montant;
-          console.log(`  🏠 Loyer (catégorie=${categoryCode}, flow=${nature.flow}) : ${montant}€ (${transaction.label})`);
-        } else {
-          console.log(`  💰 Autre recette (catégorie=${categoryCode}, flow=${nature.flow}) : ${montant}€ (${transaction.label})`);
         }
       } else if (isDepense) {
         // Dépense - utiliser Category.deductible et Category.capitalizable
         if (transaction.Category?.capitalizable === true) {
           chargesCapitalisables += montant;
-          console.log(`  🏗️ Charge capitalisable (flow=${nature.flow}) : ${montant}€ (${transaction.label})`);
         } else if (transaction.Category?.deductible === true) {
           chargesDeductibles += montant;
-          console.log(`  ✅ Charge déductible (flow=${nature.flow}) : ${montant}€ (${transaction.label})`);
         } else {
           // Si catégorie non définie → considérer comme déductible par défaut
           chargesDeductibles += montant;
-          console.log(`  ⚠️ Charge déductible (par défaut, flow=${nature.flow}) : ${montant}€ (${transaction.label})`);
         }
-      } else {
-        console.warn(`  ⚠️ Flow inconnu: ${nature.flow} (ni RECETTE/INCOME ni DEPENSE/EXPENSE) pour nature ${natureCode}`);
       }
     }
     
-    console.log(`💰 ${property.name} : Recettes ${recettesTotales.toFixed(2)}€ (dont loyers ${recettesLoyer.toFixed(2)}€), Charges déductibles ${chargesDeductibles.toFixed(2)}€`);
-    console.log(`   📋 Détail: ${transactions.length} transaction(s), montant moyen: ${(recettesTotales / Math.max(1, transactions.length)).toFixed(2)}€`);
+    // ✅ Résumé concis uniquement
+    console.log(`📊 ${property.name}: ${transactions.length} transaction(s) rapprochée(s) → Recettes ${recettesTotales.toFixed(2)}€, Charges ${chargesDeductibles.toFixed(2)}€`);
     
     // 🆕 Calculer les intérêts d'emprunt (passé + projection)
     const interets = await this.calculateLoanInterests(propertyId, year);
     
     // 🆕 Projeter le reste de l'année (loyers + charges futurs)
-    const projection = await this.projectRemainingYear(propertyId, year);
+    const projection = await this.projectRemainingYear(propertyId, year, baseCalcul);
     
     // ✅ CORRECTION : Ne calculer les commissions QUE sur la projection (pas sur le passé)
     // Les commissions passées sont déjà dans les transactions (nature = code système mgmt)
@@ -457,11 +452,7 @@ class FiscalAggregatorClass {
       projection.chargesRecupFutures
     );
     
-    // 🆕 Construire le breakdown détaillé
-    console.log(`📊 ${property.name} - Breakdown:`);
-    console.log(`   Passé: Recettes ${recettesTotales.toFixed(2)}€, Charges ${chargesDeductibles.toFixed(2)}€, Intérêts ${interets.passe.toFixed(2)}€`);
-    console.log(`   Projection: Loyers ${projection.loyersFuturs.toFixed(2)}€, Charges ${projection.chargesFutures.toFixed(2)}€, Intérêts ${interets.projection.toFixed(2)}€`);
-    console.log(`   Total: Recettes ${(recettesTotales + projection.loyersFuturs).toFixed(2)}€, Charges ${(chargesDeductibles + projection.chargesFutures + commissionProjection).toFixed(2)}€`);
+    // 🆕 Construire le breakdown détaillé (sans logs verbeux)
     
     const breakdown = {
       passe: {
@@ -508,26 +499,16 @@ class FiscalAggregatorClass {
         } else if (regimeId.includes('REEL')) {
           regimeChoisi = 'reel';
         }
-        console.log(`[FiscalAggregator] ${property.name} - fiscalRegimeId="${regimeId}" → regimeChoisi=${regimeChoisi}`);
       }
-      
-      console.log(`[FiscalAggregator] Bien ${property.name}:`, {
-        fiscalRegimeId: property.fiscalRegimeId,
-        FiscalRegime: property.FiscalRegime
-      });
       
       if (property.FiscalRegime && typeof property.FiscalRegime === 'object' && 'code' in property.FiscalRegime) {
         const code = (property.FiscalRegime as any).code?.toLowerCase() || '';
-        console.log(`[FiscalAggregator] Code régime trouvé : "${code}"`);
-        
         if (code.includes('micro')) {
           regimeChoisi = 'micro';
         } else if (code.includes('reel') || code.includes('réel')) {
           regimeChoisi = 'reel';
         }
       }
-      
-      console.log(`[FiscalAggregator] Régime choisi pour ${property.name}: ${regimeChoisi}, Régime suggéré: ${regimeSuggere}`);
     } catch (e) {
       // Ignorer les erreurs de parsing du régime
       console.warn(`[FiscalAggregator] Impossible de parser le régime fiscal du bien ${property.name}:`, e);
@@ -654,10 +635,10 @@ class FiscalAggregatorClass {
         interetsPasse += assuranceTotale * (currentMonth / 12);
         interetsProjection += assuranceTotale * (moisRestants / 12);
         
-        console.log(`  📋 Prêt ${loan.label}: CRD actuel ${crdActuel.toFixed(0)}€, Intérêts déc ${interetsMoisProchain.toFixed(0)}€`);
+        // Log détaillé supprimé pour réduire la verbosité
       }
       
-      console.log(`💰 Intérêts emprunt: ${interetsPasse.toFixed(0)}€ (passé) + ${interetsProjection.toFixed(0)}€ (projection)`);
+      // Log supprimé pour réduire la verbosité
       
       return { 
         passe: interetsPasse, 
@@ -696,7 +677,8 @@ class FiscalAggregatorClass {
    */
   private async projectRemainingYear(
     propertyId: string,
-    year: number
+    year: number,
+    baseCalcul: 'encaisse' | 'exigible' = 'encaisse'
   ): Promise<{ 
     loyersFuturs: number; 
     chargesFutures: number; 
@@ -735,8 +717,6 @@ class FiscalAggregatorClass {
         },
       });
       
-      console.log(`🔍 Recherche baux pour ${propertyId}: ${leases.length} bail(ux) ACTIF(s) trouvé(s)`);
-      
       // 2. Calculer les loyers futurs (avec charges récupérables)
       let loyersFuturs = 0;
       let chargesRecupFutures = 0;
@@ -750,17 +730,16 @@ class FiscalAggregatorClass {
           
           loyersFuturs += totalMensuel * moisRestants;
           chargesRecupFutures += chargesRecup * moisRestants;
-          
-          console.log(`  📋 Bail trouvé: ${loyerHC}€/mois + ${chargesRecup}€ charges récup = ${totalMensuel}€/mois × ${moisRestants} mois = ${(totalMensuel * moisRestants).toFixed(0)}€`);
         }
-        console.log(`📋 Projection TOTALE depuis ${leases.length} baux actifs: ${loyersFuturs.toFixed(0)}€ (dont ${chargesRecupFutures.toFixed(0)}€ de charges récup)`);
       } else {
         // 2b. Sinon → Estimer depuis les transactions récentes (loyers)
+        // ✅ Utiliser uniquement les transactions rapprochées pour des projections fiables
         const recentTransactions = await prisma.transaction.findMany({
           where: {
             propertyId,
             accounting_month: { contains: yearString },
             amount: { gt: 0 }, // Recettes uniquement
+            rapprochementStatus: baseCalcul === 'encaisse' ? 'rapprochee' : undefined, // ✅ Filtrer si base encaissé
           },
           orderBy: { date: 'desc' },
           take: 3, // Prendre les 3 dernières recettes pour moyenne
@@ -770,7 +749,6 @@ class FiscalAggregatorClass {
           const totalRecettes = recentTransactions.reduce((sum, t) => sum + t.amount, 0);
           const moyenneMensuelle = totalRecettes / recentTransactions.length;
           loyersFuturs = moyenneMensuelle * moisRestants;
-          console.log(`📊 Projection depuis transactions (${recentTransactions.length} dernières): ${moyenneMensuelle.toFixed(0)}€/mois × ${moisRestants} = ${loyersFuturs.toFixed(0)}€`);
         }
       }
       
@@ -794,8 +772,6 @@ class FiscalAggregatorClass {
       let chargesFutures = 0;
       
       if (echeances.length > 0) {
-        console.log(`🔍 ${echeances.length} échéance(s) active(s) trouvée(s)`);
-        
         for (const echeance of echeances) {
           // Vérifier si c'est une charge (DEBIT)
           if (echeance.sens !== 'DEBIT') continue;
@@ -822,18 +798,16 @@ class FiscalAggregatorClass {
             // QUARTERLY, ONCE → considérer comme annuelles
             chargesAnnuelles += totalEcheance;
           }
-          
-          console.log(`  📋 ${echeance.label} (${echeance.periodicite}, le ${echeance.startAt.getDate()}/${echeance.startAt.getMonth() + 1}): ${montant}€ × ${occurrences} occurrence(s) = ${totalEcheance.toFixed(0)}€`);
         }
-        
-        console.log(`📋 Projection charges depuis ${echeances.length} échéances: ${chargesFutures.toFixed(0)}€ (${chargesMensuelles.toFixed(0)}€ mensuelles + ${chargesAnnuelles.toFixed(0)}€ annuelles)`);
       } else {
         // Fallback : Estimer depuis les charges passées
+        // ✅ Utiliser uniquement les transactions rapprochées pour des projections fiables
         const pastCharges = await prisma.transaction.findMany({
           where: {
             propertyId,
             accounting_month: { contains: yearString },
             amount: { lt: 0 },
+            rapprochementStatus: baseCalcul === 'encaisse' ? 'rapprochee' : undefined, // ✅ Filtrer si base encaissé
           },
           include: { Category: true },
         });
@@ -845,11 +819,8 @@ class FiscalAggregatorClass {
           
           const moyenneMensuelle = chargesDeductiblesPast / currentMonth;
           chargesFutures = moyenneMensuelle * moisRestants;
-          console.log(`📊 Projection charges depuis transactions (fallback): ${moyenneMensuelle.toFixed(0)}€/mois × ${moisRestants} = ${chargesFutures.toFixed(0)}€`);
         }
       }
-      
-      console.log(`📅 Projection (${moisRestants} mois): Loyers ${loyersFuturs.toFixed(0)}€ (dont ${chargesRecupFutures.toFixed(0)}€ charges récup), Charges ${chargesFutures.toFixed(0)}€`);
       
       // ✅ Retourner les données avec séparation mensuelles/annuelles
       return { 
@@ -886,13 +857,7 @@ class FiscalAggregatorClass {
   ): number {
     try {
       // Vérifier si le bien a une agence de gestion
-      if (!property.ManagementCompany) {
-        console.log(`ℹ️ Pas d'agence de gestion pour ${property.name} (gestion directe)`);
-        return 0;
-      }
-      
-      if (!property.ManagementCompany.actif) {
-        console.log(`⚠️ Agence "${property.ManagementCompany.nom}" inactive pour ${property.name}`);
+      if (!property.ManagementCompany || !property.ManagementCompany.actif) {
         return 0;
       }
       
@@ -909,12 +874,6 @@ class FiscalAggregatorClass {
         tvaApplicable: agency.tvaApplicable,
         tauxTva: agency.tauxTva ?? 20,
       });
-      
-      console.log(`🏢 Commission agence "${agency.nom}" (PROJECTION UNIQUEMENT):`);
-      console.log(`   Base: ${(loyersFuturs - chargesRecupFutures).toFixed(0)}€ loyer HC + ${chargesRecupFutures.toFixed(0)}€ charges récup`);
-      console.log(`   Mode: ${agency.modeCalcul} | Taux: ${agency.taux}% | TVA: ${agency.tvaApplicable ? agency.tauxTva + '%' : 'Non'}`);
-      console.log(`   Commission TTC: ${commissionFuture.commissionTTC.toFixed(2)}€`);
-      console.log(`   ℹ️ Les commissions PASSÉES sont déjà dans les transactions (nature=${this.systemCodesCache?.mgmtNature})`);
       
       return commissionFuture.commissionTTC;
     } catch (error) {
@@ -1066,7 +1025,6 @@ class FiscalAggregatorClass {
       if (loyers <= plafond) {
         // Comparer abattement micro vs charges réelles
         const abattementMicro = loyers * tauxAbattement;
-        console.log(`[FiscalAggregator] Comparaison régimes ${type} (${category}): loyers ${loyers}€ <= plafond ${plafond}€, abattement ${(tauxAbattement * 100).toFixed(0)}% = ${abattementMicro.toFixed(0)}€ vs charges ${charges.toFixed(0)}€`);
         return charges > abattementMicro ? 'reel' : 'micro';
       }
       return 'reel';
@@ -1078,7 +1036,6 @@ class FiscalAggregatorClass {
       if (loyers <= plafond) {
         // Comparer abattement micro vs charges réelles + amortissements
         const abattementMicro = loyers * tauxAbattement;
-        console.log(`[FiscalAggregator] Comparaison régimes ${type} (${category}): loyers ${loyers}€ <= plafond ${plafond}€, abattement ${(tauxAbattement * 100).toFixed(0)}% = ${abattementMicro.toFixed(0)}€ vs charges ${charges.toFixed(0)}€`);
         return charges > abattementMicro ? 'reel' : 'micro';
       }
       return 'reel';

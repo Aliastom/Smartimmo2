@@ -25,11 +25,11 @@ export function FiscalLoadingOverlay({
   // Calculer la progression
   useEffect(() => {
     if (isLoading && totalBiens > 0) {
-      const calculatedProgress = Math.min((biensProcessed / totalBiens) * 100, 95);
+      const calculatedProgress = Math.min((biensProcessed / totalBiens) * 100, 100);
       setProgress(calculatedProgress);
     } else if (!isLoading) {
-      setProgress(100);
-      setTimeout(() => setProgress(0), 300);
+      // ✅ Mettre à 100 seulement si on vient de terminer (pas si déjà à 100)
+      setProgress((prev) => prev < 100 ? 100 : prev);
     }
   }, [isLoading, totalBiens, biensProcessed]);
 
@@ -44,7 +44,9 @@ export function FiscalLoadingOverlay({
   useEffect(() => {
     if (isLoading) {
       setAnimatedBiens([]);
-      setProgress(0);
+      // ✅ Ne réinitialiser la progression que si on commence un nouveau chargement
+      // (pas si isLoading passe de false à true rapidement)
+      setProgress((prev) => prev > 0 ? 0 : prev);
     }
   }, [isLoading]);
 

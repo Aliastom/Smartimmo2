@@ -25,11 +25,12 @@ export function FiscalCalculatingOverlay({
   // Calculer la progression
   useEffect(() => {
     if (isCalculating && totalSteps > 0) {
-      const calculatedProgress = Math.min((stepsProcessed / totalSteps) * 100, 95);
+      // ✅ Permettre d'aller jusqu'à 100% pendant le calcul (pas seulement 95%)
+      const calculatedProgress = Math.min((stepsProcessed / totalSteps) * 100, 100);
       setProgress(calculatedProgress);
     } else if (!isCalculating) {
-      setProgress(100);
-      setTimeout(() => setProgress(0), 300);
+      // ✅ Mettre à 100 seulement si on vient de terminer (pas si déjà à 100)
+      setProgress((prev) => prev < 100 ? 100 : prev);
     }
   }, [isCalculating, totalSteps, stepsProcessed]);
 
@@ -44,7 +45,9 @@ export function FiscalCalculatingOverlay({
   useEffect(() => {
     if (isCalculating) {
       setAnimatedSteps([]);
-      setProgress(0);
+      // ✅ Ne réinitialiser la progression que si on commence un nouveau calcul
+      // (pas si isCalculating passe de false à true rapidement)
+      setProgress((prev) => prev > 0 ? 0 : prev);
     }
   }, [isCalculating]);
 

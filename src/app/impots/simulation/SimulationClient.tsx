@@ -115,7 +115,10 @@ export default function SimulationClient() {
   const loadAutofillData = async () => {
     setLoadingAutofill(true);
     try {
-      // Appel à l'agrégateur fiscal pour récupérer les données
+      // Appel à l'agrégateur fiscal pour récupérer les données avec timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // Timeout de 30 secondes
+      
       const response = await fetch('/api/fiscal/aggregate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -124,7 +127,10 @@ export default function SimulationClient() {
           year: anneeRevenus,
           baseCalcul: 'encaisse',
         }),
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
       
       if (response.ok) {
         const data = await response.json();
@@ -137,9 +143,15 @@ export default function SimulationClient() {
         });
         // Sélectionner tous les biens par défaut
         setSelectedBienIds(biens.map((b: any) => b.id));
+      } else {
+        console.error('Erreur chargement autofill: réponse non OK', response.status);
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.error('Timeout lors du chargement des données SmartImmo (30s)');
+      } else {
       console.error('Erreur chargement autofill:', error);
+      }
       // Pas d'alerte, juste ne pas afficher l'encart
     } finally {
       setLoadingAutofill(false);

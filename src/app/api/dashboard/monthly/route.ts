@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
       };
     }
     
-    // Récupérer les natures pour identifier les loyers
+    // Récupérer les natures pour identifier les flows (INCOME/EXPENSE)
     const natures = await prisma.natureEntity.findMany({
       select: {
         code: true,
@@ -103,11 +103,6 @@ export async function GET(request: NextRequest) {
     });
     const natureMap = new Map(natures.map(n => [n.code, n]));
     
-    // Identifier les natures de type LOYER
-    const loyerNatures = natures
-      .filter(n => n.code.includes('LOYER') || n.label.toLowerCase().includes('loyer'))
-      .map(n => n.code);
-    
     // Transactions du mois courant (filtrées par accounting_month)
     const transactions = await prisma.transaction.findMany({
       where: whereTransaction,
@@ -115,7 +110,9 @@ export async function GET(request: NextRequest) {
         id: true,
         amount: true,
         nature: true,
+        categoryId: true,
         paidAt: true,
+        rapprochementStatus: true,
         date: true,
         accounting_month: true,
         leaseId: true,
@@ -175,36 +172,60 @@ export async function GET(request: NextRequest) {
         id: true,
         amount: true,
         nature: true,
+        categoryId: true,
         paidAt: true,
+        rapprochementStatus: true,
         accounting_month: true,
       },
     });
     
     // Calcul des KPIs mois courant
     // IMPORTANT: Les KPIs se basent sur accounting_month, pas sur paidAt
-    let loyersEncaisses = 0;
-    let chargesPayees = 0;
+    // Simplifié : Somme encaissée = toutes les transactions INCOME, Dépenses réalisées = toutes les transactions EXPENSE
+    let sommesEncaisses = 0; // Total INCOME
+    let sommesEncaissesRapprochees = 0; // INCOME avec paidAt
+    let depensesRealisees = 0; // Total EXPENSE
+    let depensesRealiseesRapprochees = 0; // EXPENSE avec paidAt
     let cashflow = 0;
+    
+    // Pour le filtre source, on a besoin d'identifier les loyers
+    const gestionCodes = await getGestionCodes();
+    const rentNature = gestionCodes.rentNature;
+    const rentCategorySlug = gestionCodes.rentCategory;
+    const rentCategory = await prisma.category.findUnique({
+      where: { slug: rentCategorySlug },
+      select: { id: true },
+    });
+    const rentCategoryId = rentCategory?.id || null;
+    const loyerNatures = natures
+      .filter(n => n.code.includes('LOYER') || n.label.toLowerCase().includes('loyer'))
+      .map(n => n.code);
     
     // Debug: compter les transactions par type
     let debugStats = {
       total: transactions.length,
-      loyers: 0,
-      charges: 0,
+      income: 0,
+      expense: 0,
       filteredOut: 0,
     };
     
     for (const transaction of transactions) {
       const natureData = transaction.nature ? natureMap.get(transaction.nature) : null;
-      const isLoyer = transaction.nature && loyerNatures.includes(transaction.nature);
       const amount = transaction.amount;
       
+      // Pour le filtre source, identifier les loyers
+      const hasCorrectNature = transaction.nature === rentNature;
+      const hasCorrectCategory = rentCategoryId ? transaction.categoryId === rentCategoryId : true;
+      const isLoyer = hasCorrectNature && hasCorrectCategory;
+      const isLoyerFallback = !rentCategoryId && transaction.nature && loyerNatures.includes(transaction.nature);
+      const isLoyerFinal = isLoyer || isLoyerFallback;
+      
       // Appliquer filtre source
-      if (sourceFilter === 'loyer' && !isLoyer) {
+      if (sourceFilter === 'loyer' && !isLoyerFinal) {
         debugStats.filteredOut++;
         continue;
       }
-      if (sourceFilter === 'hors_loyer' && isLoyer) {
+      if (sourceFilter === 'hors_loyer' && isLoyerFinal) {
         debugStats.filteredOut++;
         continue;
       }
@@ -224,48 +245,66 @@ export async function GET(request: NextRequest) {
       }
       
       // Compter TOUTES les transactions du mois comptable (indépendamment de paidAt)
-      if (isLoyer) {
-        loyersEncaisses += Math.abs(amount);
-        debugStats.loyers++;
-      }
-      
+      // Simplifié : utiliser uniquement le flow
+      // IMPORTANT: Utiliser rapprochementStatus pour les montants rapprochés (cohérent avec les transactions non rapprochées)
       if (natureData?.flow === 'INCOME') {
-        cashflow += Math.abs(amount);
+        const montant = Math.abs(amount);
+        sommesEncaisses += montant;
+        if (transaction.rapprochementStatus === 'rapprochee') {
+          sommesEncaissesRapprochees += montant;
+        }
+        cashflow += montant;
+        debugStats.income++;
       } else if (natureData?.flow === 'EXPENSE') {
-        chargesPayees += Math.abs(amount);
-        cashflow -= Math.abs(amount);
-        debugStats.charges++;
+        const montant = Math.abs(amount);
+        depensesRealisees += montant;
+        if (transaction.rapprochementStatus === 'rapprochee') {
+          depensesRealiseesRapprochees += montant;
+        }
+        cashflow -= montant;
+        debugStats.expense++;
       }
     }
     
     logDebug('[Dashboard Monthly] Calcul KPIs:', {
       ...debugStats,
-      loyersEncaisses,
-      chargesPayees,
+      sommesEncaisses,
+      sommesEncaissesRapprochees,
+      depensesRealisees,
+      depensesRealiseesRapprochees,
       cashflow,
     });
     
     // Calcul des KPIs mois précédent
     // IMPORTANT: Les KPIs se basent sur accounting_month, pas sur paidAt
-    let prevLoyersEncaisses = 0;
-    let prevChargesPayees = 0;
+    // Simplifié : utiliser uniquement le flow
+    let prevSommesEncaisses = 0;
+    let prevSommesEncaissesRapprochees = 0;
+    let prevDepensesRealisees = 0;
+    let prevDepensesRealiseesRapprochees = 0;
     let prevCashflow = 0;
     
     for (const transaction of prevTransactions) {
       const natureData = transaction.nature ? natureMap.get(transaction.nature) : null;
-      const isLoyer = transaction.nature && loyerNatures.includes(transaction.nature);
       const amount = transaction.amount;
       
       // Compter TOUTES les transactions du mois comptable (indépendamment de paidAt)
-      if (isLoyer) {
-        prevLoyersEncaisses += Math.abs(amount);
-      }
-      
+      // Simplifié : utiliser uniquement le flow
+      // IMPORTANT: Utiliser rapprochementStatus pour les montants rapprochés (cohérent avec les transactions non rapprochées)
       if (natureData?.flow === 'INCOME') {
-        prevCashflow += Math.abs(amount);
+        const montant = Math.abs(amount);
+        prevSommesEncaisses += montant;
+        if (transaction.rapprochementStatus === 'rapprochee') {
+          prevSommesEncaissesRapprochees += montant;
+        }
+        prevCashflow += montant;
       } else if (natureData?.flow === 'EXPENSE') {
-        prevChargesPayees += Math.abs(amount);
-        prevCashflow -= Math.abs(amount);
+        const montant = Math.abs(amount);
+        prevDepensesRealisees += montant;
+        if (transaction.rapprochementStatus === 'rapprochee') {
+          prevDepensesRealiseesRapprochees += montant;
+        }
+        prevCashflow -= montant;
       }
     }
     
@@ -327,6 +366,19 @@ export async function GET(request: NextRequest) {
     }
     
     const bauxActifs = activeLeases.length;
+    // Le taux d'encaissement reste basé sur les loyers attendus vs loyers encaissés (pour les loyers uniquement)
+    // On calcule les loyers encaissés pour le taux d'encaissement
+    let loyersEncaisses = 0;
+    for (const transaction of transactions) {
+      const natureData = transaction.nature ? natureMap.get(transaction.nature) : null;
+      const hasCorrectNature = transaction.nature === rentNature;
+      const hasCorrectCategory = rentCategoryId ? transaction.categoryId === rentCategoryId : true;
+      const isLoyer = hasCorrectNature && hasCorrectCategory;
+      const isLoyerFallback = !rentCategoryId && transaction.nature && loyerNatures.includes(transaction.nature);
+      if ((isLoyer || isLoyerFallback) && natureData?.flow === 'INCOME') {
+        loyersEncaisses += Math.abs(transaction.amount);
+      }
+    }
     const tauxEncaissement = loyersAttendus > 0 ? (loyersEncaisses / loyersAttendus) * 100 : 0;
     
     // Calcul taux encaissement mois précédent
@@ -345,6 +397,17 @@ export async function GET(request: NextRequest) {
     });
     
     const prevLoyersAttendus = prevActiveLeases * (activeLeases.length > 0 ? loyersAttendus / activeLeases.length : 0);
+    let prevLoyersEncaisses = 0;
+    for (const transaction of prevTransactions) {
+      const natureData = transaction.nature ? natureMap.get(transaction.nature) : null;
+      const hasCorrectNature = transaction.nature === rentNature;
+      const hasCorrectCategory = rentCategoryId ? transaction.categoryId === rentCategoryId : true;
+      const isLoyer = hasCorrectNature && hasCorrectCategory;
+      const isLoyerFallback = !rentCategoryId && transaction.nature && loyerNatures.includes(transaction.nature);
+      if ((isLoyer || isLoyerFallback) && natureData?.flow === 'INCOME') {
+        prevLoyersEncaisses += Math.abs(transaction.amount);
+      }
+    }
     const prevTauxEncaissement = prevLoyersAttendus > 0 ? (prevLoyersEncaisses / prevLoyersAttendus) * 100 : 0;
     
     // Documents générés/envoyés ce mois
@@ -360,15 +423,17 @@ export async function GET(request: NextRequest) {
     });
     
     const kpis: MonthlyKPIs = {
-      loyersEncaisses,
+      sommesEncaisses,
+      sommesEncaissesRapprochees,
       loyersAttendus,
-      chargesPayees,
+      depensesRealisees,
+      depensesRealiseesRapprochees,
       cashflow,
       tauxEncaissement,
       bauxActifs,
       documentsEnvoyes,
-      deltaLoyersEncaisses: loyersEncaisses - prevLoyersEncaisses,
-      deltaChargesPayees: chargesPayees - prevChargesPayees,
+      deltaSommesEncaisses: sommesEncaisses - prevSommesEncaisses,
+      deltaDepensesRealisees: depensesRealisees - prevDepensesRealisees,
       deltaCashflow: cashflow - prevCashflow,
       deltaTauxEncaissement: tauxEncaissement - prevTauxEncaissement,
     };
@@ -383,17 +448,7 @@ export async function GET(request: NextRequest) {
     // On vérifie l'existence d'une transaction avec nature ET category = codes système
     
     const today = new Date();
-    const gestionCodes = await getGestionCodes();
-    const rentNature = gestionCodes.rentNature;
-    const rentCategorySlug = gestionCodes.rentCategory;
-    
-    // Récupérer l'ID de la catégorie correspondant au slug
-    const rentCategory = await prisma.category.findUnique({
-      where: { slug: rentCategorySlug },
-      select: { id: true },
-    });
-    
-    const rentCategoryId = rentCategory?.id || null;
+    // Les codes système sont déjà récupérés plus haut, réutiliser les variables
     
     // Récupérer TOUS les baux (actifs ou pas) pour les biens concernés
     const whereAllLeases: any = {

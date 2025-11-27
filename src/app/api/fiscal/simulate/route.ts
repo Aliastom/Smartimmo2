@@ -55,7 +55,20 @@ export async function POST(request: NextRequest) {
     // Agréger les données fiscales automatiquement si autofill
     let inputs: FiscalInputs;
     
-    if (options.autofill) {
+    // ✅ Si les biens sont déjà fournis (cache autofill), les utiliser directement
+    if (options.autofill && body.biens && Array.isArray(body.biens) && body.biens.length > 0 && (body as any)._useAutofillCache) {
+      // Utiliser les biens du cache, pas besoin de recharger
+      console.log(`✅ Utilisation du cache autofill (${body.biens.length} bien(s)) - PAS de rechargement`);
+      inputs = {
+        year,
+        foyer,
+        biens: body.biens,
+        societesIS: body.societesIS || [],
+        per,
+        options,
+      };
+    } else if (options.autofill) {
+      // Recharger les données depuis la BDD
       const aggregated = await FiscalAggregator.aggregate({
         userId,
         year,
@@ -120,11 +133,15 @@ export async function POST(request: NextRequest) {
     // Lancer la simulation
     const simulation = await Simulator.simulate(inputs, taxParams);
     
-    // Retourner le résultat (sans warnings de validation car désactivée)
-    return NextResponse.json({
+    // ✅ S'assurer que les inputs sont inclus dans le résultat pour l'optimisation
+    const resultWithInputs = {
       ...simulation,
+      inputs, // ✅ Inclure les inputs dans le résultat
       validationWarnings: [], // Validation désactivée
-    });
+    };
+    
+    // Retourner le résultat (sans warnings de validation car désactivée)
+    return NextResponse.json(resultWithInputs);
   } catch (error) {
     console.error('Erreur simulation fiscale:', error);
     return NextResponse.json(

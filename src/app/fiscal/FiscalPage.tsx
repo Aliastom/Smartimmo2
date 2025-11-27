@@ -307,11 +307,23 @@ export function FiscalPage() {
       'Finalisation de la simulation',
     ];
     
-    const progressInterval = setInterval(() => {
+    let progressInterval: NodeJS.Timeout | null = null;
+    
+    // ✅ Créer un intervalle qui s'arrête automatiquement à l'étape 4
+    progressInterval = setInterval(() => {
       setCalculatingProgress((prev) => {
+        // ✅ Arrêter l'estimation automatique à l'étape 4 pour éviter les conflits
+        if (prev.stepsProcessed >= 4) {
+          if (progressInterval) {
+            clearInterval(progressInterval);
+            progressInterval = null;
+          }
+          return prev;
+        }
+        
         const elapsed = (Date.now() - prev.startTime) / 1000;
         // Estimation: ~0.8-1 seconde par étape
-        const estimatedStep = Math.min(Math.floor(elapsed / 0.9), steps.length);
+        const estimatedStep = Math.min(Math.floor(elapsed / 0.9), 4); // ✅ Limiter à 4 étapes max
         
         return {
           ...prev,
@@ -329,10 +341,14 @@ export function FiscalPage() {
       // Étape 1-4 : Simulation fiscale
       await computeFiscalSimulation();
       
+      // ✅ Arrêter l'intervalle avant les mises à jour manuelles pour éviter les conflits
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
+      
       // ✅ Remettre le status à 'calculating' pour garder la modal ouverte pendant l'optimisation
       setStatus('calculating');
-      
-      clearInterval(progressInterval);
       
       // Marquer les 4 premières étapes comme complétées
       for (let i = 0; i < 4; i++) {
@@ -374,8 +390,29 @@ export function FiscalPage() {
         // Attendre un peu pour que la simulation soit disponible
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        // L'API optimize charge automatiquement la dernière simulation
-        const response = await fetch('/api/fiscal/optimize', { signal: controller.signal });
+        // ✅ Récupérer le résultat depuis le store pour être sûr d'avoir les inputs
+        const currentResult = useFiscalStore.getState().simulationResult;
+        
+        // ✅ Utiliser les inputs de la simulation récente pour éviter de recharger
+        if (!currentResult?.inputs) {
+          console.warn('⚠️ Pas d\'inputs dans simulationResult, optimisation va recharger les données');
+          console.warn('⚠️ simulationResult:', currentResult);
+        } else {
+          console.log('✅ Envoi des inputs à l\'API optimize:', {
+            year: currentResult.inputs.year,
+            biensCount: currentResult.inputs.biens?.length,
+          });
+        }
+        
+        const response = await fetch('/api/fiscal/optimize', { 
+          signal: controller.signal,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            inputs: currentResult?.inputs || null,
+            useRecent: !!currentResult?.inputs,
+          }),
+        });
         if (response.ok) {
           const data = await response.json();
           const totalSuggestions = data.suggestions?.length || 0;
@@ -435,15 +472,26 @@ export function FiscalPage() {
       // Basculer automatiquement sur Synthèse
       setActiveTab('synthese');
     } catch (error) {
-      clearInterval(progressInterval);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
       console.error('Erreur calcul:', error);
     } finally {
-      setCalculatingProgress({
-        stepsProcessed: 0,
-        totalSteps: 6,
-        currentStep: '',
-        startTime: 0,
-      });
+      // ✅ Nettoyer l'intervalle s'il existe encore
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
+      // ✅ Réinitialiser la progression après un délai pour laisser voir le 100%
+      setTimeout(() => {
+        setCalculatingProgress({
+          stepsProcessed: 0,
+          totalSteps: 6,
+          currentStep: '',
+          startTime: 0,
+        });
+      }, 500);
       // Ne pas réinitialiser optimizationJustLoadedInCalculateRef ici
       // Il restera actif pour éviter le rechargement dans le useEffect
     }

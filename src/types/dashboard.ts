@@ -66,16 +66,18 @@ export interface PatrimoineFilters {
  */
 
 export interface MonthlyKPIs {
-  loyersEncaisses: number;
+  sommesEncaisses: number; // Somme de toutes les transactions INCOME
+  sommesEncaissesRapprochees: number; // Somme des transactions INCOME avec paidAt
   loyersAttendus: number;
-  chargesPayees: number;
+  depensesRealisees: number; // Somme de toutes les transactions EXPENSE
+  depensesRealiseesRapprochees: number; // Somme des transactions EXPENSE avec paidAt
   cashflow: number;
   tauxEncaissement: number; // En pourcentage (0-100)
   bauxActifs: number;
   documentsEnvoyes: number;
   // Deltas vs mois précédent
-  deltaLoyersEncaisses: number;
-  deltaChargesPayees: number;
+  deltaSommesEncaisses: number;
+  deltaDepensesRealisees: number;
   deltaCashflow: number;
   deltaTauxEncaissement: number;
 }

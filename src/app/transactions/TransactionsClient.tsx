@@ -115,6 +115,7 @@ export default function TransactionsClient() {
     pages: 0
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [amountsSummary, setAmountsSummary] = useState({ positiveSum: 0, negativeSum: 0 });
 
   // États des modals et drawer
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -303,7 +304,12 @@ export default function TransactionsClient() {
       
       // Ajouter les filtres (sauf status qui sera géré par activeKpiFilter)
       Object.entries(filters).forEach(([key, value]) => {
-        if (value && key !== 'status') params.append(key, value);
+        if (key === 'includeManagementFees') {
+          // Toujours envoyer includeManagementFees (même si false)
+          params.append(key, value.toString());
+        } else if (value && key !== 'status') {
+          params.append(key, value);
+        }
       });
 
       // Appliquer le filtre KPI actif
@@ -330,6 +336,7 @@ export default function TransactionsClient() {
       setTransactions(data.data || []);
       setPagination(data.pagination || { page: 1, limit: 50, total: 0, pages: 0 });
       setTotalCount(data.pagination?.total || 0);
+      setAmountsSummary(data.sums || { positiveSum: 0, negativeSum: 0 });
     } catch (error) {
       console.error('Erreur lors du chargement des données:', error);
       notify2.error('Erreur lors du chargement des données');
@@ -836,6 +843,7 @@ export default function TransactionsClient() {
         onSelectTransaction={handleSelectTransaction}
         onSelectAll={handleSelectAll}
         loadingTransactionId={loadingTransactionId}
+        amountsSummary={amountsSummary}
       />
         </CardContent>
       </Card>

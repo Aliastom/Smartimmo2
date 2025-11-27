@@ -30,7 +30,7 @@ import { Separator } from '@/components/ui/Separator';
 import { FiscalLoadingOverlay } from '@/components/fiscal/FiscalLoadingOverlay';
 
 export default function SimulationTab() {
-  const { simulationDraft, simulationResult, updateDraft } = useFiscalStore();
+  const { simulationDraft, simulationResult, updateDraft, setAutofillCache, autofillCache } = useFiscalStore();
   
   // États locaux pour le formulaire
   const [accordeonState, setAccordeonState] = useState({
@@ -130,7 +130,7 @@ export default function SimulationTab() {
   // ✅ Ref pour éviter les boucles infinies - tracker si on est en train de restaurer depuis le store
   const isRestoringFromStore = useRef(false);
   const lastRestoredMetadataRef = useRef<string | null>(null);
-  
+
   // ✅ Restaurer TOUS les états locaux depuis le store (quand une simulation est chargée)
   useEffect(() => {
     // Éviter la restauration si on est déjà en train de synchroniser avec le store
@@ -157,36 +157,36 @@ export default function SimulationTab() {
       
       // Utiliser requestAnimationFrame pour différer les mises à jour et éviter les conflits
       requestAnimationFrame(() => {
-        // Salaire
-        if (meta.salaryMode && meta.salaryMode !== salaryMode) {
-          setSalaryMode(meta.salaryMode);
-        }
+      // Salaire
+      if (meta.salaryMode && meta.salaryMode !== salaryMode) {
+        setSalaryMode(meta.salaryMode);
+      }
         if (meta.salaireBrutOriginal !== undefined && meta.salaireBrutOriginal !== salaireBrut) {
-          setSalaireBrut(meta.salaireBrutOriginal);
-        }
-        
-        // Déduction
-        if (meta.deductionMode && meta.deductionMode !== deductionMode) {
-          setDeductionMode(meta.deductionMode);
-        }
-        if (meta.fraisReels !== undefined && meta.fraisReels !== fraisReels) {
-          setFraisReels(meta.fraisReels);
-        }
-        
-        // PER
-        if (meta.perEnabled !== undefined && meta.perEnabled !== perEnabled) {
-          setPerEnabled(meta.perEnabled);
-        }
-        
-        // Régime override
-        if (meta.regimeOverride && meta.regimeOverride !== regimeOverride) {
-          setRegimeOverride(meta.regimeOverride);
-        }
-        
-        // Autofill
-        if (meta.autofill !== undefined && meta.autofill !== autofill) {
-          setAutofill(meta.autofill);
-        }
+        setSalaireBrut(meta.salaireBrutOriginal);
+      }
+      
+      // Déduction
+      if (meta.deductionMode && meta.deductionMode !== deductionMode) {
+        setDeductionMode(meta.deductionMode);
+      }
+      if (meta.fraisReels !== undefined && meta.fraisReels !== fraisReels) {
+        setFraisReels(meta.fraisReels);
+      }
+      
+      // PER
+      if (meta.perEnabled !== undefined && meta.perEnabled !== perEnabled) {
+        setPerEnabled(meta.perEnabled);
+      }
+      
+      // Régime override
+      if (meta.regimeOverride && meta.regimeOverride !== regimeOverride) {
+        setRegimeOverride(meta.regimeOverride);
+      }
+      
+      // Autofill
+      if (meta.autofill !== undefined && meta.autofill !== autofill) {
+        setAutofill(meta.autofill);
+      }
         
         // ✅ Restaurer les IDs des biens sélectionnés
         if ((meta as any).selectedBienIds && Array.isArray((meta as any).selectedBienIds)) {
@@ -194,8 +194,8 @@ export default function SimulationTab() {
           if (JSON.stringify(savedIds) !== JSON.stringify(selectedBienIds)) {
             setSelectedBienIds(savedIds);
           }
-        }
-        
+    }
+    
         // Réinitialiser le flag après que toutes les mises à jour soient faites
         requestAnimationFrame(() => {
           isRestoringFromStore.current = false;
@@ -220,12 +220,12 @@ export default function SimulationTab() {
       if (perKey !== JSON.stringify(per)) {
         isRestoringFromStore.current = true;
         requestAnimationFrame(() => {
-          setPer(simulationDraft.per);
+      setPer(simulationDraft.per);
           requestAnimationFrame(() => {
             isRestoringFromStore.current = false;
           });
         });
-      }
+    }
     }
   }, [simulationDraft._uiMetadata, simulationDraft.per, simulationDraft.options?.prelevementSourceDejaPaye, simulationDraft.options?.acomptesDejaPayes]); // ⚠️ Seulement les métadonnées du store
 
@@ -268,36 +268,41 @@ export default function SimulationTab() {
         return;
       }
       
-      updateDraft({
-        foyer: {
-          ...simulationDraft.foyer,
-          salaire: netImposable,
-        },
-        per: perEnabled ? per : undefined,
-        options: {
-          ...simulationDraft.options,
-          autofill,
-          regimeForce: regimeOverride !== 'auto' ? regimeOverride : undefined,
+    updateDraft({
+      foyer: {
+        ...simulationDraft.foyer,
+        salaire: netImposable,
+      },
+      per: perEnabled ? per : undefined,
+      options: {
+        ...simulationDraft.options,
+        autofill,
+        regimeForce: regimeOverride !== 'auto' ? regimeOverride : undefined,
           prelevementSourceDejaPaye: prelevementSourceDejaPaye || undefined,
           acomptesDejaPayes: acomptesDejaPayes || undefined,
-        },
-        // ✅ Sauvegarder TOUTES les métadonnées UI pour restaurer le formulaire correctement
-        _uiMetadata: {
-          salaryMode,
-          salaireBrutOriginal: salaireBrut,
-          deductionMode,
-          fraisReels,
-          perEnabled,
-          regimeOverride,
-          autofill,
+      },
+      // ✅ Sauvegarder TOUTES les métadonnées UI pour restaurer le formulaire correctement
+      _uiMetadata: {
+        salaryMode,
+        salaireBrutOriginal: salaireBrut,
+        deductionMode,
+        fraisReels,
+        perEnabled,
+        regimeOverride,
+        autofill,
           selectedBienIds, // ✅ Sauvegarder les IDs des biens sélectionnés
-        },
-      });
+      },
+    });
     });
   }, [netImposable, perEnabled, per, autofill, regimeOverride, salaryMode, salaireBrut, deductionMode, fraisReels, selectedBienIds, prelevementSourceDejaPaye, acomptesDejaPayes]); // ⚠️ Retirer updateDraft et simulationDraft pour éviter la boucle
 
   // Charger les données SmartImmo
   const loadAutofillData = async () => {
+    // ✅ Éviter les appels multiples si déjà en cours
+    if (loadingAutofill) {
+      return;
+    }
+    
     setLoadingAutofill(true);
     const startTime = Date.now();
     
@@ -309,19 +314,29 @@ export default function SimulationTab() {
       startTime,
     });
     
-    // Simuler la progression pendant le chargement
+    let progressInterval: NodeJS.Timeout | null = null;
+    let currentProgress = 0; // ✅ Suivre la progression actuelle pour éviter les retours en arrière
+    
+    // Simuler la progression pendant le chargement (phase 1 : appel API)
     // Estimation basée sur le temps écoulé
-    const progressInterval = setInterval(() => {
+    progressInterval = setInterval(() => {
       setLoadingProgress((prev) => {
         const elapsed = (Date.now() - prev.startTime) / 1000; // secondes
         // Estimation: ~1-1.5 seconde par bien en moyenne
         const estimatedBiens = Math.min(Math.floor(elapsed / 1.2), 20);
         const estimatedTotal = Math.max(prev.totalBiens || 10, estimatedBiens + 5); // Estimation conservatrice
         
+        // ✅ Ne jamais revenir en arrière dans la progression
+        const newBiensProcessed = Math.min(estimatedBiens, estimatedTotal - 1);
+        if (newBiensProcessed < currentProgress) {
+          return prev; // Garder la progression actuelle
+        }
+        currentProgress = newBiensProcessed;
+        
         return {
           ...prev,
           totalBiens: estimatedTotal,
-          biensProcessed: Math.min(estimatedBiens, estimatedTotal - 1), // Laisser 1 bien pour l'animation finale
+          biensProcessed: newBiensProcessed,
         };
       });
     }, 800); // Mise à jour toutes les 800ms pour un effet plus fluide
@@ -344,25 +359,45 @@ export default function SimulationTab() {
       });
       
       clearTimeout(timeoutId);
-      clearInterval(progressInterval);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
       
       if (response.ok) {
         const data = await response.json();
         const biens = data.biens || [];
         
-        // Animer la progression finale avec les noms des biens
+        // Animer la progression finale avec les noms des biens (phase 2 : animation)
         const biensNoms = biens.map((b: any) => b.name || b.id).filter(Boolean);
         const totalBiens = biensNoms.length;
         
-        // Animer chaque bien traité progressivement
-        for (let i = 0; i < totalBiens; i++) {
-          setLoadingProgress({
-            totalBiens,
-            biensProcessed: i + 1,
-            currentBien: biensNoms[i] || '',
-            startTime,
-          });
-          await new Promise(resolve => setTimeout(resolve, 150)); // Animation fluide
+        // ✅ Continuer la progression depuis où on en était, pas depuis 0
+        // On était probablement à environ 80-90% après l'appel API
+        // On complète les 10-20% restants avec l'animation des biens
+        const estimatedProgress = Math.max(currentProgress, Math.floor(totalBiens * 0.85)); // Au moins 85% de progression estimée
+        
+        // ✅ Mettre à jour le total de biens et continuer depuis la progression estimée
+        setLoadingProgress({
+          totalBiens,
+          biensProcessed: estimatedProgress,
+          currentBien: '',
+          startTime,
+        });
+        
+        // ✅ Si on n'est pas encore à 100%, animer les biens restants
+        if (estimatedProgress < totalBiens) {
+          // Animer chaque bien restant progressivement (seulement les biens restants)
+          for (let i = estimatedProgress; i < totalBiens; i++) {
+            const newProgress = i + 1;
+            setLoadingProgress({
+              totalBiens,
+              biensProcessed: newProgress,
+              currentBien: biensNoms[i] || '',
+              startTime,
+            });
+            await new Promise(resolve => setTimeout(resolve, 80)); // Animation rapide pour la phase 2
+          }
         }
         
         // Afficher 100% avec tous les biens traités
@@ -382,37 +417,84 @@ export default function SimulationTab() {
           charges: data.totaux?.charges || 0,
           nombreBiens: data.totaux?.nombreBiens || 0,
         });
+        
+        // ✅ Sauvegarder dans le cache du store pour éviter de recharger lors du calcul
+        const selectedBienIds = (simulationDraft._uiMetadata as any)?.selectedBienIds || [];
+        setAutofillCache({
+          biens,
+          year: currentYear,
+          baseCalcul: simulationDraft.options?.baseCalcul || 'encaisse',
+          scope: selectedBienIds.length > 0 ? { propertyIds: selectedBienIds } : undefined,
+        });
+        
         // ✅ Initialiser selectedBienIds avec tous les biens si pas déjà défini dans le store
         const savedIds = (simulationDraft._uiMetadata as any)?.selectedBienIds;
         if (!savedIds || savedIds.length === 0) {
-          setSelectedBienIds(biens.map((b: any) => b.id));
-        }
+        setSelectedBienIds(biens.map((b: any) => b.id));
+      }
       } else {
         console.error('Erreur chargement autofill: réponse non OK', response.status);
       }
     } catch (error: any) {
-      clearInterval(progressInterval);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
       if (error.name === 'AbortError') {
         console.error('Timeout lors du chargement des données SmartImmo (30s)');
       } else {
-        console.error('Erreur chargement autofill:', error);
+      console.error('Erreur chargement autofill:', error);
       }
     } finally {
-      setLoadingAutofill(false);
-      setLoadingProgress({
-        totalBiens: 0,
-        biensProcessed: 0,
-        currentBien: '',
-        startTime: 0,
-      });
+      // ✅ Ne réinitialiser la progression que si le chargement est vraiment terminé
+      // Attendre un peu pour que l'animation finale (100%) soit visible
+      setTimeout(async () => {
+        setLoadingAutofill(false);
+        // Réinitialiser après un délai supplémentaire pour éviter que la progression reparte à 0 immédiatement
+        await new Promise(resolve => setTimeout(resolve, 300));
+        setLoadingProgress({
+          totalBiens: 0,
+          biensProcessed: 0,
+          currentBien: '',
+          startTime: 0,
+        });
+      }, 500);
     }
   };
 
+  // ✅ Ref pour éviter les appels multiples
+  const autofillLoadingRef = useRef(false);
+  
   useEffect(() => {
-    if (autofill) {
-      loadAutofillData();
+    // ✅ Si on a un cache dans le store mais pas de données locales, restaurer depuis le cache
+    if (autofill && !autofillData && autofillCache && autofillCache.biens && autofillCache.biens.length > 0) {
+      console.log('✅ Restauration des données depuis le cache du store');
+      setAutofillData({
+        biens: autofillCache.biens,
+        loyers: autofillCache.biens.reduce((sum: number, b: any) => sum + (b.loyers || 0), 0),
+        charges: autofillCache.biens.reduce((sum: number, b: any) => sum + (b.charges || 0), 0),
+        nombreBiens: autofillCache.biens.length,
+      });
+      // Restaurer aussi les selectedBienIds si pas déjà définis
+      const savedIds = (simulationDraft._uiMetadata as any)?.selectedBienIds;
+      if (!savedIds || savedIds.length === 0) {
+        setSelectedBienIds(autofillCache.biens.map((b: any) => b.id));
+      }
+      return;
     }
-  }, [autofill]);
+    
+    // ✅ Éviter les appels multiples et ne charger que si autofill est activé et qu'on n'a pas déjà de données
+    if (autofill && !autofillData && !autofillLoadingRef.current) {
+      autofillLoadingRef.current = true;
+      loadAutofillData().finally(() => {
+        autofillLoadingRef.current = false;
+      });
+    } else if (!autofill) {
+      // Si autofill est désactivé, réinitialiser
+      setAutofillData(null);
+      autofillLoadingRef.current = false;
+    }
+  }, [autofill, autofillCache]);
 
   const toggleBienSelection = (bienId: string) => {
     setSelectedBienIds((prev) =>
@@ -464,7 +546,7 @@ export default function SimulationTab() {
         estimatedTime={estimatedTimeRemaining}
       />
       
-      <div className="space-y-6 p-6">
+    <div className="space-y-6 p-6">
       {/* Intro */}
       <div className="text-center">
         <h2 className="text-3xl font-bold text-gray-900 mb-2">

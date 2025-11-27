@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status') || ''; // rapprochée/non rapprochée
     const groupByParent = searchParams.get('groupByParent') === 'true'; // Vue groupée parent/enfant
     const includeArchived = searchParams.get('includeArchived') === 'true'; // Inclure biens archivés
+    const includeManagementFees = searchParams.get('includeManagementFees') !== 'false'; // Inclure frais de gestion (par défaut true)
 
     // Construction des filtres
     const where: any = { organizationId };
@@ -378,6 +379,7 @@ export async function GET(request: NextRequest) {
     
     // ⚙️ FILTRAGE EN MÉMOIRE: Si on a des filtres flow/status, filtrer les transactions
     let filteredTransactions = allTransactions;
+    let filteredTransactionsBeforePagination = allTransactions; // Sauvegarder pour calcul des sommes
     if (groupByParent && (flowFilter || status)) {
       logDebug(`[API FILTRAGE] Application des filtres en mémoire: flow=${flowFilter}, status=${status}`);
       
@@ -408,6 +410,7 @@ export async function GET(request: NextRequest) {
       filteredTransactions = allTransactions.filter(t => 
         matchingTransactionIds.has(t.id) || parentIdsToInclude.has(t.id)
       );
+      filteredTransactionsBeforePagination = filteredTransactions; // Sauvegarder avant pagination
       
       logDebug(`[API FILTRAGE] ${filteredTransactions.length} transactions après filtrage (avec parents)`);
       logDebug(`[API FILTRAGE] IDs des transactions filtrées:`, filteredTransactions.map(t => ({ id: t.id, label: t.label, nature: t.nature })));
@@ -475,6 +478,122 @@ export async function GET(request: NextRequest) {
       filteredTransactions = filteredTransactions.slice(offset, offset + limit);
       logDebug(`[API PAGINATION GROUPÉE] ${filteredTransactions.length} transactions après pagination`);
     }
+    
+    // Calculer les sommes totales sur toutes les transactions filtrées (avant pagination)
+    // Pour cela, on doit récupérer TOUTES les transactions filtrées (sans pagination)
+    // car allTransactions peut être paginé si shouldFetchAll est false
+    let transactionsForSumCalculation: typeof allTransactions = [];
+    
+    // Récupérer toutes les transactions filtrées (sans pagination) pour le calcul des sommes
+    const allFilteredTransactions = await prisma.transaction.findMany({
+      where,
+      select: {
+        id: true,
+        amount: true,
+        nature: true,
+        autoSource: true,
+        parentTransactionId: true,
+        accounting_month: true,
+        rapprochementStatus: true,
+        label: true,
+        notes: true,
+        reference: true
+      },
+      // Pas de pagination pour le calcul des sommes
+    });
+    
+    // Appliquer les filtres en mémoire (recherche textuelle, flow, status)
+    let filteredForSum = allFilteredTransactions;
+    
+    // Filtre par recherche textuelle
+    if (searchTerm) {
+      const normalizedSearch = normalizeString(searchTerm);
+      filteredForSum = filteredForSum.filter(transaction => {
+        const normalizedLabel = normalizeString(transaction.label || '');
+        const normalizedNotes = normalizeString(transaction.notes || '');
+        const normalizedReference = normalizeString(transaction.reference || '');
+        const accountingMonthText = formatAccountingMonthForSearch(transaction.accounting_month || '');
+        const normalizedAccountingMonth = normalizeString(accountingMonthText);
+        const normalizedAccountingMonthRaw = normalizeString(transaction.accounting_month || '');
+        
+        return normalizedLabel.includes(normalizedSearch) || 
+               normalizedNotes.includes(normalizedSearch) ||
+               normalizedReference.includes(normalizedSearch) ||
+               normalizedAccountingMonth.includes(normalizedSearch) ||
+               normalizedAccountingMonthRaw.includes(normalizedSearch);
+      });
+      
+      // Inclure les parents si groupByParent
+      if (groupByParent) {
+        const parentIds = new Set<string>();
+        filteredForSum.forEach(t => {
+          if (t.parentTransactionId && t.parentTransactionId !== t.id) {
+            parentIds.add(t.parentTransactionId);
+          }
+        });
+        if (parentIds.size > 0) {
+          const parents = allFilteredTransactions.filter(t => parentIds.has(t.id));
+          const existingIds = new Set(filteredForSum.map(t => t.id));
+          parents.forEach(parent => {
+            if (!existingIds.has(parent.id)) {
+              filteredForSum.push(parent);
+            }
+          });
+        }
+      }
+    }
+    
+    // Appliquer les filtres flow et status
+    if (flowFilter || status) {
+      filteredForSum = filteredForSum.filter(t => {
+        const matchesFlow = !flowFilter || (natureMap.get(t.nature)?.flow === flowFilter);
+        const matchesStatus = !status || (t.rapprochementStatus === status);
+        return matchesFlow && matchesStatus;
+      });
+      
+      // Inclure les parents si groupByParent
+      if (groupByParent) {
+        const parentIds = new Set<string>();
+        filteredForSum.forEach(t => {
+          if (t.parentTransactionId && t.parentTransactionId !== t.id) {
+            parentIds.add(t.parentTransactionId);
+          }
+        });
+        if (parentIds.size > 0) {
+          const parents = allFilteredTransactions.filter(t => parentIds.has(t.id));
+          const existingIds = new Set(filteredForSum.map(t => t.id));
+          parents.forEach(parent => {
+            if (!existingIds.has(parent.id)) {
+              filteredForSum.push(parent);
+            }
+          });
+        }
+      }
+    }
+    
+    transactionsForSumCalculation = filteredForSum;
+    
+    let positiveSum = 0;
+    let negativeSum = 0;
+    transactionsForSumCalculation.forEach(transaction => {
+      // Exclure les transactions de gestion si includeManagementFees est false
+      if (!includeManagementFees && transaction.autoSource === 'gestion') {
+        return;
+      }
+      
+      const natureData = natureMap.get(transaction.nature);
+      if (natureData) {
+        const adjustedAmount = natureData.flow === 'INCOME' 
+          ? Math.abs(transaction.amount) 
+          : -Math.abs(transaction.amount);
+        
+        if (adjustedAmount > 0) {
+          positiveSum += adjustedAmount;
+        } else if (adjustedAmount < 0) {
+          negativeSum += Math.abs(adjustedAmount); // Stocker la valeur absolue
+        }
+      }
+    });
     
     const transactionIds = filteredTransactions.map(t => t.id);
     const documentLinks = await prisma.documentLink.findMany({
@@ -629,6 +748,10 @@ export async function GET(request: NextRequest) {
         limit,
         total: filteredTotal,
         pages: Math.ceil(filteredTotal / limit)
+      },
+      sums: {
+        positiveSum,
+        negativeSum
       }
     });
 

@@ -45,11 +45,17 @@ export function SmartTopLoader({
   const isFetchingRef = useRef<number>(0);
   const clickedPathRef = useRef<string | null>(null); // Pour suivre le pathname sur lequel on a cliqué
   const clickedPropertyRowRef = useRef<HTMLElement | null>(null); // Pour suivre la ligne du tableau cliquée
+  const progressRef = useRef<number>(0); // Ref pour suivre la progression sans causer de re-renders
 
-  // Mettre à jour la ref pour React Query
+  // Mettre à jour les refs
   useEffect(() => {
     isFetchingRef.current = isFetching;
   }, [isFetching]);
+
+  // Mettre à jour la ref de progression
+  useEffect(() => {
+    progressRef.current = progress;
+  }, [progress]);
 
   // Vérifier si le contenu de la page /biens est rendu ET que les données sont chargées
   const checkBiensContentRendered = useCallback((): boolean => {
@@ -1387,14 +1393,26 @@ export function SmartTopLoader({
       return;
     }
 
+    let checkCount = 0;
+    const maxChecks = 50; // Maximum 5 secondes (50 * 100ms)
+    let lastProgress = progressRef.current;
+
     // Vérifier toutes les 100ms si le contenu est rendu
     checkIntervalRef.current = setInterval(() => {
+      checkCount++;
+      
       // IMPORTANT : Ne pas terminer la barre si on a cliqué mais que le pathname n'a pas encore changé
       // Cela évite que la barre se termine trop tôt au premier chargement
       const clickedPath = clickedPathRef.current;
       if (clickedPath && pathname !== clickedPath) {
         // On a cliqué mais on n'est pas encore sur la bonne page, attendre
-        return;
+        // Mais limiter l'attente à 2 secondes maximum
+        if (checkCount > 20) {
+          // Après 2 secondes, ignorer la vérification du pathname
+          clickedPathRef.current = null;
+        } else {
+          return;
+        }
       }
       
       // Vérifier que toutes les requêtes sont terminées (fetch + React Query)
@@ -1402,7 +1420,30 @@ export function SmartTopLoader({
       const hasReactQueryRequests = isFetchingRef.current > 0;
       const contentRendered = checkContentRendered();
       
-      if (!hasActiveRequests && !hasReactQueryRequests && contentRendered) {
+      // Détecter si la progression est bloquée (même valeur pendant 2 secondes)
+      const currentProgress = progressRef.current;
+      if (currentProgress === lastProgress && checkCount > 20 && currentProgress > 0 && currentProgress < 100) {
+        // La progression est bloquée depuis 2 secondes, forcer la fin
+        console.warn('[SmartTopLoader] Progression bloquée, forçage de la fin');
+        setProgress(100);
+        setTimeout(() => {
+          setIsLoading(false);
+          setShowBar(false);
+          setProgress(0);
+          setLoading(pathname, false);
+          if (clickedPathRef.current === pathname) {
+            clickedPathRef.current = null;
+          }
+        }, 200);
+        return;
+      }
+      lastProgress = currentProgress;
+      
+      // Si le contenu est rendu OU si on a attendu assez longtemps sans requêtes actives
+      const shouldFinish = (!hasActiveRequests && !hasReactQueryRequests && contentRendered) ||
+                          (checkCount > 30 && !hasActiveRequests && !hasReactQueryRequests); // Fallback après 3 secondes
+      
+      if (shouldFinish) {
         // Le contenu est rendu, terminer la barre
         setProgress(100);
         setTimeout(() => {
@@ -1416,15 +1457,44 @@ export function SmartTopLoader({
           }
         }, 200);
       }
+      
+      // Timeout de sécurité absolu : forcer la fin après 5 secondes maximum
+      if (checkCount >= maxChecks) {
+        console.warn('[SmartTopLoader] Timeout de sécurité atteint, forçage de la fin');
+        setProgress(100);
+        setTimeout(() => {
+          setIsLoading(false);
+          setShowBar(false);
+          setProgress(0);
+          setLoading(pathname, false);
+          if (clickedPathRef.current === pathname) {
+            clickedPathRef.current = null;
+          }
+        }, 200);
+      }
     }, 100);
 
-    // Timeout de sécurité : forcer la fin après 5 secondes
+    // Timeout de sécurité : forcer la fin après 3 secondes (plus agressif)
     const timeout = setTimeout(() => {
-      setIsLoading(false);
-      setShowBar(false);
-      setProgress(0);
-      setLoading(pathname, false);
-    }, 5000);
+      // Vérifier une dernière fois avant de forcer
+      const hasActiveRequests = activeFetchRequestsRef.current.size > 0;
+      const hasReactQueryRequests = isFetchingRef.current > 0;
+      
+      // Si pas de requêtes actives, forcer la fin même si le contenu n'est pas détecté
+      if (!hasActiveRequests && !hasReactQueryRequests) {
+        console.warn('[SmartTopLoader] Timeout de sécurité (3s), forçage de la fin');
+        setProgress(100);
+        setTimeout(() => {
+          setIsLoading(false);
+          setShowBar(false);
+          setProgress(0);
+          setLoading(pathname, false);
+          if (clickedPathRef.current === pathname) {
+            clickedPathRef.current = null;
+          }
+        }, 200);
+      }
+    }, 3000);
 
     return () => {
       if (checkIntervalRef.current) {
@@ -1459,14 +1529,43 @@ export function SmartTopLoader({
       return;
     }
 
+    let animationStartTime = Date.now();
+    let lastProgressValue = progressRef.current;
+
     progressIntervalRef.current = setInterval(() => {
       setProgress((prev) => {
-        // Ne pas dépasser 90% tant que le contenu n'est pas rendu ET que React Query charge
+        // Mettre à jour la ref
+        progressRef.current = prev;
+        
         const hasActiveRequests = activeFetchRequestsRef.current.size > 0;
         const hasReactQueryRequests = isFetchingRef.current > 0;
         const contentRendered = checkContentRendered();
+        
+        // Si pas de requêtes actives, permettre d'aller jusqu'à 100%
         const maxProgress = (!hasActiveRequests && !hasReactQueryRequests && contentRendered) ? 100 : 90;
-        return Math.min(prev + Math.random() * 3, maxProgress);
+        
+        // Détecter si la progression est bloquée (même valeur pendant 1 seconde)
+        const elapsed = Date.now() - animationStartTime;
+        if (prev === lastProgressValue && elapsed > 1000 && prev < maxProgress) {
+          // Forcer une petite progression pour éviter le blocage
+          const forcedProgress = Math.min(prev + 1, maxProgress);
+          progressRef.current = forcedProgress;
+          return forcedProgress;
+        }
+        
+        lastProgressValue = prev;
+        const increment = Math.random() * 3;
+        const newProgress = Math.min(prev + increment, maxProgress);
+        
+        // Si on atteint 90% et qu'il n'y a plus de requêtes, forcer vers 100% après 2 secondes
+        if (newProgress >= 90 && !hasActiveRequests && !hasReactQueryRequests && elapsed > 2000) {
+          const forcedProgress = Math.min(newProgress + 2, 100);
+          progressRef.current = forcedProgress;
+          return forcedProgress;
+        }
+        
+        progressRef.current = newProgress;
+        return newProgress;
       });
     }, 200);
 

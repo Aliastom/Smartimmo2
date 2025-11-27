@@ -407,9 +407,15 @@ export function TasksPanel({
                       key={transaction.id}
                       icon={FileText}
                       title={transaction.label}
-                      subtitle={transaction.tenantName 
-                        ? `${transaction.tenantName} - ${transaction.propertyName}`
-                        : transaction.propertyName}
+                      subtitle={
+                        transaction.accountingMonth
+                          ? `${formatAccountingMonth(transaction.accountingMonth)} - ${transaction.tenantName 
+                              ? `${transaction.tenantName} - ${transaction.propertyName}`
+                              : transaction.propertyName}`
+                          : transaction.tenantName 
+                            ? `${transaction.tenantName} - ${transaction.propertyName}`
+                            : transaction.propertyName
+                      }
                       date={transaction.date}
                       amount={transaction.montant}
                       priority="medium"
@@ -717,9 +723,15 @@ export function TasksPanel({
                       key={transaction.id}
                       icon={FileText}
                       title={transaction.label}
-                      subtitle={transaction.tenantName 
-                        ? `${transaction.tenantName} - ${transaction.propertyName}`
-                        : transaction.propertyName}
+                      subtitle={
+                        transaction.accountingMonth
+                          ? `${formatAccountingMonth(transaction.accountingMonth)} - ${transaction.tenantName 
+                              ? `${transaction.tenantName} - ${transaction.propertyName}`
+                              : transaction.propertyName}`
+                          : transaction.tenantName 
+                            ? `${transaction.tenantName} - ${transaction.propertyName}`
+                            : transaction.propertyName
+                      }
                       date={transaction.date}
                       amount={transaction.montant}
                       priority="medium"
@@ -1245,9 +1257,15 @@ export function TasksPanel({
                     key={transaction.id}
                     icon={FileText}
                     title={transaction.label}
-                    subtitle={transaction.tenantName 
-                      ? `${transaction.tenantName} - ${transaction.propertyName}`
-                      : transaction.propertyName}
+                    subtitle={
+                      transaction.accountingMonth
+                        ? `${formatAccountingMonth(transaction.accountingMonth)} - ${transaction.tenantName 
+                            ? `${transaction.tenantName} - ${transaction.propertyName}`
+                            : transaction.propertyName}`
+                        : transaction.tenantName 
+                          ? `${transaction.tenantName} - ${transaction.propertyName}`
+                          : transaction.propertyName
+                    }
                     date={transaction.date}
                     amount={transaction.montant}
                     priority="medium"

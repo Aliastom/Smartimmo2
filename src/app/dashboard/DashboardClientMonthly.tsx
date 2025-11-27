@@ -168,15 +168,17 @@ export default function DashboardClientMonthly() {
       {isLoading ? (
         <MonthlyKpiBar
           kpis={{
-            loyersEncaisses: 0,
+            sommesEncaisses: 0,
+            sommesEncaissesRapprochees: 0,
             loyersAttendus: 0,
-            chargesPayees: 0,
+            depensesRealisees: 0,
+            depensesRealiseesRapprochees: 0,
             cashflow: 0,
             tauxEncaissement: 0,
             bauxActifs: 0,
             documentsEnvoyes: 0,
-            deltaLoyersEncaisses: 0,
-            deltaChargesPayees: 0,
+            deltaSommesEncaisses: 0,
+            deltaDepensesRealisees: 0,
             deltaCashflow: 0,
             deltaTauxEncaissement: 0,
           }}

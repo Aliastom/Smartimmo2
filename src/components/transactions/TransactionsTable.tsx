@@ -58,6 +58,7 @@ interface TransactionsTableProps {
   onSelectTransaction?: (id: string) => void;
   onSelectAll?: (selected: boolean) => void;
   loadingTransactionId?: string | null; // ID de la transaction en cours de chargement
+  amountsSummary?: { positiveSum: number; negativeSum: number }; // Sommes totales calculées côté serveur
 }
 
 const NATURE_COLORS = {
@@ -86,7 +87,8 @@ export default function TransactionsTable({
   selectedTransactionIds = [],
   onSelectTransaction,
   onSelectAll,
-  loadingTransactionId = null
+  loadingTransactionId = null,
+  amountsSummary = { positiveSum: 0, negativeSum: 0 }
 }: TransactionsTableProps) {
   const [sortField, setSortField] = useState<SortField>('accountingMonth');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -273,12 +275,38 @@ export default function TransactionsTable({
     <>
       {/* Compteur et tri rapide - Style Documents (fond blanc) */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b">
-        <p className="text-sm text-gray-700">
-          <span className="font-semibold">{transactions.length}</span> transaction{transactions.length > 1 ? 's' : ''} affichée{transactions.length > 1 ? 's' : ''}
-          {totalCount && totalCount !== transactions.length && (
-            <span className="text-gray-500"> / {totalCount} au total</span>
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-gray-700">
+            <span className="font-semibold">{transactions.length}</span> transaction{transactions.length > 1 ? 's' : ''} affichée{transactions.length > 1 ? 's' : ''}
+            {totalCount && totalCount !== transactions.length && (
+              <span className="text-gray-500"> / {totalCount} au total</span>
+            )}
+          </p>
+          {transactions.length > 0 && (
+            <>
+              {amountsSummary.positiveSum > 0 && (
+                <Badge variant="success" size="sm">
+                  +{new Intl.NumberFormat('fr-FR', {
+                    style: 'currency',
+                    currency: 'EUR',
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
+                  }).format(amountsSummary.positiveSum)}
+                </Badge>
+              )}
+              {amountsSummary.negativeSum > 0 && (
+                <Badge variant="danger" size="sm">
+                  -{new Intl.NumberFormat('fr-FR', {
+                    style: 'currency',
+                    currency: 'EUR',
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
+                  }).format(amountsSummary.negativeSum)}
+                </Badge>
+              )}
+            </>
           )}
-        </p>
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">Tri rapide:</span>
           <button

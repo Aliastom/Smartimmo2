@@ -17,6 +17,13 @@ interface FiscalStore {
   status: FiscalStatus;
   error: string | null;
   savedSimulationId: string | null;
+  // ✅ Cache des données autofill pour éviter de recharger
+  autofillCache: {
+    biens: any[];
+    year: number;
+    baseCalcul: 'encaisse' | 'exigible';
+    scope?: { propertyIds?: string[] };
+  } | null;
   
   // Actions
   updateDraft: (updates: Partial<FiscalInputs>) => void;
@@ -25,6 +32,7 @@ interface FiscalStore {
   setError: (error: string | null) => void;
   setSavedSimulationId: (id: string | null) => void;
   resetSimulation: () => void;
+  setAutofillCache: (cache: FiscalStore['autofillCache']) => void;
   computeFiscalSimulation: () => Promise<void>;
 }
 
@@ -63,6 +71,7 @@ export const useFiscalStore = create<FiscalStore>()(
       status: 'idle',
       error: null,
       savedSimulationId: null,
+      autofillCache: null,
 
       // Mettre à jour le draft
       updateDraft: (updates) => {
@@ -94,6 +103,11 @@ export const useFiscalStore = create<FiscalStore>()(
         set({ savedSimulationId: id });
       },
 
+      // Définir le cache autofill
+      setAutofillCache: (cache) => {
+        set({ autofillCache: cache });
+      },
+
       // Réinitialiser
       resetSimulation: () => {
         set({
@@ -102,23 +116,64 @@ export const useFiscalStore = create<FiscalStore>()(
           status: 'idle',
           error: null,
           savedSimulationId: null,
+          autofillCache: null,
         });
       },
 
       // Calculer la simulation
       computeFiscalSimulation: async () => {
-        const { simulationDraft } = get();
+        const { simulationDraft, autofillCache } = get();
         
         set({ status: 'calculating', error: null });
 
         try {
           // ✅ Inclure le scope avec les IDs des biens sélectionnés si autofill est activé
           const selectedBienIds = (simulationDraft._uiMetadata as any)?.selectedBienIds || [];
+          const scope = simulationDraft.options?.autofill && selectedBienIds.length > 0 ? {
+            propertyIds: selectedBienIds,
+          } : undefined;
+          
+          // ✅ Si on a un cache autofill valide pour la même année/baseCalcul, l'utiliser
+          // On ne compare pas le scope car les selectedBienIds peuvent changer, mais les biens chargés restent les mêmes
+          const useCache = autofillCache && 
+            autofillCache.year === simulationDraft.year &&
+            autofillCache.baseCalcul === simulationDraft.options?.baseCalcul &&
+            autofillCache.biens && 
+            autofillCache.biens.length > 0;
+          
+          console.log('🔍 Vérification cache:', {
+            hasCache: !!autofillCache,
+            cacheYear: autofillCache?.year,
+            draftYear: simulationDraft.year,
+            cacheBaseCalcul: autofillCache?.baseCalcul,
+            draftBaseCalcul: simulationDraft.options?.baseCalcul,
+            cacheBiensCount: autofillCache?.biens?.length,
+            selectedBienIdsCount: selectedBienIds.length,
+            useCache,
+          });
+          
+          // ✅ Filtrer les biens du cache selon les selectedBienIds
+          let biensFromCache: any[] | undefined = undefined;
+          if (useCache && autofillCache.biens) {
+            if (selectedBienIds.length > 0) {
+              // Filtrer pour ne garder que les biens sélectionnés
+              biensFromCache = autofillCache.biens.filter((b: any) => 
+                selectedBienIds.includes(b.id)
+              );
+              console.log(`✅ Filtrage du cache: ${autofillCache.biens.length} → ${biensFromCache.length} bien(s) sélectionné(s)`);
+            } else {
+              // Si aucun bien sélectionné, ne pas utiliser le cache (ou utiliser tous les biens ?)
+              console.warn('⚠️ Aucun bien sélectionné, utilisation de tous les biens du cache');
+              biensFromCache = autofillCache.biens;
+            }
+          }
+          
           const payload = {
             ...simulationDraft,
-            scope: simulationDraft.options?.autofill && selectedBienIds.length > 0 ? {
-              propertyIds: selectedBienIds,
-            } : undefined,
+            scope,
+            // ✅ Passer les biens filtrés du cache si disponible pour éviter de recharger
+            biens: biensFromCache,
+            _useAutofillCache: useCache, // Flag pour indiquer qu'on utilise le cache
           };
           
           const response = await fetch('/api/fiscal/simulate', {
