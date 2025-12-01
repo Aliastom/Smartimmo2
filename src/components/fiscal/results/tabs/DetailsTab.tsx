@@ -41,6 +41,7 @@ interface DetailsTabProps {
 
 export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: DetailsTabProps) {
   const [expandedBiens, setExpandedBiens] = useState<Set<string>>(new Set());
+  const [showRendementDetail, setShowRendementDetail] = useState(false);
   
   const formatEuro = (amount: number) =>
     new Intl.NumberFormat('fr-FR', {
@@ -984,13 +985,100 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                     <div className="flex flex-col">
                       <div className="flex justify-between items-center">
                         <span className="text-purple-600 font-medium">Rendement net</span>
-                        <span className="font-bold text-purple-700">
-                          {formatPercent(simulation.resume?.rendementNet || 0)}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-purple-700">
+                            {formatPercent(simulation.resume?.rendementNet || 0)}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0"
+                            onClick={() => setShowRendementDetail(!showRendementDetail)}
+                          >
+                            {showRendementDetail ? (
+                              <ChevronUp className="h-4 w-4 text-purple-600" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4 text-purple-600" />
+                            )}
+                          </Button>
+                        </div>
                       </div>
                       <p className="text-gray-500 text-[10px] italic mt-1">
                         Après IR et PS, hors valorisation patrimoniale
                       </p>
+                      
+                      {/* Détail du calcul */}
+                      {showRendementDetail && (() => {
+                        const loyersBruts = simulation.biens?.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0) || 0;
+                        const chargesTotal = simulation.biens?.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0) || 0;
+                        const impotsSuppTotal = simulation.resume?.impotsSuppTotal || 0;
+                        const beneficeNet = simulation.resume?.beneficeNetImmobilier || 0;
+                        const rendementNet = simulation.resume?.rendementNet || 0;
+                        
+                        return (
+                          <div className="mt-3 p-3 bg-white/70 rounded-lg border border-purple-200 space-y-2 text-xs">
+                            <p className="font-semibold text-purple-800 mb-2 flex items-center gap-1">
+                              <Calculator className="h-3 w-3" />
+                              Détail du calcul du rendement net
+                            </p>
+                            
+                            <div className="space-y-1.5 text-gray-700">
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-600">Loyers bruts</span>
+                                <span className="font-medium text-green-700">{formatEuro(loyersBruts)}</span>
+                              </div>
+                              
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-600">- Charges déductibles</span>
+                                <span className="font-medium text-orange-700">{formatEuro(chargesTotal)}</span>
+                              </div>
+                              
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-600">- Impôts supplémentaires totaux</span>
+                                <span className="font-medium text-red-700">
+                                  {formatEuro(Math.max(0, impotsSuppTotal))}
+                                </span>
+                              </div>
+                              
+                              <Separator className="my-1.5" />
+                              
+                              <div className="flex justify-between items-center">
+                                <span className="font-semibold text-gray-800">= Bénéfice net après fiscalité</span>
+                                <span className="font-bold text-green-700">{formatEuro(beneficeNet)}</span>
+                              </div>
+                              
+                              <Separator className="my-1.5" />
+                              
+                              <div className="bg-purple-50 p-2 rounded border border-purple-200">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-purple-900 font-semibold">Formule :</span>
+                                </div>
+                                <div className="text-purple-800 font-mono text-[10px] space-y-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <span>Rendement net =</span>
+                                    <span className="text-purple-600">Bénéfice net</span>
+                                    <span>/</span>
+                                    <span className="text-purple-600">Loyers bruts</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span>=</span>
+                                    <span className="text-purple-600">{formatEuro(beneficeNet)}</span>
+                                    <span>/</span>
+                                    <span className="text-purple-600">{formatEuro(loyersBruts)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 font-bold">
+                                    <span>=</span>
+                                    <span className="text-purple-700">{formatPercent(rendementNet)}</span>
+                                  </div>
+                                </div>
+                                <p className="text-[10px] text-purple-600 italic mt-1.5">
+                                  Pourcentage des loyers conservés après charges et impôts
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 </CardContent>
