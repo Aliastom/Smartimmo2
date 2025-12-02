@@ -462,6 +462,8 @@ class FiscalAggregatorClass {
     
     // ✅ Résumé concis uniquement
     console.log(`📊 ${property.name}: ${transactions.length} transaction(s) rapprochée(s) → Recettes ${recettesTotales.toFixed(2)}€, Charges ${chargesDeductibles.toFixed(2)}€`);
+    console.log(`   📋 Recettes par catégorie:`, Object.entries(recettesParCategorie).map(([code, data]) => `${data.label}: ${data.amount.toFixed(2)}€`).join(', '));
+    console.log(`   📋 Charges par catégorie:`, Object.entries(chargesParCategorie).map(([code, data]) => `${data.label}: ${data.amount.toFixed(2)}€`).join(', '));
     
     // 🆕 Calculer les intérêts d'emprunt (passé + projection)
     const interets = await this.calculateLoanInterests(propertyId, year);
