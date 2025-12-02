@@ -122,6 +122,7 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
     pages: 0
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [amountsSummary, setAmountsSummary] = useState({ positiveSum: 0, negativeSum: 0 });
 
   // États des modals et drawer
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -261,6 +262,7 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
       setTransactions(data.data || []);
       setPagination(data.pagination || { page: 1, limit: 50, total: 0, pages: 0 });
       setTotalCount(data.pagination?.total || 0);
+      setAmountsSummary(data.sums || { positiveSum: 0, negativeSum: 0 });
     } catch (error) {
       console.error('Erreur lors du chargement des données:', error);
       notify2.error('Erreur lors du chargement des données');
@@ -758,6 +760,7 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
         onSelectTransaction={handleSelectTransaction}
         onSelectAll={handleSelectAll}
         loadingTransactionId={loadingTransactionId}
+        amountsSummary={amountsSummary}
       />
         </CardContent>
       </Card>
