@@ -20,6 +20,7 @@ export interface Loan {
   feesUpfront?: number | null;
   startDate: string;
   endDate?: string | null;
+  paymentDay?: number | null;
   rateType?: string;
   loanType?: string | null;
   repaymentType?: string | null;

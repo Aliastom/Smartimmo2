@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useId } from 'react';
+import React, { useState, useEffect, useId, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -17,6 +17,7 @@ import { DedupFlowInput, DedupFlowContext } from '@/types/dedup-flow';
 import { TransactionSuggestionPayload } from '@/services/TransactionSuggestionService';
 import { TransactionModal as TransactionModalV2 } from '@/components/transactions/TransactionModalV2';
 import { SearchableSelect } from '@/components/forms/SearchableSelect';
+import { DocumentUploadLoadingOverlay } from '@/components/documents/DocumentUploadLoadingOverlay';
 // Note: Les descriptions de liaison sont maintenant générées côté client
 
 type UploadSaveMode = 'immediate' | 'staged' | 'review-draft';
@@ -130,7 +131,9 @@ export function UploadReviewModal({
   const [customName, setCustomName] = useState('');
   const [keepDuplicate, setKeepDuplicate] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [openTransactionModal, setOpenTransactionModal] = useState(true);
+  const progressIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   const [linkingDescription, setLinkingDescription] = useState<string[]>([]);
   
   // États pour le mode review-draft
@@ -812,6 +815,20 @@ export function UploadReviewModal({
     }
 
     setIsConfirming(true);
+    setUploadProgress(0);
+
+    // Nettoyer l'intervalle précédent s'il existe
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+    }
+
+    // Simuler la progression pendant l'upload
+    progressIntervalRef.current = setInterval(() => {
+      setUploadProgress((prev) => {
+        if (prev >= 90) return prev; // Ne pas aller au-delà de 90% pendant l'upload
+        return prev + Math.random() * 10; // Progression aléatoire mais progressive
+      });
+    }, 200);
 
     try {
       // Déterminer le type de document à utiliser (comme dans handleConfirm)
@@ -925,7 +942,16 @@ export function UploadReviewModal({
       console.error('Erreur confirmation:', error);
       alert('Erreur lors de la confirmation');
     } finally {
-      setIsConfirming(false);
+      // Nettoyer l'intervalle
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      setUploadProgress(100); // Mettre à 100% avant de fermer
+      setTimeout(() => {
+        setIsConfirming(false);
+        setUploadProgress(0);
+      }, 500); // Petit délai pour voir la progression à 100%
     }
   };
 
@@ -983,6 +1009,20 @@ export function UploadReviewModal({
     }
     
     setIsConfirming(true);
+    setUploadProgress(0);
+
+    // Nettoyer l'intervalle précédent s'il existe
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+    }
+
+    // Simuler la progression pendant l'upload
+    progressIntervalRef.current = setInterval(() => {
+      setUploadProgress((prev) => {
+        if (prev >= 90) return prev; // Ne pas aller au-delà de 90% pendant l'upload
+        return prev + Math.random() * 10; // Progression aléatoire mais progressive
+      });
+    }, 200);
 
     try {
       // Déterminer le type de document à utiliser
@@ -2055,6 +2095,12 @@ export function UploadReviewModal({
         />
       )}
 
+      {/* Modal de chargement pendant l'enregistrement */}
+      <DocumentUploadLoadingOverlay
+        isUploading={isConfirming}
+        fileName={currentPreview?.filename}
+        progress={uploadProgress}
+      />
     </Dialog>
 
     {/* 🤖 Modale de suggestion de transaction depuis OCR - HORS du Dialog principal */}

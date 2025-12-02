@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import { 
   Table, 
   TableHeader, 
@@ -71,7 +71,11 @@ interface DocumentTableProps {
   loading?: boolean;
 }
 
-export function DocumentTable({
+/**
+ * ✅ OPTIMISATION: Composant mémorisé avec React.memo() pour éviter les re-renders inutiles
+ * Ne re-render que si les props changent réellement
+ */
+function DocumentTableComponent({
   documents,
   onView,
   onEdit,
@@ -361,4 +365,7 @@ export function DocumentTable({
     </Table>
   );
 }
+
+// ✅ OPTIMISATION: Mémoriser le composant pour éviter les re-renders inutiles
+export const DocumentTable = memo(DocumentTableComponent);
 

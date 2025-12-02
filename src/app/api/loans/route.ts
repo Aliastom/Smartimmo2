@@ -20,6 +20,7 @@ export const createLoanSchema = z.object({
   insurancePct: z.number().min(0, 'Le taux d\'assurance doit être positif ou nul').optional().nullable(),
   feesUpfront: z.number().min(0, 'Les frais doivent être positifs ou nuls').optional().nullable(),
   startDate: z.string().datetime('La date de début est invalide'),
+  paymentDay: z.number().int().min(1).max(31, 'Le jour de paiement doit être entre 1 et 31').optional().nullable(),
   rateType: z.enum(['FIXED']).default('FIXED'),
   loanType: z.string().optional().nullable(),
   repaymentType: z.string().optional().nullable(),
@@ -165,6 +166,7 @@ export async function GET(request: NextRequest) {
         defermentMonths: loan.defermentMonths,
         insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
         startDate: loan.startDate,
+        paymentDay: loan.paymentDay || undefined,
       });
 
       const crd = crdAtDate(schedule, toMonth);
@@ -244,6 +246,7 @@ export async function GET(request: NextRequest) {
         defermentMonths: loan.defermentMonths,
         insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
         startDate: loan.startDate,
+        paymentDay: loan.paymentDay || undefined,
       });
 
       const monthlyPayment = schedule.length > 0 ? schedule[schedule.length - 1].paymentTotal : 0;
@@ -261,6 +264,7 @@ export async function GET(request: NextRequest) {
         feesUpfront: loan.feesUpfront ? Number(loan.feesUpfront) : null,
         startDate: loan.startDate.toISOString(),
         endDate: loan.endDate?.toISOString() || null,
+        paymentDay: loan.paymentDay,
         rateType: loan.rateType,
         loanType: loan.loanType,
         repaymentType: loan.repaymentType,
@@ -347,6 +351,7 @@ export async function POST(request: NextRequest) {
           feesUpfront: data.feesUpfront != null ? new Decimal(data.feesUpfront) : null,
           startDate,
           endDate,
+          paymentDay: data.paymentDay || null,
           rateType: data.rateType,
           loanType: data.loanType || null,
           repaymentType: data.repaymentType || null,
@@ -513,6 +518,7 @@ export async function POST(request: NextRequest) {
       feesUpfront: result.feesUpfront ? Number(result.feesUpfront) : null,
       startDate: result.startDate.toISOString(),
       endDate: result.endDate?.toISOString() || null,
+      paymentDay: result.paymentDay,
       rateType: result.rateType,
       loanType: result.loanType,
       repaymentType: result.repaymentType,

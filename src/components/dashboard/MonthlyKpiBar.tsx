@@ -8,9 +8,10 @@ import type { MonthlyKPIs } from '@/types/dashboard';
 export interface MonthlyKpiBarProps {
   kpis: MonthlyKPIs;
   isLoading?: boolean;
+  focusLoyer?: boolean;
 }
 
-export function MonthlyKpiBar({ kpis, isLoading = false }: MonthlyKpiBarProps) {
+export function MonthlyKpiBar({ kpis, isLoading = false, focusLoyer = false }: MonthlyKpiBarProps) {
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
@@ -42,7 +43,7 @@ export function MonthlyKpiBar({ kpis, isLoading = false }: MonthlyKpiBarProps) {
   const cards = [
     {
       id: 'sommes',
-      title: 'Sommes encaissées',
+      title: focusLoyer ? 'Loyers encaissés' : 'Sommes encaissées',
       value: `${formatCurrency(kpis.sommesEncaissesRapprochees)}/${formatCurrency(kpis.sommesEncaisses)}`,
       iconName: 'Euro',
       color: 'green' as const,
@@ -52,7 +53,7 @@ export function MonthlyKpiBar({ kpis, isLoading = false }: MonthlyKpiBarProps) {
     },
     {
       id: 'depenses',
-      title: 'Dépenses réalisées',
+      title: focusLoyer ? 'Frais de gestion' : 'Dépenses réalisées',
       value: `${formatCurrency(kpis.depensesRealiseesRapprochees)}/${formatCurrency(kpis.depensesRealisees)}`,
       iconName: 'TrendingDown',
       color: 'red' as const,
@@ -122,20 +123,35 @@ export function MonthlyKpiBar({ kpis, isLoading = false }: MonthlyKpiBarProps) {
 
   return (
     <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-      {cards.slice(0, 5).map((card) => (
-        <StatCard
-          key={card.id}
-          title={card.title}
-          value={card.value}
-          iconName={card.iconName}
-          color={card.color}
-          trendValue={card.trendValue}
-          trendLabel={card.trendLabel}
-          trendDirection={card.trendDirection}
-          rightIndicator={card.rightIndicator}
-          progressValue={card.progressValue}
-        />
-      ))}
+      {cards.slice(0, 5).map((card) => {
+        // Appliquer le style "Focus loyer" aux cartes loyers et frais de gestion quand le toggle est activé
+        const isFocusLoyerCard = focusLoyer && (card.id === 'sommes' || card.id === 'depenses');
+        const focusLoyerClassName = isFocusLoyerCard
+          ? '!bg-gradient-to-r !from-blue-50 !to-indigo-50 !border-2 !border-blue-200'
+          : '';
+        
+        // Atténuer visuellement les cartes "Baux actifs" et "Documents envoyés" quand le toggle est activé
+        const shouldAttenuate = focusLoyer && (card.id === 'baux' || card.id === 'documents');
+        const attenuationClassName = shouldAttenuate
+          ? 'opacity-50 grayscale-[0.3]'
+          : '';
+        
+        return (
+          <StatCard
+            key={card.id}
+            title={card.title}
+            value={card.value}
+            iconName={card.iconName}
+            color={card.color}
+            trendValue={card.trendValue}
+            trendLabel={card.trendLabel}
+            trendDirection={card.trendDirection}
+            rightIndicator={card.rightIndicator}
+            progressValue={card.progressValue}
+            className={`${focusLoyerClassName} ${attenuationClassName}`}
+          />
+        );
+      })}
     </div>
   );
 }

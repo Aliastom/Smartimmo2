@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, memo } from 'react';
 import { Table, TableHeader, TableHeaderCell, TableBody, TableRow, TableCell } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -74,7 +74,11 @@ const STATUS_COLORS = {
 type SortField = 'date' | 'amount' | 'nature' | 'accountingMonth';
 type SortOrder = 'asc' | 'desc';
 
-export default function TransactionsTable({ 
+/**
+ * ✅ OPTIMISATION: Composant mémorisé avec React.memo() pour éviter les re-renders inutiles
+ * Ne re-render que si les props changent réellement
+ */
+function TransactionsTableComponent({ 
   transactions, 
   onEdit, 
   onDelete, 
@@ -524,3 +528,7 @@ export default function TransactionsTable({
     </>
   );
 }
+
+// ✅ OPTIMISATION: Mémoriser le composant pour éviter les re-renders inutiles
+// Le composant ne re-render que si les props changent réellement
+export default memo(TransactionsTableComponent);

@@ -1,6 +1,8 @@
 /**
  * Helper pour récupérer l'utilisateur actuellement connecté
  * Utilise Supabase Auth + Prisma pour obtenir les données complètes
+ * 
+ * OPTIMISATION: Cache en mémoire avec TTL de 30 secondes pour réduire les appels DB
  */
 
 import { createServerClient } from '@/lib/supabase-server';
@@ -16,6 +18,39 @@ export type CurrentUser = {
   emailVerified: Date | null;
   organizationId: string;
 };
+
+// Cache en mémoire pour getCurrentUser (TTL: 30 secondes)
+// Évite les appels répétés à Supabase + Prisma dans la même requête
+const userCache = new Map<string, { user: CurrentUser | null; expires: number }>();
+const CACHE_TTL = 30 * 1000; // 30 secondes
+
+function getCachedUser(supabaseId: string): CurrentUser | null | undefined {
+  const cached = userCache.get(supabaseId);
+  if (cached && cached.expires > Date.now()) {
+    return cached.user;
+  }
+  if (cached) {
+    userCache.delete(supabaseId); // Expiré, supprimer
+  }
+  return undefined;
+}
+
+function setCachedUser(supabaseId: string, user: CurrentUser | null): void {
+  userCache.set(supabaseId, {
+    user,
+    expires: Date.now() + CACHE_TTL,
+  });
+  
+  // Nettoyer les entrées expirées toutes les 5 minutes
+  if (userCache.size > 100) {
+    const now = Date.now();
+    for (const [key, value] of userCache.entries()) {
+      if (value.expires <= now) {
+        userCache.delete(key);
+      }
+    }
+  }
+}
 
 /**
  * Récupère l'utilisateur actuellement connecté
@@ -48,6 +83,12 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       return null;
     }
 
+    // ✅ OPTIMISATION: Vérifier le cache avant d'interroger Prisma
+    const cached = getCachedUser(user.id);
+    if (cached !== undefined) {
+      return cached;
+    }
+
     // 2) Récupérer l'utilisateur Prisma correspondant
     const prismaUser = await prisma.user.findFirst({
       where: {
@@ -69,11 +110,12 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
 
     if (!prismaUser) {
       console.warn('[getCurrentUser] Utilisateur Supabase sans compte Prisma:', user.id);
+      setCachedUser(user.id, null); // Cache le résultat null aussi
       return null;
     }
 
     // 3) Retourner les données formatées
-    return {
+    const result: CurrentUser = {
       id: prismaUser.id,
       supabaseId: user.id,
       email: prismaUser.email || user.email || '',
@@ -82,6 +124,11 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       emailVerified: prismaUser.emailVerified,
       organizationId: prismaUser.organizationId,
     };
+    
+    // ✅ OPTIMISATION: Mettre en cache le résultat
+    setCachedUser(user.id, result);
+    
+    return result;
   } catch (error) {
     // Ignorer silencieusement les erreurs de refresh token
     const isRefreshTokenError = 

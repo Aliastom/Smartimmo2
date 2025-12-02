@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
     const typeFilter = searchParams.get('type') || 'ALL';
     const statutFilter = searchParams.get('statut') || 'ALL';
     const sourceFilter = searchParams.get('source') || 'ALL';
+    const focusLoyer = searchParams.get('focusLoyer') === 'true';
     
     // ========================================================================
     // 1. CALCUL DES KPIs
@@ -188,15 +189,25 @@ export async function GET(request: NextRequest) {
     let depensesRealiseesRapprochees = 0; // EXPENSE avec paidAt
     let cashflow = 0;
     
-    // Pour le filtre source, on a besoin d'identifier les loyers
+    // Pour le filtre source et focusLoyer, on a besoin d'identifier les loyers et frais de gestion
     const gestionCodes = await getGestionCodes();
     const rentNature = gestionCodes.rentNature;
     const rentCategorySlug = gestionCodes.rentCategory;
+    const mgmtNature = gestionCodes.mgmtNature;
+    const mgmtCategorySlug = gestionCodes.mgmtCategory;
+    
     const rentCategory = await prisma.category.findUnique({
       where: { slug: rentCategorySlug },
       select: { id: true },
     });
     const rentCategoryId = rentCategory?.id || null;
+    
+    const mgmtCategory = await prisma.category.findUnique({
+      where: { slug: mgmtCategorySlug },
+      select: { id: true },
+    });
+    const mgmtCategoryId = mgmtCategory?.id || null;
+    
     const loyerNatures = natures
       .filter(n => n.code.includes('LOYER') || n.label.toLowerCase().includes('loyer'))
       .map(n => n.code);
@@ -245,6 +256,32 @@ export async function GET(request: NextRequest) {
       }
       
       // Compter TOUTES les transactions du mois comptable (indépendamment de paidAt)
+      // Si focusLoyer est activé, filtrer selon les codes système
+      if (focusLoyer) {
+        // Focus loyer : uniquement les transactions avec nature ET catégorie = codes système
+        if (natureData?.flow === 'INCOME') {
+          // Pour INCOME : doit être un loyer (nature + catégorie loyer)
+          const isLoyer = transaction.nature === rentNature && 
+                         (rentCategoryId ? transaction.categoryId === rentCategoryId : true);
+          if (!isLoyer) {
+            debugStats.filteredOut++;
+            continue;
+          }
+        } else if (natureData?.flow === 'EXPENSE') {
+          // Pour EXPENSE : doit être frais de gestion (nature + catégorie frais de gestion)
+          const isFraisGestion = transaction.nature === mgmtNature && 
+                                 (mgmtCategoryId ? transaction.categoryId === mgmtCategoryId : true);
+          if (!isFraisGestion) {
+            debugStats.filteredOut++;
+            continue;
+          }
+        } else {
+          // Pas INCOME ni EXPENSE, ignorer
+          debugStats.filteredOut++;
+          continue;
+        }
+      }
+      
       // Simplifié : utiliser uniquement le flow
       // IMPORTANT: Utiliser rapprochementStatus pour les montants rapprochés (cohérent avec les transactions non rapprochées)
       if (natureData?.flow === 'INCOME') {
@@ -287,6 +324,21 @@ export async function GET(request: NextRequest) {
     for (const transaction of prevTransactions) {
       const natureData = transaction.nature ? natureMap.get(transaction.nature) : null;
       const amount = transaction.amount;
+      
+      // Si focusLoyer est activé, filtrer selon les codes système
+      if (focusLoyer) {
+        if (natureData?.flow === 'INCOME') {
+          const isLoyer = transaction.nature === rentNature && 
+                         (rentCategoryId ? transaction.categoryId === rentCategoryId : true);
+          if (!isLoyer) continue;
+        } else if (natureData?.flow === 'EXPENSE') {
+          const isFraisGestion = transaction.nature === mgmtNature && 
+                                 (mgmtCategoryId ? transaction.categoryId === mgmtCategoryId : true);
+          if (!isFraisGestion) continue;
+        } else {
+          continue;
+        }
+      }
       
       // Compter TOUTES les transactions du mois comptable (indépendamment de paidAt)
       // Simplifié : utiliser uniquement le flow
@@ -707,51 +759,74 @@ export async function GET(request: NextRequest) {
         defermentMonths: true,
         insurancePct: true,
         startDate: true,
+        paymentDay: true,
         property: {
           select: {
             name: true,
+          },
+        },
+        LoanBorrower: {
+          select: {
+            firstName: true,
+            lastName: true,
+            responsibilityPct: true,
           },
         },
       },
     });
     
     for (const loan of loans) {
-      // Date d'échéance = jour de début du prêt
-      const startDate = new Date(loan.startDate);
-      const echeanceDate = new Date(year, monthNum - 1, startDate.getDate());
+      // Pour un dashboard mensuel, afficher TOUS les prêts actifs ce mois-ci
+      // Utiliser buildSchedule pour calculer correctement les intérêts et le capital du mois
+      const schedule = buildSchedule({
+        principal: Number(loan.principal),
+        annualRatePct: Number(loan.annualRatePct),
+        durationMonths: loan.durationMonths,
+        defermentMonths: loan.defermentMonths || 0,
+        insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
+        startDate: loan.startDate,
+        paymentDay: loan.paymentDay || undefined,
+      });
       
-      if (echeanceDate >= firstDay && echeanceDate <= lastDay) {
-        // Utiliser buildSchedule pour calculer correctement les intérêts et le capital du mois
-        const schedule = buildSchedule({
-          principal: Number(loan.principal),
-          annualRatePct: Number(loan.annualRatePct),
-          durationMonths: loan.durationMonths,
-          defermentMonths: loan.defermentMonths || 0,
-          insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
-          startDate: loan.startDate,
-        });
+      // Trouver la ligne du schedule correspondant au mois en cours
+      const monthStr = `${year}-${String(monthNum).padStart(2, '0')}`;
+      const scheduleRow = schedule.find(row => row.date === monthStr);
+      
+      if (scheduleRow) {
+        // Calculer la date d'échéance basée sur paymentDay ou startDate
+        const startDate = new Date(loan.startDate);
+        const dayOfMonth = loan.paymentDay || startDate.getDate();
+        const echeanceDate = new Date(year, monthNum - 1, dayOfMonth);
+        const capital = scheduleRow.paymentPrincipal;
+        const interets = scheduleRow.paymentInterest;
+        const assurance = scheduleRow.paymentInsurance;
+        const montantTotal = scheduleRow.paymentTotal;
         
-        // Trouver la ligne du schedule correspondant au mois en cours
-        const monthStr = `${year}-${String(monthNum).padStart(2, '0')}`;
-        const scheduleRow = schedule.find(row => row.date === monthStr);
-        
-        if (scheduleRow) {
-          const capital = scheduleRow.paymentPrincipal;
-          const interets = scheduleRow.paymentInterest;
-          const assurance = scheduleRow.paymentInsurance;
-          const montantTotal = scheduleRow.paymentTotal;
-          
-          echeancesPrets.push({
-            id: `pret-${loan.id}`,
-            loanId: loan.id,
-            propertyName: loan.property.name,
-            dateEcheance: echeanceDate.toISOString().split('T')[0],
-            montantTotal: Math.round(montantTotal * 100) / 100,
-            capital: Math.round(capital * 100) / 100,
-            interets: Math.round(interets * 100) / 100,
-            assurance: Math.round(assurance * 100) / 100,
-          });
+        // 🆕 Informations sur les co-emprunteurs
+        const borrowersCount = loan.LoanBorrower?.length || 0;
+        let borrowersInfo = null;
+        if (borrowersCount > 0) {
+          const borrowers = loan.LoanBorrower.map(b => ({
+            name: `${b.firstName} ${b.lastName}`,
+            share: b.responsibilityPct ? Number(b.responsibilityPct) : null,
+          }));
+          borrowersInfo = {
+            count: borrowersCount,
+            borrowers,
+          };
         }
+        
+        echeancesPrets.push({
+          id: `pret-${loan.id}`,
+          loanId: loan.id,
+          propertyName: loan.property.name,
+          dateEcheance: echeanceDate.toISOString().split('T')[0],
+          montantTotal: Math.round(montantTotal * 100) / 100,
+          capital: Math.round(capital * 100) / 100,
+          interets: Math.round(interets * 100) / 100,
+          assurance: Math.round(assurance * 100) / 100,
+          borrowersInfo, // 🆕 Ajout info co-emprunteurs
+        });
       }
     }
     

@@ -30,6 +30,11 @@ interface ExpertCalculBlocksProps {
 
 export function ExpertCalculBlocks({ simulation }: ExpertCalculBlocksProps) {
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(['ir-details'])); // IR ouvert par défaut
+  const [simulationInputs, setSimulationInputs] = useState({
+    revenuImposable: simulation.ir.revenuImposable,
+    revenuFoncier: simulation.consolidation.revenusFonciers,
+    perDeduction: simulation.per?.deductionUtilisee || 0,
+  });
 
   const toggleSection = (id: string) => {
     setOpenSections(prev => {
@@ -152,74 +157,110 @@ export function ExpertCalculBlocks({ simulation }: ExpertCalculBlocksProps) {
   );
 
   // ============================================================================
-  // BLOC 2 : PARAMÈTRES FISCAUX UTILISÉS
+  // BLOC 2 : SIMULATION RAPIDE (WHAT-IF)
   // ============================================================================
   
-  const renderParametresBlock = () => {
+  const renderSimulationBlock = () => {
+    const hasChanges = 
+      simulationInputs.revenuImposable !== simulation.ir.revenuImposable ||
+      simulationInputs.revenuFoncier !== simulation.consolidation.revenusFonciers ||
+      simulationInputs.perDeduction !== (simulation.per?.deductionUtilisee || 0);
+
+    // Calcul simplifié de l'impact (approximatif)
+    const deltaRevenu = simulationInputs.revenuImposable - simulation.ir.revenuImposable;
+    const impactIR = deltaRevenu * simulation.ir.trancheMarginate;
+    
     return (
           <div className="p-5">
             <div className="space-y-4">
-              {/* Informations générales */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-indigo-50 rounded-lg p-3 border border-indigo-200">
-                  <p className="text-xs text-gray-600 mb-1">Année fiscale</p>
-                  <p className="text-lg font-bold text-indigo-600">{simulation.inputs.year}</p>
+              {/* Sliders/Inputs de simulation */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">
+                    Revenu imposable
+                  </label>
+                  <Input
+                    type="number"
+                    value={simulationInputs.revenuImposable}
+                    onChange={(e) => setSimulationInputs(prev => ({ 
+                      ...prev, 
+                      revenuImposable: parseFloat(e.target.value) || 0 
+                    }))}
+                    className="text-sm"
+                  />
                 </div>
-                
-                <div className="bg-indigo-50 rounded-lg p-3 border border-indigo-200">
-                  <p className="text-xs text-gray-600 mb-1">Barème utilisé</p>
-                  <p className="text-lg font-bold text-indigo-600">{simulation.taxParams.version}</p>
+
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">
+                    Revenu foncier
+                  </label>
+                  <Input
+                    type="number"
+                    value={simulationInputs.revenuFoncier}
+                    onChange={(e) => setSimulationInputs(prev => ({ 
+                      ...prev, 
+                      revenuFoncier: parseFloat(e.target.value) || 0 
+                    }))}
+                    className="text-sm"
+                  />
                 </div>
-                
-                <div className="bg-indigo-50 rounded-lg p-3 border border-indigo-200">
-                  <p className="text-xs text-gray-600 mb-1">TMI final</p>
-                  <p className="text-lg font-bold text-indigo-600">{formatPercent(simulation.ir.trancheMarginate)}</p>
-                </div>
-                
-                <div className="bg-indigo-50 rounded-lg p-3 border border-indigo-200">
-                  <p className="text-xs text-gray-600 mb-1">Taux effectif</p>
-                  <p className="text-lg font-bold text-indigo-600">{formatPercent(simulation.resume?.tauxEffectif || 0)}</p>
+
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">
+                    Déduction PER
+                  </label>
+                  <Input
+                    type="number"
+                    value={simulationInputs.perDeduction}
+                    onChange={(e) => setSimulationInputs(prev => ({ 
+                      ...prev, 
+                      perDeduction: parseFloat(e.target.value) || 0 
+                    }))}
+                    className="text-sm"
+                  />
                 </div>
               </div>
 
-              {/* Détails du barème */}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <p className="text-xs font-semibold text-gray-700 mb-3">📋 Barème IR appliqué :</p>
-                <div className="space-y-1 text-xs text-gray-600">
-                  {simulation.ir.detailsTranches?.map((detail, i) => (
-                    <div key={i} className="flex justify-between">
-                      <span>
-                        Tranche {i + 1} : {formatEuro(detail.tranche.lower)} → {detail.tranche.upper ? formatEuro(detail.tranche.upper) : '∞'}
-                      </span>
-                      <span className="font-mono">{formatPercent(detail.tranche.rate)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {hasChanges && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={resetSimulation}
+                  className="w-full border-indigo-300 text-indigo-700"
+                >
+                  <RotateCcw className="h-3 w-3 mr-2" />
+                  Revenir à la situation réelle
+                </Button>
+              )}
 
-              {/* PER si applicable */}
-              {simulation.per && (
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                  <p className="text-xs font-semibold text-gray-700 mb-3">🔹 Paramètres PER :</p>
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Plafond disponible</span>
-                      <span className="font-bold">{formatEuro(simulation.per.details.plafondDisponible)}</span>
+              {/* Comparaison */}
+              {hasChanges && (
+                <>
+                  <Separator className="bg-indigo-200" />
+                  
+                  <div className="bg-amber-50 border border-amber-300 rounded p-3">
+                    <p className="text-xs text-amber-900 font-medium mb-2">
+                      📊 Impact estimé de la variation :
+                    </p>
+                    <div className="space-y-1 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-gray-700">Variation de revenu :</span>
+                        <span className={`font-bold ${deltaRevenu >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                          {deltaRevenu >= 0 ? '+' : ''}{formatEuro(deltaRevenu)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-700">Impact IR estimé (TMI {formatPercent(simulation.ir.trancheMarginate)}) :</span>
+                        <span className={`font-bold ${impactIR >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                          {impactIR >= 0 ? '+' : ''}{formatEuro(impactIR)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Versement effectué</span>
-                      <span className="font-bold">{formatEuro(simulation.per.versement)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Déduction utilisée</span>
-                      <span className="font-bold text-purple-600">{formatEuro(simulation.per.deductionUtilisee)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Économie IR</span>
-                      <span className="font-bold text-emerald-600">{formatEuro(simulation.per.economieIR)}</span>
-                    </div>
+                    <p className="text-[10px] text-amber-700 mt-2 italic">
+                      ⚠️ Calcul approximatif basé sur le TMI. Le calcul réel peut varier.
+                    </p>
                   </div>
-                </div>
+                </>
               )}
             </div>
         </div>
@@ -329,24 +370,24 @@ export function ExpertCalculBlocks({ simulation }: ExpertCalculBlocksProps) {
           )}
         </Card>
 
-        {/* Accordion 2 : Paramètres utilisés */}
+        {/* Accordion 2 : Simulation */}
         <Card className="border border-indigo-200 overflow-hidden">
           <button
-            onClick={() => toggleSection('parametres')}
+            onClick={() => toggleSection('simulation')}
             className="w-full flex items-center justify-between p-4 hover:bg-indigo-50/50 transition-colors"
           >
             <div className="flex items-center gap-2">
-              <Info className="h-4 w-4 text-indigo-600" />
-              <span className="font-semibold text-gray-900">Paramètres fiscaux utilisés</span>
+              <TrendingUp className="h-4 w-4 text-indigo-600" />
+              <span className="font-semibold text-gray-900">Simulation rapide (what-if)</span>
               <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-300 text-xs">
                 Expert
               </Badge>
             </div>
-            {openSections.has('parametres') ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            {openSections.has('simulation') ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
-          {openSections.has('parametres') && (
+          {openSections.has('simulation') && (
             <div className="border-t border-indigo-100 bg-white">
-              {renderParametresBlock()}
+              {renderSimulationBlock()}
             </div>
           )}
         </Card>
@@ -376,4 +417,3 @@ export function ExpertCalculBlocks({ simulation }: ExpertCalculBlocksProps) {
     </div>
   );
 }
-

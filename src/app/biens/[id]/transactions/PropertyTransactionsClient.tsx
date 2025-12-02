@@ -122,7 +122,6 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
     pages: 0
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [amountsSummary, setAmountsSummary] = useState({ positiveSum: 0, negativeSum: 0 });
 
   // États des modals et drawer
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -176,6 +175,7 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
   const [leases, setLeases] = useState<any[]>([]);
   const [tenants, setTenants] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [natures, setNatures] = useState<any[]>([]);
   
   // État pour forcer le rafraîchissement des KPI et graphiques
   const [refreshKey, setRefreshKey] = useState(0);
@@ -200,20 +200,23 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
   useEffect(() => {
     const loadReferenceData = async () => {
       try {
-        const [propertiesRes, categoriesRes, leasesRes] = await Promise.all([
+        const [propertiesRes, categoriesRes, naturesRes, leasesRes] = await Promise.all([
           fetch('/api/properties'),
           fetch('/api/accounting/categories'),
+          fetch('/api/admin/natures'),
           fetch(`/api/leases?propertyId=${propertyId}`) // Baux du bien
         ]);
 
-        const [propertiesData, categoriesData, leasesResponse] = await Promise.all([
+        const [propertiesData, categoriesData, naturesData, leasesResponse] = await Promise.all([
           propertiesRes.json(),
           categoriesRes.json(),
+          naturesRes.json(),
           leasesRes.json()
         ]);
 
         setProperties(propertiesData);
         setCategories(categoriesData);
+        setNatures(naturesData.data || []);
         setLeases(leasesResponse?.data || []); // L'API retourne { data: [...], pagination: {...} }
       } catch (error) {
         console.error('Erreur lors du chargement des données de référence:', error);
@@ -262,7 +265,6 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
       setTransactions(data.data || []);
       setPagination(data.pagination || { page: 1, limit: 50, total: 0, pages: 0 });
       setTotalCount(data.pagination?.total || 0);
-      setAmountsSummary(data.sums || { positiveSum: 0, negativeSum: 0 });
     } catch (error) {
       console.error('Erreur lors du chargement des données:', error);
       notify2.error('Erreur lors du chargement des données');
@@ -689,6 +691,7 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
         leases={leases}
         tenants={tenants}
         categories={categories}
+        natures={natures}
         periodStart={periodStart}
         periodEnd={periodEnd}
         onPeriodChange={handlePeriodChange}
@@ -760,7 +763,6 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
         onSelectTransaction={handleSelectTransaction}
         onSelectAll={handleSelectAll}
         loadingTransactionId={loadingTransactionId}
-        amountsSummary={amountsSummary}
       />
         </CardContent>
       </Card>

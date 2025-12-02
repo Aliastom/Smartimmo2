@@ -2,18 +2,49 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { notify2 } from '@/lib/notify2';
 import { Plus, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { SectionTitle } from '@/components/ui/SectionTitle';
 import { Pagination } from '@/components/ui/Pagination';
-import { TransactionModal } from '@/components/transactions/TransactionModalV2';
 import TransactionFilters from '@/components/transactions/TransactionFilters';
 import TransactionsTable from '@/components/transactions/TransactionsTable';
 import TransactionDrawer from '@/components/transactions/TransactionDrawer';
-import { ConfirmDeleteTransactionModal } from '@/components/transactions/ConfirmDeleteTransactionModal';
-import { ConfirmDeleteMultipleTransactionsModal } from '@/components/transactions/ConfirmDeleteMultipleTransactionsModal';
-import { DuplicateDetectedModal } from '@/components/documents/DuplicateDetectedModal';
+
+// ✅ OPTIMISATION: Lazy loading des modales pour réduire le bundle initial
+// Les modales ne sont chargées que lorsqu'elles sont ouvertes
+const TransactionModal = dynamic(
+  () => import('@/components/transactions/TransactionModalV2').then(mod => ({ default: mod.TransactionModal })),
+  { 
+    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
+    ssr: false 
+  }
+);
+
+const ConfirmDeleteTransactionModal = dynamic(
+  () => import('@/components/transactions/ConfirmDeleteTransactionModal').then(mod => ({ default: mod.ConfirmDeleteTransactionModal })),
+  { 
+    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
+    ssr: false 
+  }
+);
+
+const ConfirmDeleteMultipleTransactionsModal = dynamic(
+  () => import('@/components/transactions/ConfirmDeleteMultipleTransactionsModal').then(mod => ({ default: mod.ConfirmDeleteMultipleTransactionsModal })),
+  { 
+    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
+    ssr: false 
+  }
+);
+
+const DuplicateDetectedModal = dynamic(
+  () => import('@/components/documents/DuplicateDetectedModal').then(mod => ({ default: mod.DuplicateDetectedModal })),
+  { 
+    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
+    ssr: false 
+  }
+);
 import { TransactionsKpiBar } from '@/components/transactions/TransactionsKpiBar';
 import { TransactionsCumulativeChart } from '@/components/transactions/TransactionsCumulativeChart';
 import { TransactionsByCategoryChart } from '@/components/transactions/TransactionsByCategoryChart';
@@ -170,6 +201,7 @@ export default function TransactionsClient() {
   const [allLeases, setAllLeases] = useState<any[]>([]);
   const [allTenants, setAllTenants] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [natures, setNatures] = useState<any[]>([]);
   
   // État pour forcer le rafraîchissement des KPI et graphiques
   const [refreshKey, setRefreshKey] = useState(0);
@@ -268,18 +300,20 @@ export default function TransactionsClient() {
           propertiesParams.append('includeArchived', 'true');
         }
         
-        const [propertiesRes, leasesRes, tenantsRes, categoriesRes] = await Promise.all([
+        const [propertiesRes, leasesRes, tenantsRes, categoriesRes, naturesRes] = await Promise.all([
           fetch(`/api/properties?${propertiesParams.toString()}`),
           fetch('/api/leases'),
           fetch('/api/tenants'),
-          fetch('/api/accounting/categories')
+          fetch('/api/accounting/categories'),
+          fetch('/api/admin/natures')
         ]);
 
-        const [propertiesData, leasesData, tenantsData, categoriesData] = await Promise.all([
+        const [propertiesData, leasesData, tenantsData, categoriesData, naturesData] = await Promise.all([
           propertiesRes.json(),
           leasesRes.json(),
           tenantsRes.json(),
-          categoriesRes.json()
+          categoriesRes.json(),
+          naturesRes.json()
         ]);
 
         // Extraire les données si elles sont paginées et les stocker dans les états "all"
@@ -288,6 +322,7 @@ export default function TransactionsClient() {
         setAllLeases(Array.isArray(leasesData) ? leasesData : leasesData.items || leasesData.data || []);
         setAllTenants(Array.isArray(tenantsData) ? tenantsData : tenantsData.data || []);
         setCategories(categoriesData);
+        setNatures(naturesData.data || []);
       } catch (error) {
         console.error('Erreur lors du chargement des données de référence:', error);
       }
@@ -774,6 +809,7 @@ export default function TransactionsClient() {
         leases={leases}
         tenants={tenants}
         categories={categories}
+        natures={natures}
         periodStart={periodStart}
         periodEnd={periodEnd}
         onPeriodChange={handlePeriodChange}

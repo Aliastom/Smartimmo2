@@ -20,6 +20,7 @@ const updateLoanSchema = z.object({
   insurancePct: z.number().min(0).optional().nullable(),
   feesUpfront: z.number().min(0).optional().nullable(),
   startDate: z.string().datetime().optional(),
+  paymentDay: z.number().int().min(1).max(31, 'Le jour de paiement doit être entre 1 et 31').optional().nullable(),
   rateType: z.enum(['FIXED']).optional(),
   loanType: z.string().optional().nullable(),
   repaymentType: z.string().optional().nullable(),
@@ -71,6 +72,7 @@ export async function GET(
       defermentMonths: loan.defermentMonths,
       insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
       startDate: loan.startDate,
+      paymentDay: loan.paymentDay || undefined,
     });
 
     // Borner le schedule si from/to sont spécifiés
@@ -110,6 +112,7 @@ export async function GET(
         feesUpfront: loan.feesUpfront ? Number(loan.feesUpfront) : null,
         startDate: loan.startDate.toISOString(),
         endDate: loan.endDate?.toISOString() || null,
+        paymentDay: loan.paymentDay,
         rateType: loan.rateType,
         loanType: loan.loanType,
         repaymentType: loan.repaymentType,
@@ -215,6 +218,7 @@ export async function PATCH(
       newEndDate.setMonth(newEndDate.getMonth() + data.durationMonths);
       updateData.endDate = newEndDate;
     }
+    if (data.paymentDay !== undefined) updateData.paymentDay = data.paymentDay;
     if (data.rateType !== undefined) updateData.rateType = data.rateType;
     if (data.loanType !== undefined) updateData.loanType = data.loanType;
     if (data.repaymentType !== undefined) updateData.repaymentType = data.repaymentType;
@@ -249,6 +253,7 @@ export async function PATCH(
       feesUpfront: loan.feesUpfront ? Number(loan.feesUpfront) : null,
       startDate: loan.startDate.toISOString(),
       endDate: loan.endDate?.toISOString() || null,
+      paymentDay: loan.paymentDay,
       rateType: loan.rateType,
       loanType: loan.loanType,
       repaymentType: loan.repaymentType,

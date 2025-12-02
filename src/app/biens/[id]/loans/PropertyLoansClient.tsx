@@ -237,6 +237,7 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
         insurancePct: data.insurancePct,
         feesUpfront: data.feesUpfront,
         startDate: new Date(data.startDate).toISOString(),
+        paymentDay: data.paymentDay,
         loanType: (data as any).loanType,
         repaymentType: (data as any).repaymentType,
         amortizationProfile: (data as any).amortizationProfile,

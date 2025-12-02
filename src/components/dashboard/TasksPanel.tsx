@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -18,6 +18,7 @@ import {
   Send,
   ArrowRight,
   X,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type {
@@ -32,6 +33,7 @@ import type {
 import { LoyersRetardChart } from '@/components/dashboard/LoyersRetardChart';
 import { useToggleRapprochement } from '@/hooks/useToggleRapprochement';
 import { useQueryClient } from '@tanstack/react-query';
+import { TransactionReconciliationLoadingOverlay } from '@/components/dashboard/TransactionReconciliationLoadingOverlay';
 
 export interface TasksPanelProps {
   loyersNonEncaisses: LoyerNonEncaisse[];
@@ -110,6 +112,118 @@ export function TasksPanel({
         newSet.delete(transactionId);
         return newSet;
       });
+    }
+  };
+
+  // État pour le rapprochement en masse
+  const [isReconcilingAll, setIsReconcilingAll] = useState(false);
+  const [reconciliationProgress, setReconciliationProgress] = useState({
+    processed: 0,
+    total: 0,
+    current: '',
+  });
+  
+  // Ref pour garder l'état même en cas de re-render
+  const isReconcilingRef = useRef(false);
+
+  // Fonction pour rapprocher toutes les transactions
+  const handleRapprocherTout = async () => {
+    if (filteredTransactionsNonRapprochees.length === 0) return;
+
+    // Sauvegarder la liste des transactions à traiter pour éviter les problèmes de re-render
+    const transactionsToProcess = [...filteredTransactionsNonRapprochees];
+    const total = transactionsToProcess.length;
+
+    // Initialiser le rapprochement
+    isReconcilingRef.current = true;
+    setIsReconcilingAll(true);
+    setReconciliationProgress({
+      processed: 0,
+      total,
+      current: '',
+    });
+
+    // Marquer toutes les transactions comme en cours de rapprochement
+    const allIds = transactionsToProcess.map(t => t.id);
+    setTransactionsEnCoursRapprochement(prev => new Set([...prev, ...allIds]));
+
+    try {
+      let processed = 0;
+      const errors: string[] = [];
+      
+      // Rapprocher toutes les transactions en séquence pour avoir un meilleur suivi
+      for (const transaction of transactionsToProcess) {
+        try {
+          setReconciliationProgress(prev => ({
+            ...prev,
+            current: transaction.label,
+          }));
+
+          // Utiliser fetch directement pour éviter les invalidations automatiques du hook
+          const res = await fetch(`/api/transactions/${transaction.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rapprochementStatus: 'rapprochee' })
+          });
+
+          if (!res.ok) {
+            throw new Error(`Erreur HTTP: ${res.status}`);
+          }
+
+          processed++;
+          setReconciliationProgress(prev => ({
+            ...prev,
+            processed,
+            current: '',
+          }));
+        } catch (error) {
+          console.error(`Erreur lors du rapprochement de ${transaction.id}:`, error);
+          errors.push(transaction.label || transaction.id);
+          // Continuer avec les autres transactions même en cas d'erreur
+        }
+      }
+
+      // Attendre un peu pour que toutes les invalidations de queries soient terminées
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Invalider toutes les queries du dashboard pour rafraîchir les données
+      await queryClient.invalidateQueries({ 
+        queryKey: ['dashboard-monthly'],
+        exact: false 
+      });
+
+      // Attendre encore un peu pour que les données soient rafraîchies
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Mettre la progression à 100% avant de fermer
+      setReconciliationProgress(prev => ({
+        ...prev,
+        processed: total,
+        current: '',
+      }));
+
+      // Petit délai pour voir la progression à 100%
+      setTimeout(() => {
+        isReconcilingRef.current = false;
+        setIsReconcilingAll(false);
+        setReconciliationProgress({ processed: 0, total: 0, current: '' });
+      }, 500);
+
+      // Afficher un message si des erreurs sont survenues
+      if (errors.length > 0) {
+        console.warn('Certaines transactions n\'ont pas pu être rapprochées:', errors);
+      }
+    } catch (error) {
+      console.error('Erreur lors du rapprochement en masse:', error);
+      // En cas d'erreur, retirer toutes les transactions de la liste des en cours
+      setTransactionsEnCoursRapprochement(prev => {
+        const newSet = new Set(prev);
+        allIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
+      isReconcilingRef.current = false;
+      setIsReconcilingAll(false);
+      setReconciliationProgress({ processed: 0, total: 0, current: '' });
     }
   };
   
@@ -470,21 +584,52 @@ export function TasksPanel({
                     <div>
                       <h4 className="text-xs font-semibold text-gray-600 mb-2">Prêts</h4>
                       <div className="space-y-2">
-                        {echeancesPrets.slice(0, 3).map((pret) => (
-                          <TaskCard
-                            key={pret.id}
-                            icon={CreditCard}
-                            title={pret.propertyName}
-                            subtitle={
-                              pret.capital !== undefined && pret.interets !== undefined
-                                ? `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}${pret.assurance && pret.assurance > 0 ? ` | Assurance: ${formatCurrency(pret.assurance)}` : ''}`
-                                : undefined
+                        {echeancesPrets.slice(0, 3).map((pret) => {
+                          // Construire le subtitle avec info co-emprunteurs
+                          let subtitle = '';
+                          if (pret.capital !== undefined && pret.interets !== undefined) {
+                            subtitle = `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}${pret.assurance && pret.assurance > 0 ? ` | Assurance: ${formatCurrency(pret.assurance)}` : ''}`;
+                          }
+                          
+                          // Ajouter info co-emprunteurs
+                          if (pret.borrowersInfo && pret.borrowersInfo.count > 0) {
+                            const totalBorrowers = pret.borrowersInfo.count;
+                            const hasShares = pret.borrowersInfo.borrowers.some(b => b.share !== null);
+                            
+                            if (hasShares) {
+                              // Afficher les parts individuelles
+                              const sharesText = pret.borrowersInfo.borrowers
+                                .map(b => {
+                                  const shareAmount = b.share ? (pret.montantTotal * (b.share / 100)) : null;
+                                  return shareAmount !== null 
+                                    ? `${formatCurrency(shareAmount)} (${b.share}%)` 
+                                    : null;
+                                })
+                                .filter(Boolean)
+                                .join(' + ');
+                              
+                              if (sharesText) {
+                                subtitle += `\n${totalBorrowers} co-emprunteur${totalBorrowers > 1 ? 's' : ''}: ${sharesText}`;
+                              }
+                            } else {
+                              // Parts égales par défaut
+                              const sharePerBorrower = pret.montantTotal / totalBorrowers;
+                              subtitle += `\n${totalBorrowers} co-emprunteur${totalBorrowers > 1 ? 's' : ''}: ${formatCurrency(sharePerBorrower)} chacun`;
                             }
-                            date={pret.dateEcheance}
-                            amount={pret.montantTotal}
-                            priority="medium"
-                          />
-                        ))}
+                          }
+                          
+                          return (
+                            <TaskCard
+                              key={pret.id}
+                              icon={CreditCard}
+                              title={pret.propertyName}
+                              subtitle={subtitle}
+                              date={pret.dateEcheance}
+                              amount={pret.montantTotal}
+                              priority="medium"
+                            />
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -757,18 +902,42 @@ export function TasksPanel({
                 </div>
               </div>
 
-              {/* Footer */}
-              <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
-                <Button variant="outline" onClick={() => setShowAllTransactionsNonRapprochees(false)}>
-                  Fermer
-                </Button>
-              </div>
+            {/* Footer */}
+            <div className="flex items-center justify-between gap-3 p-6 border-t bg-gray-50">
+              <Button 
+                variant="primary"
+                onClick={handleRapprocherTout}
+                disabled={filteredTransactionsNonRapprochees.length === 0 || isReconcilingAll}
+              >
+                {isReconcilingAll ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Rapprochement en cours...
+                  </>
+                ) : (
+                  <>
+                    Tout rapprocher ({filteredTransactionsNonRapprochees.length})
+                  </>
+                )}
+              </Button>
+              <Button variant="outline" onClick={() => setShowAllTransactionsNonRapprochees(false)}>
+                Fermer
+              </Button>
             </div>
           </div>
-        )}
-      </>
-    );
-  }
+        </div>
+      )}
+
+      {/* Modal de chargement pendant le rapprochement en masse */}
+      <TransactionReconciliationLoadingOverlay
+        isReconciling={isReconcilingAll}
+        totalTransactions={reconciliationProgress.total}
+        transactionsProcessed={reconciliationProgress.processed}
+        currentTransaction={reconciliationProgress.current}
+      />
+    </>
+  );
+}
 
   // État pour la modale des relances (mode vertical)
   const [showAllRelancesVertical, setShowAllRelancesVertical] = useState(false);
@@ -1005,21 +1174,52 @@ export function TasksPanel({
                 <div>
                   <h4 className="text-xs font-semibold text-gray-600 mb-2">Prêts</h4>
                   <div className="space-y-2">
-                    {echeancesPrets.slice(0, 3).map((pret) => (
-                      <TaskCard
-                        key={pret.id}
-                        icon={CreditCard}
-                        title={pret.propertyName}
-                        subtitle={
-                          pret.capital !== undefined && pret.interets !== undefined
-                            ? `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}${pret.assurance && pret.assurance > 0 ? ` | Assurance: ${formatCurrency(pret.assurance)}` : ''}`
-                            : undefined
+                    {echeancesPrets.slice(0, 3).map((pret) => {
+                      // Construire le subtitle avec info co-emprunteurs
+                      let subtitle = '';
+                      if (pret.capital !== undefined && pret.interets !== undefined) {
+                        subtitle = `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}${pret.assurance && pret.assurance > 0 ? ` | Assurance: ${formatCurrency(pret.assurance)}` : ''}`;
+                      }
+                      
+                      // Ajouter info co-emprunteurs
+                      if (pret.borrowersInfo && pret.borrowersInfo.count > 0) {
+                        const totalBorrowers = pret.borrowersInfo.count;
+                        const hasShares = pret.borrowersInfo.borrowers.some(b => b.share !== null);
+                        
+                        if (hasShares) {
+                          // Afficher les parts individuelles
+                          const sharesText = pret.borrowersInfo.borrowers
+                            .map(b => {
+                              const shareAmount = b.share ? (pret.montantTotal * (b.share / 100)) : null;
+                              return shareAmount !== null 
+                                ? `${formatCurrency(shareAmount)} (${b.share}%)` 
+                                : null;
+                            })
+                            .filter(Boolean)
+                            .join(' + ');
+                          
+                          if (sharesText) {
+                            subtitle += `\n${totalBorrowers} co-emprunteur${totalBorrowers > 1 ? 's' : ''}: ${sharesText}`;
+                          }
+                        } else {
+                          // Parts égales par défaut
+                          const sharePerBorrower = pret.montantTotal / totalBorrowers;
+                          subtitle += `\n${totalBorrowers} co-emprunteur${totalBorrowers > 1 ? 's' : ''}: ${formatCurrency(sharePerBorrower)} chacun`;
                         }
-                        date={pret.dateEcheance}
-                        amount={pret.montantTotal}
-                        priority="medium"
-                      />
-                    ))}
+                      }
+                      
+                      return (
+                        <TaskCard
+                          key={pret.id}
+                          icon={CreditCard}
+                          title={pret.propertyName}
+                          subtitle={subtitle}
+                          date={pret.dateEcheance}
+                          amount={pret.montantTotal}
+                          priority="medium"
+                        />
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1292,7 +1492,23 @@ export function TasksPanel({
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
+            <div className="flex items-center justify-between gap-3 p-6 border-t bg-gray-50">
+              <Button 
+                variant="primary"
+                onClick={handleRapprocherTout}
+                disabled={filteredTransactionsNonRapprochees.length === 0 || isReconcilingAll}
+              >
+                {isReconcilingAll ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Rapprochement en cours...
+                  </>
+                ) : (
+                  <>
+                    Tout rapprocher ({filteredTransactionsNonRapprochees.length})
+                  </>
+                )}
+              </Button>
               <Button variant="outline" onClick={() => setShowAllTransactionsNonRapprochees(false)}>
                 Fermer
               </Button>
@@ -1300,6 +1516,14 @@ export function TasksPanel({
           </div>
         </div>
       )}
+
+      {/* Modal de chargement pendant le rapprochement en masse */}
+      <TransactionReconciliationLoadingOverlay
+        isReconciling={isReconcilingAll}
+        totalTransactions={reconciliationProgress.total}
+        transactionsProcessed={reconciliationProgress.processed}
+        currentTransaction={reconciliationProgress.current}
+      />
     </>
   );
 }

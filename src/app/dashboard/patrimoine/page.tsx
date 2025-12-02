@@ -90,15 +90,20 @@ export default function PatrimoinePage() {
   }, [mode, propertyId, type, leaseStatus, from, to, router]);
 
   // Récupérer la liste des biens pour le filtre
-  const { data: properties } = useQuery({
+  // ✅ OPTIMISATION: S'assurer que properties est toujours un tableau
+  const { data: properties = [] } = useQuery({
     queryKey: ['properties-for-filter'],
     queryFn: async () => {
       const response = await fetch('/api/properties');
       if (!response.ok) return [];
       const data = await response.json();
-      return data.data || [];
+      // S'assurer que data.data est un tableau
+      return Array.isArray(data.data) ? data.data : [];
     },
     staleTime: 5 * 60 * 1000,
+    // ✅ OPTIMISATION: Ne pas refetch automatiquement pour éviter les chargements multiples
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   });
 
   // Filtres pour l'API
@@ -112,10 +117,15 @@ export default function PatrimoinePage() {
   };
 
   // Charger les données
+  // ✅ OPTIMISATION: Ne pas refetch automatiquement pour éviter les chargements multiples
   const { data, isLoading, error } = useQuery({
     queryKey: ['patrimoine', filters],
     queryFn: () => fetchPatrimoineData(filters),
     staleTime: 2 * 60 * 1000, // 2 minutes
+    // ✅ OPTIMISATION: Éviter les refetch automatiques qui causent les 3 chargements
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   // Fonction d'export
@@ -298,13 +308,13 @@ export default function PatrimoinePage() {
           <SelectTrigger className="w-48">
             <SelectValue>
               {propertyId 
-                ? properties?.find((p: any) => p.id === propertyId)?.name || 'Bien inconnu'
+                ? (Array.isArray(properties) ? properties.find((p: any) => p.id === propertyId)?.name : null) || 'Bien inconnu'
                 : 'Tous les biens'}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="tous">Tous les biens</SelectItem>
-            {properties?.map((prop: any) => (
+            {Array.isArray(properties) && properties.map((prop: any) => (
               <SelectItem key={prop.id} value={prop.id}>
                 {prop.name}
               </SelectItem>

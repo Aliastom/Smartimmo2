@@ -407,6 +407,7 @@ model Loan {
   feesUpfront     Decimal?     @db.Decimal(12, 2)
   startDate       DateTime
   endDate         DateTime?
+  paymentDay      Int?         // Jour du mois pour le paiement (1-31)
   rateType        LoanRateType @default(FIXED)
   loanType        String?      // Type de prêt : "IMMOBILIER", "TRAVAUX", "PERSONNEL", "AUTRE"
   repaymentType   String?      // Type de remboursement : "CLASSIC", "IN_FINE"

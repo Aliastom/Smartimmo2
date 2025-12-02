@@ -25,28 +25,31 @@ export function buildLinksForTx(
  * @param tx Transaction avec propertyId et leaseId optionnels
  * @throws Error si conflit de contexte détecté
  * 
- * Note: Un document peut être lié à plusieurs biens ET plusieurs baux (partage de documents).
- * Par exemple, un décompte de charges peut concerner plusieurs lots/baux d'un même immeuble.
- * On n'impose plus de restriction stricte sur les liens vers les baux.
+ * Note: Un document peut être lié à plusieurs biens (partage de documents).
+ * On bloque uniquement si le document est déjà lié à un bail différent.
  */
 export async function ensureCompatibleContext(
   documentId: string, 
   tx: { propertyId?: string | null, leaseId?: string | null }
 ) {
-  // ✅ Plus de vérification stricte : un document peut être partagé entre plusieurs biens ET baux
-  // Cas d'usage :
-  // - Facture EDF commune à plusieurs appartements d'un même immeuble
-  // - Décompte de charges pour plusieurs locataires
-  // - Diagnostic commun à plusieurs lots
+  const existingLinks = await prisma.documentLink.findMany({
+    where: { 
+      documentId, 
+      linkedType: { in: ['property', 'lease'] } 
+    },
+    select: { linkedType: true, linkedId: true }
+  });
+
+  // Permettre les liens multiples vers différents biens (partage de documents)
+  // On ne bloque plus les conflits de bien car un document peut être partagé entre plusieurs biens
   
-  // Anciennement, on bloquait si le document était déjà lié à un autre bail.
-  // Maintenant, on autorise le partage total pour plus de flexibilité.
+  // Conflit de bail uniquement : un document ne devrait généralement pas être lié à plusieurs baux différents
+  if (tx.leaseId && existingLinks.some(l => l.linkedType === 'lease' && l.linkedId !== tx.leaseId)) {
+    throw new Error('CONTEXT_CONFLICT_LEASE'); // "Le document est déjà rattaché à un autre bail"
+  }
   
-  // Note : Si besoin d'une validation plus stricte à l'avenir, on pourrait
-  // vérifier le type de document (ex: un bail ne peut être lié qu'à un seul bail)
-  
-  // Pour l'instant, on laisse l'utilisateur libre de lier comme il veut
-  return;
+  // Si le document est déjà lié au même bien, c'est OK (pas de conflit)
+  // Si le document est lié à un autre bien, c'est aussi OK (partage autorisé)
 }
 
 /**

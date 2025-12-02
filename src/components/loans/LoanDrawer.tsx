@@ -46,6 +46,7 @@ export function LoanDrawer({
       defermentMonths: loan.defermentMonths,
       insurancePct: loan.insurancePct || 0,
       startDate: new Date(loan.startDate),
+      paymentDay: (loan as any).paymentDay || undefined,
     });
 
     setSchedule(computed);
@@ -244,6 +245,12 @@ export function LoanDrawer({
               <div>
                 <p className="text-sm text-gray-600">Date de début</p>
                 <p className="text-lg font-semibold text-gray-900">{formatDate(loan.startDate)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Jour de paiement</p>
+                <p className="text-lg font-semibold text-gray-900">
+                  {(loan as any).paymentDay ? `Le ${(loan as any).paymentDay} du mois` : 'Non défini'}
+                </p>
               </div>
               {schedule.length > 0 && (
                 <div>

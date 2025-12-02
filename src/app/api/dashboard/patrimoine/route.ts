@@ -216,21 +216,54 @@ async function calculatePrevision(
     whereLease.propertyId = propertyId;
   }
 
-  // Récupérer les baux actifs
-  const leases = await prisma.lease.findMany({
-    where: whereLease,
-    select: {
-      id: true,
-      propertyId: true,
-      rentAmount: true,
-      chargesRecupMensuelles: true,
-      startDate: true,
-      endDate: true,
-      Property: {
-        select: { name: true },
+  // ✅ OPTIMISATION: Paralléliser leases et echeances (requêtes indépendantes)
+  const whereEcheances: any = {
+    isActive: true,
+    startAt: { lte: toDate },
+    OR: [
+      { endAt: null },
+      { endAt: { gte: fromDate } },
+    ],
+    organizationId,
+  };
+
+  if (propertyId) {
+    whereEcheances.propertyId = propertyId;
+  }
+
+  const [leases, echeancesRecurrentes] = await Promise.all([
+    prisma.lease.findMany({
+      where: whereLease,
+      select: {
+        id: true,
+        propertyId: true,
+        rentAmount: true,
+        chargesRecupMensuelles: true,
+        startDate: true,
+        endDate: true,
+        Property: {
+          select: { name: true },
+        },
       },
-    },
-  });
+    }),
+    prisma.echeanceRecurrente.findMany({
+      where: whereEcheances,
+      select: {
+        id: true,
+        propertyId: true,
+        leaseId: true,
+        label: true,
+        type: true,
+        periodicite: true,
+        montant: true,
+        recuperable: true,
+        sens: true,
+        startAt: true,
+        endAt: true,
+        isActive: true,
+      },
+    }),
+  ]);
 
   // Initialiser les séries
   const loyersMap = new Map<string, number>();
@@ -269,38 +302,6 @@ async function calculatePrevision(
     });
   });
 
-  // Récupérer les échéances récurrentes pour la période
-  const whereEcheances: any = {
-    isActive: true,
-    startAt: { lte: toDate },
-    OR: [
-      { endAt: null },
-      { endAt: { gte: fromDate } },
-    ],
-    organizationId,
-  };
-
-  if (propertyId) {
-    whereEcheances.propertyId = propertyId;
-  }
-
-  const echeancesRecurrentes = await prisma.echeanceRecurrente.findMany({
-    where: whereEcheances,
-    select: {
-      id: true,
-      propertyId: true,
-      leaseId: true,
-      label: true,
-      type: true,
-      periodicite: true,
-      montant: true,
-      recuperable: true,
-      sens: true,
-      startAt: true,
-      endAt: true,
-      isActive: true,
-    },
-  });
 
   // Convertir les Decimal en number pour expandEcheances
   const echeancesInput = echeancesRecurrentes.map((e) => ({
@@ -362,6 +363,7 @@ async function calculatePrevision(
       defermentMonths: loan.defermentMonths,
       insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
       startDate: loan.startDate,
+      paymentDay: loan.paymentDay || undefined,
     });
 
     // Pour chaque mois de la période, ajouter la mensualité si le prêt est actif
@@ -518,43 +520,44 @@ async function calculateKPIs(
   leases?: any[],
   cashflowSeries?: number[]
 ): Promise<PatrimoineResponse['kpis']> {
-  // Valeur du parc
+  // ✅ OPTIMISATION: Paralléliser les requêtes indépendantes
   const whereProperty: any = { organizationId };
   if (propertyId) {
     whereProperty.id = propertyId;
   }
 
-  const properties = await prisma.property.findMany({
-    where: whereProperty,
-    select: {
-      id: true,
-      currentValue: true,
-      acquisitionPrice: true,
-    },
-  });
-
-  const valeurParc = properties.reduce((sum, p) => {
-    return sum + (p.currentValue || p.acquisitionPrice || 0);
-  }, 0);
-
-  // Encours / Dette - calculer le CRD total des prêts actifs
   const whereLoan: any = { isActive: true, organizationId };
   if (propertyId) {
     whereLoan.propertyId = propertyId;
   }
 
-  const loans = await prisma.loan.findMany({
-    where: whereLoan,
-    select: {
-      id: true,
-      principal: true,
-      annualRatePct: true,
-      durationMonths: true,
-      defermentMonths: true,
-      insurancePct: true,
-      startDate: true,
-    },
-  });
+  // Paralléliser les requêtes properties et loans
+  const [properties, loans] = await Promise.all([
+    prisma.property.findMany({
+      where: whereProperty,
+      select: {
+        id: true,
+        currentValue: true,
+        acquisitionPrice: true,
+      },
+    }),
+    prisma.loan.findMany({
+      where: whereLoan,
+      select: {
+        id: true,
+        principal: true,
+        annualRatePct: true,
+        durationMonths: true,
+        defermentMonths: true,
+        insurancePct: true,
+        startDate: true,
+      },
+    }),
+  ]);
+
+  const valeurParc = properties.reduce((sum, p) => {
+    return sum + (p.currentValue || p.acquisitionPrice || 0);
+  }, 0);
 
   let encoursDette = 0;
   const toMonth = formatMonth(toDate);
@@ -567,6 +570,7 @@ async function calculateKPIs(
       defermentMonths: loan.defermentMonths,
       insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
       startDate: loan.startDate,
+      paymentDay: loan.paymentDay || undefined,
     });
     
     const crd = crdAtDate(schedule, toMonth);

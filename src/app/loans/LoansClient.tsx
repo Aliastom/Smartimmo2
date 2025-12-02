@@ -32,6 +32,7 @@ export interface Loan {
   defermentMonths: number;
   insurancePct: number | null;
   startDate: string;
+  paymentDay?: number | null;
   isActive: boolean;
 }
 
@@ -239,6 +240,7 @@ export default function LoansClient() {
         insurancePct: data.insurancePct,
         feesUpfront: data.feesUpfront,
         startDate: new Date(data.startDate).toISOString(),
+        paymentDay: data.paymentDay,
         loanType: (data as any).loanType,
         repaymentType: (data as any).repaymentType,
         amortizationProfile: (data as any).amortizationProfile,

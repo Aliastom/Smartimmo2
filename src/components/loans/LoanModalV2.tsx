@@ -28,6 +28,7 @@ const loanFormSchema = z.object({
   insurancePct: z.number().min(0, 'L\'assurance doit être positive').optional().nullable(),
   feesUpfront: z.number().min(0, 'Les frais doivent être positifs').optional().nullable(),
   startDate: z.string().min(1, 'La date de début est requise'),
+  paymentDay: z.number().int().min(1).max(31, 'Le jour de paiement doit être entre 1 et 31').optional().nullable(),
   loanType: z.string().optional().nullable(),
   repaymentType: z.string().optional().nullable(),
   amortizationProfile: z.string().optional().nullable(),
@@ -151,6 +152,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
       startDate: initialData?.startDate
         ? new Date(initialData.startDate).toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0],
+      paymentDay: (initialData as any)?.paymentDay || null,
       loanType: (initialData as any)?.loanType || null,
       repaymentType: (initialData as any)?.repaymentType || null,
       amortizationProfile: (initialData as any)?.amortizationProfile || null,
@@ -174,6 +176,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
         startDate: initialData.startDate
           ? new Date(initialData.startDate).toISOString().split('T')[0]
           : new Date().toISOString().split('T')[0],
+        paymentDay: (initialData as any)?.paymentDay || null,
         loanType: (initialData as any)?.loanType || null,
         repaymentType: (initialData as any)?.repaymentType || null,
         amortizationProfile: (initialData as any)?.amortizationProfile || null,
@@ -199,6 +202,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
         insurancePct: null,
         feesUpfront: null,
         startDate: new Date().toISOString().split('T')[0],
+        paymentDay: null,
         loanType: null,
         repaymentType: null,
         amortizationProfile: null,
@@ -498,6 +502,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
   const defermentMonths = watch('defermentMonths') || 0;
   const insurancePct = watch('insurancePct') || 0;
   const startDate = watch('startDate');
+  const paymentDay = watch('paymentDay');
   
   // Calculer la mensualité et la date de fin
   const [calculatedMonthlyPayment, setCalculatedMonthlyPayment] = useState<number | null>(null);
@@ -514,6 +519,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
           defermentMonths,
           insurancePct,
           startDate: new Date(startDate),
+          paymentDay: paymentDay || undefined,
         });
         
         if (schedule.length > 0) {
@@ -524,12 +530,20 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
           // Date de fin
           const endDate = new Date(startDate);
           endDate.setMonth(endDate.getMonth() + durationMonths);
+          // Si paymentDay est défini, ajuster le jour de la date de fin
+          if (paymentDay) {
+            const lastDayOfMonth = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0).getDate();
+            const adjustedDay = Math.min(paymentDay, lastDayOfMonth);
+            endDate.setDate(adjustedDay);
+          }
           setCalculatedEndDate(endDate.toLocaleDateString('fr-FR'));
           
           // CRD actuel (aujourd'hui)
           const today = new Date();
-          const todayMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-          const crd = crdAtDate(schedule, todayMonth);
+          const todayStr = paymentDay 
+            ? `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+            : `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+          const crd = crdAtDate(schedule, todayStr);
           setCalculatedCRD(crd);
         }
       } catch (error) {
@@ -543,7 +557,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
       setCalculatedEndDate(null);
       setCalculatedCRD(null);
     }
-  }, [principal, annualRatePct, durationMonths, defermentMonths, insurancePct, startDate]);
+  }, [principal, annualRatePct, durationMonths, defermentMonths, insurancePct, startDate, paymentDay]);
 
   return (
     <>
@@ -778,13 +792,34 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                     </div>
                   </div>
 
-                  {/* Date de début */}
-                  <div className="space-y-2">
-                    <Label htmlFor="startDate">Date de début *</Label>
-                    <Input id="startDate" type="date" {...register('startDate')} />
-                    {errors.startDate && (
-                      <p className="text-sm text-red-500">{errors.startDate.message}</p>
-                    )}
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Date de début */}
+                    <div className="space-y-2">
+                      <Label htmlFor="startDate">Date de début *</Label>
+                      <Input id="startDate" type="date" {...register('startDate')} />
+                      {errors.startDate && (
+                        <p className="text-sm text-red-500">{errors.startDate.message}</p>
+                      )}
+                    </div>
+
+                    {/* Jour de paiement */}
+                    <div className="space-y-2">
+                      <Label htmlFor="paymentDay">Jour de paiement du mois</Label>
+                      <Input
+                        id="paymentDay"
+                        type="number"
+                        min="1"
+                        max="31"
+                        {...register('paymentDay', { 
+                          setValueAs: (v) => v === '' || v === null ? null : parseInt(v),
+                        })}
+                        placeholder="5"
+                      />
+                      {errors.paymentDay && (
+                        <p className="text-sm text-red-500">{errors.paymentDay.message}</p>
+                      )}
+                      <p className="text-xs text-gray-500">Si non renseigné, le jour de la date de début sera utilisé</p>
+                    </div>
                   </div>
 
                   {/* Calculs automatiques - Badges informatifs */}

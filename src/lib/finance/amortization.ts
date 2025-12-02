@@ -9,11 +9,12 @@ export interface AmortizationInput {
   defermentMonths?: number;
   insurancePct?: number;
   startDate: Date;
+  paymentDay?: number; // Jour du mois pour le paiement (1-31)
 }
 
 export interface ScheduleRow {
   month: number;
-  date: string; // YYYY-MM
+  date: string; // YYYY-MM ou YYYY-MM-DD si paymentDay est spécifié
   paymentPrincipal: number;
   paymentInterest: number;
   paymentInsurance: number;
@@ -34,6 +35,7 @@ export function buildSchedule(input: AmortizationInput): ScheduleRow[] {
     defermentMonths = 0,
     insurancePct = 0,
     startDate,
+    paymentDay,
   } = input;
 
   const schedule: ScheduleRow[] = [];
@@ -54,12 +56,24 @@ export function buildSchedule(input: AmortizationInput): ScheduleRow[] {
   let cumulativeInterest = 0;
   let cumulativeInsurance = 0;
 
+  // Déterminer le jour de paiement : si paymentDay est fourni, l'utiliser, sinon utiliser le jour de startDate
+  const effectivePaymentDay = paymentDay || startDate.getDate();
+
   for (let month = 1; month <= durationMonths; month++) {
     const currentDate = new Date(startDate);
     currentDate.setMonth(currentDate.getMonth() + month - 1);
-    const dateStr = `${currentDate.getFullYear()}-${String(
-      currentDate.getMonth() + 1
-    ).padStart(2, '0')}`;
+    
+    // Si un jour de paiement spécifique est défini, l'appliquer
+    if (paymentDay) {
+      // Ajuster pour les mois qui n'ont pas ce jour (ex: 31 février)
+      const lastDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+      const adjustedDay = Math.min(paymentDay, lastDayOfMonth);
+      currentDate.setDate(adjustedDay);
+    }
+    
+    const dateStr = paymentDay 
+      ? `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`
+      : `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
 
     let paymentPrincipal = 0;
     let paymentInterest = 0;

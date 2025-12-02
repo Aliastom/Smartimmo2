@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { 
   Search, 
   Filter, 
@@ -17,7 +18,8 @@ import {
   FileText,
   Clock,
   CheckCircle,
-  FileX
+  FileX,
+  Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -34,10 +36,32 @@ import {
   DocumentLinkSelector,
   DocumentTableRow,
 } from './unified';
-import { DocumentEditModal } from './unified/DocumentEditModal';
-import DocumentDrawer from './DocumentDrawer';
 import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
-import { ConfirmDeleteDocumentModal } from './ConfirmDeleteDocumentModal';
+
+// ✅ OPTIMISATION: Lazy loading des modales pour réduire le bundle initial
+const DocumentEditModal = dynamic(
+  () => import('./unified/DocumentEditModal').then(mod => ({ default: mod.DocumentEditModal })),
+  { 
+    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
+    ssr: false 
+  }
+);
+
+const DocumentDrawer = dynamic(
+  () => import('./DocumentDrawer'),
+  { 
+    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
+    ssr: false 
+  }
+);
+
+const ConfirmDeleteDocumentModal = dynamic(
+  () => import('./ConfirmDeleteDocumentModal').then(mod => ({ default: mod.ConfirmDeleteDocumentModal })),
+  { 
+    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
+    ssr: false 
+  }
+);
 
 export function DocumentsPageUnified() {
   // États

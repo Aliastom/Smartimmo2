@@ -127,6 +127,13 @@ export interface EcheancePret {
   capital?: number;
   interets?: number;
   assurance?: number;
+  borrowersInfo?: {
+    count: number;
+    borrowers: Array<{
+      name: string;
+      share: number | null;
+    }>;
+  };
 }
 
 export interface EcheanceCharge {

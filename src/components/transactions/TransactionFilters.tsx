@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Search, Filter, X, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -30,6 +30,7 @@ interface TransactionFiltersProps {
   leases: any[];
   tenants: any[];
   categories: any[];
+  natures: any[];
   // Nouveaux props pour la période
   periodStart?: string;
   periodEnd?: string;
@@ -37,19 +38,6 @@ interface TransactionFiltersProps {
   // Masquer le filtre Bien (pour l'onglet bien)
   hidePropertyFilter?: boolean;
 }
-
-const NATURE_OPTIONS = [
-  { value: '', label: 'Toutes les natures' },
-  { value: 'LOYER', label: 'Loyer (recette)' },
-  { value: 'CHARGES', label: 'Charges (recette)' },
-  { value: 'DEPOT_GARANTIE', label: 'Dépôt de garantie (recette)' },
-  { value: 'FRAIS_AGENCE', label: 'Frais d\'agence (recette)' },
-  { value: 'TRAVAUX', label: 'Travaux (dépense)' },
-  { value: 'ENTRETIEN', label: 'Entretien (dépense)' },
-  { value: 'ASSURANCE', label: 'Assurance (dépense)' },
-  { value: 'TAXES', label: 'Taxes (dépense)' },
-  { value: 'AUTRE', label: 'Autre' }
-];
 
 // STATUS_OPTIONS supprimé - utiliser la carte KPI "Transactions non rapprochées" pour filtrer
 
@@ -67,12 +55,41 @@ export default function TransactionFilters({
   leases,
   tenants,
   categories,
+  natures,
   periodStart,
   periodEnd,
   onPeriodChange,
   hidePropertyFilter = false
 }: TransactionFiltersProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  
+  // Filtrer les catégories en fonction de la nature sélectionnée
+  const filteredCategories = useMemo(() => {
+    if (!filters.natureId) return categories;
+    
+    // Trouver la nature sélectionnée pour obtenir son flow
+    const selectedNature = natures.find(n => n.key === filters.natureId);
+    if (!selectedNature) {
+      console.log('[TransactionFilters] Nature non trouvée:', filters.natureId, 'dans', natures.map(n => n.key));
+      return categories;
+    }
+    
+    // Utiliser les compatibleTypes de la nature pour filtrer les catégories
+    const compatibleTypes = selectedNature.compatibleTypes || [];
+    console.log('[TransactionFilters] Nature sélectionnée:', selectedNature.key, 'Types compatibles:', compatibleTypes);
+    
+    // Si pas de types compatibles définis, retourner toutes les catégories
+    if (!compatibleTypes || compatibleTypes.length === 0) {
+      console.log('[TransactionFilters] Aucun type compatible défini, affichage de toutes les catégories');
+      return categories;
+    }
+    
+    // Filtrer les catégories dont le type est dans compatibleTypes
+    const filtered = categories.filter(c => compatibleTypes.includes(c.type));
+    
+    console.log('[TransactionFilters] Catégories filtrées:', filtered.length, '/', categories.length, '- Types acceptés:', compatibleTypes);
+    return filtered;
+  }, [categories, natures, filters.natureId]);
 
   const handleFilterChange = (key: string, value: string) => {
     onFiltersChange({
@@ -393,17 +410,55 @@ export default function TransactionFilters({
             </div>
           )}
 
-          {/* Filtre Nature */}
+          {/* Filtres Nature et Catégorie côte à côte */}
           <div className="pb-4 border-b">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Nature
-            </label>
-            <Select
-              value={filters.natureId}
-              onChange={(e) => handleFilterChange('natureId', e.target.value)}
-              options={NATURE_OPTIONS}
-              placeholder="Nature"
-            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Filtre Nature */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nature
+                </label>
+                <Select
+                  value={filters.natureId}
+                  onChange={(e) => {
+                    // Réinitialiser la catégorie quand on change de nature (en un seul appel)
+                    onFiltersChange({
+                      ...filters,
+                      natureId: e.target.value,
+                      categoryId: e.target.value !== filters.natureId ? '' : filters.categoryId
+                    });
+                  }}
+                  options={[
+                    { value: '', label: 'Toutes les natures' },
+                    ...(Array.isArray(natures) ? natures.map(nature => ({
+                      value: nature.key,
+                      label: `${nature.label} (${(nature.flow || '').toLowerCase()})`
+                    })) : [])
+                  ]}
+                  placeholder="Sélectionner une nature"
+                />
+              </div>
+              
+              {/* Filtre Catégorie */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Catégorie comptable
+                </label>
+                <Select
+                  value={filters.categoryId}
+                  onChange={(e) => handleFilterChange('categoryId', e.target.value)}
+                  options={[
+                    { value: '', label: 'Toutes les catégories' },
+                    ...(Array.isArray(filteredCategories) ? filteredCategories.map(category => ({
+                      value: category.id,
+                      label: category.label
+                    })) : [])
+                  ]}
+                  placeholder="Catégorie"
+                  disabled={!filters.natureId && filteredCategories.length === categories.length}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Filtres avancés */}
@@ -464,25 +519,6 @@ export default function TransactionFilters({
                   })) : [])
                 ]}
                 placeholder="Sélectionner un locataire"
-              />
-            </div>
-
-            {/* Catégorie */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Catégorie
-              </label>
-              <Select
-                value={filters.categoryId}
-                onChange={(e) => handleFilterChange('categoryId', e.target.value)}
-                options={[
-                  { value: '', label: 'Toutes les catégories' },
-                  ...(Array.isArray(categories) ? categories.map(category => ({
-                    value: category.id,
-                    label: category.label
-                  })) : [])
-                ]}
-                placeholder="Sélectionner une catégorie"
               />
             </div>
 

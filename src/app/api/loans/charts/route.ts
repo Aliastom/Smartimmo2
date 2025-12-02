@@ -76,6 +76,7 @@ export async function GET(request: NextRequest) {
             defermentMonths: loan.defermentMonths,
             insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
             startDate: loan.startDate,
+            paymentDay: loan.paymentDay || undefined,
           });
           
           const crd = crdAtDate(schedule, month);
@@ -102,6 +103,7 @@ export async function GET(request: NextRequest) {
         defermentMonths: loan.defermentMonths,
         insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
         startDate: loan.startDate,
+        paymentDay: loan.paymentDay || undefined,
       });
       
       const crd = crdAtDate(schedule, to);
@@ -141,6 +143,7 @@ export async function GET(request: NextRequest) {
         defermentMonths: loan.defermentMonths,
         insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
         startDate: loan.startDate,
+        paymentDay: loan.paymentDay || undefined,
       });
       
       const totalInterest = schedule.length > 0

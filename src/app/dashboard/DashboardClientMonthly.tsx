@@ -34,6 +34,9 @@ export default function DashboardClientMonthly() {
   const [type, setType] = useState<'INCOME' | 'EXPENSE' | 'ALL'>('ALL');
   const [statut, setStatut] = useState<'paye' | 'en_retard' | 'a_venir' | 'ALL'>('ALL');
   const [source, setSource] = useState<'loyer' | 'hors_loyer' | 'ALL'>('ALL');
+  const [focusLoyer, setFocusLoyer] = useState<boolean>(() => {
+    return searchParams.get('focusLoyer') === 'true';
+  });
 
   // Mémoriser les paramètres de requête pour éviter les re-renders
   const queryParams = useMemo(() => {
@@ -44,9 +47,10 @@ export default function DashboardClientMonthly() {
       ...(type !== 'ALL' && { type }),
       ...(statut !== 'ALL' && { statut }),
       ...(source !== 'ALL' && { source }),
+      ...(focusLoyer && { focusLoyer: 'true' }),
     });
     return params.toString();
-  }, [month, bienIds, locataireIds, type, statut, source]);
+  }, [month, bienIds, locataireIds, type, statut, source, focusLoyer]);
 
   // Récupérer les biens et locataires pour les filtres
   const { data: propertiesData } = useQuery({
@@ -93,9 +97,10 @@ export default function DashboardClientMonthly() {
     if (type !== 'ALL') params.set('type', type);
     if (statut !== 'ALL') params.set('statut', statut);
     if (source !== 'ALL') params.set('source', source);
+    if (focusLoyer) params.set('focusLoyer', 'true');
     
     router.replace(`/dashboard?${params.toString()}`, { scroll: false });
-  }, [month, bienIds, locataireIds, type, statut, source, router]);
+  }, [month, bienIds, locataireIds, type, statut, source, focusLoyer, router]);
   
   const handleFilterChange = (filters: {
     month?: string;
@@ -122,6 +127,35 @@ export default function DashboardClientMonthly() {
           <p className="text-sm sm:text-base text-gray-600 mt-1">
             Vue mensuelle opérationnelle de votre portefeuille
           </p>
+        </div>
+      </div>
+
+      {/* Toggle Focus Loyer - Très visible */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-12 h-12 bg-blue-500 rounded-lg">
+              <Building2 className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">Focus loyer</h3>
+              <p className="text-sm text-gray-600">
+                Afficher uniquement les transactions de gestion déléguée (loyers et frais de gestion)
+              </p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={focusLoyer}
+              onChange={(e) => setFocusLoyer(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-14 h-7 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
+            <span className="ml-3 text-sm font-medium text-gray-700">
+              {focusLoyer ? 'Activé' : 'Désactivé'}
+            </span>
+          </label>
         </div>
       </div>
 
@@ -185,7 +219,7 @@ export default function DashboardClientMonthly() {
           isLoading={true}
         />
       ) : data ? (
-        <MonthlyKpiBar kpis={data.kpis} />
+        <MonthlyKpiBar kpis={data.kpis} focusLoyer={focusLoyer} />
       ) : null}
 
       {/* Placeholder IA Insights (futur) */}

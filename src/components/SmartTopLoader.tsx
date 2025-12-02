@@ -46,6 +46,7 @@ export function SmartTopLoader({
   const clickedPathRef = useRef<string | null>(null); // Pour suivre le pathname sur lequel on a cliqué
   const clickedPropertyRowRef = useRef<HTMLElement | null>(null); // Pour suivre la ligne du tableau cliquée
   const progressRef = useRef<number>(0); // Ref pour suivre la progression sans causer de re-renders
+  const loaderStartedForPathRef = useRef<string | null>(null); // ✅ OPTIMISATION: Suivre si le loader a déjà été démarré pour ce pathname
 
   // Mettre à jour les refs
   useEffect(() => {
@@ -56,6 +57,13 @@ export function SmartTopLoader({
   useEffect(() => {
     progressRef.current = progress;
   }, [progress]);
+
+  // ✅ OPTIMISATION: Réinitialiser le flag quand le pathname change
+  useEffect(() => {
+    if (loaderStartedForPathRef.current !== pathname) {
+      loaderStartedForPathRef.current = null;
+    }
+  }, [pathname]);
 
   // Vérifier si le contenu de la page /biens est rendu ET que les données sont chargées
   const checkBiensContentRendered = useCallback((): boolean => {
@@ -1351,14 +1359,29 @@ export function SmartTopLoader({
   }, [loadingPathsArray, loadingPaths, pathname, isLoading, initialProgress]);
 
   // Surveiller React Query pour démarrer le loader si nécessaire (pour les pages qui utilisent React Query)
+  // ✅ OPTIMISATION: Ne démarrer qu'une seule fois par changement de route, pas à chaque changement de isFetching
   useEffect(() => {
-    if ((pathname === '/dashboard' || pathname === '/dashboard/patrimoine' || pathname === '/locataires' || pathname === '/documents' || pathname === '/echeances' || pathname === '/loans' || pathname === '/parametres') && isFetching > 0 && !isLoading) {
-      // React Query charge, démarrer le loader
+    const isSupportedPage = pathname === '/dashboard' || 
+      pathname === '/dashboard/patrimoine' || 
+      pathname === '/locataires' || 
+      pathname === '/documents' || 
+      pathname === '/echeances' || 
+      pathname === '/loans' || 
+      pathname === '/parametres';
+    
+    // Si le pathname a changé, réinitialiser le flag
+    if (loaderStartedForPathRef.current !== pathname) {
+      loaderStartedForPathRef.current = null;
+    }
+    
+    if (isSupportedPage && isFetching > 0 && !isLoading && loaderStartedForPathRef.current !== pathname) {
+      // React Query charge et on n'a pas encore démarré le loader pour ce pathname
       setIsLoading(true);
       setShowBar(true);
       setProgress(initialProgress);
       setLoading(pathname, true);
-    } else if ((pathname === '/dashboard' || pathname === '/dashboard/patrimoine' || pathname === '/locataires' || pathname === '/documents' || pathname === '/echeances' || pathname === '/loans' || pathname === '/parametres') && isFetching > 0 && isLoading) {
+      loaderStartedForPathRef.current = pathname; // Marquer qu'on a démarré pour ce pathname
+    } else if (isSupportedPage && isFetching > 0 && isLoading) {
       // React Query charge et le loader est déjà actif, s'assurer que la barre est visible
       setShowBar(true);
     }

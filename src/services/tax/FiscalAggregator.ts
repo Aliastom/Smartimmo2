@@ -416,23 +416,29 @@ class FiscalAggregatorClass {
       const isRecette = flowUpper === 'RECETTE' || flowUpper === 'INCOME';
       const isDepense = flowUpper === 'DEPENSE' || flowUpper === 'EXPENSE';
       
-      // Récupérer la catégorie pour le breakdown
-      const categoryCode = transaction.Category?.code || 'AUTRE';
+      // Récupérer la catégorie pour le breakdown (utiliser slug comme clé unique)
+      const categorySlug = transaction.Category?.slug || 'AUTRE';
       const categoryLabel = transaction.Category?.label || 'Autres';
+      
+      // 🔍 Debug : logger chaque transaction pour voir sa catégorie ET l'objet Category complet
+      if (!transaction.Category?.slug) {
+        console.warn(`   ⚠️ ${transaction.label}: PAS DE SLUG ! Category =`, transaction.Category);
+      }
+      console.log(`   🔍 ${transaction.label}: ${categoryLabel} (${categorySlug}) - ${montant.toFixed(2)}€ - Flow: ${flowUpper}`);
       
       if (isRecette) {
         // Recette
         recettesTotales += montant;
         
         // 🆕 Ajouter au breakdown par catégorie
-        if (!recettesParCategorie[categoryCode]) {
-          recettesParCategorie[categoryCode] = { label: categoryLabel, amount: 0 };
+        if (!recettesParCategorie[categorySlug]) {
+          recettesParCategorie[categorySlug] = { label: categoryLabel, amount: 0 };
         }
-        recettesParCategorie[categoryCode].amount += montant;
+        recettesParCategorie[categorySlug].amount += montant;
         
         // ✅ Identifier les loyers UNIQUEMENT par la CATÉGORIE définie dans les codes système
         // La commission s'applique sur les transactions de la catégorie loyer (pas juste la nature)
-        if (categoryCode === systemCodes.rentCategory) {
+        if (categorySlug === systemCodes.rentCategory) {
           recettesLoyer += montant;
         }
       } else if (isDepense) {
@@ -443,19 +449,19 @@ class FiscalAggregatorClass {
           chargesDeductibles += montant;
           
           // 🆕 Ajouter au breakdown par catégorie (seulement les déductibles)
-          if (!chargesParCategorie[categoryCode]) {
-            chargesParCategorie[categoryCode] = { label: categoryLabel, amount: 0 };
+          if (!chargesParCategorie[categorySlug]) {
+            chargesParCategorie[categorySlug] = { label: categoryLabel, amount: 0 };
           }
-          chargesParCategorie[categoryCode].amount += montant;
+          chargesParCategorie[categorySlug].amount += montant;
         } else {
           // Si catégorie non définie → considérer comme déductible par défaut
           chargesDeductibles += montant;
           
           // 🆕 Ajouter au breakdown
-          if (!chargesParCategorie[categoryCode]) {
-            chargesParCategorie[categoryCode] = { label: categoryLabel, amount: 0 };
+          if (!chargesParCategorie[categorySlug]) {
+            chargesParCategorie[categorySlug] = { label: categoryLabel, amount: 0 };
           }
-          chargesParCategorie[categoryCode].amount += montant;
+          chargesParCategorie[categorySlug].amount += montant;
         }
       }
     }
@@ -478,6 +484,14 @@ class FiscalAggregatorClass {
       projection.loyersFuturs,
       projection.chargesRecupFutures
     );
+    
+    // 🆕 Ajouter les intérêts d'emprunt au breakdown par catégorie
+    if (interets.passe > 0) {
+      if (!chargesParCategorie['INTERETS_EMPRUNT']) {
+        chargesParCategorie['INTERETS_EMPRUNT'] = { label: 'Intérêts d\'emprunt', amount: 0 };
+      }
+      chargesParCategorie['INTERETS_EMPRUNT'].amount += interets.passe;
+    }
     
     // 🆕 Construire le breakdown détaillé (sans logs verbeux)
     
@@ -639,6 +653,15 @@ class FiscalAggregatorClass {
         
         // Calculer le CRD actuel (après X mois)
         const startDate = new Date(loan.startDate);
+        
+        // 🆕 Prendre en compte le paymentDay pour déterminer si le mois actuel est passé ou futur
+        const paymentDay = loan.paymentDay || startDate.getDate();
+        const todayDay = today.getDate();
+        
+        // Si le jour de paiement est déjà passé ce mois-ci, le mois actuel est dans "passé"
+        // Sinon, il est dans "projection"
+        const currentMonthIsPaid = todayDay >= paymentDay;
+        
         const moisEcoules = (currentYear - startDate.getFullYear()) * 12 + (currentMonth - (startDate.getMonth() + 1));
         
         // CRD = Principal × ((1 + taux)^n - (1 + taux)^mois) / ((1 + taux)^n - 1)
@@ -649,23 +672,28 @@ class FiscalAggregatorClass {
           crdActuel = principal * (facteur - facteurMois) / (facteur - 1);
         }
         
-        // Intérêts passés (somme des intérêts de janvier à mois actuel)
+        // 🆕 Intérêts passés : tenir compte du paymentDay
+        // Si le paiement du mois actuel est déjà effectué (jour passé), inclure le mois actuel dans "passé"
+        // Sinon, le mois actuel est dans "projection"
+        const moisPassesPourInterets = currentMonthIsPaid ? currentMonth : (currentMonth - 1);
+        const moisFutursPourInterets = currentMonthIsPaid ? (12 - currentMonth) : (12 - currentMonth + 1);
+        
+        // Intérêts passés (somme des intérêts de janvier à mois actuel inclus si payé)
         // Calcul simplifié : moyenne du capital sur la période
         const crdDebut = principal;
         const crdMaintenant = crdActuel;
         const capitalMoyen = (crdDebut + crdMaintenant) / 2;
-        interetsPasse += capitalMoyen * (tauxMensuel * 12) * (currentMonth / 12);
+        interetsPasse += capitalMoyen * (tauxMensuel * 12) * (moisPassesPourInterets / 12);
         
         // Intérêts futurs (pour les mois restants)
         // Utiliser le CRD actuel comme base
-        const moisRestants = 12 - currentMonth;
         const interetsMoisProchain = crdActuel * tauxMensuel;
-        interetsProjection += interetsMoisProchain * moisRestants;
+        interetsProjection += interetsMoisProchain * moisFutursPourInterets;
         
         // Assurance (sur capital initial généralement)
         const assuranceTotale = principal * assurancePct * 12;
-        interetsPasse += assuranceTotale * (currentMonth / 12);
-        interetsProjection += assuranceTotale * (moisRestants / 12);
+        interetsPasse += assuranceTotale * (moisPassesPourInterets / 12);
+        interetsProjection += assuranceTotale * (moisFutursPourInterets / 12);
         
         // Log détaillé supprimé pour réduire la verbosité
       }
