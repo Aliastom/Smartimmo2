@@ -261,13 +261,23 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             await loadStagedDocuments(uploadSessionId);
             
             // Recharger aussi les liens vers documents existants
+            // ⚠️ IMPORTANT: Fusionner avec les liens existants pour ne pas perdre les liens ajoutés juste avant
             try {
               const sessionResponse = await fetch(`/api/upload-session/${uploadSessionId}`);
               if (sessionResponse.ok) {
                 const sessionData = await sessionResponse.json();
                 if (sessionData.success) {
-                  setStagedLinks(sessionData.DocumentLink || []);
-                  console.log('[TransactionModal] Liens rechargés:', sessionData.DocumentLink?.length || 0);
+                  setStagedLinks(prev => {
+                    const newLinks = sessionData.DocumentLink || [];
+                    // Fusionner en évitant les doublons (basé sur l'ID du document existant)
+                    const existingDocIds = new Set(prev.map((l: any) => l.existingDocumentId));
+                    const mergedLinks = [
+                      ...prev,
+                      ...newLinks.filter((l: any) => !existingDocIds.has(l.existingDocumentId))
+                    ];
+                    console.log('[TransactionModal] Liens fusionnés:', mergedLinks.length, '(prev:', prev.length, '+ nouveaux:', newLinks.length, ')');
+                    return mergedLinks;
+                  });
                 }
               }
             } catch (error) {
