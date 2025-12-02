@@ -102,6 +102,27 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
       {/* Section 1 : KPIs principales */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
+          title="Base imposable (IR)"
+          value={formatEuro(simulation.ir.revenuImposable)}
+          subtitle={(() => {
+            const salaire = simulation.inputs.foyer.salaire;
+            const foncier = simulation.consolidation.revenusFonciers;
+            const deficitImp = simulation.consolidation.deficitImputableRevenuGlobal || 0;
+            const perDeduction = simulation.per?.deductionUtilisee || 0;
+            
+            const parts = [`${formatEuro(salaire)} sal.`];
+            if (foncier !== 0) parts.push(`${foncier >= 0 ? '+' : ''}${formatEuro(foncier)} fonc.`);
+            if (deficitImp > 0) parts.push(`-${formatEuro(deficitImp)} déf.imp.`);
+            if (perDeduction > 0) parts.push(`-${formatEuro(perDeduction)} PER`);
+            
+            return parts.join(' ');
+          })()}
+          icon={<FileText className="h-6 w-6 text-purple-400" />}
+          valueColor="text-purple-600"
+          className="bg-white/70"
+        />
+
+        <KpiCard
           title={totalDejaPaye > 0 ? "Impôt restant à payer" : "Total impôts (IR + PS)"}
           value={formatEuro(totalDejaPaye > 0 ? impotRestantAPayer : totalImpots)}
           subtitle={totalDejaPaye > 0 
@@ -127,27 +148,6 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
           subtitle={`TMI: ${formatPercent(simulation.ir.trancheMarginate)}`}
           icon={<Percent className="h-6 w-6 text-sky-400" />}
           valueColor="text-sky-600"
-          className="bg-white/70"
-        />
-
-        <KpiCard
-          title="Base imposable (IR)"
-          value={formatEuro(simulation.ir.revenuImposable)}
-          subtitle={(() => {
-            const salaire = simulation.inputs.foyer.salaire;
-            const foncier = simulation.consolidation.revenusFonciers;
-            const deficitImp = simulation.consolidation.deficitImputableRevenuGlobal || 0;
-            const perDeduction = simulation.per?.deductionUtilisee || 0;
-            
-            const parts = [`${formatEuro(salaire)} sal.`];
-            if (foncier !== 0) parts.push(`${foncier >= 0 ? '+' : ''}${formatEuro(foncier)} fonc.`);
-            if (deficitImp > 0) parts.push(`-${formatEuro(deficitImp)} déf.imp.`);
-            if (perDeduction > 0) parts.push(`-${formatEuro(perDeduction)} PER`);
-            
-            return parts.join(' ');
-          })()}
-          icon={<FileText className="h-6 w-6 text-purple-400" />}
-          valueColor="text-purple-600"
           className="bg-white/70"
         />
       </div>
@@ -266,11 +266,14 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
           {/* Total des résultats fonciers - Backend */}
           {(() => {
             const totalResultats = simulation.consolidation.revenusFonciers;
+            const totalRecettes = simulation.biens.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0);
+            const totalCharges = simulation.biens.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0);
             
             return (
               <Card className="border-2 border-purple-300 bg-purple-50">
-                <CardContent className="p-3">
-                  <div className="flex items-center justify-between">
+                <CardContent className="p-4">
+                  {/* En-tête */}
+                  <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
                       <Calculator className="h-5 w-5 text-purple-600" />
                       <div>
@@ -285,6 +288,26 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
                         {totalResultats >= 0 ? '+' : ''}{formatEuro(totalResultats)}
                       </p>
                       <p className="text-xs text-gray-500">Résultat fiscal net</p>
+                    </div>
+                  </div>
+                  
+                  {/* Détail du calcul */}
+                  <Separator className="my-2" />
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-600">Recettes totales</span>
+                      <span className="font-medium text-emerald-700">+{formatEuro(totalRecettes)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-600">Charges déductibles</span>
+                      <span className="font-medium text-orange-700">-{formatEuro(totalCharges)}</span>
+                    </div>
+                    <Separator className="my-1" />
+                    <div className="flex justify-between items-center font-semibold">
+                      <span className="text-gray-700">= Résultat fiscal net</span>
+                      <span className={totalResultats >= 0 ? 'text-emerald-700' : 'text-red-700'}>
+                        {totalResultats >= 0 ? '+' : ''}{formatEuro(totalResultats)}
+                      </span>
                     </div>
                   </div>
                 </CardContent>
