@@ -1,7 +1,7 @@
 /**
- * DetailsTab - Détails fiscaux complets (réutilise FiscalDetailDrawer)
+ * DetailsTab - Étape 3 : Calcul de l'impôt (ORANGE)
  * 
- * Adapté depuis FiscalDetailDrawer pour affichage inline (sans Sheet)
+ * Détail du calcul de l'IR, PS et total impôt
  */
 
 'use client';
@@ -13,24 +13,20 @@ import { Separator } from '@/components/ui/Separator';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
-import { Progress } from '@/components/ui/progress';
+import { useExpertModeStore } from '@/store/expertModeStore';
+import { ExpertCalculBlocks } from '../../expert/ExpertCalculBlocks';
 import type { SimulationResult, RentalPropertyResult } from '@/types/fiscal';
 import { 
   Home, 
   Building,
-  ChevronDown,
-  ChevronUp,
   Info,
-  AlertCircle,
-  TrendingUp,
-  TrendingDown,
-  FileText,
-  Download,
   Calculator,
-  PiggyBank,
-  Minus,
-  Plus,
-  Equal,
+  TrendingUp,
+  DollarSign,
+  Percent,
+  CheckCircle2,
+  AlertCircle,
+  Coins,
 } from 'lucide-react';
 
 interface DetailsTabProps {
@@ -40,542 +36,189 @@ interface DetailsTabProps {
 }
 
 export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: DetailsTabProps) {
-  const [expandedBiens, setExpandedBiens] = useState<Set<string>>(new Set());
-  const [showRendementDetail, setShowRendementDetail] = useState(false);
+  const { isExpertMode } = useExpertModeStore();
+  const [showTranchesDetail, setShowTranchesDetail] = useState(false);
+  const [showPSDetail, setShowPSDetail] = useState(false);
   
   const formatEuro = (amount: number) =>
     new Intl.NumberFormat('fr-FR', {
       style: 'currency',
       currency: 'EUR',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     }).format(amount);
   
-  const formatPercent = (rate: number) => `${(rate * 100).toFixed(2)} %`;
+  const formatPercent = (rate: number) => `${(rate * 100).toFixed(1)} %`;
   
-  const toggleBien = (bienId: string) => {
-    setExpandedBiens((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(bienId)) {
-        newSet.delete(bienId);
-      } else {
-        newSet.add(bienId);
-      }
-      return newSet;
-    });
-  };
+  // Données
+  const baseImposable = simulation.ir.revenuImposable;
+  const irTotal = simulation.ir.impotNet;
+  const psTotal = simulation.ps.montant || 0;
+  const totalImpots = irTotal + psTotal;
   
-  // ✅ Utiliser UNIQUEMENT les données du backend (pas de recalcul)
-  const consolidation = simulation.consolidation;
-  const deficitGlobal = consolidation.deficitFoncier || 0;
-  const imputableGlobal = consolidation.deficitImputableRevenuGlobal || 0;
-  const reportableGlobal = consolidation.deficitReportable || 0;
-  
-  const gainFiscal = imputableGlobal * simulation.ir.trancheMarginate;
-  
-  const revenuInitial = imputableGlobal > 0 
-    ? simulation.ir.revenuImposable + imputableGlobal 
-    : simulation.ir.revenuImposable;
-  
-  const variationRevenu = imputableGlobal > 0 
-    ? -((imputableGlobal / revenuInitial) * 100)
-    : 0;
+  const prelevementSourceDejaPaye = simulation.inputs?.options?.prelevementSourceDejaPaye || 0;
+  const acomptesDejaPayes = simulation.inputs?.options?.acomptesDejaPayes || 0;
+  const totalDejaPaye = prelevementSourceDejaPaye + acomptesDejaPayes;
+  const resteAPayer = Math.max(0, totalImpots - totalDejaPaye);
   
   return (
     <TooltipProvider>
       <div className="space-y-6 p-6">
         {/* Titre et sous-titre */}
-        <div className="text-center">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            Détails fiscaux complets
+        <div className="text-center mb-8">
+          <h2 className="text-3xl font-bold text-orange-600 mb-2 flex items-center justify-center gap-2">
+            🟠 Calcul de l'impôt
           </h2>
           <p className="text-gray-600">
-            Calcul détaillé par bien, consolidation, impact sur l'IR et les prélèvements sociaux
+            Comprendre précisément combien l'État vous prélève
           </p>
         </div>
 
-        {/* Section 1 : Revenus par bien */}
+        {/* BLOC 1 : POINT DE DÉPART OFFICIEL */}
         <BlockCard
-          title="Revenus par bien"
-          icon={<Home className="h-5 w-5" />}
-          badge={<Badge variant="outline">{simulation.biens.length} bien(s)</Badge>}
-          actions={
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                if (expandedBiens.size === simulation.biens.length) {
-                  setExpandedBiens(new Set());
-                } else {
-                  setExpandedBiens(new Set(simulation.biens.map((b) => b.id)));
-                }
-              }}
-              className="text-xs"
-            >
-              {expandedBiens.size === simulation.biens.length ? 'Tout replier' : 'Tout afficher'}
-            </Button>
+          title="Point de départ : Base imposable"
+          icon={<Calculator className="h-5 w-5 text-purple-600" />}
+          badge={
+            <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-300">
+              Issu de la synthèse
+            </Badge>
           }
         >
-          <div className="space-y-3">
-            {simulation.biens.map((bien: RentalPropertyResult) => {
-              const isExpanded = expandedBiens.has(bien.id);
-              const isDeficit = bien.resultatFiscal < 0;
-
-              return (
-                <Card
-                  key={bien.id}
-                  className={`border-l-4 rounded-xl ${isDeficit ? 'border-l-red-500' : 'border-l-green-500'}`}
-                  style={{ 
-                    backgroundColor: isDeficit ? '#FFEBEB' : '#E8F6EE',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)'
-                  }}
-                >
-                  <CardContent className="p-4">
-                    {/* Header bien */}
-                    <div 
-                      className="flex items-center justify-between cursor-pointer"
-                      onClick={() => toggleBien(bien.id)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Building className="h-4 w-4 text-gray-500" />
-                        <div>
-                          <h4 className="font-semibold text-gray-900">{bien.nom}</h4>
-                          <p className="text-xs text-gray-500">
-                            Régime {bien.regime === 'micro' ? 'Micro' : 'Réel'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge 
-                          className={`${isDeficit ? 'bg-red-100 text-red-700 border-red-300' : 'bg-green-100 text-green-700 border-green-300'}`}
-                        >
-                          {formatEuro(bien.resultatFiscal)}
-                          {isDeficit && ' (déficit)'}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">{bien.type}</Badge>
-                        {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                      </div>
-                    </div>
-                    
-                    {/* Détails (repliable) */}
-                    {isExpanded && (
-                      <div className="mt-4 space-y-3 pt-3 border-t border-gray-200">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Loyers encaissés :</span>
-                            <span className="font-medium text-green-700">{formatEuro(bien.recettesBrutes)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Charges déductibles :</span>
-                            <span className="font-medium text-red-700">{formatEuro(bien.chargesDeductibles)}</span>
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Résultat fiscal :</span>
-                            <span className={`font-medium ${isDeficit ? 'text-red-700' : 'text-green-700'}`}>{formatEuro(bien.resultatFiscal)}</span>
-                          </div>
-                          {bien.amortissements > 0 && (
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Amortissements :</span>
-                              <span className="font-medium text-gray-700">{formatEuro(bien.amortissements)}</span>
-                            </div>
-                          )}
-                        </div>
-                        
-                        
-                        {/* Détail du déficit */}
-                        {bien.deficit && bien.deficit > 0 && (
-                          <div 
-                            className="mt-3 p-3 border border-red-300 rounded-xl space-y-2 text-xs"
-                            style={{ 
-                              backgroundColor: '#FFEBEB',
-                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)'
-                            }}
-                          >
-                            <div className="flex items-start gap-2">
-                              <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
-                              <div className="flex-1 space-y-1.5">
-                                <div className="flex justify-between font-semibold text-red-900">
-                                  <span>Déficit total :</span>
-                                  <span>{formatEuro(bien.deficit)}</span>
-                                </div>
-                                
-                                {/* Toujours afficher Imputable revenu global (même si 0) */}
-                                <div className="flex justify-between text-red-700">
-                                  <span className="flex items-center gap-1">
-                                    Imputable revenu global :
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Info className="h-3 w-3 inline cursor-help" />
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Plafonné à 10 700 €/an (hors intérêts)</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </span>
-                                  <span className="font-medium">{formatEuro(bien.deficitImputableRevenuGlobal || 0)}</span>
-                                </div>
-                                
-                                {/* Toujours afficher Reportable (même si 0) */}
-                                <div className="flex justify-between text-red-700">
-                                  <span className="flex items-center gap-1">
-                                    Reportable (10 ans) :
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Info className="h-3 w-3 inline cursor-help" />
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Reportable sur revenus fonciers futurs (10 ans max)</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </span>
-                                  <span className="font-medium">{formatEuro(bien.deficitReportable || 0)}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </BlockCard>
-
-        {/* Section 2 : Consolidation foncière globale */}
-        <BlockCard
-          title="Consolidation foncière (global)"
-          icon={<Building className="h-5 w-5" />}
-        >
-          <Card 
-            className="border-purple-200 rounded-xl"
-            style={{ 
-              backgroundColor: '#F6F8FF',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)'
-            }}
-          >
-            <CardContent className="p-4">
-              <div className="space-y-2 text-sm">
-                {/* Totaux */}
-                <div className="grid grid-cols-3 gap-4 text-xs text-gray-600 mb-3">
-                  <div>
-                    <p className="font-medium">Loyers totaux</p>
-                    <p className="text-base font-semibold text-green-700">
-                      {formatEuro(simulation.biens?.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0) || 0)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-medium">Charges déductibles</p>
-                    <p className="text-base font-semibold text-orange-700">
-                      {formatEuro(simulation.biens?.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0) || 0)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-medium">Résultat net</p>
-                    {(() => {
-                      const loyers = simulation.biens?.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0) || 0;
-                      const charges = simulation.biens?.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0) || 0;
-                      const resultat = loyers - charges;
-                      
-                      return (
-                        <p className={`text-base font-semibold ${resultat >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                          {formatEuro(resultat)}
-                        </p>
-                      );
-                    })()}
-                  </div>
+          <Card className="border-2 border-purple-300 bg-purple-50 shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Montant utilisé pour le calcul de l'impôt</p>
+                  <p className="font-semibold text-gray-900">Base imposable totale</p>
+                  <p className="text-xs text-gray-500 mt-1 italic">Salaire + Immobilier – PER</p>
                 </div>
-                
-                <Separator />
-                
-                {/* Résultat global - Recalculé */}
-                {(() => {
-                  const loyers = simulation.biens?.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0) || 0;
-                  const charges = simulation.biens?.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0) || 0;
-                  const resultatGlobal = loyers - charges;
-                  
-                  return (
-                    <div className="flex justify-between font-semibold text-base mt-3">
-                      <span className="text-gray-900">Résultat foncier net global (avant imputation) :</span>
-                      <span className={resultatGlobal > 0 ? 'text-green-600' : 'text-red-600'}>
-                        {formatEuro(resultatGlobal)}
-                      </span>
-                    </div>
-                  );
-                })()}
-                
-                {/* Si déficit : détails imputation/report */}
-                {deficitGlobal > 0 && (
-                  <div 
-                    className="mt-3 p-3 border border-purple-300 rounded-xl space-y-2"
-                    style={{ 
-                      backgroundColor: 'white',
-                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)'
-                    }}
-                  >
-                    <div className="flex justify-between text-sm">
-                      <span className="text-blue-700 flex items-center gap-1">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="flex items-center gap-1 cursor-help">
-                              Imputable revenu global :
-                              <Info className="h-3 w-3" />
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Plafonné à 10 700 €/an (hors intérêts)</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </span>
-                      <span className="font-bold text-blue-700">{formatEuro(imputableGlobal)}</span>
-                    </div>
-                    
-                    <div className="flex justify-between text-sm">
-                      <span className="text-orange-700 flex items-center gap-1">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="flex items-center gap-1 cursor-help">
-                              Intérêts reportables (10 ans) :
-                              <Info className="h-3 w-3" />
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Reportable sur revenus fonciers futurs (10 ans max)</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </span>
-                      <span className="font-bold text-orange-700">{formatEuro(reportableGlobal)}</span>
-                    </div>
-                    
-                    <div 
-                      className="p-2 border border-yellow-300 rounded-lg flex items-start gap-2"
-                      style={{ backgroundColor: '#FEF9E7' }}
-                    >
-                      <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0 mt-0.5" />
-                      <p className="text-xs text-yellow-800">
-                        Les intérêts ne peuvent PAS s'imputer sur le revenu global, mais peuvent compenser des bénéfices fonciers futurs.
-                      </p>
-                    </div>
-                  </div>
-                )}
+                <span className="text-2xl font-bold text-purple-600">
+                  {formatEuro(baseImposable)}
+                </span>
               </div>
             </CardContent>
           </Card>
-          
-          {/* Lien Guide complet */}
-          <div className="flex justify-center mt-3">
-            <Button variant="link" size="sm" className="text-sky-600">
-              <FileText className="h-4 w-4 mr-2" />
-              Guide complet
-            </Button>
-          </div>
         </BlockCard>
 
-        {/* Section 3 : Impact sur l'IR */}
+        {/* BLOC 2 : CALCUL DE L'IMPÔT SUR LE REVENU (IR) */}
         <BlockCard
-          title="Impact sur l'Impôt sur le Revenu"
-          icon={<TrendingUp className="h-5 w-5" />}
+          title="Calcul de l'Impôt sur le Revenu (IR)"
+          icon={<DollarSign className="h-5 w-5 text-orange-600" />}
         >
-          <p className="text-xs text-gray-500 mb-3">
-            Simulation de l'impact sur l'impôt sur le revenu (formulaire 2042)
-          </p>
-          
-          <div className="space-y-3">
-            {/* Revenu imposable */}
-            <div 
-              className="p-3 border border-purple-200 rounded-xl"
-              style={{ 
-                backgroundColor: '#F3EFFF',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)'
-              }}
-            >
-              {/* Détail revenu imposable */}
-              {imputableGlobal > 0 && (
-                <div className="space-y-1 text-xs text-gray-600 mb-3">
-                  <div className="flex justify-between">
-                    <span>
-                      Revenu global initial
-                      {simulation.per && simulation.per.deductionUtilisee > 0 && (
-                        <span className="text-blue-600"> (dont -{formatEuro(simulation.per.deductionUtilisee)} PER)</span>
-                      )}
-                      :
-                    </span>
-                    <span className="font-medium">
-                      {formatEuro(simulation.ir.revenuImposable + imputableGlobal)}
-                    </span>
+          <Card className="border-2 border-orange-300 bg-white shadow-sm">
+            <CardContent className="p-5">
+              <div className="space-y-4">
+                {/* Résumé des tranches */}
+                <div>
+                  <p className="text-sm text-gray-600 mb-3">
+                    Votre revenu est découpé en tranches, chacune avec son taux :
+                  </p>
+                  
+                  {/* Barres de progression par tranche */}
+                  <div className="space-y-2">
+                    {simulation.ir.detailsTranches?.map((detail, index) => {
+                      const pourcentage = (detail.baseImposable / baseImposable) * 100;
+                      const isInTranche = detail.baseImposable > 0;
+                      
+                      return (
+                        <div key={index} className={`p-2 rounded ${isInTranche ? 'bg-orange-50' : 'bg-gray-50'}`}>
+                          <div className="flex justify-between items-center text-xs mb-1">
+                            <span className="font-medium text-gray-700">
+                              {formatEuro(detail.tranche.lower)} → {detail.tranche.upper ? formatEuro(detail.tranche.upper) : '∞'}
+                              <span className="ml-2 text-orange-600 font-bold">({formatPercent(detail.tranche.rate)})</span>
+                            </span>
+                            <span className="font-bold text-orange-600">
+                              {formatEuro(detail.impotTranche)}
+                            </span>
+                          </div>
+                          {isInTranche && (
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-orange-500 rounded-full transition-all"
+                                  style={{ width: `${Math.min(100, pourcentage)}%` }}
+                                />
+                              </div>
+                              <span className="text-[10px] text-gray-500 min-w-[60px] text-right">
+                                {formatEuro(detail.baseImposable)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                  <div className="flex justify-between text-blue-700">
-                    <span>Imputation foncière :</span>
-                    <span className="font-medium">-{formatEuro(imputableGlobal)}</span>
-                  </div>
-                  <Separator className="my-1" />
                 </div>
-              )}
-              
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-gray-700 font-semibold flex items-center gap-2">
-                  {imputableGlobal > 0 ? 'Base imposable corrigée :' : 'Revenu imposable total :'}
-                  {variationRevenu < 0 && (
-                    <Badge className="bg-green-100 text-green-700 border-green-300 text-[10px] px-1.5 py-0">
-                      <TrendingDown className="h-3 w-3 inline mr-0.5" />
-                      {variationRevenu.toFixed(1)} %
-                    </Badge>
-                  )}
-                </span>
-                <span className="font-semibold text-purple-900">
-                  {formatEuro(simulation.ir.revenuImposable)}
-                </span>
-              </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-gray-600">
-                <div className="flex justify-between">
-                  <span>Nombre de parts :</span>
-                  <span className="font-medium">{simulation.inputs.foyer?.parts || simulation.inputs.parts}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Revenu par part :</span>
-                  <span className="font-medium">{formatEuro(simulation.ir.revenuParPart || (simulation.ir.revenuImposable / (simulation.inputs.foyer?.parts || simulation.inputs.parts)))}</span>
-                </div>
-              </div>
-              
-              {/* IR supplémentaire */}
-              {(() => {
-                const irSupp = simulation.resume?.irSupplementaire || 0;
-                const psSupp = simulation.ps.montant || 0;
-                const impotsSuppTotal = Math.max(0, irSupp + psSupp);  // Si négatif → 0
-                
-                return (
-                  <div 
-                    className={`mt-3 p-3 border rounded-xl ${impotsSuppTotal > 0 ? 'border-red-400 bg-red-50' : 'border-green-400 bg-green-50'}`}
-                    style={{ 
-                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)'
-                    }}
-                  >
-                    <div className="flex justify-between text-sm mb-2">
-                      <span className={`font-semibold flex items-center gap-1 ${impotsSuppTotal > 0 ? 'text-red-800' : 'text-green-800'}`}>
-                        {impotsSuppTotal > 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-                        Impôts supplémentaires (IR + PS causés par le foncier)
-                      </span>
-                      <span className={`font-bold text-base ${impotsSuppTotal > 0 ? 'text-red-700' : 'text-green-700'}`}>
-                        {impotsSuppTotal > 0 ? `+${formatEuro(impotsSuppTotal)}` : `${formatEuro(0)}`}
-                      </span>
-                    </div>
-                    
-                    <div className="space-y-1 text-xs ml-4">
-                      <div className="flex justify-between text-gray-600">
-                        <span>└ dont IR supplémentaire</span>
-                        <span>
-                          {irSupp > 0 ? `+${formatEuro(irSupp)}` : `${formatEuro(0)} (économie ${formatEuro(Math.abs(irSupp))})`}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-gray-600">
-                        <span>└ dont PS fonciers</span>
-                        <span>{formatEuro(psSupp)}</span>
-                      </div>
-                    </div>
-                    
-                    {irSupp < 0 && (
-                      <p className="text-xs text-green-700 mt-2 italic">
-                        💡 Le déficit foncier réduit votre IR de {formatEuro(Math.abs(irSupp))} ({formatEuro(imputableGlobal)} × {formatPercent(simulation.ir.trancheMarginate)} TMI)
+
+                <Separator className="bg-orange-300" />
+
+                {/* Total IR */}
+                <div className="bg-orange-100 border-2 border-orange-400 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-gray-900">Total Impôt sur le Revenu</p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        Taux marginal (TMI) : {formatPercent(simulation.ir.trancheMarginate)}
                       </p>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-            
-            {/* Détail par tranche */}
-            <div>
-              <p className="text-xs font-medium text-gray-700 mb-2">Détail par tranche :</p>
-              <div className="space-y-1">
-                {simulation.ir.detailsTranches?.map((detail, index) => (
-                  <div
-                    key={index}
-                    className="flex justify-between items-center text-xs p-2 bg-gray-50 rounded"
-                  >
-                    <span className="text-gray-600">
-                      {formatEuro(detail.tranche.lower)} - {detail.tranche.upper ? formatEuro(detail.tranche.upper) : '∞'}
-                      {' '}({formatPercent(detail.tranche.rate)})
+                      <p className="text-xs text-gray-500 mt-1 italic">
+                        Montant calculé selon le barème officiel {simulation.inputs.year}
+                      </p>
+                    </div>
+                    <span className="text-2xl font-bold text-orange-600">
+                      {formatEuro(irTotal)}
                     </span>
-                    <span className="font-medium text-gray-900">
-                      {formatEuro(detail.impotTranche)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            {/* Impôt final */}
-            <div 
-              className="p-3 border border-gray-300 rounded-xl"
-              style={{ 
-                backgroundColor: 'white',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)'
-              }}
-            >
-              <div className="space-y-1.5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Impôt brut :</span>
-                  <span className="font-medium">{formatEuro(simulation.ir.impotBrut || simulation.ir.impotNet)}</span>
-                </div>
-                
-                <Separator />
-                
-                <div className="flex justify-between font-semibold">
-                  <span className="text-gray-900">Impôt net :</span>
-                  <span className="text-lg text-purple-700">{formatEuro(simulation.ir.impotNet)}</span>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-3 text-xs text-gray-600 mt-2">
-                  <div className="flex justify-between">
-                    <span>Taux moyen :</span>
-                    <span className="font-medium">{formatPercent(simulation.ir.tauxEffectif)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Tranche marginale :</span>
-                    <span className="font-medium">{formatPercent(simulation.ir.trancheMarginate)}</span>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </BlockCard>
 
-        {/* Section 4 : Prélèvements sociaux */}
+        {/* BLOC 3 : CALCUL DES PRÉLÈVEMENTS SOCIAUX (PS) */}
         <BlockCard
-          title="Prélèvements sociaux (PS)"
-          icon={<TrendingUp className="h-5 w-5" />}
+          title="Calcul des Prélèvements Sociaux (PS)"
+          icon={<Percent className="h-5 w-5 text-orange-600" />}
         >
-          {(simulation.ps.montant || 0) > 0 ? (
-            <Card className="bg-cyan-50 border-cyan-200">
-              <CardContent className="p-4">
-                <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Base imposable</span>
-                  <span className="font-semibold">{formatEuro(simulation.ps.baseImposable || 0)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Taux PS</span>
-                  <span className="font-semibold">{formatPercent(simulation.ps.taux || 0)}</span>
-                </div>
-                  <Separator />
+          {psTotal > 0 ? (
+            <Card className="border-2 border-orange-300 bg-white shadow-sm">
+              <CardContent className="p-5">
+                <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="font-semibold text-gray-900">Montant PS</span>
-                    <span className="text-xl font-bold text-cyan-600">
-                      {formatEuro(simulation.ps.montant || 0)}
+                    <span className="text-sm text-gray-600">Base PS foncière</span>
+                    <span className="font-semibold text-gray-700">
+                      {formatEuro(simulation.ps.baseImposable || 0)}
                     </span>
+                  </div>
+                  
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Taux PS</span>
+                    <span className="font-semibold text-gray-700">
+                      {formatPercent(simulation.ps.taux || 0.172)}
+                    </span>
+                  </div>
+                  
+                  <Separator className="bg-orange-300" />
+                  
+                  {/* Total PS */}
+                  <div className="bg-orange-100 border-2 border-orange-400 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-gray-900">Total Prélèvements Sociaux</p>
+                        <p className="text-xs text-gray-500 mt-1 italic">
+                          Les PS ne sont pas impactés par le PER
+                        </p>
+                      </div>
+                      <span className="text-2xl font-bold text-orange-600">
+                        {formatEuro(psTotal)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
           ) : (
-            <div className="bg-emerald-50 border-2 border-emerald-300 rounded-lg p-4 flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-emerald-200 flex items-center justify-center flex-shrink-0">
-                <span className="text-2xl">✓</span>
-              </div>
+            <div className="bg-emerald-50 border border-emerald-300 rounded-lg p-4 flex items-center gap-3">
+              <CheckCircle2 className="h-8 w-8 text-emerald-600" />
               <div>
                 <p className="font-semibold text-emerald-800">Non applicable cette année</p>
                 <p className="text-xs text-emerald-700">
@@ -586,570 +229,211 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
           )}
         </BlockCard>
 
-        {/* Section 5 : Plan Épargne Retraite (PER) */}
-        {simulation.per && (
-          <BlockCard
-            title="Plan Épargne Retraite (PER)"
-            icon={<PiggyBank className="h-5 w-5" />}
-          >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Calcul du plafond */}
-              <div className="p-4 border border-blue-200 rounded-xl" style={{ backgroundColor: '#F6F8FF', boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)' }}>
-                <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
-                  <Calculator className="h-4 w-4" />
-                  Calcul du plafond PER
-                </h4>
-                
-                <div className="space-y-3 text-sm">
-                  {/* Règles officielles */}
-                  <div className="bg-blue-100 border border-blue-300 rounded-lg p-3">
-                    <p className="font-semibold text-blue-900 mb-2 text-xs">📋 Règles officielles (Barème {simulation.inputs.year})</p>
-                    <div className="space-y-1 text-xs text-blue-800">
-                      <p>• Taux plafond : <strong>{formatPercent(simulation.taxParams.per?.tauxPlafond || 0.10)}</strong> des revenus professionnels</p>
-                      <p>• Plancher légal : <strong>{formatEuro(simulation.taxParams.per?.plancherLegal || 4399)}</strong></p>
-                      <p>• Durée report reliquats : <strong>{simulation.taxParams.per?.dureeReportReliquats || 3} ans</strong></p>
-                    </div>
-                  </div>
-
-                  {/* Calcul détaillé */}
-                  <div>
-                    <p className="font-semibold text-blue-900 mb-2 text-xs">🧮 Calcul du plafond annuel</p>
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between items-start">
-                        <span className="text-gray-700">Revenus professionnels {simulation.inputs.year}</span>
-                        <span className="font-semibold">{formatEuro(simulation.inputs.foyer.salaire)}</span>
-                      </div>
-                      <div className="flex justify-between items-start text-xs text-gray-600">
-                        <span className="ml-4">× Taux plafond ({formatPercent(simulation.taxParams.per?.tauxPlafond || 0.10)})</span>
-                        <span className="font-medium">{formatEuro(simulation.inputs.foyer.salaire * (simulation.taxParams.per?.tauxPlafond || 0.10))}</span>
-                      </div>
-                      <div className="flex justify-between items-start text-xs text-gray-600">
-                        <span className="ml-4">Maximum(ci-dessus, plancher {formatEuro(simulation.taxParams.per?.plancherLegal || 4399)})</span>
-                        <span className="font-medium">{formatEuro(Math.max(simulation.inputs.foyer.salaire * (simulation.taxParams.per?.tauxPlafond || 0.10), simulation.taxParams.per?.plancherLegal || 4399))}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Reliquats */}
-                  {Object.entries(simulation.per.details.reliquatsParAnnee).some(([_, amount]) => amount > 0) && (
-                    <div>
-                      <p className="font-semibold text-blue-900 mb-2 text-xs">📅 Reliquats utilisables</p>
-                      {Object.entries(simulation.per.details.reliquatsParAnnee).map(([year, amount]) => (
-                        amount > 0 && (
-                          <div key={year} className="flex justify-between text-xs text-gray-600">
-                            <span className="ml-4">• Reliquat {year}</span>
-                            <span className="font-medium">{formatEuro(amount)}</span>
-                          </div>
-                        )
-                      ))}
-                    </div>
-                  )}
-
-                  <Separator className="bg-blue-400 my-2" />
-                  
-                  {/* Plafond total */}
-                  <div className="flex justify-between pt-1">
-                    <span className="font-semibold text-blue-900">Plafond total disponible</span>
-                    <span className="font-bold text-blue-900 text-lg">{formatEuro(simulation.per.details.plafondDisponible)}</span>
-                  </div>
-
-                  {/* Versement et déduction */}
-                  <div className="bg-white rounded-lg p-2 border border-blue-200">
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-gray-600">Versement effectué</span>
-                      <span className="font-semibold">{formatEuro(simulation.per.versement)}</span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-gray-600">Déduction utilisée</span>
-                      <span className="font-semibold text-green-700">{formatEuro(simulation.per.deductionUtilisee)}</span>
-                    </div>
-                  </div>
-
-                  {/* Nouveau reliquat */}
-                  {simulation.per.nouveauReliquat > 0 && (
-                    <div className="bg-orange-100 border border-orange-300 rounded-lg p-3">
-                      <p className="text-xs text-orange-800">
-                        <strong>⚠️ Nouveau reliquat 2026 :</strong> {formatEuro(simulation.per.nouveauReliquat)}
-                      </p>
-                      <p className="text-xs text-orange-700 mt-1">
-                        Reportable sur {simulation.taxParams.per?.dureeReportReliquats || 3} ans (jusqu'en {2025 + (simulation.taxParams.per?.dureeReportReliquats || 3)})
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Impact fiscal détaillé */}
-              <div className="p-4 border border-green-200 rounded-xl" style={{ backgroundColor: '#F0FDF4', boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)' }}>
-                <h4 className="font-semibold text-green-900 mb-3 flex items-center gap-2">
-                  <TrendingDown className="h-4 w-4" />
-                  Impact sur votre fiscalité
-                </h4>
-                <div className="space-y-3">
-                  {/* Impact sur le revenu imposable */}
-                  <div className="bg-white rounded-lg p-3 border border-green-200">
-                    <p className="text-xs text-gray-600 mb-2">1️⃣ Réduction du revenu imposable</p>
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-700">Avant PER</span>
-                        <span className="font-semibold text-gray-500 line-through">{formatEuro(simulation.ir.revenuImposable + simulation.per.deductionUtilisee)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-700">Déduction PER</span>
-                        <span className="font-semibold text-blue-700">-{formatEuro(simulation.per.deductionUtilisee)}</span>
-                      </div>
-                      <Separator className="bg-gray-300 my-1" />
-                      <div className="flex justify-between">
-                        <span className="text-gray-700 font-semibold">Après PER</span>
-                        <span className="font-bold text-green-700 text-base">{formatEuro(simulation.ir.revenuImposable)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Impact sur l'impôt */}
-                  <div className="bg-white rounded-lg p-3 border border-green-200">
-                    <p className="text-xs text-gray-600 mb-2">2️⃣ Réduction de l'impôt sur le revenu</p>
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-sm items-center">
-                        <span className="text-gray-700">IR sans PER</span>
-                        <span className="font-semibold text-gray-500 line-through">{formatEuro(simulation.ir.impotNet + simulation.per.economieIR)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm items-center">
-                        <span className="text-gray-700">Économie PER</span>
-                        <span className="font-semibold text-green-700">-{formatEuro(simulation.per.economieIR)}</span>
-                      </div>
-                      <div className="flex justify-between text-xs text-gray-500 ml-4">
-                        <span>({formatEuro(simulation.per.deductionUtilisee)} × {formatPercent(simulation.ir.trancheMarginate)} TMI)</span>
-                      </div>
-                      <Separator className="bg-gray-300 my-1" />
-                      <div className="flex justify-between">
-                        <span className="text-gray-700 font-semibold">IR avec PER</span>
-                        <span className="font-bold text-green-700 text-base">{formatEuro(simulation.ir.impotNet)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Économie totale */}
-                  <div className="bg-green-600 text-white rounded-lg p-4">
-                    <p className="text-xs opacity-90 mb-1">💰 Économie d'impôt réalisée</p>
-                    <p className="text-3xl font-bold">{formatEuro(simulation.per.economieIR)}</p>
-                    <p className="text-xs opacity-80 mt-2">
-                      Vous payez {formatEuro(simulation.ir.impotNet)} au lieu de {formatEuro(simulation.ir.impotNet + simulation.per.economieIR)}
-                    </p>
-                  </div>
-
-                  {/* Note sur les PS */}
-                  <div className="text-xs text-gray-600 bg-blue-50 border border-blue-200 rounded p-2">
-                    <Info className="h-3 w-3 inline mr-1" />
-                    Le PER ne réduit pas les prélèvements sociaux (PS)
-                  </div>
-                </div>
-              </div>
-            </div>
-          </BlockCard>
-        )}
-
-        {/* Section 6 : Résumé final - Version épurée et animée */}
+        {/* BLOC 4 : IMPÔT TOTAL */}
         <BlockCard
-          title="Résumé final"
-          icon={<Calculator className="h-5 w-5" />}
+          title="Total des impôts"
+          icon={<Coins className="h-5 w-5 text-orange-600" />}
         >
-          <div className="space-y-6">
-            {/* Calcul du total impôts - Version pédagogique */}
-            <div className="space-y-4">
-              {/* Étape 1 : IR */}
-              <div className="fiscal-step-1 animate-slide-in-up">
-                <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center text-violet-600 font-semibold text-sm">
-                    1
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <div className="text-sm font-medium text-gray-700">Impôt sur le revenu (IR)</div>
-                    <Card className="bg-gradient-to-br from-violet-50 to-purple-50 border-violet-200/50">
-                      <CardContent className="p-4 space-y-2">
-                        <div className="flex items-center justify-between text-xs text-gray-600">
-                          <span className="flex items-center gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-violet-400"></span>
-                            IR hors foncier
-                          </span>
-                          <span className="font-medium text-gray-700">
-                            {(() => {
-                              const irSupp = simulation.resume?.irSupplementaire || 0;
-                              const irHorsFoncier = simulation.ir.impotNet - irSupp;
-                              return formatEuro(irHorsFoncier);
-                            })()}
-                          </span>
-                        </div>
-                        {(() => {
-                          const irSupp = simulation.resume?.irSupplementaire || 0;
-                          if (irSupp > 0) {
-                            return (
-                              <div className="flex items-center justify-between text-xs text-gray-600">
-                                <span className="flex items-center gap-2">
-                                  <Plus className="w-3 h-3 text-violet-500" />
-                                  IR supplémentaire (foncier)
-                                </span>
-                                <span className="font-medium text-violet-600">
-                                  +{formatEuro(irSupp)}
-                                </span>
-                              </div>
-                            );
-                          }
-                          return null;
-                        })()}
-                        <div className="pt-2 border-t border-violet-200/50 flex items-center justify-between">
-                          <span className="text-sm font-semibold text-violet-700">= IR total</span>
-                          <span className="text-base font-bold text-violet-600 animate-number-count">
-                            {formatEuro(simulation.ir.impotNet)}
-                          </span>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
+          <Card className="border-2 border-orange-300 bg-white shadow-sm">
+            <CardContent className="p-5">
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700">Impôt sur le Revenu (IR)</span>
+                  <span className="font-semibold text-gray-700">{formatEuro(irTotal)}</span>
                 </div>
-              </div>
-
-              {/* Étape 2 : PS */}
-              <div className="fiscal-step-2 animate-slide-in-up">
-                <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-600 font-semibold text-sm">
-                    2
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <div className="text-sm font-medium text-gray-700">Prélèvements sociaux (PS)</div>
-                    <Card className="bg-gradient-to-br from-cyan-50 to-blue-50 border-cyan-200/50">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-cyan-700">PS fonciers</span>
-                          <span className="text-base font-bold text-cyan-600 animate-number-count">
-                            {formatEuro(simulation.ps.montant || 0)}
-                          </span>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-              </div>
-
-              {/* Étape 3 : Total impôts */}
-              <div className="fiscal-step-3 animate-slide-in-up">
-                <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-semibold text-sm">
-                    3
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <div className="text-sm font-medium text-gray-700">Total impôts (IR + PS)</div>
-                    <Card className="bg-gradient-to-br from-red-50 to-orange-50 border-red-200/50">
-                      <CardContent className="p-4 space-y-2">
-                        <div className="flex items-center justify-between text-xs text-gray-600">
-                          <span className="flex items-center gap-2">
-                            <span className="text-violet-600 font-medium">
-                              {formatEuro(simulation.ir.impotNet)}
-                            </span>
-                            <Plus className="w-3 h-3 text-gray-400" />
-                            <span className="text-cyan-600 font-medium">
-                              {formatEuro(simulation.ps.montant || 0)}
-                            </span>
-                          </span>
-                        </div>
-                        <div className="pt-2 border-t border-red-200/50 flex items-center justify-between">
-                          <span className="text-sm font-semibold text-red-700">= Total impôts</span>
-                          <span className="text-lg font-bold text-red-600 animate-number-count">
-                            {formatEuro(simulation.ir.impotNet + (simulation.ps.montant || 0))}
-                          </span>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-              </div>
-
-              {/* Étape 4 : Déductions (si existantes) */}
-              {(() => {
-                const prelevementSourceDejaPaye = simulation.inputs?.options?.prelevementSourceDejaPaye || 0;
-                const acomptesDejaPayes = simulation.inputs?.options?.acomptesDejaPayes || 0;
-                const totalDejaPaye = prelevementSourceDejaPaye + acomptesDejaPayes;
                 
-                if (totalDejaPaye > 0) {
-                  return (
-                    <div className="fiscal-step-4 animate-slide-in-up">
-                      <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-semibold text-sm">
-                          4
-                        </div>
-                        <div className="flex-1 space-y-2">
-                          <div className="text-sm font-medium text-gray-700">Déductions</div>
-                          <Card className="bg-gradient-to-br from-amber-50 to-yellow-50 border-amber-200/50">
-                            <CardContent className="p-4 space-y-2">
-                              {prelevementSourceDejaPaye > 0 && (
-                                <div className="flex items-center justify-between text-xs text-gray-600">
-                                  <span className="flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                                    Prélèvement à la source
-                                  </span>
-                                  <span className="font-medium text-amber-600">
-                                    -{formatEuro(prelevementSourceDejaPaye)}
-                                  </span>
-                                </div>
-                              )}
-                              {acomptesDejaPayes > 0 && (
-                                <div className="flex items-center justify-between text-xs text-gray-600">
-                                  <span className="flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                                    Acomptes déjà payés
-                                  </span>
-                                  <span className="font-medium text-amber-600">
-                                    -{formatEuro(acomptesDejaPayes)}
-                                  </span>
-                                </div>
-                              )}
-                              <div className="pt-2 border-t border-amber-200/50 flex items-center justify-between">
-                                <span className="text-sm font-semibold text-amber-700">= Total déjà versé</span>
-                                <span className="text-base font-bold text-amber-600 animate-number-count">
-                                  -{formatEuro(totalDejaPaye)}
-                                </span>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-
-              {/* Étape 5 : Total restant à payer */}
-              {(() => {
-                const prelevementSourceDejaPaye = simulation.inputs?.options?.prelevementSourceDejaPaye || 0;
-                const acomptesDejaPayes = simulation.inputs?.options?.acomptesDejaPayes || 0;
-                const totalDejaPaye = prelevementSourceDejaPaye + acomptesDejaPayes;
-                const totalImpots = simulation.ir.impotNet + (simulation.ps.montant || 0);
-                const impotRestantAPayer = Math.max(0, totalImpots - totalDejaPaye);
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700">+ Prélèvements Sociaux (PS)</span>
+                  <span className="font-semibold text-gray-700">{formatEuro(psTotal)}</span>
+                </div>
                 
-                if (totalDejaPaye > 0) {
-                  return (
-                    <div className="fiscal-step-5 animate-scale-in">
-                      <Card className="bg-gradient-to-br from-slate-50 to-gray-50 border-2 border-slate-300 shadow-lg">
-                        <CardContent className="p-5">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center">
-                                <Equal className="w-5 h-5 text-white" />
-                              </div>
-                              <span className="text-base font-semibold text-gray-800">Total restant à payer</span>
-                            </div>
-                            <span className={`text-2xl font-bold animate-number-count ${
-                              impotRestantAPayer > 0 ? 'text-red-600' : 'text-green-600'
-                            }`}>
-                              {formatEuro(impotRestantAPayer)}
-                            </span>
-                          </div>
-                          <div className="mt-3 pt-3 border-t border-slate-200 flex items-center justify-between text-xs text-gray-500">
-                            <span>
-                              {formatEuro(totalImpots)} - {formatEuro(totalDejaPaye)}
-                            </span>
-                            <span className="font-medium">= {formatEuro(impotRestantAPayer)}</span>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-            </div>
-
-            {/* Résultat net et indicateurs */}
-            <div className="fiscal-step-6 animate-slide-in-up">
-              <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border-green-200/50">
-                <CardContent className="p-5 space-y-4">
+                <Separator className="bg-orange-300" />
+                
+                <div className="bg-orange-100 border-2 border-orange-400 rounded-lg p-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-700">Résultat net après fiscalité</span>
-                    <span className={`text-lg font-bold ${
-                      (simulation.resume?.beneficeNetImmobilier || 0) >= 0 
-                        ? 'text-green-600' 
-                        : 'text-red-600'
-                    }`}>
-                      {formatEuro(simulation.resume?.beneficeNetImmobilier || 0)}
-                    </span>
+                    <span className="font-bold text-gray-900">TOTAL IMPÔTS</span>
+                    <span className="text-2xl font-bold text-orange-600">{formatEuro(totalImpots)}</span>
                   </div>
-                  <Separator className="bg-green-200/50" />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Taux effectif</span>
-                      <span className="font-semibold text-gray-700">
-                        {formatPercent(simulation.resume?.tauxEffectif || 0)}
-                      </span>
-                    </div>
-                    <div className="flex flex-col">
-                      <div className="flex justify-between items-center">
-                        <span className="text-purple-600 font-medium">Rendement net</span>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-purple-700">
-                            {formatPercent(simulation.resume?.rendementNet || 0)}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0"
-                            onClick={() => setShowRendementDetail(!showRendementDetail)}
-                          >
-                            {showRendementDetail ? (
-                              <ChevronUp className="h-4 w-4 text-purple-600" />
-                            ) : (
-                              <ChevronDown className="h-4 w-4 text-purple-600" />
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                      <p className="text-gray-500 text-[10px] italic mt-1">
-                        Après IR et PS, hors valorisation patrimoniale
-                      </p>
-                      
-                      {/* Détail du calcul */}
-                      {showRendementDetail && (() => {
-                        const loyersBruts = simulation.biens?.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0) || 0;
-                        const chargesTotal = simulation.biens?.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0) || 0;
-                        const impotsSuppTotal = simulation.resume?.impotsSuppTotal || 0;
-                        const beneficeNet = simulation.resume?.beneficeNetImmobilier || 0;
-                        const rendementNet = simulation.resume?.rendementNet || 0;
-                        
-                        return (
-                          <div className="mt-3 p-3 bg-white/70 rounded-lg border border-purple-200 space-y-2 text-xs">
-                            <p className="font-semibold text-purple-800 mb-2 flex items-center gap-1">
-                              <Calculator className="h-3 w-3" />
-                              Détail du calcul du rendement net
-                            </p>
-                            
-                            <div className="space-y-1.5 text-gray-700">
-                              <div className="flex justify-between items-center">
-                                <span className="text-gray-600">Loyers bruts</span>
-                                <span className="font-medium text-green-700">{formatEuro(loyersBruts)}</span>
-                              </div>
-                              
-                              <div className="flex justify-between items-center">
-                                <span className="text-gray-600">- Charges déductibles</span>
-                                <span className="font-medium text-orange-700">{formatEuro(chargesTotal)}</span>
-                              </div>
-                              
-                              <div className="flex justify-between items-center">
-                                <span className="text-gray-600">- Impôts supplémentaires totaux</span>
-                                <span className="font-medium text-red-700">
-                                  {formatEuro(Math.max(0, impotsSuppTotal))}
-                                </span>
-                              </div>
-                              
-                              <Separator className="my-1.5" />
-                              
-                              <div className="flex justify-between items-center">
-                                <span className="font-semibold text-gray-800">= Bénéfice net après fiscalité</span>
-                                <span className="font-bold text-green-700">{formatEuro(beneficeNet)}</span>
-                              </div>
-                              
-                              <Separator className="my-1.5" />
-                              
-                              <div className="bg-purple-50 p-2 rounded border border-purple-200">
-                                <div className="flex justify-between items-center mb-1">
-                                  <span className="text-purple-900 font-semibold">Formule :</span>
-                                </div>
-                                <div className="text-purple-800 font-mono text-[10px] space-y-0.5">
-                                  <div className="flex items-center gap-2">
-                                    <span>Rendement net =</span>
-                                    <span className="text-purple-600">Bénéfice net</span>
-                                    <span>/</span>
-                                    <span className="text-purple-600">Loyers bruts</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span>=</span>
-                                    <span className="text-purple-600">{formatEuro(beneficeNet)}</span>
-                                    <span>/</span>
-                                    <span className="text-purple-600">{formatEuro(loyersBruts)}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2 font-bold">
-                                    <span>=</span>
-                                    <span className="text-purple-700">{formatPercent(rendementNet)}</span>
-                                  </div>
-                                </div>
-                                <p className="text-[10px] text-purple-600 italic mt-1.5">
-                                  Pourcentage des loyers conservés après charges et impôts
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </BlockCard>
 
-        {/* Section 7 : Imputation/Report */}
-        {deficitGlobal > 0 && (
+        {/* BLOC 5 : IMPÔTS DÉJÀ PAYÉS */}
+        {totalDejaPaye > 0 && (
           <BlockCard
-            title="Déficit foncier"
-            icon={<TrendingDown className="h-5 w-5" />}
+            title="Impôts déjà payés"
+            icon={<CheckCircle2 className="h-5 w-5 text-orange-600" />}
           >
-            <Card className="border-slate-300 rounded-xl">
-              <CardContent className="p-4">
-                <div className="space-y-2.5">
-                  {/* Barre bleue : Imputation */}
-                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
-                    <div className="flex justify-between mb-2">
-                      <span className="text-gray-700 font-semibold text-xs">
-                        Imputation opérée {simulation.inputs.year} :
-                      </span>
-                      <span className="font-bold text-blue-700 text-sm">
-                        {formatEuro(imputableGlobal)} / {formatEuro(simulation.taxParams?.deficitFoncier?.plafondImputationRevenuGlobal || 10700)}
-                      </span>
+            <Card className="border-2 border-orange-300 bg-white shadow-sm">
+              <CardContent className="p-5">
+                <div className="space-y-3">
+                  {prelevementSourceDejaPaye > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700">Prélèvement à la source</span>
+                      <span className="font-semibold text-gray-700">– {formatEuro(prelevementSourceDejaPaye)}</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-blue-500 transition-all rounded-full"
-                          style={{ width: `${Math.min(100, (imputableGlobal / (simulation.taxParams?.deficitFoncier?.plafondImputationRevenuGlobal || 10700)) * 100)}%` }}
-                        />
-                      </div>
-                      <span className="text-xs font-bold text-blue-700 min-w-[40px] text-right">
-                        {((imputableGlobal / (simulation.taxParams?.deficitFoncier?.plafondImputationRevenuGlobal || 10700)) * 100).toFixed(0)} %
+                  )}
+                  
+                  {acomptesDejaPayes > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700">Acomptes déjà versés</span>
+                      <span className="font-semibold text-gray-700">– {formatEuro(acomptesDejaPayes)}</span>
+                    </div>
+                  )}
+                  
+                  <Separator className="bg-orange-300" />
+                  
+                  <div className="bg-orange-100 border-2 border-orange-400 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-gray-900">Total déjà payé</span>
+                      <span className="text-2xl font-bold text-orange-600">
+                        – {formatEuro(totalDejaPaye)}
                       </span>
                     </div>
                   </div>
-                  
-                  {/* Barre orange : Report */}
-                  {reportableGlobal > 0 && (
-                    <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl">
-                      <div className="flex justify-between mb-2">
-                        <span className="text-gray-700 font-semibold text-xs">
-                          Report opéré (10 ans max) :
-                        </span>
-                        <span className="font-bold text-orange-700 text-sm">
-                          {formatEuro(reportableGlobal)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-orange-500 transition-all rounded-full"
-                            style={{ width: '100%' }}
-                          />
-                        </div>
-                        <span className="text-xs font-bold text-orange-700 min-w-[40px] text-right">
-                          100 %
-                        </span>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </CardContent>
             </Card>
           </BlockCard>
         )}
+
+        {/* BLOC 6 : RESTE À PAYER */}
+        <BlockCard
+          title="Reste à payer"
+          icon={<DollarSign className="h-5 w-5 text-orange-600" />}
+        >
+          <Card className={`border-2 shadow-sm ${resteAPayer > 0 ? 'border-orange-300' : 'border-emerald-300'} bg-white`}>
+            <CardContent className="p-6">
+              <div className="space-y-3">
+                {totalDejaPaye > 0 && (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700">Total impôts calculés</span>
+                      <span className="font-semibold text-gray-700">{formatEuro(totalImpots)}</span>
+                    </div>
+                    
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700">– Déjà payé</span>
+                      <span className="font-semibold text-gray-700">– {formatEuro(totalDejaPaye)}</span>
+                    </div>
+                    
+                    <Separator className={resteAPayer > 0 ? "bg-orange-300" : "bg-emerald-300"} />
+                  </>
+                )}
+                
+                <div className={`rounded-lg p-4 ${resteAPayer > 0 ? 'bg-orange-100 border-2 border-orange-400' : 'bg-emerald-100 border-2 border-emerald-400'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl animate-pulse">🎯</span>
+                      <div>
+                        <p className="text-sm text-gray-600 mb-1">
+                          {resteAPayer > 0 ? 'Montant restant à régler' : 'Vous êtes à jour !'}
+                        </p>
+                        <span className="font-bold text-gray-900">RESTE À PAYER</span>
+                      </div>
+                    </div>
+                    <span className={`text-2xl font-bold ${resteAPayer > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                      {formatEuro(resteAPayer)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 italic">
+                    Ce montant correspond à l'avis d'imposition final estimé
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </BlockCard>
+
+        {/* BLOC 7 : RENDEMENT NET (INFO) */}
+        <BlockCard
+          title="💡 Rendement net de votre patrimoine"
+          icon={<Info className="h-5 w-5 text-amber-600" />}
+        >
+          <Card className="border-2 border-amber-300 bg-amber-50 shadow-sm">
+            <CardContent className="p-5">
+              <div className="space-y-4">
+                {/* Résultat principal */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-amber-800 font-medium mb-1">
+                      Pourcentage des loyers réellement conservés
+                    </p>
+                    <p className="text-xs text-amber-700">
+                      Après déduction de toutes les charges et impôts
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-3xl font-bold text-amber-600">
+                      {formatPercent(simulation.resume?.rendementNet || 0)}
+                    </p>
+                    <p className="text-xs text-amber-700">de rendement net</p>
+                  </div>
+                </div>
+
+                <Separator className="bg-amber-300" />
+
+                {/* Détail du calcul */}
+                <div className="bg-white/70 rounded-lg p-4 border border-amber-200">
+                  <p className="text-xs font-semibold text-amber-900 mb-3 flex items-center gap-1">
+                    <Calculator className="h-3 w-3" />
+                    Détail du calcul
+                  </p>
+                  
+                  {(() => {
+                    const loyersBruts = simulation.biens?.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0) || 0;
+                    const chargesTotal = simulation.biens?.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0) || 0;
+                    const impotsSuppTotal = simulation.resume?.impotsSuppTotal || 0;
+                    const beneficeNet = simulation.resume?.beneficeNetImmobilier || 0;
+                    
+                    return (
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">Loyers bruts annuels</span>
+                          <span className="font-bold text-gray-800">{formatEuro(loyersBruts)}</span>
+                        </div>
+                        
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">– Charges déductibles</span>
+                          <span className="font-medium text-gray-600">-{formatEuro(chargesTotal)}</span>
+                        </div>
+                        
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">– Impôts (IR + PS)</span>
+                          <span className="font-medium text-gray-600">-{formatEuro(Math.max(0, impotsSuppTotal))}</span>
+                        </div>
+                        
+                        <Separator className="bg-amber-200 my-1" />
+                        
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold text-gray-800">= Résultat net après impôt</span>
+                          <span className="font-bold text-gray-900">{formatEuro(beneficeNet)}</span>
+                        </div>
+                        
+                        <div className="bg-amber-100 rounded p-2 mt-2">
+                          <p className="text-[10px] text-amber-900 font-mono">
+                            <span className="font-semibold">Formule :</span> ({formatEuro(beneficeNet)} / {formatEuro(loyersBruts)}) × 100 = {formatPercent(simulation.resume?.rendementNet || 0)}
+                          </p>
+                        </div>
+                        
+                        <p className="text-[10px] text-amber-700 italic mt-2">
+                          💡 Ce taux représente la part de vos loyers que vous conservez réellement après toutes les déductions
+                        </p>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </BlockCard>
+
       </div>
+
+      {/* MODE EXPERT : Blocs supplémentaires */}
+      {isExpertMode && <ExpertCalculBlocks simulation={simulation} />}
     </TooltipProvider>
   );
 }
-

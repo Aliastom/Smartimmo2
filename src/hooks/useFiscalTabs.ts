@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export type FiscalTab = 'simulation' | 'synthese' | 'details' | 'projections' | 'optimisations';
+export type FiscalTab = 'simulation' | 'synthese' | 'details' | 'declaration' | 'projections' | 'optimisations';
 
 const STORAGE_KEY = 'fiscal-active-tab';
 const DEFAULT_TAB: FiscalTab = 'simulation';

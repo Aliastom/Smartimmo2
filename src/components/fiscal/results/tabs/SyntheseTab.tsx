@@ -4,30 +4,26 @@
 
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { BlockCard } from '../BlockCard';
-import { KpiCard } from '../KpiCard';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Separator } from '@/components/ui/Separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 import { 
-  TrendingUp, 
   TrendingDown, 
   Home, 
   Euro, 
-  Percent,
-  ArrowRight,
   CheckCircle2,
   AlertCircle,
-  FileText,
-  Coins,
-  PiggyBank,
-  ArrowUpRight,
   Info,
   Calculator,
+  PiggyBank,
+  Building,
+  X,
 } from 'lucide-react';
-import type { SimulationResult } from '@/types/fiscal';
+import type { SimulationResult, RentalPropertyResult } from '@/types/fiscal';
 
 interface SyntheseTabProps {
   simulation: SimulationResult;
@@ -36,6 +32,8 @@ interface SyntheseTabProps {
 }
 
 function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: SyntheseTabProps) {
+  const [showBiensModal, setShowBiensModal] = useState(false);
+  
   const formatEuro = (amount: number) =>
     new Intl.NumberFormat('fr-FR', {
       style: 'currency',
@@ -90,368 +88,496 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
   return (
     <div className="space-y-6 p-6">
       {/* Titre et sous-titre */}
-      <div className="text-center">
-        <h2 className="text-3xl font-bold text-gray-900 mb-2">
-          Synthèse fiscale
+      <div className="text-center mb-8">
+        <h2 className="text-3xl font-bold text-purple-600 mb-2 flex items-center justify-center gap-2">
+          🟣 Total imposable
         </h2>
         <p className="text-gray-600">
-          Vue d'ensemble de votre situation fiscale avec les indicateurs clés
+          Comprendre simplement comment votre impôt est calculé
         </p>
       </div>
 
-      {/* Section 1 : KPIs principales */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          title={totalDejaPaye > 0 ? "Impôt restant à payer" : "Total impôts (IR + PS)"}
-          value={formatEuro(totalDejaPaye > 0 ? impotRestantAPayer : totalImpots)}
-          subtitle={totalDejaPaye > 0 
-            ? `Total: ${formatEuro(totalImpots)} • Déjà payé: ${formatEuro(totalDejaPaye)}`
-            : `IR: ${formatEuro(simulation.ir.impotNet)} • PS: ${formatEuro(simulation.ps.montant || 0)}`}
-          icon={<Coins className="h-6 w-6 text-violet-400" />}
-          valueColor={totalDejaPaye > 0 && impotRestantAPayer === 0 ? "text-emerald-600" : "text-violet-600"}
-          className="bg-white/70"
-        />
-
-        <KpiCard
-          title="Bénéfice net immobilier"
-          value={formatEuro(beneficeNet)}
-          subtitle="Loyers - Charges - Impôts"
-          icon={<PiggyBank className={`h-6 w-6 ${beneficeNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />}
-          valueColor={beneficeNet >= 0 ? 'text-emerald-600' : 'text-rose-600'}
-          className="bg-white/70"
-        />
-
-        <KpiCard
-          title="Taux effectif"
-          value={formatPercent(simulation.resume?.tauxEffectif || 0)}
-          subtitle={`TMI: ${formatPercent(simulation.ir.trancheMarginate)}`}
-          icon={<Percent className="h-6 w-6 text-sky-400" />}
-          valueColor="text-sky-600"
-          className="bg-white/70"
-        />
-
-        <KpiCard
-          title="Base imposable (IR)"
-          value={formatEuro(simulation.ir.revenuImposable)}
-          subtitle={(() => {
-            const salaire = simulation.inputs.foyer.salaire;
-            const foncier = simulation.consolidation.revenusFonciers;
-            const deficitImp = simulation.consolidation.deficitImputableRevenuGlobal || 0;
-            const perDeduction = simulation.per?.deductionUtilisee || 0;
-            
-            const parts = [`${formatEuro(salaire)} sal.`];
-            if (foncier !== 0) parts.push(`${foncier >= 0 ? '+' : ''}${formatEuro(foncier)} fonc.`);
-            if (deficitImp > 0) parts.push(`-${formatEuro(deficitImp)} déf.imp.`);
-            if (perDeduction > 0) parts.push(`-${formatEuro(perDeduction)} PER`);
-            
-            return parts.join(' ');
-          })()}
-          icon={<FileText className="h-6 w-6 text-purple-400" />}
-          valueColor="text-purple-600"
-          className="bg-white/70"
-        />
-      </div>
-
-      {/* Section 2 : Détail du calcul */}
-      <BlockCard
-        title="Détail du calcul"
-        icon={<TrendingUp className="h-5 w-5" />}
-      >
-        <div className="text-sm text-gray-600 bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="font-medium text-blue-900 mb-3 flex items-center gap-1">
-            <Info className="h-4 w-4" />
-            Comment est calculé le bénéfice net immobilier
-          </p>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span>Loyers encaissés</span>
-              <span className="font-semibold text-emerald-600">{formatEuro(loyersTotal)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>- Charges déductibles</span>
-              <span className="font-semibold text-rose-600">-{formatEuro(chargesTotal)}</span>
-            </div>
-            <div className="flex justify-between text-blue-800">
-              <span>- Impôts supplémentaires (IR + PS causés par le foncier)</span>
-              <span className="font-semibold">
-                {impotsSuppTotal > 0 ? `-${formatEuro(impotsSuppTotal)}` : `${formatEuro(0)} (économie)`}
-              </span>
-            </div>
-            {impotsSuppTotal > 0 && (
-              <>
-                {irSupplementaire > 0 && (
-                  <div className="flex justify-between text-xs text-gray-500 ml-6">
-                    <span>└ dont IR supplémentaire</span>
-                    <span>-{formatEuro(irSupplementaire)}</span>
-                  </div>
-                )}
-                {(simulation.ps.montant || 0) > 0 && (
-                  <div className="flex justify-between text-xs text-gray-500 ml-6">
-                    <span>└ dont PS fonciers</span>
-                    <span>-{formatEuro(simulation.ps.montant || 0)}</span>
-                  </div>
-                )}
-              </>
-            )}
-            
-            <Separator className="bg-blue-300 my-2" />
-            
-            <div className="flex justify-between pt-1 font-semibold text-blue-900">
-              <span className="text-base">= Bénéfice net réel</span>
-              <span className={`text-xl ${beneficeNet >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                {formatEuro(beneficeNet)}
-              </span>
-            </div>
-          </div>
+      {/* ENCART 1 : SALAIRE NET IMPOSABLE */}
+      <div className="relative">
+        <div className="absolute left-0 top-0 bottom-0 flex flex-col items-center" style={{ width: '32px' }}>
+          <div className="w-3 h-3 rounded-full bg-purple-600 mt-8"></div>
+          <div className="w-0.5 flex-1 bg-purple-300 mt-2"></div>
         </div>
-      </BlockCard>
+        <div className="ml-10">
+          <BlockCard
+            title="1. Salaire net imposable"
+            icon={<Euro className="h-5 w-5 text-purple-600" />}
+          >
+            <Card className="border-2 border-purple-300 bg-white shadow-md">
+              <CardContent className="p-5">
+                {(() => {
+                  // Calculer l'abattement de 10% (forfaitaire) utilisé
+                  const salaireNetImposable = simulation.inputs.foyer.salaire;
+                  const params = simulation.taxParams.salaryDeduction || { taux: 0.10, min: 472, max: 13522 };
+                  
+                  // Estimer le salaire brut (inverse de l'abattement)
+                  // Si abattement 10% : net = brut - (brut × 0.10) = brut × 0.90
+                  // Donc brut = net / 0.90
+                  const salaireBrutEstime = salaireNetImposable / (1 - params.taux);
+                  const abattementEstime = salaireBrutEstime - salaireNetImposable;
+                  
+                  // Vérifier si l'abattement est dans les bornes
+                  const abattementReel = Math.min(Math.max(abattementEstime, params.min), params.max);
+                  const salaireBrutReel = salaireNetImposable + abattementReel;
+                  
+                  return (
+                    <div className="space-y-3">
+                      {/* Calcul du salaire net imposable */}
+                      <div className="text-sm">
+                        <p className="font-medium text-gray-700 mb-2">💼 Revenus professionnels</p>
+                        <div className="space-y-1.5 ml-3">
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-600">Salaire brut annuel</span>
+                            <span className="font-medium text-gray-700">
+                              {formatEuro(salaireBrutReel)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-gray-500 flex items-center gap-1">
+                              – Abattement forfaitaire 10%
+                              <span className="text-[10px] italic">(min {formatEuro(params.min)}, max {formatEuro(params.max)})</span>
+                            </span>
+                            <span className="text-gray-600">-{formatEuro(abattementReel)}</span>
+                          </div>
+                        </div>
+                      </div>
 
-      {/* Section 3 : Régimes par bien */}
-      <BlockCard
-        title="Régimes fiscaux par bien"
-        icon={<Home className="h-5 w-5" />}
-        badge={
-          biensNonOptimaux.length > 0 && (
-            <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
-              {biensNonOptimaux.length} à optimiser
-            </Badge>
-          )
-        }
-      >
-        <div className="space-y-3">
-          {regimesParBien.map((bien, i) => {
-            const bienComplet = simulation.biens.find(b => b.nom === bien.nom);
-            // ✅ Utiliser le résultat du backend
-            const resultat = bienComplet?.resultatFiscal || 0;
-            
-            return (
-              <Card
-                key={i}
-                className={`border ${bien.isOptimal ? 'border-emerald-200 bg-emerald-50' : 'border-orange-200 bg-orange-50'}`}
-              >
-                <CardContent className="p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {bien.isOptimal ? (
-                        <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                      ) : (
-                        <AlertCircle className="h-5 w-5 text-orange-600" />
-                      )}
-                      
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-gray-900">{bien.nom}</p>
-                          <span className={`text-sm font-semibold ${resultat >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                            {resultat >= 0 ? '+' : ''}{formatEuro(resultat)}
+                      <Separator className="bg-purple-200 my-2" />
+
+                      {/* Salaire net imposable - VIOLET */}
+                      <div className="bg-purple-100 border-2 border-purple-300 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm text-gray-600 mb-1">Base de mes impôts hors immobilier</p>
+                            <p className="font-semibold text-gray-900">Salaire net imposable</p>
+                          </div>
+                          <span className="text-2xl font-bold text-purple-600">
+                            {formatEuro(salaireNetImposable)}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-600">
-                          Régime : {bien.regimeUtilise === 'micro' ? 'Micro' : 'Réel'}
-                          {!bien.isOptimal && ` → Suggéré: ${bien.regimeSuggere === 'micro' ? 'Micro' : 'Réel'}`}
-                        </p>
                       </div>
                     </div>
-
-                    {!bien.isOptimal && (
-                      <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
-                        +{Math.round(Math.abs(bien.gainPotentiel))} €/an
-                      </Badge>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-
-          {/* Total des résultats fonciers - Backend */}
-          {(() => {
-            const totalResultats = simulation.consolidation.revenusFonciers;
-            const totalRecettes = simulation.biens.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0);
-            const totalCharges = simulation.biens.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0);
-            
-            // 🆕 Agréger le breakdown par catégorie de tous les biens
-            const recettesParCategorie: Record<string, { label: string; amount: number }> = {};
-            const chargesParCategorie: Record<string, { label: string; amount: number }> = {};
-            
-            simulation.biens.forEach(bien => {
-              if (bien.breakdown?.byCategory) {
-                // Recettes
-                Object.entries(bien.breakdown.byCategory.recettes).forEach(([code, data]) => {
-                  if (!recettesParCategorie[code]) {
-                    recettesParCategorie[code] = { label: data.label, amount: 0 };
-                  }
-                  recettesParCategorie[code].amount += data.amount;
-                });
-                
-                // Charges
-                Object.entries(bien.breakdown.byCategory.charges).forEach(([code, data]) => {
-                  if (!chargesParCategorie[code]) {
-                    chargesParCategorie[code] = { label: data.label, amount: 0 };
-                  }
-                  chargesParCategorie[code].amount += data.amount;
-                });
-              }
-            });
-            
-            // Trier par montant décroissant
-            const recettesSorted = Object.entries(recettesParCategorie).sort((a, b) => b[1].amount - a[1].amount);
-            const chargesSorted = Object.entries(chargesParCategorie).sort((a, b) => b[1].amount - a[1].amount);
-            
-            return (
-              <Card className="border-2 border-purple-300 bg-purple-50">
-                <CardContent className="p-4">
-                  {/* En-tête */}
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <Calculator className="h-5 w-5 text-purple-600" />
-                      <div>
-                        <p className="font-semibold text-gray-900">Total revenus fonciers</p>
-                        <p className="text-xs text-gray-600">
-                          Consolidation de {simulation.biens.length} bien(s)
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-xl font-bold ${totalResultats >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                        {totalResultats >= 0 ? '+' : ''}{formatEuro(totalResultats)}
-                      </p>
-                      <p className="text-xs text-gray-500">Résultat fiscal net</p>
-                    </div>
-                  </div>
-                  
-                  {/* Détail du calcul avec breakdown par catégorie */}
-                  <Separator className="my-2" />
-                  <div className="space-y-3 text-xs">
-                    {/* Recettes par catégorie */}
-                    {recettesSorted.length > 0 && (
-                      <div>
-                        <div className="flex justify-between items-center mb-1.5">
-                          <span className="font-medium text-gray-700">Recettes par catégorie</span>
-                          <span className="font-medium text-emerald-700">+{formatEuro(totalRecettes)}</span>
-                        </div>
-                        <div className="pl-3 space-y-1">
-                          {recettesSorted.map(([code, data]) => (
-                            <div key={code} className="flex justify-between text-gray-600">
-                              <span>• {data.label}</span>
-                              <span className="text-emerald-600">+{formatEuro(data.amount)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    
-                    {/* Charges par catégorie */}
-                    {chargesSorted.length > 0 && (
-                      <div>
-                        <div className="flex justify-between items-center mb-1.5">
-                          <span className="font-medium text-gray-700">Charges par catégorie</span>
-                          <span className="font-medium text-orange-700">-{formatEuro(totalCharges)}</span>
-                        </div>
-                        <div className="pl-3 space-y-1">
-                          {chargesSorted.map(([code, data]) => (
-                            <div key={code} className="flex justify-between text-gray-600">
-                              <span>• {data.label}</span>
-                              <span className="text-orange-600">-{formatEuro(data.amount)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    
-                    <Separator className="my-1" />
-                    <div className="flex justify-between items-center font-semibold">
-                      <span className="text-gray-700">= Résultat fiscal net</span>
-                      <span className={totalResultats >= 0 ? 'text-emerald-700' : 'text-red-700'}>
-                        {totalResultats >= 0 ? '+' : ''}{formatEuro(totalResultats)}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })()}
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </BlockCard>
         </div>
+      </div>
 
-        {biensNonOptimaux.length > 0 && (
-          <div className="mt-4 flex justify-end">
-            <Button variant="outline" size="sm" onClick={onGoToOptimizations}>
-              Voir les optimisations <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </div>
-        )}
-      </BlockCard>
-
-      {/* Section 4 : PER (Plan Épargne Retraite) - Version synthétique */}
-      {simulation.per && (
-        <BlockCard
-          title="Plan Épargne Retraite (PER)"
-          icon={<PiggyBank className="h-5 w-5" />}
-          badge={
-            <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">
-              -{formatEuro(simulation.per.economieIR)} d'impôt
-            </Badge>
-          }
-        >
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Versement effectué */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
-              <p className="text-xs text-blue-700 mb-2">Versement effectué</p>
-              <p className="text-2xl font-bold text-blue-900">{formatEuro(simulation.per.versement)}</p>
-              <p className="text-xs text-gray-600 mt-1">Sur {formatEuro(simulation.per.details.plafondDisponible)} disponible</p>
-            </div>
-
-            {/* Impact sur le revenu imposable - Détaillé */}
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 mb-3 text-center">Revenu imposable global</p>
-              <div className="space-y-1.5 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-700">Salaire net imposable</span>
-                  <span className="font-semibold">{formatEuro(simulation.inputs.foyer.salaire)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-700">Revenus fonciers</span>
-                  <span className={`font-semibold ${simulation.consolidation.revenusFonciers >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {simulation.consolidation.revenusFonciers >= 0 ? '+' : ''}{formatEuro(simulation.consolidation.revenusFonciers)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-700">Déduction PER</span>
-                  <span className="font-semibold text-blue-700">-{formatEuro(simulation.per.deductionUtilisee)}</span>
-                </div>
-                <Separator className="bg-gray-300 my-1" />
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-gray-900">Total imposable</span>
-                  <span className="text-xl font-bold text-green-700">{formatEuro(simulation.ir.revenuImposable)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Économie réalisée */}
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
-              <p className="text-xs text-green-700 mb-2">Économie d'impôt (IR)</p>
-              <p className="text-3xl font-bold text-green-600">{formatEuro(simulation.per.economieIR)}</p>
-              <p className="text-xs text-gray-600 mt-1">{formatPercent(simulation.ir.trancheMarginate)} × {formatEuro(simulation.per.deductionUtilisee)}</p>
-            </div>
-          </div>
+      {/* ENCART 2 : IMMOBILIER (IMPACT FISCAL) */}
+      <div className="relative">
+        <div className="absolute left-0 top-0 bottom-0 flex flex-col items-center" style={{ width: '32px' }}>
+          <div className="w-3 h-3 rounded-full bg-purple-600 mt-8"></div>
+          <div className="w-0.5 flex-1 bg-purple-300 mt-2"></div>
+        </div>
+        <div className="ml-10">
+          <BlockCard
+            title="2. Immobilier (impact fiscal)"
+            icon={<Home className="h-5 w-5 text-purple-600" />}
+          >
+        {(() => {
+          const totalResultats = simulation.consolidation.revenusFonciers;
+          const totalRecettes = simulation.biens.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0);
+          const totalCharges = simulation.biens.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0);
           
-          {simulation.per.nouveauReliquat > 0 && (
-            <div className="mt-4 bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm">
-              <Info className="h-4 w-4 inline mr-2 text-orange-600" />
-              <span className="text-orange-800">
-                Reliquat non utilisé : <strong>{formatEuro(simulation.per.nouveauReliquat)}</strong> reportable sur {simulation.taxParams.per?.dureeReportReliquats || 3} ans
-              </span>
-            </div>
-          )}
-        </BlockCard>
+          // Agréger le breakdown par catégorie de tous les biens
+          const recettesParCategorie: Record<string, { label: string; amount: number }> = {};
+          const chargesParCategorie: Record<string, { label: string; amount: number }> = {};
+          
+          simulation.biens.forEach(bien => {
+            if (bien.breakdown?.byCategory) {
+              // Recettes
+              Object.entries(bien.breakdown.byCategory.recettes).forEach(([code, data]) => {
+                if (!recettesParCategorie[code]) {
+                  recettesParCategorie[code] = { label: data.label, amount: 0 };
+                }
+                recettesParCategorie[code].amount += data.amount;
+              });
+              
+              // Charges
+              Object.entries(bien.breakdown.byCategory.charges).forEach(([code, data]) => {
+                if (!chargesParCategorie[code]) {
+                  chargesParCategorie[code] = { label: data.label, amount: 0 };
+                }
+                chargesParCategorie[code].amount += data.amount;
+              });
+            }
+          });
+          
+          // Trier par montant décroissant
+          const recettesSorted = Object.entries(recettesParCategorie).sort((a, b) => b[1].amount - a[1].amount);
+          const chargesSorted = Object.entries(chargesParCategorie).sort((a, b) => b[1].amount - a[1].amount);
+          
+          return (
+            <Card className="border-2 border-purple-300 bg-white shadow-md">
+              <CardContent className="p-5">
+                {/* En-tête */}
+                <div className="flex items-center gap-2 mb-4">
+                  <button
+                    onClick={() => setShowBiensModal(true)}
+                    className="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline cursor-pointer transition-colors flex items-center gap-1"
+                  >
+                    <Building className="h-3 w-3" />
+                    Consolidation de {simulation.biens.length} bien(s)
+                  </button>
+                </div>
+                
+                <div className="space-y-3">
+                  {/* 1. Loyers encaissés */}
+                  <div>
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium text-gray-700">Loyers encaissés</span>
+                      <span className="font-semibold text-gray-700">+ {formatEuro(totalRecettes)}</span>
+                    </div>
+                    {recettesSorted.length > 0 && (
+                      <div className="ml-4 mt-1 space-y-0.5">
+                        {recettesSorted.map(([code, data]) => (
+                          <div key={code} className="flex justify-between text-xs text-gray-500">
+                            <span>• {data.label}</span>
+                            <span className="text-gray-600">+{formatEuro(data.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. Charges déductibles */}
+                  <div>
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium text-gray-700">– Charges déductibles</span>
+                      <span className="font-semibold text-gray-700">= – {formatEuro(totalCharges)}</span>
+                    </div>
+                    {chargesSorted.length > 0 && (
+                      <div className="ml-4 mt-1 space-y-0.5">
+                        {chargesSorted.map(([code, data]) => (
+                          <div key={code} className="flex justify-between text-xs text-gray-500">
+                            <span>• {data.label}</span>
+                            <span className="text-gray-600">-{formatEuro(data.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <Separator className="bg-purple-200 my-3" />
+
+                  {/* 3. Résultat foncier net imposable - VIOLET */}
+                  <div className="bg-purple-100 border-2 border-purple-300 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 mb-1">Ce que l'immobilier ajoute à l'impôt</p>
+                        <p className="font-semibold text-gray-900">Résultat foncier net imposable</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-2xl font-bold text-purple-600 block">
+                          {totalResultats >= 0 ? '+' : ''} {formatEuro(totalResultats)}
+                        </span>
+                        <p className="text-[10px] text-gray-500 italic mt-1">
+                          Ajouté à votre salaire pour le calcul de l'IR
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+          </BlockCard>
+        </div>
+      </div>
+
+      {/* ENCART 3 : PER */}
+      {simulation.per && (
+        <div className="relative">
+          <div className="absolute left-0 top-0 bottom-0 flex flex-col items-center" style={{ width: '32px' }}>
+            <div className="w-3 h-3 rounded-full bg-purple-600 mt-8"></div>
+            <div className="w-0.5 flex-1 bg-purple-300 mt-2"></div>
+          </div>
+          <div className="ml-10">
+            <BlockCard
+              title="3. Plan Épargne Retraite (PER)"
+              icon={<TrendingDown className="h-5 w-5 text-purple-600" />}
+            >
+              <Card className="border-2 border-purple-300 bg-white shadow-md">
+                <CardContent className="p-5">
+                  <div className="space-y-3">
+                    {/* Montant versé */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Montant versé</span>
+                      <span className="font-semibold text-gray-700">{formatEuro(simulation.per.versement)}</span>
+                    </div>
+                    
+                    {/* Plafond disponible */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Plafond disponible</span>
+                      <span className="font-semibold text-gray-700">{formatEuro(simulation.per.details.plafondDisponible)}</span>
+                    </div>
+                    
+                    <Separator className="bg-purple-200 my-2" />
+                    
+                    {/* Déduction appliquée - VIOLET */}
+                    <div className="bg-purple-100 border-2 border-purple-300 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-gray-600 mb-1">Ce que le PER retire de l'impôt</p>
+                          <p className="font-semibold text-gray-900">Déduction PER</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-2xl font-bold text-purple-600 block">
+                            – {formatEuro(simulation.per.deductionUtilisee)}
+                          </span>
+                          <p className="text-[10px] text-gray-500 italic mt-1">
+                            Déduction légale du revenu imposable
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-purple-700 mt-2 text-center">
+                        💡 L'économie d'impôt dépend de votre TMI
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </BlockCard>
+          </div>
+        </div>
       )}
 
-      {/* CTA final */}
-      <div className="flex justify-center pt-4">
-        <Button onClick={onGoToDetails} size="lg" className="gap-2">
-          <FileText className="h-5 w-5" />
-          Accéder aux détails fiscaux complets
-        </Button>
+      {/* ENCART 4 : CONSTRUCTION DU REVENU IMPOSABLE */}
+      <div className="relative">
+        <div className="absolute left-0 top-0 bottom-0 flex flex-col items-center" style={{ width: '32px' }}>
+          <div className="w-4 h-4 rounded-full bg-emerald-500 mt-8 flex items-center justify-center">
+            <span className="text-white text-xs">✓</span>
+          </div>
+        </div>
+        <div className="ml-10">
+          <BlockCard
+            title="4. Construction du revenu imposable"
+            icon={<Calculator className="h-5 w-5 text-purple-600" />}
+          >
+            <Card className="border-2 border-purple-300 bg-white shadow-md">
+              <CardContent className="p-6">
+                <div className="space-y-4">
+                  {/* Salaire */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-700">Salaire net imposable</span>
+                    <span className="text-lg font-bold text-purple-600">+ {formatEuro(simulation.inputs.foyer.salaire)}</span>
+                  </div>
+                  
+                  {/* Résultat foncier */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-700">+ Résultat foncier net</span>
+                    <span className="text-lg font-bold text-purple-600">
+                      + {formatEuro(simulation.consolidation.revenusFonciers)}
+                    </span>
+                  </div>
+                  
+                  <Separator className="bg-gray-400" />
+                  
+                  {/* Revenu brut imposable */}
+                  <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
+                    <span className="font-semibold text-gray-900">= Revenu brut imposable</span>
+                    <span className="text-xl font-bold text-gray-900">
+                      {formatEuro(simulation.inputs.foyer.salaire + simulation.consolidation.revenusFonciers)}
+                    </span>
+                  </div>
+                  
+                  {/* Déduction PER */}
+                  {simulation.per && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-700">– Déduction PER</span>
+                      <span className="text-lg font-bold text-purple-600">– {formatEuro(simulation.per.deductionUtilisee)}</span>
+                    </div>
+                  )}
+                  
+                  <Separator className="bg-purple-400" />
+                  
+                  {/* Total imposable final */}
+                  <div className="bg-gradient-to-r from-purple-100 to-purple-50 border-2 border-purple-400 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl animate-pulse">🎯</span>
+                        <span className="font-bold text-gray-900">TOTAL IMPOSABLE FINAL</span>
+                      </div>
+                      <span className="text-2xl font-bold text-purple-600">
+                        {formatEuro(simulation.ir.revenuImposable)}
+                      </span>
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      <p className="text-xs text-gray-600 italic">
+                        Cette base servira à calculer l'impôt sur le revenu
+                      </p>
+                      <p className="text-xs text-purple-700 font-medium">
+                        C'est ce montant qui détermine votre tranche et votre impôt.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </BlockCard>
+        </div>
       </div>
+
+      {/* Modal : Revenus par bien */}
+      {showBiensModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowBiensModal(false)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-purple-50">
+              <div className="flex items-center gap-3">
+                <Home className="h-6 w-6 text-purple-600" />
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Revenus par bien (justificatif)</h3>
+                  <p className="text-sm text-gray-600">{simulation.biens.length} bien(s)</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowBiensModal(false)}
+                className="p-2 hover:bg-purple-100 rounded-lg transition-colors"
+              >
+                <X className="h-5 w-5 text-gray-600" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+              <TooltipProvider>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 bg-gray-50">
+                        <th className="text-left p-3 font-semibold text-gray-700">Bien</th>
+                        <th className="text-center p-3 font-semibold text-gray-700">Régime</th>
+                        <th className="text-right p-3 font-semibold text-gray-700">Loyers</th>
+                        <th className="text-right p-3 font-semibold text-gray-700">Charges</th>
+                        <th className="text-right p-3 font-semibold text-gray-700">Résultat fiscal</th>
+                        <th className="text-center p-3 font-semibold text-gray-700">Déficit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {simulation.biens.map((bien: RentalPropertyResult) => {
+                        const isDeficit = bien.resultatFiscal < 0;
+                        const hasDeficit = bien.deficit && bien.deficit > 0;
+
+                        return (
+                          <tr 
+                            key={bien.id}
+                            className={`border-b border-gray-100 ${isDeficit ? 'bg-red-50/30' : 'bg-green-50/30'} hover:bg-gray-50 transition-colors`}
+                          >
+                            <td className="p-3">
+                              <div className="flex items-center gap-2">
+                                <Building className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                                <div>
+                                  <p className="font-medium text-gray-900">{bien.nom}</p>
+                                  <p className="text-xs text-gray-500">{bien.type}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3 text-center">
+                              <Badge variant="outline" className="bg-white text-xs">
+                                {bien.regime === 'micro' ? 'Micro' : 'Réel'}
+                              </Badge>
+                            </td>
+                            <td className="p-3 text-right">
+                              <span className="font-semibold text-emerald-600">
+                                +{formatEuro(bien.recettesBrutes)}
+                              </span>
+                            </td>
+                            <td className="p-3 text-right">
+                              <span className="font-semibold text-orange-600">
+                                -{formatEuro(bien.chargesDeductibles)}
+                              </span>
+                            </td>
+                            <td className="p-3 text-right">
+                              <span className={`font-bold ${isDeficit ? 'text-red-600' : 'text-emerald-600'}`}>
+                                {isDeficit ? '' : '+'}{formatEuro(bien.resultatFiscal)}
+                              </span>
+                            </td>
+                            <td className="p-3 text-center">
+                              {hasDeficit ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="flex flex-col items-center gap-1">
+                                      <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300 text-xs">
+                                        {formatEuro(bien.deficit)}
+                                      </Badge>
+                                      <div className="flex items-center gap-2 text-xs text-gray-600">
+                                        {bien.deficitImputableRevenuGlobal && bien.deficitImputableRevenuGlobal > 0 && (
+                                          <span className="text-blue-600">Imp: {formatEuro(bien.deficitImputableRevenuGlobal)}</span>
+                                        )}
+                                        {bien.deficitReportable && bien.deficitReportable > 0 && (
+                                          <span className="text-orange-600">Rep: {formatEuro(bien.deficitReportable)}</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <div className="space-y-1 text-xs">
+                                      <p className="font-semibold">Détail du déficit :</p>
+                                      <p>• Imputable revenu global : {formatEuro(bien.deficitImputableRevenuGlobal || 0)}</p>
+                                      <p>• Reportable (10 ans) : {formatEuro(bien.deficitReportable || 0)}</p>
+                                    </div>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <span className="text-gray-400 text-xs">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    
+                    {/* Total */}
+                    <tfoot>
+                      <tr className="border-t-2 border-gray-300 bg-purple-50 font-semibold">
+                        <td className="p-3" colSpan={2}>
+                          <div className="flex items-center gap-2">
+                            <Calculator className="h-4 w-4 text-purple-600" />
+                            <span className="text-gray-900">Total consolidé</span>
+                          </div>
+                        </td>
+                        <td className="p-3 text-right text-emerald-700">
+                          +{formatEuro(simulation.biens.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0))}
+                        </td>
+                        <td className="p-3 text-right text-orange-700">
+                          -{formatEuro(simulation.biens.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0))}
+                        </td>
+                        <td className="p-3 text-right">
+                          {(() => {
+                            const total = simulation.consolidation.revenusFonciers;
+                            return (
+                              <span className={`font-bold text-base ${total >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {total >= 0 ? '+' : ''}{formatEuro(total)}
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="p-3"></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </TooltipProvider>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end">
+              <Button variant="outline" onClick={() => setShowBiensModal(false)}>
+                Fermer
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

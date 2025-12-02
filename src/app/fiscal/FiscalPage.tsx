@@ -9,12 +9,15 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useFiscalStore } from '@/store/fiscalStore';
 import { useFiscalTabs } from '@/hooks/useFiscalTabs';
-import { FiscalTabs } from '@/components/fiscal/unified/FiscalTabs';
+import { useExpertModeStore } from '@/store/expertModeStore';
 import { FiscalProgressBar } from '@/components/fiscal/unified/FiscalProgressBar';
 import { SavedSimulationsDropdown } from '@/components/fiscal/SavedSimulationsDropdown';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Switch } from '@/components/ui/Switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 import { 
   Calculator, 
   Save, 
@@ -22,6 +25,10 @@ import {
   Loader2, 
   Check, 
   Info,
+  FileText,
+  Coins,
+  PiggyBank,
+  Percent,
 } from 'lucide-react';
 import { FiscalCalculatingOverlay } from '@/components/fiscal/FiscalCalculatingOverlay';
 
@@ -40,6 +47,10 @@ const DetailsTab = dynamic(() => import('@/components/fiscal/results/tabs/Detail
   loading: () => <div className="p-6"><div className="h-96 bg-gray-100 animate-pulse rounded-2xl" /></div>,
 });
 
+const DeclarationTab = dynamic(() => import('@/components/fiscal/results/tabs/DeclarationTab').then(m => ({ default: m.DeclarationTab })), {
+  loading: () => <div className="p-6"><div className="h-96 bg-gray-100 animate-pulse rounded-2xl" /></div>,
+});
+
 const ProjectionsTab = dynamic(() => import('@/components/fiscal/results/tabs/ProjectionsTab').then(m => ({ default: m.ProjectionsTab })), {
   loading: () => <div className="p-6"><div className="h-96 bg-gray-100 animate-pulse rounded-2xl" /></div>,
 });
@@ -50,6 +61,7 @@ const OptimisationsTab = dynamic(() => import('@/components/fiscal/results/tabs/
 
 export function FiscalPage() {
   const { activeTab, setActiveTab } = useFiscalTabs();
+  const { isExpertMode, toggleExpertMode } = useExpertModeStore();
   const { 
     simulationDraft,
     simulationResult, 
@@ -63,6 +75,15 @@ export function FiscalPage() {
     resetSimulation,
     updateDraft,
   } = useFiscalStore();
+  
+  // Fonction de formatage
+  const formatEuro = (amount: number) =>
+    new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: 'EUR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -662,38 +683,152 @@ export function FiscalPage() {
                   Export PDF
                 </Button>
               )}
+              
+              {/* Toggle Mode Expert */}
+              {hasSimulation && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 transition-colors">
+                        <Switch
+                          checked={isExpertMode}
+                          onCheckedChange={toggleExpertMode}
+                        />
+                        <span className="text-sm font-medium text-gray-700">
+                          Mode expert
+                        </span>
+                        {isExpertMode && (
+                          <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-300 text-xs">
+                            ON
+                          </Badge>
+                        )}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-xs text-xs">
+                        Active des détails avancés : calculs tranche par tranche, cohérence fiscale, scénarios, overrides, etc.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
             </div>
           </div>
 
-          {/* Navigation onglets + Badges */}
-          <div className="flex items-center justify-between">
-            <FiscalTabs
-              activeTab={activeTab}
-              onTabChange={setActiveTab}
-              hasSimulation={hasSimulation}
-              badges={{ optimisations: optimizationCount }}
-            />
-            
-            {/* Badges année et version à droite */}
+          {/* Barre de progression cliquable (remplace les onglets) */}
+          <div className="mt-4">
+            {/* Badges année et version */}
             {simulationResult && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-end gap-2 mb-3">
                 <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-300">
                   Année {simulationResult.inputs.year}
                 </Badge>
                 <Badge variant="outline" className="bg-sky-100 text-sky-700 border-sky-300">
                   {simulationResult.taxParams.version}
                 </Badge>
+                {optimizationCount > 0 && (
+                  <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
+                    {optimizationCount} optimisation{optimizationCount > 1 ? 's' : ''}
+                  </Badge>
+                )}
               </div>
             )}
-          </div>
-
-          {/* Barre de progression (dans le header sticky) */}
-          <div className="mt-4">
-            <FiscalProgressBar activeTab={activeTab} hasSimulation={hasSimulation} />
+            
+            <FiscalProgressBar 
+              activeTab={activeTab} 
+              hasSimulation={hasSimulation}
+              onTabChange={setActiveTab}
+            />
           </div>
         </div>
       </div>
 
+
+      {/* KPI principales - Visibles sur tous les onglets */}
+      {simulationResult && (
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {(() => {
+              const totalImpots = simulationResult.resume?.totalImpots || 0;
+              const beneficeNet = simulationResult.resume?.beneficeNetImmobilier || 0;
+              const prelevementSourceDejaPaye = simulationResult.inputs?.options?.prelevementSourceDejaPaye || 0;
+              const acomptesDejaPayes = simulationResult.inputs?.options?.acomptesDejaPayes || 0;
+              const totalDejaPaye = prelevementSourceDejaPaye + acomptesDejaPayes;
+              const impotRestantAPayer = Math.max(0, totalImpots - totalDejaPaye);
+              
+              return (
+                <>
+                  <Card className="bg-white/70 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-gray-600 mb-1">BASE IMPOSABLE</p>
+                          <p className="text-2xl font-bold text-purple-600 mb-1">
+                            {formatEuro(simulationResult.ir.revenuImposable)}
+                          </p>
+                          <p className="text-xs text-gray-500">Assiette de calcul de l'impôt</p>
+                        </div>
+                        <FileText className="h-6 w-6 text-purple-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-white/70 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-gray-600 mb-1">
+                            {totalDejaPaye > 0 ? 'IMPÔT RESTANT À PAYER' : 'TOTAL IMPÔTS'}
+                          </p>
+                          <p className="text-2xl font-bold text-orange-600 mb-1">
+                            {formatEuro(totalDejaPaye > 0 ? impotRestantAPayer : totalImpots)}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {totalDejaPaye > 0 ? `Déjà payé: ${formatEuro(totalDejaPaye)}` : 'IR + PS'}
+                          </p>
+                        </div>
+                        <Coins className="h-6 w-6 text-orange-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-white/70 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-gray-600 mb-1">RÉSULTAT NET APRÈS IMPÔT</p>
+                          <p className="text-2xl font-bold text-emerald-600 mb-1">
+                            {formatEuro(beneficeNet)}
+                          </p>
+                          <p className="text-xs text-gray-500">Argent réellement conservé</p>
+                        </div>
+                        <PiggyBank className="h-6 w-6 text-emerald-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-white/70 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-gray-600 mb-1">TAUX EFFECTIF</p>
+                          <p className="text-2xl font-bold text-gray-600 mb-1">
+                            {((simulationResult.resume?.tauxEffectif || 0) * 100).toFixed(1)} %
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            TMI: {((simulationResult.ir.trancheMarginate || 0) * 100).toFixed(1)} %
+                          </p>
+                        </div>
+                        <Percent className="h-6 w-6 text-gray-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Erreur */}
       {error && (
@@ -726,6 +861,13 @@ export function FiscalPage() {
             <DetailsTab
               simulation={simulationResult}
               onOpenProjectionModal={() => setActiveTab('projections')}
+              onExportPDF={handleExportPDF}
+            />
+          )}
+
+          {activeTab === 'declaration' && simulationResult && (
+            <DeclarationTab
+              simulation={simulationResult}
               onExportPDF={handleExportPDF}
             />
           )}
