@@ -397,6 +397,10 @@ class FiscalAggregatorClass {
     let chargesDeductibles = 0;
     let chargesCapitalisables = 0;
     
+    // 🆕 Breakdown par catégorie
+    const recettesParCategorie: Record<string, { label: string; amount: number }> = {};
+    const chargesParCategorie: Record<string, { label: string; amount: number }> = {};
+    
     for (const transaction of transactions) {
       const montant = Math.abs(transaction.amount);  // Toujours positif pour les calculs
       const natureCode = transaction.nature || '';
@@ -412,13 +416,22 @@ class FiscalAggregatorClass {
       const isRecette = flowUpper === 'RECETTE' || flowUpper === 'INCOME';
       const isDepense = flowUpper === 'DEPENSE' || flowUpper === 'EXPENSE';
       
+      // Récupérer la catégorie pour le breakdown
+      const categoryCode = transaction.Category?.code || 'AUTRE';
+      const categoryLabel = transaction.Category?.label || 'Autres';
+      
       if (isRecette) {
         // Recette
         recettesTotales += montant;
         
+        // 🆕 Ajouter au breakdown par catégorie
+        if (!recettesParCategorie[categoryCode]) {
+          recettesParCategorie[categoryCode] = { label: categoryLabel, amount: 0 };
+        }
+        recettesParCategorie[categoryCode].amount += montant;
+        
         // ✅ Identifier les loyers UNIQUEMENT par la CATÉGORIE définie dans les codes système
         // La commission s'applique sur les transactions de la catégorie loyer (pas juste la nature)
-        const categoryCode = transaction.Category?.code || '';
         if (categoryCode === systemCodes.rentCategory) {
           recettesLoyer += montant;
         }
@@ -428,9 +441,21 @@ class FiscalAggregatorClass {
           chargesCapitalisables += montant;
         } else if (transaction.Category?.deductible === true) {
           chargesDeductibles += montant;
+          
+          // 🆕 Ajouter au breakdown par catégorie (seulement les déductibles)
+          if (!chargesParCategorie[categoryCode]) {
+            chargesParCategorie[categoryCode] = { label: categoryLabel, amount: 0 };
+          }
+          chargesParCategorie[categoryCode].amount += montant;
         } else {
           // Si catégorie non définie → considérer comme déductible par défaut
           chargesDeductibles += montant;
+          
+          // 🆕 Ajouter au breakdown
+          if (!chargesParCategorie[categoryCode]) {
+            chargesParCategorie[categoryCode] = { label: categoryLabel, amount: 0 };
+          }
+          chargesParCategorie[categoryCode].amount += montant;
         }
       }
     }
@@ -474,6 +499,11 @@ class FiscalAggregatorClass {
         recettes: recettesTotales + projection.loyersFuturs,
         chargesDeductibles: chargesDeductibles + projection.chargesFutures + commissionProjection,
         interetsEmprunt: interets.total,
+      },
+      // 🆕 Breakdown par catégorie de transaction
+      byCategory: {
+        recettes: recettesParCategorie,
+        charges: chargesParCategorie,
       },
     };
     

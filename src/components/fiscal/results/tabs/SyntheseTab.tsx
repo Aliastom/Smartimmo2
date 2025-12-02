@@ -102,27 +102,6 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
       {/* Section 1 : KPIs principales */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
-          title="Base imposable (IR)"
-          value={formatEuro(simulation.ir.revenuImposable)}
-          subtitle={(() => {
-            const salaire = simulation.inputs.foyer.salaire;
-            const foncier = simulation.consolidation.revenusFonciers;
-            const deficitImp = simulation.consolidation.deficitImputableRevenuGlobal || 0;
-            const perDeduction = simulation.per?.deductionUtilisee || 0;
-            
-            const parts = [`${formatEuro(salaire)} sal.`];
-            if (foncier !== 0) parts.push(`${foncier >= 0 ? '+' : ''}${formatEuro(foncier)} fonc.`);
-            if (deficitImp > 0) parts.push(`-${formatEuro(deficitImp)} déf.imp.`);
-            if (perDeduction > 0) parts.push(`-${formatEuro(perDeduction)} PER`);
-            
-            return parts.join(' ');
-          })()}
-          icon={<FileText className="h-6 w-6 text-purple-400" />}
-          valueColor="text-purple-600"
-          className="bg-white/70"
-        />
-
-        <KpiCard
           title={totalDejaPaye > 0 ? "Impôt restant à payer" : "Total impôts (IR + PS)"}
           value={formatEuro(totalDejaPaye > 0 ? impotRestantAPayer : totalImpots)}
           subtitle={totalDejaPaye > 0 
@@ -148,6 +127,27 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
           subtitle={`TMI: ${formatPercent(simulation.ir.trancheMarginate)}`}
           icon={<Percent className="h-6 w-6 text-sky-400" />}
           valueColor="text-sky-600"
+          className="bg-white/70"
+        />
+
+        <KpiCard
+          title="Base imposable (IR)"
+          value={formatEuro(simulation.ir.revenuImposable)}
+          subtitle={(() => {
+            const salaire = simulation.inputs.foyer.salaire;
+            const foncier = simulation.consolidation.revenusFonciers;
+            const deficitImp = simulation.consolidation.deficitImputableRevenuGlobal || 0;
+            const perDeduction = simulation.per?.deductionUtilisee || 0;
+            
+            const parts = [`${formatEuro(salaire)} sal.`];
+            if (foncier !== 0) parts.push(`${foncier >= 0 ? '+' : ''}${formatEuro(foncier)} fonc.`);
+            if (deficitImp > 0) parts.push(`-${formatEuro(deficitImp)} déf.imp.`);
+            if (perDeduction > 0) parts.push(`-${formatEuro(perDeduction)} PER`);
+            
+            return parts.join(' ');
+          })()}
+          icon={<FileText className="h-6 w-6 text-purple-400" />}
+          valueColor="text-purple-600"
           className="bg-white/70"
         />
       </div>
@@ -269,6 +269,34 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
             const totalRecettes = simulation.biens.reduce((sum, b) => sum + (b.recettesBrutes || 0), 0);
             const totalCharges = simulation.biens.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0);
             
+            // 🆕 Agréger le breakdown par catégorie de tous les biens
+            const recettesParCategorie: Record<string, { label: string; amount: number }> = {};
+            const chargesParCategorie: Record<string, { label: string; amount: number }> = {};
+            
+            simulation.biens.forEach(bien => {
+              if (bien.breakdown?.byCategory) {
+                // Recettes
+                Object.entries(bien.breakdown.byCategory.recettes).forEach(([code, data]) => {
+                  if (!recettesParCategorie[code]) {
+                    recettesParCategorie[code] = { label: data.label, amount: 0 };
+                  }
+                  recettesParCategorie[code].amount += data.amount;
+                });
+                
+                // Charges
+                Object.entries(bien.breakdown.byCategory.charges).forEach(([code, data]) => {
+                  if (!chargesParCategorie[code]) {
+                    chargesParCategorie[code] = { label: data.label, amount: 0 };
+                  }
+                  chargesParCategorie[code].amount += data.amount;
+                });
+              }
+            });
+            
+            // Trier par montant décroissant
+            const recettesSorted = Object.entries(recettesParCategorie).sort((a, b) => b[1].amount - a[1].amount);
+            const chargesSorted = Object.entries(chargesParCategorie).sort((a, b) => b[1].amount - a[1].amount);
+            
             return (
               <Card className="border-2 border-purple-300 bg-purple-50">
                 <CardContent className="p-4">
@@ -291,17 +319,45 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
                     </div>
                   </div>
                   
-                  {/* Détail du calcul */}
+                  {/* Détail du calcul avec breakdown par catégorie */}
                   <Separator className="my-2" />
-                  <div className="space-y-1.5 text-xs">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Recettes totales</span>
-                      <span className="font-medium text-emerald-700">+{formatEuro(totalRecettes)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Charges déductibles</span>
-                      <span className="font-medium text-orange-700">-{formatEuro(totalCharges)}</span>
-                    </div>
+                  <div className="space-y-3 text-xs">
+                    {/* Recettes par catégorie */}
+                    {recettesSorted.length > 0 && (
+                      <div>
+                        <div className="flex justify-between items-center mb-1.5">
+                          <span className="font-medium text-gray-700">Recettes par catégorie</span>
+                          <span className="font-medium text-emerald-700">+{formatEuro(totalRecettes)}</span>
+                        </div>
+                        <div className="pl-3 space-y-1">
+                          {recettesSorted.map(([code, data]) => (
+                            <div key={code} className="flex justify-between text-gray-600">
+                              <span>• {data.label}</span>
+                              <span className="text-emerald-600">+{formatEuro(data.amount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Charges par catégorie */}
+                    {chargesSorted.length > 0 && (
+                      <div>
+                        <div className="flex justify-between items-center mb-1.5">
+                          <span className="font-medium text-gray-700">Charges par catégorie</span>
+                          <span className="font-medium text-orange-700">-{formatEuro(totalCharges)}</span>
+                        </div>
+                        <div className="pl-3 space-y-1">
+                          {chargesSorted.map(([code, data]) => (
+                            <div key={code} className="flex justify-between text-gray-600">
+                              <span>• {data.label}</span>
+                              <span className="text-orange-600">-{formatEuro(data.amount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
                     <Separator className="my-1" />
                     <div className="flex justify-between items-center font-semibold">
                       <span className="text-gray-700">= Résultat fiscal net</span>

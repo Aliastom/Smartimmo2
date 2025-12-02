@@ -196,6 +196,11 @@ export interface RentalPropertyInput {
       chargesDeductibles: number;    // Total (passé + projection)
       interetsEmprunt: number;       // Total (passé + projection)
     };
+    // 🆕 Breakdown par catégorie de transaction
+    byCategory?: {
+      recettes: Record<string, { label: string; amount: number }>;
+      charges: Record<string, { label: string; amount: number }>;
+    };
   };
   
   // Société (pour SCI IS)
@@ -308,6 +313,11 @@ export interface RentalPropertyResult {
       recettes: number;
       chargesDeductibles: number;
       interetsEmprunt: number;
+    };
+    // 🆕 Breakdown par catégorie de transaction
+    byCategory?: {
+      recettes: Record<string, { label: string; amount: number }>;
+      charges: Record<string, { label: string; amount: number }>;
     };
   };
 }
