@@ -563,7 +563,7 @@ export function PropertyDocumentsUnified({ propertyId, propertyName }: PropertyD
               <div className="flex-1">
                 <Input
                   type="text"
-                  placeholder="Rechercher par nom, texte, tags..."
+                  placeholder="Rechercher par nom, texte, tags, type..."
                   value={filters.query}
                   onChange={(e) => setFilters(prev => ({ ...prev, query: e.target.value }))}
                 />

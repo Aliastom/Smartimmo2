@@ -790,7 +790,8 @@ export async function GET(request: NextRequest) {
       
       // Trouver la ligne du schedule correspondant au mois en cours
       const monthStr = `${year}-${String(monthNum).padStart(2, '0')}`;
-      const scheduleRow = schedule.find(row => row.date === monthStr);
+      // Gérer les deux formats de date : "YYYY-MM" (sans paymentDay) et "YYYY-MM-DD" (avec paymentDay)
+      const scheduleRow = schedule.find(row => row.date === monthStr || row.date.startsWith(monthStr + '-'));
       
       if (scheduleRow) {
         // Calculer la date d'échéance basée sur paymentDay ou startDate

@@ -106,7 +106,7 @@ export function DocumentsGeneralPage() {
               <div className="flex gap-2">
                 <Input
                   type="text"
-                  placeholder="Rechercher par nom, texte, tags..."
+                  placeholder="Rechercher par nom, texte, tags, type..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="flex-1"

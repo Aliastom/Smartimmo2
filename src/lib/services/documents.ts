@@ -582,6 +582,7 @@ export class DocumentsService {
         { filenameOriginal: { contains: filters.query } },
         { filenameNormalized: { contains: filters.query } },
         { tags: { contains: filters.query } },
+        { DocumentType: { label: { contains: filters.query } } },
         // TODO: réactiver la recherche plein texte lorsque textIndex sera supporté dans Prisma
         // {
         //   textIndex: {
@@ -666,6 +667,7 @@ export class DocumentsService {
               if (condition.filenameOriginal?.contains && !doc.filenameOriginal?.includes(condition.filenameOriginal.contains)) return false;
               if (condition.filenameNormalized?.contains && !doc.filenameNormalized?.includes(condition.filenameNormalized.contains)) return false;
               if (condition.tags?.contains && !doc.tags?.includes(condition.tags.contains)) return false;
+              if (condition.DocumentType?.label?.contains && !doc.DocumentType?.label?.includes(condition.DocumentType.label.contains)) return false;
               return true;
             });
             if (!matchesQuery) return false;

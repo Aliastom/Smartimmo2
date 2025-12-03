@@ -281,56 +281,6 @@ export default function DashboardClientMonthly() {
 
       {/* Rapport gestionnaire délégué */}
       <GestionnaireDelegueReportPanel currentMonth={month} />
-
-      {/* Actions rapides */}
-      <Card>
-        <CardContent className="py-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Actions rapides
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Link href="/biens" className="block">
-              <Button
-                variant="outline"
-                className="h-24 w-full flex flex-col items-center justify-center gap-2 hover:scale-105 transition-transform"
-              >
-                <Building2 className="h-6 w-6" />
-                <span className="text-sm font-medium">Nouveau Bien</span>
-              </Button>
-            </Link>
-            
-            <Link href="/locataires" className="block">
-              <Button
-                variant="outline"
-                className="h-24 w-full flex flex-col items-center justify-center gap-2 hover:scale-105 transition-transform"
-              >
-                <Users className="h-6 w-6" />
-                <span className="text-sm font-medium">Nouveau Locataire</span>
-              </Button>
-            </Link>
-            
-            <Link href="/documents" className="block">
-              <Button
-                variant="outline"
-                className="h-24 w-full flex flex-col items-center justify-center gap-2 hover:scale-105 transition-transform"
-              >
-                <FileText className="h-6 w-6" />
-                <span className="text-sm font-medium">Nouveau Document</span>
-              </Button>
-            </Link>
-            
-            <Link href="/transactions" className="block">
-              <Button
-                variant="outline"
-                className="h-24 w-full flex flex-col items-center justify-center gap-2 hover:scale-105 transition-transform"
-              >
-                <CreditCard className="h-6 w-6" />
-                <span className="text-sm font-medium">Nouvelle Transaction</span>
-              </Button>
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

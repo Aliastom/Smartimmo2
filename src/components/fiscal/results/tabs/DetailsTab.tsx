@@ -79,7 +79,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
           title="Point de départ : Base imposable"
           icon={<Calculator className="h-5 w-5 text-purple-600" />}
           badge={
-            <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-300">
+            <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-300">
               Issu de la synthèse
             </Badge>
           }
@@ -117,8 +117,12 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                   {/* Barres de progression par tranche */}
                   <div className="space-y-2">
                     {simulation.ir.detailsTranches?.map((detail, index) => {
-                      const pourcentage = (detail.baseImposable / baseImposable) * 100;
-                      const isInTranche = detail.baseImposable > 0;
+                      // Calculer le pourcentage de remplissage de la tranche
+                      const largeurTranche = detail.tranche.upper 
+                        ? detail.tranche.upper - detail.tranche.lower 
+                        : detail.baseTrancheImposable || 1; // Pour la dernière tranche sans limite haute
+                      const pourcentage = (detail.baseTrancheImposable / largeurTranche) * 100;
+                      const isInTranche = detail.baseTrancheImposable > 0;
                       
                       return (
                         <div key={index} className={`p-2 rounded ${isInTranche ? 'bg-orange-50' : 'bg-gray-50'}`}>
@@ -128,7 +132,13 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                               <span className="ml-2 text-orange-600 font-bold">({formatPercent(detail.tranche.rate)})</span>
                             </span>
                             <span className="font-bold text-orange-600">
-                              {formatEuro(detail.impotTranche)}
+                              {isInTranche ? (
+                                <>
+                                  {formatEuro(detail.baseTrancheImposable)} × {formatPercent(detail.tranche.rate)} = {formatEuro(detail.impotTranche)}
+                                </>
+                              ) : (
+                                formatEuro(detail.impotTranche)
+                              )}
                             </span>
                           </div>
                           {isInTranche && (
@@ -140,7 +150,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                                 />
                               </div>
                               <span className="text-[10px] text-gray-500 min-w-[60px] text-right">
-                                {formatEuro(detail.baseImposable)}
+                                {formatEuro(detail.baseTrancheImposable)}
                               </span>
                             </div>
                           )}
@@ -251,7 +261,27 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                 
                 <div className="bg-orange-100 border-2 border-orange-400 rounded-lg p-4">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-gray-900">TOTAL IMPÔTS</span>
+                    <div>
+                      <p className="font-bold text-gray-900">TOTAL IMPÔTS</p>
+                      {(() => {
+                        const irSupplementaire = simulation.resume?.irSupplementaire || 0;
+                        const irSalaire = irTotal - irSupplementaire;
+                        const impotsSalaire = irSalaire; // PS = 0 sur salaire
+                        const impotsImpactFoncier = irSupplementaire + psTotal; // IR supp + PS fonciers
+                        const hasFoncier = simulation.consolidation.revenusFonciers !== 0;
+                        
+                        return hasFoncier ? (
+                          <>
+                            <p className="text-xs text-gray-600 mt-1">
+                              Impôts de base (salaire seul) : {formatEuro(impotsSalaire)}
+                            </p>
+                            <p className="text-xs text-gray-600 mt-1">
+                              Impact revenus fonciers : <span className={impotsImpactFoncier >= 0 ? 'text-orange-600' : 'text-emerald-600'}>{impotsImpactFoncier >= 0 ? '+' : ''}{formatEuro(impotsImpactFoncier)}</span>
+                            </p>
+                          </>
+                        ) : null;
+                      })()}
+                    </div>
                     <span className="text-2xl font-bold text-orange-600">{formatEuro(totalImpots)}</span>
                   </div>
                 </div>

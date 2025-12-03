@@ -350,7 +350,23 @@ export function ExpertDeclarationBlocks({ simulation }: ExpertDeclarationBlocksP
                 const deltaRevenu = revenuImposableScenario - simulation.ir.revenuImposable;
                 const irImpact = deltaRevenu * simulation.ir.trancheMarginate;
                 const irScenario = Math.max(0, simulation.ir.impotNet + irImpact);
-                const psScenario = simulation.ps.montant || 0; // PS non impacté
+                
+                // ✅ CORRECTION : Recalculer les PS selon le nouveau revenu foncier
+                // Les PS (17,2%) s'appliquent uniquement sur les revenus fonciers positifs
+                const tauxPS = 0.172;
+                const psReference = simulation.ps.montant || 0;
+                let psScenario = psReference;
+                
+                // Si le revenu foncier a changé, recalculer les PS
+                if (scenario.overrides.revenuFoncier !== undefined && foncierScenario !== simulation.consolidation.revenusFonciers) {
+                  // PS du scénario = PS de référence × (nouveau revenu foncier / ancien revenu foncier)
+                  // Ou directement : PS = max(0, revenu foncier) × 17,2%
+                  const foncierRef = simulation.consolidation.revenusFonciers;
+                  if (foncierRef > 0) {
+                    psScenario = Math.max(0, foncierScenario) * tauxPS;
+                  }
+                }
+                
                 const totalScenario = irScenario + psScenario;
                 
                 // Calcul rendement (simplifié)
@@ -358,6 +374,42 @@ export function ExpertDeclarationBlocks({ simulation }: ExpertDeclarationBlocksP
                 const chargesTotal = simulation.biens?.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0) || 0;
                 const beneficeNetScenario = loyersBruts - chargesTotal - (totalScenario - (simulation.resume?.impotsSuppTotal || 0));
                 const rendementScenario = loyersBruts > 0 ? (beneficeNetScenario / loyersBruts) * 100 : 0;
+                
+                // Calcul du rapport investissement/gain AMÉLIORÉ
+                const totalReference = simulation.ir.impotNet + (simulation.ps.montant || 0);
+                const gainFiscal = totalReference - totalScenario; // Économie d'impôt réalisée (IR + PS)
+                
+                // L'investissement est la somme des montants supplémentaires investis
+                let investissement = 0;
+                let detailInvest = '';
+                
+                // PER : investissement = montant versé (déduction fiscale)
+                if (scenario.overrides.perDeduction !== undefined) {
+                  const deltaPerDeduction = perScenario - (simulation.per?.deductionUtilisee || 0);
+                  if (deltaPerDeduction > 0) {
+                    investissement += deltaPerDeduction;
+                    detailInvest += `PER +${formatEuro(deltaPerDeduction)}`;
+                  }
+                }
+                
+                // Foncier : si réduction du revenu foncier, cela peut être dû à des travaux
+                // L'économie fiscale inclut IR + PS (17,2% sur revenus fonciers)
+                if (scenario.overrides.revenuFoncier !== undefined) {
+                  const deltaFoncier = simulation.consolidation.revenusFonciers - foncierScenario;
+                  if (deltaFoncier > 0) {
+                    // Pour les travaux, l'investissement réel = le montant des travaux
+                    // qui est égal à la réduction du revenu foncier
+                    investissement += deltaFoncier;
+                    if (detailInvest) detailInvest += ' + ';
+                    detailInvest += `Travaux ${formatEuro(deltaFoncier)}`;
+                  }
+                }
+                
+                // Calcul du rapport avec explication du taux effectif
+                const rapportInvestGain = investissement > 0 ? (gainFiscal / investissement) * 100 : 0;
+                
+                // Taux effectif de récupération = (IR économisé + PS économisé) / investissement
+                // Cela devrait varier selon le type d'investissement
                 
                 return (
                   <div key={scenario.id} className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4">
@@ -442,13 +494,60 @@ export function ExpertDeclarationBlocks({ simulation }: ExpertDeclarationBlocksP
                       </div>
                       <div>
                         <p className="text-gray-600 mb-1">Total</p>
-                        <p className="font-bold text-orange-600">{formatEuro(totalScenario)}</p>
+                        <p className={`font-bold ${gainFiscal > 0 ? 'text-blue-600' : 'text-orange-600'}`}>{formatEuro(totalScenario)}</p>
                       </div>
                       <div>
                         <p className="text-gray-600 mb-1">Rendement</p>
                         <p className="font-bold text-emerald-600">{rendementScenario.toFixed(1)}%</p>
                       </div>
                     </div>
+                    
+                    {/* Détail du calcul investissement/gain */}
+                    {investissement > 0 && (() => {
+                      const gainIR = simulation.ir.impotNet - irScenario;
+                      const gainPS = psReference - psScenario;
+                      const coutNetApresDeduction = investissement - gainFiscal;
+                      
+                      return (
+                        <div className="mt-3 pt-3 border-t border-blue-200 text-[11px]">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-gray-600">💰 Investissement {detailInvest && `(${detailInvest})`}</span>
+                              <span className="font-semibold text-gray-900">{formatEuro(investissement)}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-gray-600">✅ Économie IR</span>
+                              <span className="font-semibold text-emerald-600">{gainIR > 0 ? '+' : ''}{formatEuro(gainIR)}</span>
+                            </div>
+                            {gainPS !== 0 && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-600">✅ Économie PS (17,2%)</span>
+                                <span className="font-semibold text-emerald-600">{gainPS > 0 ? '+' : ''}{formatEuro(gainPS)}</span>
+                              </div>
+                            )}
+                            
+                            {/* Encart fond blanc pour le gain fiscal et le retour */}
+                            <div className="bg-white border border-blue-300 rounded p-2 space-y-1.5 mt-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-700 font-bold">= Gain fiscal total</span>
+                                <span className="font-bold text-emerald-700">{gainFiscal > 0 ? '+' : ''}{formatEuro(gainFiscal)}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-700 font-bold">→ Retour sur investissement</span>
+                                <span className="font-bold text-blue-700 text-base">
+                                  {rapportInvestGain.toFixed(1)}%
+                                </span>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center justify-between text-[10px] text-gray-500 italic">
+                              <span>Coût net après déduction fiscale</span>
+                              <span>{formatEuro(coutNetApresDeduction)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}

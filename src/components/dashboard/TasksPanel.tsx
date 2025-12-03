@@ -61,13 +61,16 @@ export function TasksPanel({
   currentMonth,
 }: TasksPanelProps) {
   // État pour la case à cocher "mois sélectionné" (loyers en retard)
-  const [filterByCurrentMonth, setFilterByCurrentMonth] = useState(false);
+  const [filterByCurrentMonth, setFilterByCurrentMonth] = useState(true);
   
   // État pour la case à cocher "mois sélectionné" (transactions non rapprochées)
   const [filterTransactionsByCurrentMonth, setFilterTransactionsByCurrentMonth] = useState(false);
   
   // État pour la modale des transactions non rapprochées
   const [showAllTransactionsNonRapprochees, setShowAllTransactionsNonRapprochees] = useState(false);
+  
+  // État pour la modale des échéances (prêts + charges)
+  const [showAllEcheances, setShowAllEcheances] = useState(false);
   
   // État pour tracker les transactions en cours de rapprochement
   const [transactionsEnCoursRapprochement, setTransactionsEnCoursRapprochement] = useState<Set<string>>(new Set());
@@ -565,16 +568,34 @@ export function TasksPanel({
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <div>
+                  <div className="flex-1">
                     <CardTitle className="flex items-center gap-2 text-base">
                       <Calendar className="h-5 w-5 text-blue-500" />
                       Échéances du mois
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      Prêts et charges récurrentes
+                      {echeancesPrets.length} prêt{echeancesPrets.length > 1 ? 's' : ''} et {echeancesCharges.length} charge{echeancesCharges.length > 1 ? 's' : ''} récurrente{echeancesCharges.length > 1 ? 's' : ''}{currentMonth ? ` (${formatAccountingMonth(currentMonth)})` : ''}
                     </CardDescription>
                   </div>
-                  <Badge variant="info">{echeancesPrets.length + echeancesCharges.length}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge 
+                      variant="info" 
+                      className="cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => setShowAllEcheances(true)}
+                    >
+                      {echeancesPrets.length + echeancesCharges.length}
+                    </Badge>
+                    <Badge 
+                      variant="info" 
+                      className="cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => setShowAllEcheances(true)}
+                    >
+                      {formatCurrency(
+                        echeancesPrets.reduce((sum, p) => sum + p.montantTotal, 0) +
+                        echeancesCharges.reduce((sum, c) => sum + c.montant, 0)
+                      )}
+                    </Badge>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -921,6 +942,123 @@ export function TasksPanel({
                 )}
               </Button>
               <Button variant="outline" onClick={() => setShowAllTransactionsNonRapprochees(false)}>
+                Fermer
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale pour toutes les échéances */}
+      {showAllEcheances && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-6 w-6 text-blue-500" />
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Toutes les échéances du mois
+                </h2>
+                <Badge variant="info">{echeancesPrets.length + echeancesCharges.length}</Badge>
+              </div>
+              <button
+                onClick={() => setShowAllEcheances(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Content scrollable */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-6">
+                {/* Prêts */}
+                {echeancesPrets.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <CreditCard className="h-4 w-4" />
+                      Prêts ({echeancesPrets.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {echeancesPrets.map((pret) => {
+                        // Construire le subtitle avec info co-emprunteurs
+                        let subtitle = '';
+                        if (pret.capital !== undefined && pret.interets !== undefined) {
+                          subtitle = `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}${pret.assurance && pret.assurance > 0 ? ` | Assurance: ${formatCurrency(pret.assurance)}` : ''}`;
+                        }
+                        
+                        // Ajouter info co-emprunteurs
+                        if (pret.borrowersInfo && pret.borrowersInfo.count > 0) {
+                          const totalBorrowers = pret.borrowersInfo.count;
+                          const hasShares = pret.borrowersInfo.borrowers.some(b => b.share !== null);
+                          
+                          if (hasShares) {
+                            // Afficher les parts individuelles
+                            const sharesText = pret.borrowersInfo.borrowers
+                              .map(b => {
+                                const shareAmount = b.share ? (pret.montantTotal * (b.share / 100)) : null;
+                                return shareAmount !== null 
+                                  ? `${formatCurrency(shareAmount)} (${b.share}%)` 
+                                  : null;
+                              })
+                              .filter(Boolean)
+                              .join(' + ');
+                            
+                            if (sharesText) {
+                              subtitle += `\n${totalBorrowers} co-emprunteur${totalBorrowers > 1 ? 's' : ''}: ${sharesText}`;
+                            }
+                          } else {
+                            // Parts égales par défaut
+                            const sharePerBorrower = pret.montantTotal / totalBorrowers;
+                            subtitle += `\n${totalBorrowers} co-emprunteur${totalBorrowers > 1 ? 's' : ''}: ${formatCurrency(sharePerBorrower)} chacun`;
+                          }
+                        }
+                        
+                        return (
+                          <TaskCard
+                            key={pret.id}
+                            icon={CreditCard}
+                            title={pret.propertyName}
+                            subtitle={subtitle}
+                            date={pret.dateEcheance}
+                            amount={pret.montantTotal}
+                            priority="medium"
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Charges récurrentes */}
+                {echeancesCharges.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      Charges récurrentes ({echeancesCharges.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {echeancesCharges.map((charge) => (
+                        <TaskCard
+                          key={charge.id}
+                          icon={FileText}
+                          title={charge.label}
+                          subtitle={charge.propertyName || charge.type}
+                          date={charge.dateEcheance}
+                          amount={charge.montant}
+                          priority="low"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
+              <Button variant="outline" onClick={() => setShowAllEcheances(false)}>
                 Fermer
               </Button>
             </div>
@@ -1510,6 +1648,123 @@ export function TasksPanel({
                 )}
               </Button>
               <Button variant="outline" onClick={() => setShowAllTransactionsNonRapprochees(false)}>
+                Fermer
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale pour toutes les échéances */}
+      {showAllEcheances && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-6 w-6 text-blue-500" />
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Toutes les échéances du mois
+                </h2>
+                <Badge variant="info">{echeancesPrets.length + echeancesCharges.length}</Badge>
+              </div>
+              <button
+                onClick={() => setShowAllEcheances(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Content scrollable */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-6">
+                {/* Prêts */}
+                {echeancesPrets.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <CreditCard className="h-4 w-4" />
+                      Prêts ({echeancesPrets.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {echeancesPrets.map((pret) => {
+                        // Construire le subtitle avec info co-emprunteurs
+                        let subtitle = '';
+                        if (pret.capital !== undefined && pret.interets !== undefined) {
+                          subtitle = `Capital: ${formatCurrency(pret.capital)} | Intérêts: ${formatCurrency(pret.interets)}${pret.assurance && pret.assurance > 0 ? ` | Assurance: ${formatCurrency(pret.assurance)}` : ''}`;
+                        }
+                        
+                        // Ajouter info co-emprunteurs
+                        if (pret.borrowersInfo && pret.borrowersInfo.count > 0) {
+                          const totalBorrowers = pret.borrowersInfo.count;
+                          const hasShares = pret.borrowersInfo.borrowers.some(b => b.share !== null);
+                          
+                          if (hasShares) {
+                            // Afficher les parts individuelles
+                            const sharesText = pret.borrowersInfo.borrowers
+                              .map(b => {
+                                const shareAmount = b.share ? (pret.montantTotal * (b.share / 100)) : null;
+                                return shareAmount !== null 
+                                  ? `${formatCurrency(shareAmount)} (${b.share}%)` 
+                                  : null;
+                              })
+                              .filter(Boolean)
+                              .join(' + ');
+                            
+                            if (sharesText) {
+                              subtitle += `\n${totalBorrowers} co-emprunteur${totalBorrowers > 1 ? 's' : ''}: ${sharesText}`;
+                            }
+                          } else {
+                            // Parts égales par défaut
+                            const sharePerBorrower = pret.montantTotal / totalBorrowers;
+                            subtitle += `\n${totalBorrowers} co-emprunteur${totalBorrowers > 1 ? 's' : ''}: ${formatCurrency(sharePerBorrower)} chacun`;
+                          }
+                        }
+                        
+                        return (
+                          <TaskCard
+                            key={pret.id}
+                            icon={CreditCard}
+                            title={pret.propertyName}
+                            subtitle={subtitle}
+                            date={pret.dateEcheance}
+                            amount={pret.montantTotal}
+                            priority="medium"
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Charges récurrentes */}
+                {echeancesCharges.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      Charges récurrentes ({echeancesCharges.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {echeancesCharges.map((charge) => (
+                        <TaskCard
+                          key={charge.id}
+                          icon={FileText}
+                          title={charge.label}
+                          subtitle={charge.propertyName || charge.type}
+                          date={charge.dateEcheance}
+                          amount={charge.montant}
+                          priority="low"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
+              <Button variant="outline" onClick={() => setShowAllEcheances(false)}>
                 Fermer
               </Button>
             </div>

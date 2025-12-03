@@ -484,7 +484,7 @@ export default function DocumentsClient() {
             <div className="flex gap-2">
               <Input
                 type="text"
-                placeholder="Rechercher par nom, texte, tags..."
+                placeholder="Rechercher par nom, texte, tags, type..."
                 value={filters.query}
                 onChange={(e) => setFilters({ ...filters, query: e.target.value })}
                 className="flex-1"
