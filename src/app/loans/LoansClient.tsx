@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tantml:react-query';
 import { notify2 } from '@/lib/notify2';
-import { Plus, Edit, Trash2, Eye, Copy, CheckCircle } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, Copy, CheckCircle, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { Switch } from '@/components/ui/Switch';
 import { SectionTitle } from '@/components/ui/SectionTitle';
@@ -328,10 +329,18 @@ export default function LoansClient() {
         title="Prêts Immobiliers"
         description="Gérez vos prêts et suivez leur amortissement"
         actions={
-          <Button onClick={handleCreate} size="lg">
-            <Plus className="h-5 w-5 mr-2" />
-            Nouveau prêt
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link href="/biens" className="md:hidden">
+              <Button variant="outline" size="lg">
+                <Building2 className="h-5 w-5 mr-2" />
+                Biens
+              </Button>
+            </Link>
+            <Button onClick={handleCreate} size="lg">
+              <Plus className="h-5 w-5 mr-2" />
+              Nouveau prêt
+            </Button>
+          </div>
         }
       />
 
