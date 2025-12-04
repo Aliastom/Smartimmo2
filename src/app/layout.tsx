@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
+import './globals-pwa.css';
 import '@/styles/toasts.css';
 import { AppShell } from '@/components/layout/AppShell';
 import QueryProvider from '@/ui/providers/QueryProvider';

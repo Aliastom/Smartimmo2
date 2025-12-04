@@ -87,7 +87,8 @@ export function Modal({
           {/* Modal */}
           <motion.div
             className={cn(
-              "relative w-full bg-white rounded-2xl shadow-lg border border-gray-200",
+              "relative w-full bg-white rounded-2xl shadow-lg border border-gray-200 flex flex-col",
+              "max-h-[90vh] md:max-h-[85vh]",
               sizeClasses[size],
               className
             )}
@@ -101,9 +102,9 @@ export function Modal({
           >
             {/* Header */}
             {(title || closeOnBackdropClick) && (
-              <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between p-4 md:p-6 border-b border-gray-200 flex-shrink-0">
                 {title && (
-                  <h2 id="modal-title" className="text-lg font-semibold text-gray-900">
+                  <h2 id="modal-title" className="text-base md:text-lg font-semibold text-gray-900">
                     {title}
                   </h2>
                 )}
@@ -117,14 +118,14 @@ export function Modal({
               </div>
             )}
 
-            {/* Body */}
-            <div className="p-6">
+            {/* Body - Scrollable */}
+            <div className="p-4 md:p-6 overflow-y-auto flex-1">
               {children}
             </div>
 
             {/* Footer */}
             {footer && (
-              <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <div className="flex items-center justify-end gap-3 p-4 md:p-6 border-t border-gray-200 flex-shrink-0">
                 {footer}
               </div>
             )}

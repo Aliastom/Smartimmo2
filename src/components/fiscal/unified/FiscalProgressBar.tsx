@@ -35,12 +35,12 @@ export function FiscalProgressBar({ activeTab, hasSimulation, onTabChange }: Fis
   const progress = ((activeIndex + 1) / STEPS.length) * 100;
 
   return (
-    <div className="bg-white border-b border-gray-200 px-4 py-6">
-      <div className="max-w-6xl mx-auto">
+    <div className="bg-white border-b border-gray-200 px-2 md:px-4 py-4 md:py-6 overflow-x-auto">
+      <div className="max-w-6xl mx-auto min-w-max md:min-w-0">
         {/* Timeline moderne */}
         <div className="relative">
           {/* Ligne de progression avec segments colorés */}
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between md:justify-between gap-4 md:gap-0 mb-3 px-2">
           {STEPS.map((step, index) => {
             const isActive = step.id === activeTab;
             const isCompleted = index < activeIndex;
@@ -82,7 +82,7 @@ export function FiscalProgressBar({ activeTab, hasSimulation, onTabChange }: Fis
                       
                       {/* Emoji */}
                       <span className={`
-                        relative text-2xl drop-shadow-sm
+                        relative text-xl md:text-2xl drop-shadow-sm
                         ${isDisabled ? 'grayscale opacity-50' : ''}
                       `}>
                         {isActive || isCompleted || !isDisabled ? step.emoji : '⚪'}
@@ -92,7 +92,7 @@ export function FiscalProgressBar({ activeTab, hasSimulation, onTabChange }: Fis
                     {/* Label */}
                     <div className="flex flex-col items-center gap-1">
                       <span className={`
-                        text-xs font-semibold text-center max-w-[100px] leading-tight
+                        text-[10px] md:text-xs font-semibold text-center max-w-[70px] md:max-w-[100px] leading-tight
                         transition-colors duration-300
                       ${isActive 
                         ? 'text-gray-900' 
