@@ -47,12 +47,39 @@ export function Modal({
       }
     };
 
-    document.addEventListener('keydown', handleEscape);
+    // Sauvegarder la position de scroll actuelle
+    const scrollY = window.scrollY;
+    
+    // Bloquer le scroll du body de manière agressive pour iOS
+    document.body.classList.add('modal-open');
     document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    
+    // Empêcher le scroll du body et du backdrop sur iOS
+    const preventBodyScroll = (e: TouchEvent) => {
+      const target = e.target as HTMLElement;
+      // Si on touche le backdrop ou le container principal (pas le contenu scrollable), empêcher
+      if (!target.closest('.modal-scrollable-content')) {
+        e.preventDefault();
+      }
+    };
+    
+    document.addEventListener('keydown', handleEscape);
+    document.addEventListener('touchmove', preventBodyScroll, { passive: false });
 
     return () => {
       document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('touchmove', preventBodyScroll);
+      
+      // Restaurer le scroll
+      document.body.classList.remove('modal-open');
       document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      window.scrollTo(0, scrollY);
     };
   }, [isOpen, closeOnEscape, onClose]);
 
@@ -142,15 +169,16 @@ export function Modal({
 
             {/* Body - Scrollable */}
             <div 
-              className="p-4 md:p-6 overflow-y-auto flex-1"
+              className="p-4 md:p-6 overflow-y-auto flex-1 modal-scrollable-content"
               style={{ 
                 minHeight: 0,
+                maxHeight: 'calc(90vh - 120px)', // Hauteur max moins header et footer
                 WebkitOverflowScrolling: 'touch',
                 overflowY: 'auto',
-                touchAction: 'pan-y' // Permet uniquement le scroll vertical
+                overflowX: 'hidden',
+                touchAction: 'pan-y', // Permet uniquement le scroll vertical
+                overscrollBehavior: 'contain' // Empêche le scroll de se propager
               }}
-              onTouchStart={(e) => e.stopPropagation()} // Empêche la propagation
-              onTouchMove={(e) => e.stopPropagation()} // Empêche le drag de la modal
             >
               {children}
             </div>

@@ -18,6 +18,14 @@
     overflow-x: hidden;
   }
   
+  /* Bloquer le scroll du body quand une modal est ouverte */
+  body.modal-open {
+    overflow: hidden !important;
+    position: fixed !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  
   /* Forcer tous les modaux/dialogs à avoir un scroll fonctionnel */
   [role="dialog"],
   [role="alertdialog"],
@@ -30,6 +38,7 @@
   }
   
   /* S'assurer que le contenu scrolle */
+  .modal-scrollable-content,
   [role="dialog"] > div:not(:first-child):not(:last-child),
   [role="alertdialog"] > div:not(:first-child):not(:last-child),
   [role="dialog"] form,
@@ -40,11 +49,18 @@
     min-height: 0 !important;
     -webkit-overflow-scrolling: touch !important;
     touch-action: pan-y !important; /* Permet uniquement le scroll vertical */
+    overscroll-behavior: contain !important; /* Empêche le scroll de se propager */
   }
   
   /* Empêcher le drag sur les formulaires */
   form {
     touch-action: pan-y !important;
+  }
+  
+  /* Empêcher le scroll du backdrop */
+  .fixed.inset-0:has([role="dialog"]) {
+    touch-action: none !important;
+    overflow: hidden !important;
   }
 }
 
