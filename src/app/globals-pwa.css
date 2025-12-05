@@ -117,13 +117,27 @@
 
 @media (max-width: 768px) {
   /* Graphiques - éviter la troncature */
-  .echeances-chart {
+  /* Forcer tous les containers de graphiques à scroller horizontalement */
+  [class*="chart-container"],
+  [class*="Chart"],
+  .recharts-wrapper {
     overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
+    -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
   }
   
-  .echeances-chart svg {
+  /* Les SVG doivent prendre au moins 100% ou plus pour être visibles */
+  [class*="chart"] svg,
+  [class*="Chart"] svg {
     min-width: 100% !important;
+    width: auto !important;
+    max-width: none !important;
+  }
+  
+  /* Graphiques en pie/donut - s'assurer qu'ils sont centrés et visibles */
+  .recharts-pie,
+  .recharts-radial-bar {
+    transform: translateX(0) !important;
   }
 }
 
@@ -167,6 +181,40 @@
   
   .recharts-legend-wrapper {
     font-size: 11px !important;
+  }
+}
+
+/* ==========================================================================
+   CORRECTIONS SPÉCIFIQUES MODALS
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  /* Modal Locataires - forcer tabs à être visibles et responsive */
+  [role="tablist"] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    flex-wrap: nowrap !important;
+  }
+  
+  [role="tab"] {
+    flex-shrink: 0 !important;
+    font-size: 0.7rem !important;
+    padding: 0.25rem 0.5rem !important;
+  }
+  
+  /* Drawers - sélecteurs de date ne doivent pas dépasser */
+  [role="dialog"] input[type="date"],
+  [role="dialog"] input[type="datetime-local"],
+  [role="dialog"] .date-picker {
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+  
+  /* Menu horizontal d'icônes - ajuster padding top */
+  .property-icon-menu,
+  [class*="icon-menu"],
+  nav[class*="horizontal"] {
+    padding-top: 1rem !important;
   }
 }
 
