@@ -119,24 +119,25 @@ export function MonthlyFilters({
           </Button>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="whitespace-nowrap text-xs md:text-sm px-2 md:px-3"
+            className="whitespace-nowrap text-[10px] md:text-sm px-1.5 py-1 md:px-3 md:py-2 h-7 md:h-9"
           >
             <span className="hidden md:inline">{showAdvanced ? 'Masquer filtres' : 'Filtres avancés'}</span>
-            <span className="md:hidden">{showAdvanced ? 'Masquer' : 'Filtres'}</span>
+            <span className="md:hidden text-[10px]">{showAdvanced ? 'Masq.' : 'Filtres'}</span>
           </Button>
           
           <Button
             variant="ghost"
             size="sm"
             onClick={handleReset}
-            className="whitespace-nowrap text-xs md:text-sm px-2 md:px-3"
+            className="whitespace-nowrap text-[10px] md:text-sm px-1.5 py-1 md:px-3 md:py-2 h-7 md:h-9"
           >
-            <RotateCcw className="h-3 w-3 md:h-4 md:w-4 md:mr-2" />
+            <RotateCcw className="h-3 w-3 md:h-4 md:w-4 mr-0.5 md:mr-2" />
+            <span className="md:hidden text-[10px]">Reset</span>
             <span className="hidden md:inline">Réinitialiser</span>
           </Button>
         </div>

@@ -320,7 +320,12 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
 
   // Mémoriser les actions pour éviter les re-renders inutiles
   const headerActions = useMemo(() => (
-    <>
+    <div className="flex items-center gap-2 flex-wrap">
+      <Link href="/biens" className="md:hidden">
+        <Button variant="outline">
+          Liste des biens
+        </Button>
+      </Link>
       <Link href={`/loans?propertyId=${propertyId}`}>
         <Button variant="outline">
           Voir tous les prêts
@@ -330,7 +335,7 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
         <Plus className="h-5 w-5 mr-2" />
         Nouveau prêt
       </Button>
-    </>
+    </div>
   ), [propertyId, handleCreate]);
 
   // Définir les actions dans le header

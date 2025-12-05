@@ -17,6 +17,24 @@
   body {
     overflow-x: hidden;
   }
+  
+  /* Forcer tous les modaux/dialogs à avoir un scroll fonctionnel */
+  [role="dialog"],
+  [role="alertdialog"],
+  .modal-content,
+  .dialog-content {
+    display: flex !important;
+    flex-direction: column !important;
+    max-height: 90vh !important;
+  }
+  
+  /* S'assurer que le contenu scrolle */
+  [role="dialog"] > div:not(:first-child):not(:last-child),
+  [role="alertdialog"] > div:not(:first-child):not(:last-child) {
+    overflow-y: auto !important;
+    flex: 1 !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
 }
 
 /* ==========================================================================
@@ -25,39 +43,42 @@
 
 /* Cartes de la page fiscal - adapter les tailles de texte sur mobile */
 @media (max-width: 768px) {
-  /* Réduire la taille des montants qui dépassent */
-  .fiscal-card-amount {
-    font-size: 1.25rem !important; /* au lieu de 1.5rem ou 2xl */
-    line-height: 1.75rem !important;
+  /* Réduire TOUS les montants dans les cards fiscal */
+  [class*="fiscal"] .text-2xl,
+  [class*="fiscal"] .text-xl {
+    font-size: 1.125rem !important;
+    line-height: 1.5rem !important;
   }
   
-  /* Adapter les labels des cartes */
-  .fiscal-card-label {
-    font-size: 0.625rem !important; /* 10px */
-    line-height: 0.875rem !important;
+  /* Forcer les cards à ne pas dépasser */
+  [class*="fiscal"] [class*="Card"] {
+    overflow: hidden !important;
   }
   
-  /* Toggle mode expert et export PDF */
-  .fiscal-header-actions {
-    flex-wrap: wrap !important;
-    gap: 0.5rem !important;
+  /* Dropdown sauvegardes - éviter le débordement à gauche */
+  [class*="fiscal"] [role="menu"],
+  [class*="fiscal"] .dropdown-content {
+    left: auto !important;
+    right: 0 !important;
+    max-width: 90vw !important;
   }
   
-  .fiscal-header-actions button,
-  .fiscal-header-actions .switch-container {
-    font-size: 0.75rem !important;
-    padding: 0.375rem 0.75rem !important;
+  /* Toggle mode expert et export PDF - forcer wrap et tailles réduites */
+  [class*="fiscal"] button,
+  [class*="fiscal"] [class*="Switch"] {
+    font-size: 0.7rem !important;
+    padding: 0.25rem 0.5rem !important;
+    white-space: nowrap !important;
   }
   
-  /* Panels comparateur - éviter le chevauchement des textes */
-  .fiscal-comparator-panel {
-    min-width: 100% !important;
+  /* Panels comparateur - réduire tout */
+  [class*="comparator"] * {
+    font-size: 0.7rem !important;
+    line-height: 1 !important;
   }
   
-  .fiscal-comparator-text {
-    font-size: 0.75rem !important;
-    line-height: 1rem !important;
-    word-break: break-word !important;
+  [class*="comparator"] .text-sm {
+    font-size: 0.65rem !important;
   }
 }
 
@@ -66,17 +87,27 @@
    ========================================================================== */
 
 @media (max-width: 768px) {
-  /* Empêcher les panels de se superposer */
-  .loans-panel-grid {
+  /* Empêcher TOUS les panels de se superposer - forcer grille 1 colonne */
+  [class*="grid"][class*="cols"]:has([class*="chart"]),
+  [class*="grid"][class*="cols"]:has([class*="Chart"]) {
     grid-template-columns: 1fr !important;
     gap: 1rem !important;
   }
   
-  /* S'assurer que les graphiques sont responsives */
-  .loans-chart-container {
+  /* Forcer les graphiques à être 100% width */
+  [class*="chart"],
+  [class*="Chart"],
+  .recharts-wrapper {
     width: 100% !important;
+    max-width: 100% !important;
+    min-width: 100% !important;
+  }
+  
+  /* S'assurer que les graphiques dans les cards sont visibles */
+  [class*="Card"] svg,
+  [class*="card"] svg {
+    max-width: 100% !important;
     height: auto !important;
-    min-height: 250px !important;
   }
 }
 
