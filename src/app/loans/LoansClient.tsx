@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQueryClient } from '@tantml:react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { notify2 } from '@/lib/notify2';
 import { Plus, Edit, Trash2, Eye, Copy, CheckCircle, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -20,7 +20,6 @@ import { LoanDrawer } from '@/components/loans/LoanDrawer';
 import { ConfirmDeleteLoanModal } from '@/components/loans/ConfirmDeleteLoanModal';
 import { ConfirmDeleteMultipleLoansModal } from '@/components/loans/ConfirmDeleteMultipleLoansModal';
 import { useLoansCharts } from '@/hooks/useLoansCharts';
-import Link from 'next/link';
 
 export interface Loan {
   id: string;
