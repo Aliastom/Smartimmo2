@@ -87,8 +87,8 @@ export function MonthlyFilters({
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
       {/* Sélecteur de mois */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2 md:gap-4 flex-wrap">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <Button
             variant="outline"
             size="sm"

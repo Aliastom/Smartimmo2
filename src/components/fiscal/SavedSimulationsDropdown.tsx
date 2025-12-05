@@ -100,7 +100,7 @@ export function SavedSimulationsDropdown({
 
       {/* Dropdown menu */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-80 max-w-[90vw] bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
           {/* Header */}
           <div className="px-3 py-2 bg-gradient-to-r from-violet-50 to-purple-50 border-b border-violet-200">
             <div className="flex items-center gap-2">

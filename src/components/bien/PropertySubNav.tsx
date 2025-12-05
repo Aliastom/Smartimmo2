@@ -41,7 +41,7 @@ export function PropertySubNav({ propertyId, activeTab, rentalMode, counts }: Pr
   const { isLoading } = useLoading();
 
   return (
-    <div className="w-full overflow-x-auto sm:overflow-x-visible">
+    <div className="w-full overflow-x-auto sm:overflow-x-visible pt-2 md:pt-0">
       <div className="property-glass-nav min-w-max sm:min-w-0">
         {tabs.map((tab, index) => {
           const href = `/biens/${propertyId}${tab.href}`;

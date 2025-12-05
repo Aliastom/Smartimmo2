@@ -92,6 +92,12 @@ export function Modal({
               sizeClasses[size],
               className
             )}
+            style={{ 
+              maxHeight: '90vh',
+              height: 'auto',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
@@ -119,7 +125,14 @@ export function Modal({
             )}
 
             {/* Body - Scrollable */}
-            <div className="p-4 md:p-6 overflow-y-auto flex-1">
+            <div 
+              className="p-4 md:p-6 overflow-y-auto flex-1"
+              style={{ 
+                minHeight: 0,
+                WebkitOverflowScrolling: 'touch',
+                overflowY: 'auto'
+              }}
+            >
               {children}
             </div>
 

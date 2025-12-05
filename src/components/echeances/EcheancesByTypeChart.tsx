@@ -93,7 +93,7 @@ export function EcheancesByTypeChart({
           Total: {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(total)}
         </p>
       </CardHeader>
-      <CardContent>
+      <CardContent className="overflow-visible md:overflow-auto">
         {data.length === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center text-gray-400">
             <Layers className="h-12 w-12 mb-2" />
@@ -101,24 +101,26 @@ export function EcheancesByTypeChart({
           </div>
         ) : (
           <>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie
-                  data={data}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={2}
-                  dataKey="montant"
-                >
-                  {data.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip content={<CustomTooltip />} />
-              </PieChart>
-            </ResponsiveContainer>
+            <div className="w-full overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+              <ResponsiveContainer width="100%" height={200} minWidth={300}>
+                <PieChart>
+                  <Pie
+                    data={data}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={2}
+                    dataKey="montant"
+                  >
+                    {data.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
             <div className="mt-4 space-y-2">
               {data.map((item, index) => (
                 <div key={item.type} className="flex items-center justify-between text-sm">

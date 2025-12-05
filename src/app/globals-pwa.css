@@ -172,6 +172,27 @@
   /* S'assurer que tous les graphiques Recharts sont responsives */
   .recharts-responsive-container {
     min-width: 100% !important;
+    width: 100% !important;
+    overflow: visible !important;
+  }
+  
+  /* Forcer les graphiques pie/donut à être visibles */
+  .recharts-wrapper {
+    overflow: visible !important;
+  }
+  
+  /* Cards contenant des graphiques - permettre overflow */
+  [class*="Card"]:has(.recharts-wrapper),
+  [class*="card"]:has(.recharts-wrapper) {
+    overflow: visible !important;
+  }
+  
+  [class*="CardContent"]:has(.recharts-wrapper) {
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
   }
   
   /* Réduire la taille des labels dans les graphiques */
@@ -182,6 +203,11 @@
   .recharts-legend-wrapper {
     font-size: 11px !important;
   }
+  
+  /* Graphiques pie - s'assurer qu'ils sont centrés et visibles */
+  .recharts-pie {
+    transform: translate(0, 0) !important;
+  }
 }
 
 /* ==========================================================================
@@ -190,31 +216,53 @@
 
 @media (max-width: 768px) {
   /* Modal Locataires - forcer tabs à être visibles et responsive */
-  [role="tablist"] {
+  [role="tablist"],
+  .flex.space-x-1:has(button[onClick*="setActiveTab"]) {
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch !important;
     flex-wrap: nowrap !important;
+    scrollbar-width: thin;
   }
   
-  [role="tab"] {
+  [role="tab"],
+  button[onClick*="setActiveTab"] {
     flex-shrink: 0 !important;
     font-size: 0.7rem !important;
     padding: 0.25rem 0.5rem !important;
+    white-space: nowrap !important;
   }
   
   /* Drawers - sélecteurs de date ne doivent pas dépasser */
   [role="dialog"] input[type="date"],
   [role="dialog"] input[type="datetime-local"],
-  [role="dialog"] .date-picker {
+  [role="dialog"] .date-picker,
+  input[type="date"],
+  input[type="datetime-local"] {
     max-width: 100% !important;
-    overflow: hidden !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
   }
   
   /* Menu horizontal d'icônes - ajuster padding top */
   .property-icon-menu,
   [class*="icon-menu"],
-  nav[class*="horizontal"] {
-    padding-top: 1rem !important;
+  nav[class*="horizontal"],
+  .property-glass-nav {
+    padding-top: 0.5rem !important;
+  }
+  
+  /* Forcer tous les drawers à avoir un scroll */
+  [role="dialog"][class*="Drawer"],
+  [class*="Drawer"] {
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  
+  [class*="Drawer"] > div:not(:first-child):not(:last-child) {
+    overflow-y: auto !important;
+    flex: 1 !important;
+    min-height: 0 !important;
   }
 }
 

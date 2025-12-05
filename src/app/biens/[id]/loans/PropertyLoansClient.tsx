@@ -353,7 +353,7 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
       <div className="min-h-screen bg-gray-50">
         <div className="p-6 space-y-6">
           {/* Graphiques - Ligne 1 : 2+1+1 colonnes */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <LoansCRDTimelineChart
               data={charts.crdTimeline}
               isLoading={chartsLoading}
