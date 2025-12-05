@@ -26,14 +26,25 @@
     display: flex !important;
     flex-direction: column !important;
     max-height: 90vh !important;
+    touch-action: none !important; /* Empêche le drag de la modal */
   }
   
   /* S'assurer que le contenu scrolle */
   [role="dialog"] > div:not(:first-child):not(:last-child),
-  [role="alertdialog"] > div:not(:first-child):not(:last-child) {
+  [role="alertdialog"] > div:not(:first-child):not(:last-child),
+  [role="dialog"] form,
+  [role="dialog"] .space-y-6,
+  [role="dialog"] .space-y-4 {
     overflow-y: auto !important;
     flex: 1 !important;
+    min-height: 0 !important;
     -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-y !important; /* Permet uniquement le scroll vertical */
+  }
+  
+  /* Empêcher le drag sur les formulaires */
+  form {
+    touch-action: pan-y !important;
   }
 }
 
@@ -116,6 +127,12 @@
    ========================================================================== */
 
 @media (max-width: 768px) {
+  /* Forcer la grille des graphiques échéances à être en colonne unique */
+  [class*="echeances"] .grid[class*="grid-cols"],
+  [class*="Echeances"] .grid[class*="grid-cols"] {
+    grid-template-columns: 1fr !important;
+  }
+  
   /* Graphiques - éviter la troncature */
   /* Forcer tous les containers de graphiques à scroller horizontalement */
   [class*="chart-container"],
@@ -237,10 +254,21 @@
   [role="dialog"] input[type="datetime-local"],
   [role="dialog"] .date-picker,
   input[type="date"],
-  input[type="datetime-local"] {
+  input[type="datetime-local"],
+  select[class*="date"],
+  .date-picker input {
     max-width: 100% !important;
     width: 100% !important;
+    min-width: 0 !important;
     box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+  
+  /* Containers des inputs date */
+  div:has(input[type="date"]),
+  div:has(input[type="datetime-local"]) {
+    max-width: 100% !important;
+    overflow: hidden !important;
   }
   
   /* Menu horizontal d'icônes - ajuster padding top */

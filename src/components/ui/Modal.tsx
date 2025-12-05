@@ -69,19 +69,33 @@ export function Modal({
       {isOpen && (
         <motion.div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ touchAction: 'none' }} // Empêche le drag sur iOS
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
+          onTouchStart={(e) => {
+            // Empêche la propagation du touch au backdrop
+            if (e.target !== e.currentTarget) {
+              e.stopPropagation();
+            }
+          }}
         >
           {/* Backdrop */}
           <motion.div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            style={{ touchAction: 'none' }} // Empêche le drag sur iOS
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             onClick={handleBackdropClick}
+            onTouchStart={(e) => {
+              // Si on touche le backdrop, fermer la modal
+              if (e.target === e.currentTarget && closeOnBackdropClick) {
+                onClose();
+              }
+            }}
           />
 
           {/* Modal */}
@@ -96,7 +110,8 @@ export function Modal({
               maxHeight: '90vh',
               height: 'auto',
               display: 'flex',
-              flexDirection: 'column'
+              flexDirection: 'column',
+              touchAction: 'none' // Empêche le drag sur iOS
             }}
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -105,6 +120,7 @@ export function Modal({
             role="dialog"
             aria-modal="true"
             aria-labelledby={title ? 'modal-title' : undefined}
+            onTouchStart={(e) => e.stopPropagation()} // Empêche la propagation du touch
           >
             {/* Header */}
             {(title || closeOnBackdropClick) && (
@@ -130,8 +146,11 @@ export function Modal({
               style={{ 
                 minHeight: 0,
                 WebkitOverflowScrolling: 'touch',
-                overflowY: 'auto'
+                overflowY: 'auto',
+                touchAction: 'pan-y' // Permet uniquement le scroll vertical
               }}
+              onTouchStart={(e) => e.stopPropagation()} // Empêche la propagation
+              onTouchMove={(e) => e.stopPropagation()} // Empêche le drag de la modal
             >
               {children}
             </div>
