@@ -8,6 +8,11 @@ import { createServerClient } from '@supabase/ssr';
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   
+  // Logger en mode dev pour voir si le middleware s'exécute
+  if (process.env.NODE_ENV === 'development' && pathname === '/dashboard') {
+    console.log('[Middleware] 🔍 Exécution pour:', pathname);
+  }
+  
   // Routes TOUJOURS publiques (pas de vérification d'auth)
   const publicRoutes = [
     '/', // Page d'accueil publique - nécessaire pour l'installation PWA
@@ -85,38 +90,82 @@ export async function middleware(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
 
-  const supabase = createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
+  try {
+    const supabase = createServerClient(
+      supabaseUrl,
+      supabaseAnonKey,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              request.cookies.set(name, value);
+              response.cookies.set(name, value, options);
+            });
+          },
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set(name, value);
-            response.cookies.set(name, value, options);
-          });
-        },
-      },
+      }
+    );
+
+    // Récupérer l'utilisateur
+    const { data: { user }, error } = await supabase.auth.getUser();
+
+    // Si pas d'utilisateur OU erreur (y compris "Auth session missing!"), rediriger vers /login
+    // Toute erreur d'auth signifie que l'utilisateur n'est pas authentifié
+    const isUnauthenticated = error || !user;
+    
+    if (isUnauthenticated) {
+      // Logger pour debug (uniquement en dev)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Middleware] ❌ Utilisateur non authentifié, redirection vers /login', {
+          pathname,
+          error: error?.message || 'No user',
+          errorCode: (error as any)?.code,
+          hasUser: !!user,
+        });
+      }
+      
+      const redirectUrl = new URL('/login', request.url);
+      redirectUrl.searchParams.set('redirect', pathname);
+      
+      // Créer une réponse de redirection avec suppression des cookies d'auth invalides
+      const redirectResponse = NextResponse.redirect(redirectUrl);
+      
+      // Nettoyer les cookies d'auth potentiellement invalides
+      if (error) {
+        // Supprimer les cookies Supabase qui pourraient être corrompus
+        const cookieNames = [
+          'sb-access-token',
+          'sb-refresh-token',
+          'supabase-auth-token',
+        ];
+        
+        cookieNames.forEach(name => {
+          redirectResponse.cookies.delete(name);
+        });
+      }
+      
+      return redirectResponse;
     }
-  );
 
-  // Récupérer l'utilisateur
-  const { data: { user }, error } = await supabase.auth.getUser();
-
-  // Si pas d'utilisateur, rediriger vers /login
-  // Note: Les erreurs de refresh_token sont normales quand l'utilisateur n'est pas connecté
-  // Elles sont gérées silencieusement ici
-  if (error || !user) {
-    const redirectUrl = new URL('/login', request.url);
-    redirectUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(redirectUrl);
+    // Utilisateur authentifié, continuer
+    return response;
+  } catch (error: any) {
+    // Erreur réseau (offline, timeout, etc.) → ne pas bloquer
+    // Laisser passer pour permettre au client de fonctionner en mode offline
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Middleware] ⚠️ Erreur réseau/auth (probablement offline), laisser passer:', {
+        pathname,
+        error: error?.message || 'Unknown error',
+      });
+    }
+    
+    // En mode offline, on laisse passer pour permettre au client de charger
+    // Le client gérera l'authentification depuis IndexedDB/localStorage
+    return response;
   }
-
-  // Utilisateur authentifié, continuer
-  return response;
 }
 
 // Configuration des routes à protéger

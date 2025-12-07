@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { InsightBar } from '@/components/ui/InsightBar';
@@ -51,6 +51,9 @@ import { useAlert } from '@/hooks/useAlert';
 import { useLoading } from '@/contexts/LoadingContext';
 import { ConfirmDeletePropertyDialog, type DeleteMode } from '@/components/properties/ConfirmDeletePropertyDialog';
 import type { PropertyStats } from '@/services/deletePropertySmart';
+import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/PropertyRepositoryOffline';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { getLocalDB } from '@/lib/offline/db';
 
 interface BiensClientProps {
   initialData: {
@@ -78,9 +81,228 @@ export default function BiensClient({ initialData, stats, properties, transactio
   const searchParams = useSearchParams();
   const { insights, loading: insightsLoading } = useDashboardInsights('biens');
   const { setStatusFilter } = usePropertyFilters();
+  const { organizationId } = useCurrentOrganization();
   const { showAlert, showConfirm } = useAlert();
   const { isLoading: checkLoading } = useLoading();
   const [loadingPropertyId, setLoadingPropertyId] = useState<string | null>(null);
+  
+  // État pour les données offline
+  const [offlineData, setOfflineData] = useState<{
+    properties: PropertyWithRelations[];
+    stats: typeof stats;
+  } | null>(null);
+  const [isLoadingOffline, setIsLoadingOffline] = useState(false);
+  
+  // Déclarer includeArchived AVANT le useEffect qui l'utilise
+  const [includeArchived, setIncludeArchived] = useState(searchParams.get('includeArchived') === 'true');
+  
+  // Charger les données depuis IndexedDB si on est hors ligne ou si initialData est vide
+  useEffect(() => {
+    // Toujours vérifier et charger depuis IndexedDB au montage
+    // Cela garantit que les données sont disponibles même si le serveur échoue
+    const loadData = async () => {
+      const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+      const hasInitialData = initialData && initialData.data && initialData.data.length > 0;
+      
+      // En mode offline, charger IMMÉDIATEMENT depuis IndexedDB sans attendre
+      // Cela permet de contourner les problèmes de rendu serveur de Next.js
+      if (!isOnline) {
+        console.log('[BiensClient] Mode offline détecté, chargement depuis IndexedDB...');
+        setIsLoadingOffline(true);
+        
+        const loadOfflineData = async () => {
+          // Déterminer l'organizationId à utiliser
+          let orgId = organizationId || 
+                     localStorage.getItem('organizationId') || 
+                     localStorage.getItem('currentOrganizationId');
+          
+          if (!orgId) {
+            console.warn('[Offline] Pas d\'organizationId disponible, tentative depuis IndexedDB...');
+            // Essayer de trouver l'organizationId depuis IndexedDB
+            try {
+              const db = getLocalDB();
+              const firstProperty = await db.properties.toCollection().first();
+              if (firstProperty?.organizationId) {
+                localStorage.setItem('organizationId', firstProperty.organizationId);
+                orgId = firstProperty.organizationId;
+              }
+            } catch (error) {
+              console.error('[Offline] Erreur recherche organizationId:', error);
+            }
+            
+            if (!orgId) {
+              console.error('[Offline] Impossible de déterminer organizationId');
+              setIsLoadingOffline(false);
+              return;
+            }
+          }
+          
+          try {
+            const repo = getPropertyRepositoryOffline();
+            
+            // Appliquer les filtres depuis l'URL
+            const filters: any = {
+              includeArchived: includeArchived,
+            };
+            
+            if (searchParams.get('status') === 'occupied') {
+              // Pour occupied, on doit vérifier les leases
+              // Pour simplifier, on récupère tout et on filtre
+            } else if (searchParams.get('status') === 'vacant') {
+              // Pour vacant, on doit vérifier l'absence de leases actives
+            }
+            
+            const allProperties = await repo.getAll(orgId, filters);
+            
+            // Simuler le format PropertyWithRelations pour compatibilité
+            const formattedProperties: PropertyWithRelations[] = allProperties.map(prop => ({
+              ...prop,
+              Lease: [], // Les leases seront chargées séparément si nécessaire
+            })) as any;
+            
+            // Calculer des stats simplifiées
+            const offlineStats = [
+              {
+                title: 'Total Biens',
+                value: allProperties.length.toString(),
+                iconName: 'Building2',
+                trend: { value: 0, label: 'vs mois dernier', period: '30j' },
+                color: 'primary' as const
+              },
+              {
+                title: 'Occupés',
+                value: '0', // À calculer si nécessaire
+                iconName: 'Users',
+                trend: { value: 0, label: 'vs mois dernier', period: '30j' },
+                color: 'success' as const
+              },
+              {
+                title: 'Vacants',
+                value: allProperties.length.toString(),
+                iconName: 'Building2',
+                trend: { value: 0, label: 'vs mois dernier', period: '30j' },
+                color: 'warning' as const
+              },
+              {
+                title: 'Revenus Mensuels',
+                value: '€0',
+                iconName: 'Euro',
+                trend: { value: 0, label: 'vs mois dernier', period: '30j' },
+                color: 'success' as const
+              }
+            ];
+            
+            setOfflineData({
+              properties: formattedProperties,
+              stats: offlineStats,
+            });
+            console.log('[BiensClient] ✓ Données chargées depuis IndexedDB:', allProperties.length, 'biens');
+          } catch (error) {
+            console.error('[Offline] Erreur chargement données:', error);
+          } finally {
+            setIsLoadingOffline(false);
+          }
+        };
+        
+        loadOfflineData();
+        return; // Ne pas continuer si on est offline
+      }
+      
+      // Si on n'a pas de données initiales (erreur serveur), charger depuis IndexedDB
+      if (!hasInitialData) {
+        setIsLoadingOffline(true);
+        
+        const loadOfflineData = async () => {
+          let orgId = organizationId || 
+                     localStorage.getItem('organizationId') || 
+                     localStorage.getItem('currentOrganizationId');
+          
+          if (!orgId) {
+            try {
+              const db = getLocalDB();
+              const firstProperty = await db.properties.toCollection().first();
+              if (firstProperty?.organizationId) {
+                localStorage.setItem('organizationId', firstProperty.organizationId);
+                orgId = firstProperty.organizationId;
+              }
+            } catch (error) {
+              console.error('[Offline] Erreur recherche organizationId:', error);
+            }
+            
+            if (!orgId) {
+              setIsLoadingOffline(false);
+              return;
+            }
+          }
+          
+          try {
+            const repo = getPropertyRepositoryOffline();
+            const filters: any = { includeArchived: includeArchived };
+            const allProperties = await repo.getAll(orgId, filters);
+            
+            const formattedProperties: PropertyWithRelations[] = allProperties.map(prop => ({
+              ...prop,
+              Lease: [],
+            })) as any;
+            
+            const offlineStats = [
+              {
+                title: 'Total Biens',
+                value: allProperties.length.toString(),
+                iconName: 'Building2',
+                trend: { value: 0, label: 'vs mois dernier', period: '30j' },
+                color: 'primary' as const
+              },
+              {
+                title: 'Occupés',
+                value: '0',
+                iconName: 'Users',
+                trend: { value: 0, label: 'vs mois dernier', period: '30j' },
+                color: 'success' as const
+              },
+              {
+                title: 'Vacants',
+                value: allProperties.length.toString(),
+                iconName: 'Building2',
+                trend: { value: 0, label: 'vs mois dernier', period: '30j' },
+                color: 'warning' as const
+              },
+              {
+                title: 'Revenus Mensuels',
+                value: '€0',
+                iconName: 'Euro',
+                trend: { value: 0, label: 'vs mois dernier', period: '30j' },
+                color: 'success' as const
+              }
+            ];
+            
+            setOfflineData({
+              properties: formattedProperties,
+              stats: offlineStats,
+            });
+          } catch (error) {
+            console.error('[Offline] Erreur chargement données:', error);
+          } finally {
+            setIsLoadingOffline(false);
+          }
+        };
+        
+        loadOfflineData();
+      }
+    };
+    
+    loadData();
+  }, [organizationId, includeArchived, searchParams, initialData]);
+  
+  // Utiliser les données offline si disponibles et qu'on n'a pas de données initiales
+  // OU si on est clairement hors ligne
+  const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+  const hasInitialData = initialData && initialData.data && initialData.data.length > 0;
+  const shouldUseOfflineData = (!hasInitialData && offlineData) || (!isOnline && offlineData);
+  
+  const effectiveData = shouldUseOfflineData ? offlineData : null;
+  const effectiveProperties = effectiveData?.properties || initialData?.data || [];
+  const effectiveStats = effectiveData?.stats || stats;
   
   // Détecter l'état actif des chips basé sur les paramètres URL
   const getActiveChip = () => {
@@ -99,7 +321,6 @@ export default function BiensClient({ initialData, stats, properties, transactio
   const [deletingProperty, setDeletingProperty] = useState<PropertyWithRelations | null>(null);
   const [propertyStats, setPropertyStats] = useState<PropertyStats | null>(null);
   const [availableProperties, setAvailableProperties] = useState<Array<{ id: string; name: string }>>([]);
-  const [includeArchived, setIncludeArchived] = useState(searchParams.get('includeArchived') === 'true');
 
   const handleSearch = (search: string) => {
     const params = new URLSearchParams(searchParams);
@@ -244,7 +465,7 @@ export default function BiensClient({ initialData, stats, properties, transactio
       }
 
       // Charger les autres biens (pour le transfert)
-      const otherProperties = initialData.data
+      const otherProperties = effectiveProperties
         .filter(p => p.id !== property.id && !p.isArchived)
         .map(p => ({ id: p.id, name: p.name }));
       setAvailableProperties(otherProperties);
@@ -264,30 +485,70 @@ export default function BiensClient({ initialData, stats, properties, transactio
   const handleConfirmDelete = async (mode: DeleteMode, targetPropertyId?: string) => {
     if (!deletingProperty) return;
 
-    try {
-      const response = await fetch(`/api/properties/${deletingProperty.id}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, targetPropertyId }),
-      });
+    const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+    const orgId = organizationId || 'default';
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || errorData.error);
+    try {
+      // Si offline ou si l'API échoue, utiliser le repository offline
+      if (!isOnline) {
+        console.log('[Offline] Suppression locale du bien');
+        const repo = getPropertyRepositoryOffline();
+        await repo.delete(deletingProperty.id, orgId, mode);
+        
+        await showAlert({
+          type: 'success',
+          title: mode === 'archive' ? 'Bien archivé localement' : 'Bien supprimé localement',
+          message: 'L\'opération a été enregistrée localement et sera synchronisée avec le serveur dès que la connexion sera rétablie.',
+        });
+
+        setDeleteDialogOpen(false);
+        setDeletingProperty(null);
+        setPropertyStats(null);
+        router.refresh();
+        return;
       }
 
-      const result = await response.json();
+      // Mode online : essayer l'API
+      try {
+        const response = await fetch(`/api/properties/${deletingProperty.id}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode, targetPropertyId }),
+        });
 
-      await showAlert({
-        type: 'success',
-        title: mode === 'archive' ? 'Bien archivé' : mode === 'reassign' ? 'Bien transféré' : 'Bien supprimé',
-        message: result.message,
-      });
+        if (!response.ok) {
+          throw new Error(`Erreur ${response.status}`);
+        }
 
-      setDeleteDialogOpen(false);
-      setDeletingProperty(null);
-      setPropertyStats(null);
-      router.refresh();
+        const result = await response.json();
+
+        await showAlert({
+          type: 'success',
+          title: mode === 'archive' ? 'Bien archivé' : mode === 'reassign' ? 'Bien transféré' : 'Bien supprimé',
+          message: result.message,
+        });
+
+        setDeleteDialogOpen(false);
+        setDeletingProperty(null);
+        setPropertyStats(null);
+        router.refresh();
+      } catch (apiError: any) {
+        // Fallback sur le repository offline
+        console.warn('[Online] Erreur API, fallback sur suppression locale:', apiError);
+        const repo = getPropertyRepositoryOffline();
+        await repo.delete(deletingProperty.id, orgId, mode);
+        
+        await showAlert({
+          type: 'warning',
+          title: mode === 'archive' ? 'Bien archivé localement' : 'Bien supprimé localement',
+          message: 'L\'API n\'est pas disponible. L\'opération a été enregistrée localement et sera synchronisée avec le serveur dès que la connexion sera rétablie.',
+        });
+
+        setDeleteDialogOpen(false);
+        setDeletingProperty(null);
+        setPropertyStats(null);
+        router.refresh();
+      }
     } catch (error: any) {
       console.error('Error deleting property:', error);
       await showAlert({
@@ -303,43 +564,119 @@ export default function BiensClient({ initialData, stats, properties, transactio
     try {
       console.log('Submitting property data:', data);
       
-      if (editingProperty) {
-        // Mise à jour
-        const response = await fetch(`/api/properties/${editingProperty.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('Update error response:', errorData);
-          throw new Error(`Erreur lors de la mise à jour: ${errorData.error || 'Erreur inconnue'}`);
+      const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+      const orgId = organizationId || 'default';
+      
+      // Si on est hors ligne, utiliser directement le repository offline
+      if (!isOnline) {
+        console.log('[Offline] Sauvegarde locale du bien');
+        const repo = getPropertyRepositoryOffline();
+        
+        if (editingProperty) {
+          // Mise à jour locale
+          await repo.upsert({
+            id: editingProperty.id,
+            ...data,
+            organizationId: orgId,
+          }, orgId);
+        } else {
+          // Création locale
+          const localProperty = await repo.upsert({
+            ...data,
+            organizationId: orgId,
+          }, orgId);
+          
+          console.log('[Offline] Bien créé localement avec ID:', localProperty.id);
+          
+          // Rediriger vers la page transactions du nouveau bien (avec l'ID local)
+          router.push(`/biens/${localProperty.id}/transactions`);
         }
-      } else {
-        // Création
-        const response = await fetch('/api/properties', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
+        
+        // Fermer le formulaire
+        setPropertyFormOpen(false);
+        setEditingProperty(null);
+        
+        // Afficher un message de succès
+        await showAlert({
+          type: 'success',
+          title: 'Bien enregistré localement',
+          message: 'Le bien a été enregistré localement et sera synchronisé avec le serveur dès que la connexion sera rétablie.',
         });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('Create error response:', errorData);
-          throw new Error(`Erreur lors de la création: ${errorData.error || 'Erreur inconnue'}`);
-        }
-
-        const newProperty = await response.json();
-        console.log('Created property:', newProperty);
-        // Rediriger vers la page transactions du nouveau bien
-        router.push(`/biens/${newProperty.id}/transactions`);
+        
+        // Rafraîchir pour afficher le nouveau bien dans la liste locale
+        router.refresh();
+        return;
       }
+      
+      // Mode online : essayer l'API d'abord
+      try {
+        if (editingProperty) {
+          // Mise à jour
+          const response = await fetch(`/api/properties/${editingProperty.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
 
-      // Fermer le formulaire et recharger la page
-      setPropertyFormOpen(false);
-      setEditingProperty(null);
-      router.refresh();
+          if (!response.ok) {
+            throw new Error(`Erreur ${response.status}`);
+          }
+        } else {
+          // Création
+          const response = await fetch('/api/properties', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Erreur ${response.status}`);
+          }
+
+          const newProperty = await response.json();
+          console.log('Created property:', newProperty);
+          
+          // Rediriger vers la page transactions du nouveau bien
+          router.push(`/biens/${newProperty.id}/transactions`);
+        }
+
+        // Fermer le formulaire et recharger la page
+        setPropertyFormOpen(false);
+        setEditingProperty(null);
+        router.refresh();
+      } catch (apiError: any) {
+        // Si l'API échoue, fallback sur le repository offline
+        console.warn('[Online] Erreur API, fallback sur sauvegarde locale:', apiError);
+        
+        const repo = getPropertyRepositoryOffline();
+        
+        if (editingProperty) {
+          await repo.upsert({
+            id: editingProperty.id,
+            ...data,
+            organizationId: orgId,
+          }, orgId);
+        } else {
+          const localProperty = await repo.upsert({
+            ...data,
+            organizationId: orgId,
+          }, orgId);
+          
+          router.push(`/biens/${localProperty.id}/transactions`);
+        }
+        
+        setPropertyFormOpen(false);
+        setEditingProperty(null);
+        
+        await showAlert({
+          type: 'warning',
+          title: 'Bien enregistré localement',
+          message: 'L\'API n\'est pas disponible. Le bien a été enregistré localement et sera synchronisé avec le serveur dès que la connexion sera rétablie.',
+        });
+        
+        router.refresh();
+      }
     } catch (error: any) {
       console.error('Error saving property:', error);
       await showAlert({
@@ -451,8 +788,14 @@ export default function BiensClient({ initialData, stats, properties, transactio
           </div>
 
           {/* Table */}
-          {initialData.data.length > 0 ? (
+          {(isLoadingOffline || effectiveProperties.length > 0) ? (
             <>
+              {isLoadingOffline && (
+                <div className="text-center py-8 text-gray-500">
+                  Chargement des données depuis le cache local...
+                </div>
+              )}
+              {!isLoadingOffline && (
               <Table hover>
                 <TableHeader>
                   <TableRow>
@@ -465,7 +808,7 @@ export default function BiensClient({ initialData, stats, properties, transactio
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {initialData.data.map((property) => (
+                  {effectiveProperties.map((property) => (
                     <TableRow 
                       key={property.id}
                       className={`cursor-pointer ${property.isArchived ? 'bg-gray-50 opacity-70 border-l-4 border-l-gray-400' : ''}`}
@@ -576,14 +919,20 @@ export default function BiensClient({ initialData, stats, properties, transactio
                   ))}
                 </TableBody>
               </Table>
+              )}
 
               {/* Pagination */}
-              {initialData.pagination.pages > 1 && (
+              {(!effectiveData && initialData.pagination.pages > 1) && (
                 <Pagination
                   currentPage={initialData.pagination.page}
                   totalPages={initialData.pagination.pages}
                   onPageChange={handlePageChange}
                 />
+              )}
+              {effectiveData && (
+                <div className="text-center text-sm text-gray-500 py-4">
+                  Mode hors ligne : Affichage de {effectiveProperties.length} bien(s) depuis le cache local
+                </div>
               )}
             </>
           ) : (

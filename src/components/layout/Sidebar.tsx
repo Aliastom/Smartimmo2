@@ -138,7 +138,9 @@ export function Sidebar({ className, collapsed: collapsedProp, onCollapsedChange
   const filteredNavItems = navItems.filter(item => {
     // Cacher "Administration" si l'utilisateur n'est pas admin
     if (item.href === '/admin') {
-      return user?.role === 'ADMIN';
+      // Vérifier si l'utilisateur est admin (gérer les cas où user pourrait être null)
+      const isAdmin = user && (user.role === 'ADMIN' || user.role === 'admin');
+      return isAdmin === true;
     }
     return true;
   });

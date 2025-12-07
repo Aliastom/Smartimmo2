@@ -70,14 +70,73 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
   const [fiscalRegimes, setFiscalRegimes] = useState<any[]>([]);
   const [loadingRegimes, setLoadingRegimes] = useState(false);
 
-  // Charger les sociétés de gestion
+  // Charger les sociétés de gestion (avec fallback offline)
   const { data: gestionData } = useQuery({
     queryKey: ['management-companies'],
     queryFn: async () => {
-      const res = await fetch('/api/gestion/societes');
-      if (!res.ok) throw new Error('Erreur lors de la récupération des sociétés');
-      return res.json();
+      const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+      
+      // Essayer de charger depuis le réseau
+      if (isOnline) {
+        try {
+          const res = await fetch('/api/gestion/societes');
+          if (res.ok) {
+            const data = await res.json();
+            
+            // Mettre en cache local
+            if (typeof window !== 'undefined') {
+              const { getLocalDB } = await import('@/lib/offline/db');
+              const db = getLocalDB();
+              const now = new Date().toISOString();
+              
+              if (data.societes && Array.isArray(data.societes)) {
+                await Promise.all(
+                  data.societes.map((societe: any) =>
+                    db.managementCompanies.put({
+                      ...societe,
+                      cachedAt: now,
+                    })
+                  )
+                );
+              }
+            }
+            
+            return data;
+          }
+        } catch (error) {
+          console.warn('[PropertyForm] Erreur réseau, utilisation du cache:', error);
+        }
+      }
+      
+      // Fallback sur le cache local
+      if (typeof window !== 'undefined') {
+        try {
+          const { getLocalDB } = await import('@/lib/offline/db');
+          const db = getLocalDB();
+          const cached = await db.managementCompanies.toArray();
+          
+          if (cached.length > 0) {
+            const societes = cached
+              .map(c => {
+                const { cachedAt, ...rest } = c;
+                return rest;
+              })
+              .filter((s: any) => s.actif);
+            
+            return {
+              societes,
+              enabled: true, // Par défaut en offline
+            };
+          }
+        } catch (error) {
+          console.error('[PropertyForm] Erreur lecture cache sociétés:', error);
+        }
+      }
+      
+      // Retourner une structure vide si pas de cache
+      return { societes: [], enabled: false };
     },
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
   const societes = gestionData?.societes?.filter((s: any) => s.actif) || [];

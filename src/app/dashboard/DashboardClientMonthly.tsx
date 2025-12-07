@@ -24,6 +24,26 @@ export default function DashboardClientMonthly() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
+  // Vérifier l'authentification côté client (fallback si le middleware ne fonctionne pas)
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        // Tester une route API protégée pour vérifier l'auth
+        const response = await fetch('/api/dashboard/monthly?limit=1');
+        if (response.status === 401 || response.status === 403) {
+          // Non authentifié, rediriger vers login
+          const redirectPath = window.location.pathname + window.location.search;
+          router.push(`/login?redirect=${encodeURIComponent(redirectPath)}`);
+        }
+      } catch (error) {
+        // En cas d'erreur réseau, on laisse le middleware gérer
+        console.warn('[Dashboard] Erreur vérification auth:', error);
+      }
+    };
+    
+    checkAuth();
+  }, [router]);
+  
   // États pour les filtres
   const [month, setMonth] = useState(() => {
     const now = new Date();
@@ -52,27 +72,55 @@ export default function DashboardClientMonthly() {
     return params.toString();
   }, [month, bienIds, locataireIds, type, statut, source, focusLoyer]);
 
+  // Helper pour gérer les erreurs d'auth
+  const handleAuthError = (response: Response) => {
+    if (response.status === 401 || response.status === 403) {
+      const redirectPath = window.location.pathname + window.location.search;
+      router.push(`/login?redirect=${encodeURIComponent(redirectPath)}`);
+      return true;
+    }
+    return false;
+  };
+
   // Récupérer les biens et locataires pour les filtres
   const { data: propertiesData } = useQuery({
     queryKey: ['properties-for-filter'],
     queryFn: async () => {
       const response = await fetch('/api/properties?limit=1000');
-      if (!response.ok) return { data: [] };
+      if (!response.ok) {
+        if (handleAuthError(response)) {
+          throw new Error('Authentification requise');
+        }
+        return { data: [] };
+      }
       const data = await response.json();
       return { data: data.data || [] };
     },
     staleTime: 5 * 60 * 1000,
+    retry: (failureCount, error: any) => {
+      if (error?.message === 'Authentification requise') return false;
+      return failureCount < 2;
+    },
   });
 
   const { data: tenantsData } = useQuery({
     queryKey: ['tenants-for-filter'],
     queryFn: async () => {
       const response = await fetch('/api/tenants?limit=1000');
-      if (!response.ok) return { data: [] };
+      if (!response.ok) {
+        if (handleAuthError(response)) {
+          throw new Error('Authentification requise');
+        }
+        return { data: [] };
+      }
       const data = await response.json();
       return { data: data.data || [] };
     },
     staleTime: 5 * 60 * 1000,
+    retry: (failureCount, error: any) => {
+      if (error?.message === 'Authentification requise') return false;
+      return failureCount < 2;
+    },
   });
 
   // Utiliser React Query pour le cache et la gestion d'état
@@ -81,11 +129,24 @@ export default function DashboardClientMonthly() {
     queryFn: async () => {
       const response = await fetch(`/api/dashboard/monthly?${queryParams}`);
       if (!response.ok) {
+        // Si erreur d'authentification, rediriger vers login
+        if (response.status === 401 || response.status === 403) {
+          const redirectPath = window.location.pathname + window.location.search;
+          router.push(`/login?redirect=${encodeURIComponent(redirectPath)}`);
+          throw new Error('Authentification requise');
+        }
         throw new Error('Erreur lors du chargement des données');
       }
       return response.json();
     },
     staleTime: 2 * 60 * 1000, // 2 minutes pour le dashboard
+    retry: (failureCount, error: any) => {
+      // Ne pas retry si c'est une erreur d'auth
+      if (error?.message === 'Authentification requise') {
+        return false;
+      }
+      return failureCount < 3;
+    },
   });
   
   // Mettre à jour l'URL avec les filtres (une seule fois au changement)

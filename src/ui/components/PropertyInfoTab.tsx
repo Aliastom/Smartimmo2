@@ -5,6 +5,8 @@ import { Edit, Save, X, MapPin, Home, Ruler, Calendar, Euro, TrendingUp } from '
 import { Property } from '../../domain/entities/Property';
 import { useToast } from '../../hooks/useToast';
 import { useRouter } from 'next/navigation';
+import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/PropertyRepositoryOffline';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 
 interface PropertyInfoTabProps {
   property: Property;
@@ -17,6 +19,7 @@ export default function PropertyInfoTab({ property, onUpdate }: PropertyInfoTabP
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { showSuccess, showError } = useToast();
   const router = useRouter();
+  const { organizationId } = useCurrentOrganization();
 
   // Mettre à jour editedProperty quand property change
   React.useEffect(() => {
@@ -48,21 +51,58 @@ export default function PropertyInfoTab({ property, onUpdate }: PropertyInfoTabP
         acquisitionDate: editedProperty.acquisitionDate ? new Date(editedProperty.acquisitionDate).toISOString() : null,
       };
 
-      const response = await fetch(`/api/properties/${property.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updateData),
-      });
+      const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+      const orgId = organizationId || 'default';
 
-      if (response.ok) {
-        showSuccess('Bien sauvegardé', 'Les informations du bien ont été mises à jour avec succès');
+      // Si offline, utiliser le repository offline
+      if (!isOnline) {
+        console.log('[Offline] Mise à jour locale du bien');
+        const repo = getPropertyRepositoryOffline();
+        await repo.upsert({
+          id: property.id,
+          ...updateData,
+          organizationId: orgId,
+        }, orgId);
+        
+        showSuccess('Bien sauvegardé localement', 'Les modifications ont été enregistrées localement et seront synchronisées avec le serveur dès que la connexion sera rétablie.');
         setIsEditing(false);
         onUpdate();
         router.refresh();
-      } else {
-        showError('Erreur', 'Erreur lors de la sauvegarde du bien');
+        return;
+      }
+
+      // Mode online : essayer l'API
+      try {
+        const response = await fetch(`/api/properties/${property.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(updateData),
+        });
+
+        if (response.ok) {
+          showSuccess('Bien sauvegardé', 'Les informations du bien ont été mises à jour avec succès');
+          setIsEditing(false);
+          onUpdate();
+          router.refresh();
+        } else {
+          throw new Error(`Erreur ${response.status}`);
+        }
+      } catch (apiError: any) {
+        // Fallback sur le repository offline
+        console.warn('[Online] Erreur API, fallback sur mise à jour locale:', apiError);
+        const repo = getPropertyRepositoryOffline();
+        await repo.upsert({
+          id: property.id,
+          ...updateData,
+          organizationId: orgId,
+        }, orgId);
+        
+        showSuccess('Bien sauvegardé localement', 'L\'API n\'est pas disponible. Les modifications ont été enregistrées localement et seront synchronisées avec le serveur dès que la connexion sera rétablie.');
+        setIsEditing(false);
+        onUpdate();
+        router.refresh();
       }
     } catch (error) {
       console.error('Error saving property:', error);

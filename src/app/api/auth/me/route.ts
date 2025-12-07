@@ -1,16 +1,14 @@
-import { NextResponse } from 'next/server';
+/**
+ * API route pour récupérer les informations de l'utilisateur actuel côté client
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/getCurrentUser';
 
-// Force dynamic rendering for Vercel deployment
-export const dynamic = 'force-dynamic';
-
-/**
- * GET /api/auth/me - Récupère les informations de l'utilisateur connecté
- */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-
+    
     if (!user) {
       return NextResponse.json(
         { error: 'Non authentifié' },
@@ -19,20 +17,17 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        emailVerified: user.emailVerified,
-      },
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      organizationId: user.organizationId,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('[API /auth/me] Erreur:', error);
     return NextResponse.json(
-      { error: 'Erreur serveur' },
+      { error: 'Erreur lors de la récupération de l\'utilisateur' },
       { status: 500 }
     );
   }
 }
-

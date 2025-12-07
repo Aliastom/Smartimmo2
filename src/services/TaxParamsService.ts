@@ -1,10 +1,23 @@
 /**
  * Service frontend pour la gestion des paramètres fiscaux
+ * Supporte le mode offline-first avec cache local
  */
 
 import type { FiscalType, FiscalRegime, FiscalCompatibility } from '@prisma/client';
+import { getLocalDB } from '@/lib/offline/db';
+import type { CachedFiscalType, CachedFiscalRegime } from '@/lib/offline/db';
 
 export class TaxParamsService {
+  private db = typeof window !== 'undefined' ? getLocalDB() : null;
+  private cacheMaxAge = 24 * 60 * 60 * 1000; // 24 heures
+
+  /**
+   * Vérifie si on est en ligne
+   */
+  private isOnline(): boolean {
+    return typeof navigator !== 'undefined' && navigator.onLine;
+  }
+
   /**
    * Récupère la version active (publiée)
    */
@@ -33,24 +46,76 @@ export class TaxParamsService {
   }
 
   /**
-   * Récupère tous les types fiscaux
+   * Récupère tous les types fiscaux (avec fallback sur cache local)
    */
   async getTypes(activeOnly = false): Promise<FiscalType[]> {
     const url = activeOnly
       ? '/api/admin/tax/types?active=true'
       : '/api/admin/tax/types';
     
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-      throw new Error('Erreur lors de la récupération des types fiscaux');
+    // Essayer de charger depuis le réseau
+    if (this.isOnline()) {
+      try {
+        const response = await fetch(url);
+        
+        if (response.ok) {
+          const types = await response.json();
+          
+          // Mettre en cache si on a la DB locale
+          if (this.db) {
+            const now = new Date().toISOString();
+            await Promise.all(
+              types.map((type: FiscalType) =>
+                this.db!.fiscalTypes.put({
+                  ...type,
+                  cachedAt: now,
+                } as CachedFiscalType)
+              )
+            );
+          }
+          
+          return types;
+        }
+      } catch (error) {
+        console.warn('[TaxParamsService] Erreur réseau, utilisation du cache:', error);
+      }
     }
     
-    return response.json();
+    // Fallback sur le cache local
+    if (this.db) {
+      try {
+        let cached = await this.db.fiscalTypes.toArray();
+        
+        // Filtrer par isActive si demandé
+        if (activeOnly) {
+          cached = cached.filter(t => t.isActive);
+        }
+        
+        // Vérifier l'âge du cache
+        const now = Date.now();
+        const isCacheValid = cached.every(t => {
+          const age = now - new Date(t.cachedAt).getTime();
+          return age < this.cacheMaxAge;
+        });
+        
+        if (cached.length > 0) {
+          // Convertir en format API (enlever cachedAt)
+          const { cachedAt, ...rest } = cached[0];
+          return cached.map(t => {
+            const { cachedAt: _, ...data } = t;
+            return data as FiscalType;
+          });
+        }
+      } catch (error) {
+        console.error('[TaxParamsService] Erreur lecture cache:', error);
+      }
+    }
+    
+    throw new Error('Impossible de charger les types fiscaux (offline et cache vide)');
   }
 
   /**
-   * Récupère tous les régimes fiscaux
+   * Récupère tous les régimes fiscaux (avec fallback sur cache local)
    */
   async getRegimes(activeOnly = false, typeId?: string): Promise<FiscalRegime[]> {
     let url = activeOnly
@@ -61,13 +126,69 @@ export class TaxParamsService {
       url += `&typeId=${typeId}`;
     }
     
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-      throw new Error('Erreur lors de la récupération des régimes fiscaux');
+    // Essayer de charger depuis le réseau
+    if (this.isOnline()) {
+      try {
+        const response = await fetch(url);
+        
+        if (response.ok) {
+          const regimes = await response.json();
+          
+          // Mettre en cache si on a la DB locale
+          if (this.db) {
+            const now = new Date().toISOString();
+            await Promise.all(
+              regimes.map((regime: FiscalRegime) =>
+                this.db!.fiscalRegimes.put({
+                  ...regime,
+                  cachedAt: now,
+                } as CachedFiscalRegime)
+              )
+            );
+          }
+          
+          return regimes;
+        }
+      } catch (error) {
+        console.warn('[TaxParamsService] Erreur réseau, utilisation du cache:', error);
+      }
     }
     
-    return response.json();
+    // Fallback sur le cache local
+    if (this.db) {
+      try {
+        let cached = await this.db.fiscalRegimes.toArray();
+        
+        // Filtrer par isActive si demandé
+        if (activeOnly) {
+          cached = cached.filter(r => r.isActive);
+        }
+        
+        // Filtrer par typeId si demandé
+        if (typeId) {
+          cached = cached.filter(regime => {
+            try {
+              const appliesTo = JSON.parse(regime.appliesToIds) as string[];
+              return appliesTo.includes(typeId);
+            } catch {
+              return false;
+            }
+          });
+        }
+        
+        if (cached.length > 0) {
+          // Convertir en format API (enlever cachedAt)
+          return cached.map(r => {
+            const { cachedAt: _, ...data } = r;
+            return data as FiscalRegime;
+          });
+        }
+      } catch (error) {
+        console.error('[TaxParamsService] Erreur lecture cache:', error);
+      }
+    }
+    
+    throw new Error('Impossible de charger les régimes fiscaux (offline et cache vide)');
   }
 
   /**

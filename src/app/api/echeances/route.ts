@@ -14,10 +14,12 @@ import { requireAuth } from '@/lib/auth/getCurrentUser';
 export const dynamic = 'force-dynamic';
 
 const EcheancesQuerySchema = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}$/, 'Format attendu: YYYY-MM'),
-  to: z.string().regex(/^\d{4}-\d{2}$/, 'Format attendu: YYYY-MM'),
+  from: z.string().regex(/^\d{4}-\d{2}$/, 'Format attendu: YYYY-MM').optional(),
+  to: z.string().regex(/^\d{4}-\d{2}$/, 'Format attendu: YYYY-MM').optional(),
   propertyId: z.string().optional(),
   leaseId: z.string().optional(),
+  // Pour la full sync, on peut appeler sans from/to pour récupérer toutes les échéances
+  limit: z.string().optional(),
 });
 
 /**
@@ -51,10 +53,11 @@ const CreateEcheanceSchema = z.object({
  * Récupère les occurrences d'échéances récurrentes pour une période donnée
  * 
  * Query params:
- * - from: YYYY-MM (requis)
- * - to: YYYY-MM (requis)
+ * - from: YYYY-MM (optionnel, requis si mode normal)
+ * - to: YYYY-MM (optionnel, requis si mode normal)
  * - propertyId?: string (optionnel)
  * - leaseId?: string (optionnel)
+ * - limit?: string (optionnel, pour full sync)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -62,39 +65,121 @@ export async function GET(request: NextRequest) {
     const organizationId = user.organizationId;
     const { searchParams } = new URL(request.url);
     
-    // Validation des query params
+    // Récupérer les paramètres bruts
+    const rawFrom = searchParams.get('from');
+    const rawTo = searchParams.get('to');
+    const rawPropertyId = searchParams.get('propertyId');
+    const rawLeaseId = searchParams.get('leaseId');
+    const rawLimit = searchParams.get('limit');
+    
+    // Détecter le mode full sync (limit présent sans from/to)
+    const isFullSyncMode = rawLimit && !rawFrom && !rawTo;
+    
+    // Si mode full sync, on skip la validation Zod stricte
+    if (isFullSyncMode) {
+      // Mode full sync : retourner toutes les échéances
+      const echeances = await prisma.echeanceRecurrente.findMany({
+        where: {
+          organizationId,
+          // Inclure actives et inactives pour la full sync
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          propertyId: true,
+          leaseId: true,
+          label: true,
+          type: true,
+          periodicite: true,
+          montant: true,
+          recuperable: true,
+          sens: true,
+          startAt: true,
+          endAt: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { startAt: 'asc' },
+        take: parseInt(rawLimit) || 10000,
+      });
+
+      const echeancesForSync = echeances.map((e) => ({
+        id: e.id,
+        organizationId: e.organizationId,
+        propertyId: e.propertyId,
+        leaseId: e.leaseId,
+        label: e.label,
+        type: e.type,
+        periodicite: e.periodicite,
+        montant: typeof e.montant === 'object' && 'toNumber' in e.montant 
+          ? (e.montant as any).toNumber() 
+          : parseFloat(e.montant.toString()),
+        recuperable: e.recuperable,
+        sens: e.sens,
+        startAt: e.startAt instanceof Date ? e.startAt.toISOString() : new Date(e.startAt).toISOString(),
+        endAt: e.endAt ? (e.endAt instanceof Date ? e.endAt.toISOString() : new Date(e.endAt).toISOString()) : null,
+        isActive: e.isActive,
+        createdAt: e.createdAt instanceof Date ? e.createdAt.toISOString() : new Date(e.createdAt).toISOString(),
+        updatedAt: e.updatedAt instanceof Date ? e.updatedAt.toISOString() : new Date(e.updatedAt).toISOString(),
+      }));
+
+      return NextResponse.json(echeancesForSync);
+    }
+    
+    // Mode normal : validation Zod stricte
     const validation = EcheancesQuerySchema.safeParse({
-      from: searchParams.get('from'),
-      to: searchParams.get('to'),
-      propertyId: searchParams.get('propertyId') || undefined,
-      leaseId: searchParams.get('leaseId') || undefined,
+      ...(rawFrom ? { from: rawFrom } : {}),
+      ...(rawTo ? { to: rawTo } : {}),
+      ...(rawPropertyId ? { propertyId: rawPropertyId } : {}),
+      ...(rawLeaseId ? { leaseId: rawLeaseId } : {}),
+      ...(rawLimit ? { limit: rawLimit } : {}),
     });
 
     if (!validation.success) {
+      console.error('[API /echeances] Validation échouée:', {
+        rawParams: {
+          from: rawFrom,
+          to: rawTo,
+          propertyId: rawPropertyId,
+          leaseId: rawLeaseId,
+          limit: rawLimit,
+        },
+        errors: validation.error.errors,
+      });
       return NextResponse.json(
         { status: 'error', message: 'Paramètres invalides', errors: validation.error.errors },
         { status: 400 }
       );
     }
 
-    const { from, to, propertyId, leaseId } = validation.data;
+    const { from, to, propertyId, leaseId, limit } = validation.data;
 
-    // Parser les dates de la plage
+    // Mode normal : filtrer par période
+    if (!from || !to) {
+      return NextResponse.json(
+        { status: 'error', message: 'Les paramètres from et to sont requis pour le mode normal' },
+        { status: 400 }
+      );
+    }
+
+    // Construire le filtre Prisma pour le mode normal
+    const where: any = {
+      organizationId,
+      isActive: true,
+    };
+
+    // Filtrer par période
     const [fromYear, fromMonth] = from.split('-').map(Number);
     const [toYear, toMonth] = to.split('-').map(Number);
     const fromDate = new Date(fromYear, fromMonth - 1, 1);
     const toDate = new Date(toYear, toMonth, 0, 23, 59, 59); // Dernier jour du mois
 
-    // Construire le filtre Prisma
-    const where: any = {
-      organizationId,
-      isActive: true,
-      startAt: { lte: toDate },
-      OR: [
-        { endAt: null },
-        { endAt: { gte: fromDate } },
-      ],
-    };
+    where.startAt = { lte: toDate };
+    where.OR = [
+      { endAt: null },
+      { endAt: { gte: fromDate } },
+    ];
 
     // Filtrer par propertyId si fourni
     if (propertyId) {
@@ -106,11 +191,12 @@ export async function GET(request: NextRequest) {
       where.leaseId = leaseId;
     }
 
-    // Charger les échéances récurrentes actives qui recoupent la plage
+    // Charger les échéances récurrentes actives
     const echeances = await prisma.echeanceRecurrente.findMany({
       where,
       select: {
         id: true,
+        organizationId: true,
         propertyId: true,
         leaseId: true,
         label: true,
@@ -122,6 +208,8 @@ export async function GET(request: NextRequest) {
         startAt: true,
         endAt: true,
         isActive: true,
+        createdAt: true,
+        updatedAt: true,
       },
       orderBy: { startAt: 'asc' },
     });

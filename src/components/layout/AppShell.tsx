@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/utils/cn';
 import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { SyncStatusIndicator } from '@/components/offline/SyncStatusIndicator';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -100,6 +101,13 @@ export function AppShell({ children, className, requiresAuth }: AppShellProps) {
         !isAuthPage && (sidebarCollapsed ? "lg:pl-16" : "lg:pl-64")
       )}
       >
+        {/* Indicateur de synchronisation - Top right */}
+        {!isAuthPage && (
+          <div className="fixed top-4 right-4 z-50">
+            <SyncStatusIndicator />
+          </div>
+        )}
+        
         {/* Page content */}
         <main id="main-content" className={cn(
           "flex-1 p-4 sm:p-6 overflow-auto",

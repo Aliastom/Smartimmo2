@@ -43,12 +43,13 @@ export default function AddressAutocomplete({
     clearSuggestions,
   } = useAddressAutocomplete();
 
-  // Mettre à jour la valeur initiale si elle change
+  // Mettre à jour la valeur initiale si elle change (mais éviter les boucles)
   useEffect(() => {
-    if (initialValue !== inputValue) {
+    if (initialValue !== undefined && initialValue !== inputValue && !isOpen) {
       setInputValue(initialValue);
     }
-  }, [initialValue]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValue]); // Ne pas inclure inputValue et isOpen pour éviter les boucles
 
   // Gérer le clic en dehors
   useEffect(() => {
@@ -72,10 +73,45 @@ export default function AddressAutocomplete({
     setInputValue(value);
     setSelectedIndex(-1);
 
-    if (value.trim().length >= 3) {
+    // En mode offline ou si l'API n'est pas disponible, mettre à jour l'adresse manuellement en temps réel
+    // MAIS seulement si on est vraiment offline (pas si l'API est juste en chargement)
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+    if (isOffline && !isApiAvailable && value.trim().length > 0) {
+      // Extraire l'adresse manuellement (format simple : "adresse code_postal ville" ou "adresse, code_postal ville")
+      const parts = value.split(/[,\s]+/).filter(p => p.length > 0);
+      if (parts.length >= 2) {
+        // Essayer de détecter code postal (5 chiffres en France) et ville
+        const postcodeMatch = parts.find(p => /^\d{5}$/.test(p));
+        if (postcodeMatch) {
+          const postcodeIndex = parts.indexOf(postcodeMatch);
+          const street = parts.slice(0, postcodeIndex).join(' ');
+          const postcode = postcodeMatch;
+          const city = parts.slice(postcodeIndex + 1).join(' ') || '';
+          
+          onAddressSelect({
+            street: street || value,
+            postcode: postcode,
+            city: city || '',
+          });
+          return; // Ne pas rechercher si on a déjà parsé l'adresse
+        }
+      }
+      
+      // Si pas de code postal détecté, utiliser toute la valeur comme adresse
+      // (le code postal et la ville seront remplis manuellement dans les champs séparés)
+      onAddressSelect({
+        street: value,
+        postcode: '',
+        city: '',
+      });
+    }
+
+    // En mode online avec API disponible, rechercher des suggestions
+    if (value.trim().length >= 3 && isApiAvailable && !isOffline) {
       searchAddresses(value);
       setIsOpen(true);
-    } else {
+    } else if (!isOffline) {
+      // En ligne mais pas assez de caractères ou API non disponible, fermer les suggestions
       clearSuggestions();
       setIsOpen(false);
     }
@@ -125,6 +161,47 @@ export default function AddressAutocomplete({
     }
   };
 
+  // Gérer le blur : valider l'adresse saisie manuellement si aucune suggestion n'a été sélectionnée
+  const handleBlur = () => {
+    // Attendre un peu pour permettre le clic sur une suggestion
+    setTimeout(() => {
+      setIsOpen(false);
+      
+      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      
+      // Si l'utilisateur a tapé quelque chose mais n'a pas sélectionné de suggestion
+      // (soit parce que l'API n'est pas disponible, soit parce qu'il a tapé manuellement)
+      if (inputValue.trim().length > 0) {
+        // Essayer de parser l'adresse
+        const parts = inputValue.split(/[,\s]+/).filter(p => p.length > 0);
+        if (parts.length >= 2) {
+          const postcodeMatch = parts.find(p => /^\d{5}$/.test(p));
+          if (postcodeMatch) {
+            const postcodeIndex = parts.indexOf(postcodeMatch);
+            const street = parts.slice(0, postcodeIndex).join(' ');
+            const postcode = postcodeMatch;
+            const city = parts.slice(postcodeIndex + 1).join(' ') || '';
+            
+            onAddressSelect({
+              street: street || inputValue,
+              postcode: postcode,
+              city: city || '',
+            });
+            return;
+          }
+        }
+        
+        // Sinon, utiliser la valeur tapée comme adresse
+        // (l'utilisateur remplira le code postal et la ville dans les champs séparés)
+        onAddressSelect({
+          street: inputValue,
+          postcode: '',
+          city: '',
+        });
+      }
+    }, 200);
+  };
+
   const showDropdown = isOpen && (suggestions.length > 0 || isLoading || apiError);
 
   return (
@@ -141,6 +218,7 @@ export default function AddressAutocomplete({
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           onFocus={handleFocus}
+          onBlur={handleBlur}
           disabled={disabled}
           required={required}
           placeholder={placeholder}
