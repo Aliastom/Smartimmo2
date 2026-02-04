@@ -62,6 +62,9 @@ const pwaConfig = withPWA({
   register: true,
   skipWaiting: false, // Désactiver skipWaiting automatique pour permettre à l'utilisateur de choisir
   disable: process.env.NODE_ENV === 'development', // Désactiver PWA en dev pour éviter les warnings Workbox
+  additionalManifestEntries: [
+    { url: '/offline.html', revision: null },
+  ],
   fallbacks: {
     document: '/offline.html', // Page de fallback pour le mode offline
     // Exclure certaines routes du fallback pour permettre le rendu client offline

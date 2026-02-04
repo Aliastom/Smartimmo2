@@ -2,12 +2,12 @@
   "name": "Smartimmo - Gestion Immobilière",
   "short_name": "Smartimmo",
   "description": "Application de gestion immobilière moderne et responsive",
-  "start_url": "/app/",
+  "start_url": "/app?source=pwa",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#ffffff",
   "theme_color": "#3b82f6",
-  "scope": "/app/",
+  "scope": "/",
   "icons": [
     {
       "src": "/icons/icon-72.png",
