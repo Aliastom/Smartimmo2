@@ -11,6 +11,8 @@
 # next.js
 /.next/
 /out/
+/dist/
+/node_modules/
 
 # production
 /build
@@ -58,3 +60,24 @@ integrity-report-*.json
 # temp
 temp
 tmp
+
+
+# ====== OS ======
+.DS_Store
+Thumbs.db
+
+# ====== Playwright ======
+playwright-report/
+test-results/
+playwright-results.json
+
+# ====== Cursor / IDE ======
+assets/c__Users_*/
+.cursor/workspaceStorage/
+
+# next-pwa generated
+public/sw.js
+public/workbox-*.js
+public/fallback-*.js
+
+

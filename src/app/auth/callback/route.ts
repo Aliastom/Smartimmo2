@@ -197,14 +197,8 @@ export async function GET(request: NextRequest) {
       prismaUser.email
     );
 
-    // Déterminer l'URL finale (paramètre redirect ou state OAuth)
-    const redirectFromQuery = requestUrl.searchParams.get('redirect');
-    const redirectFromState = decodeRedirectFromState(requestUrl.searchParams.get('state'));
-    const safeRedirect =
-      redirectFromQuery && redirectFromQuery.startsWith('/')
-        ? redirectFromQuery
-        : redirectFromState || '/dashboard';
-    return NextResponse.redirect(new URL(safeRedirect, requestUrl.origin));
+    // Redirection finale forcée vers l'App Shell
+    return NextResponse.redirect(new URL('/app', requestUrl.origin));
 
   } catch (error) {
     console.error('[Auth Callback] Erreur complète:', error);

@@ -157,34 +157,7 @@ export function LoginPageCore({
 
     try {
       const supabase = createBrowserClient();
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-      
-      // Déterminer la redirection selon le mode
-      let finalRedirect: string;
-      if (mode === 'app-shell') {
-        // Mode app-shell : rediriger vers /app?view=dashboard ou la vue demandée
-        if (redirectPath && redirectPath.startsWith('/app')) {
-          // Si redirectPath est déjà une URL /app, l'utiliser directement
-          finalRedirect = redirectPath;
-        } else {
-          // Sinon, extraire la vue ou utiliser dashboard par défaut
-          const view = redirectPath?.includes('view=') 
-            ? redirectPath.split('view=')[1]?.split('&')[0] || 'dashboard'
-            : redirectPath || 'dashboard';
-          finalRedirect = `/app?view=${view}`;
-        }
-      } else {
-        // Mode normal : utiliser redirectPath ou /dashboard
-        finalRedirect = redirectPath && redirectPath.startsWith('/') ? redirectPath : '/dashboard';
-      }
-
-      const redirectTo = `${appUrl}/auth/callback?redirect=${encodeURIComponent(finalRedirect)}`;
-      
-      // Pour le mode normal, utiliser state pour passer le redirect
-      const safeRedirect = redirectPath && redirectPath.startsWith('/') ? redirectPath : undefined;
-      const statePayload = safeRedirect && mode === 'normal'
-        ? btoa(encodeURIComponent(JSON.stringify({ redirect: safeRedirect })))
-        : undefined;
+      const redirectTo = `${window.location.origin}/auth/callback`;
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -193,7 +166,6 @@ export function LoginPageCore({
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
-            ...(statePayload ? { state: statePayload } : {}),
           },
         },
       });

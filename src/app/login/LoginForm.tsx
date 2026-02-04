@@ -158,13 +158,7 @@ export function LoginForm({ redirectPath }: LoginFormProps) {
 
     try {
       const supabase = createBrowserClient();
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-      const redirectTo = `${appUrl}/auth/callback`;
-      const safeRedirect =
-        redirectPath && redirectPath.startsWith('/') ? redirectPath : undefined;
-      const statePayload = safeRedirect
-        ? btoa(encodeURIComponent(JSON.stringify({ redirect: safeRedirect })))
-        : undefined;
+      const redirectTo = `${window.location.origin}/auth/callback`;
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -173,7 +167,6 @@ export function LoginForm({ redirectPath }: LoginFormProps) {
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
-            ...(statePayload ? { state: statePayload } : {}),
           },
         },
       });
