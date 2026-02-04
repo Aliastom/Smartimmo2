@@ -12,6 +12,7 @@ export interface AppSession {
     id: string;
     email: string;
     name?: string;
+    role?: string;
   };
   organizationId: string;
 }
@@ -28,9 +29,12 @@ async function fetchSession(): Promise<AppSession> {
   }
   const data = await res.json();
   
-  // Sauvegarder organizationId dans localStorage pour usage offline
+  // Sauvegarder organizationId et role dans localStorage pour usage offline
   if (data.organizationId) {
     localStorage.setItem('organizationId', data.organizationId);
+  }
+  if (data.role) {
+    localStorage.setItem('userRole', data.role);
   }
   
   return {
@@ -38,6 +42,7 @@ async function fetchSession(): Promise<AppSession> {
       id: data.id || data.userId || '',
       email: data.email || '',
       name: data.name || undefined,
+      role: data.role || undefined,
     },
     organizationId: data.organizationId || localStorage.getItem('organizationId') || 'default',
   };
@@ -62,9 +67,11 @@ export function useAppSession() {
 
   // Fallback offline : utiliser localStorage
   const offlineOrgId = typeof window !== 'undefined' ? localStorage.getItem('organizationId') : undefined;
+  const offlineRole = typeof window !== 'undefined' ? localStorage.getItem('userRole') : undefined;
   
   return {
     session: data,
+    role: data?.user?.role || offlineRole || undefined,
     organizationId: data?.organizationId || offlineOrgId || undefined,
     isLoading,
     error,

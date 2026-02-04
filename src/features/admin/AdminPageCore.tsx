@@ -10,6 +10,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Settings, FileText, MapPin, Users, Database, Shield, BarChart3, Archive, Search, Calculator } from 'lucide-react';
@@ -26,6 +27,8 @@ export function AdminPageCore({
   enablePrismaStudio = false 
 }: AdminPageCoreProps) {
   const [isLaunchingStudio, setIsLaunchingStudio] = useState(false);
+  const isAppShell = mode === 'app-shell';
+  const router = useRouter();
 
   const handleLaunchPrismaStudio = async () => {
     setIsLaunchingStudio(true);
@@ -76,24 +79,27 @@ export function AdminPageCore({
     info: 'bg-blue-100 text-blue-600'
   } as const;
 
-  const handleModuleClick = (module: typeof adminModules[0]) => {
-    if (mode === 'app-shell') {
-      // En mode app-shell, utiliser window.location pour la navigation
-      if (module.id === 'mapping') window.location.href = '/admin/natures-categories';
-      else if (module.id === 'document-types') window.location.href = '/admin/documents/types';
-      else if (module.id === 'signals-catalog') window.location.href = '/admin/signals';
-      else if (module.id === 'fiscal-params') window.location.href = '/admin/impots/parametres';
-      else if (module.id === 'gestion-deleguee-system') window.location.href = '/parametres/gestion-deleguee';
-      else if (module.id === 'users') window.location.href = '/admin/users';
-    } else {
-      // En mode normal, le onClick du Card gère la navigation
-      if (module.id === 'mapping') window.location.href = '/admin/natures-categories';
-      else if (module.id === 'document-types') window.location.href = '/admin/documents/types';
-      else if (module.id === 'signals-catalog') window.location.href = '/admin/signals';
-      else if (module.id === 'fiscal-params') window.location.href = '/admin/impots/parametres';
-      else if (module.id === 'gestion-deleguee-system') window.location.href = '/parametres/gestion-deleguee';
-      else if (module.id === 'users') window.location.href = '/admin/users';
+  const moduleRoutes: Record<string, string> = {
+    mapping: '/admin/natures-categories',
+    'document-types': '/admin/documents/types',
+    'signals-catalog': '/admin/signals',
+    'fiscal-params': '/admin/impots/parametres',
+    'gestion-deleguee-system': '/parametres/gestion-deleguee',
+    users: '/admin/users',
+  };
+
+  const handleModuleNavigation = (moduleId: string) => {
+    const route = moduleRoutes[moduleId];
+    if (!route) return;
+    if (isAppShell) {
+      toast.error('Disponible uniquement en mode web (hors App Shell).');
+      return;
     }
+    router.push(route);
+  };
+
+  const handleModuleClick = (module: typeof adminModules[0]) => {
+    handleModuleNavigation(module.id);
   };
 
   return (
@@ -119,13 +125,22 @@ export function AdminPageCore({
       <div className="mb-8">
         <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2"><Settings className="h-5 w-5 text-blue-600" />Configuration Système</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {adminModules.filter(m => m.category === 'system').map((module) => (
-            <Card key={module.id} className="hover:shadow-lg transition-all duration-200 cursor-pointer group" onClick={() => handleModuleClick(module)}>
+          {adminModules.filter(m => m.category === 'system').map((module) => {
+            const isServerOnly = isAppShell && Boolean(moduleRoutes[module.id]);
+            return (
+            <Card
+              key={module.id}
+              className={`hover:shadow-lg transition-all duration-200 group ${isServerOnly ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}
+              onClick={() => handleModuleClick(module)}
+            >
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${colorClasses[module.color]}`}>
                     <module.icon className="h-6 w-6" />
                   </div>
+                  {isServerOnly && (
+                    <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">Server-only</span>
+                  )}
                   <div className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                   </div>
@@ -136,18 +151,23 @@ export function AdminPageCore({
                 <CardDescription className="text-sm">{module.description}</CardDescription>
               </CardContent>
             </Card>
-          ))}
+          )})}
         </div>
       </div>
 
       <div className="mb-8">
         <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2"><Archive className="h-5 w-5 text-orange-600" />Gestion Déléguée Système</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {adminModules.filter(m => m.category === 'gestion').map((module) => (
-            <Card key={module.id} className="hover:shadow-lg transition-all duration-200 cursor-pointer group" onClick={() => handleModuleClick(module)}>
+          {adminModules.filter(m => m.category === 'gestion').map((module) => {
+            const isServerOnly = isAppShell && Boolean(moduleRoutes[module.id]);
+            return (
+            <Card key={module.id} className={`hover:shadow-lg transition-all duration-200 group ${isServerOnly ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`} onClick={() => handleModuleClick(module)}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${colorClasses[module.color]}`}><module.icon className="h-6 w-6" /></div>
+                  {isServerOnly && (
+                    <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">Server-only</span>
+                  )}
                   <div className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg></div>
                 </div>
               </CardHeader>
@@ -156,7 +176,7 @@ export function AdminPageCore({
                 <CardDescription className="text-sm">{module.description}</CardDescription>
               </CardContent>
             </Card>
-          ))}
+          )})}
         </div>
       </div>
 
@@ -166,11 +186,15 @@ export function AdminPageCore({
           {adminModules.filter(m => m.category === 'admin').map((module) => {
             // Carte Utilisateurs - toujours active
             if (module.id === 'users') {
+              const isServerOnly = isAppShell && Boolean(moduleRoutes[module.id]);
               return (
-                <Card key={module.id} className="hover:shadow-lg transition-all duration-200 cursor-pointer group" onClick={() => handleModuleClick(module)}>
+                <Card key={module.id} className={`hover:shadow-lg transition-all duration-200 group ${isServerOnly ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`} onClick={() => handleModuleClick(module)}>
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
                       <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${colorClasses[module.color]}`}><module.icon className="h-6 w-6" /></div>
+                      {isServerOnly && (
+                        <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">Server-only</span>
+                      )}
                       <div className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg></div>
                     </div>
                   </CardHeader>

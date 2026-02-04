@@ -21,6 +21,7 @@ import { useSearchParams } from 'next/navigation';
 import { AppShellUserDisplay } from '@/components/auth/AppShellUserDisplay';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
 import { buildViewPath, type ViewType } from '@/utils/appShellNavigation';
+import { useAppSession } from '@/features/auth/useAppSession';
 
 // Composant Property Context (identique à UnifiedSidebar, juste le style change)
 function UI2PropertyContextSection({ searchParams }: { searchParams: URLSearchParams | null }) {
@@ -108,6 +109,7 @@ export function UI2Sidebar({
 }: UI2SidebarProps) {
   const sidebarContext = useSidebarOptional();
   const searchParams = useSearchParams();
+  const { role } = useAppSession();
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const collapsed = collapsedProp ?? internalCollapsed;
 
@@ -119,7 +121,7 @@ export function UI2Sidebar({
 
   // Filtrer les items (même logique que UnifiedSidebar)
   const filteredItems = getFilteredSidebarItems(
-    'USER', // On pourrait récupérer le rôle réel si besoin
+    role || 'USER',
     true,
     true
   );
