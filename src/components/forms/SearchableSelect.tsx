@@ -132,10 +132,10 @@ export function SearchableSelect({
           onClick={() => !disabled && setIsOpen(!isOpen)}
           className={`
             w-full px-3 py-2 border border-neutral-300 rounded-md
-            focus:ring-2 focus:ring-blue-500 focus:border-primary
+            focus:ring-0 focus:border-orange-500
             cursor-pointer flex items-center justify-between
             ${disabled ? 'bg-neutral-100 cursor-not-allowed' : 'bg-white'}
-            ${isOpen ? 'ring-2 ring-blue-500 border-blue-500' : ''}
+            ${isOpen ? 'ring-0 border-orange-500' : ''}
           `}
         >
           <span className={selectedOption ? 'text-neutral-900' : 'text-neutral-400'}>
@@ -176,7 +176,7 @@ export function SearchableSelect({
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder="Rechercher..."
-                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                 />
               </div>
             </div>
@@ -199,7 +199,7 @@ export function SearchableSelect({
                       transition-colors
                       ${
                         index === selectedIndex || value === option.value
-                          ? 'bg-blue-50 text-blue-700'
+                          ? 'bg-gray-50 text-gray-900'
                           : 'hover:bg-gray-50'
                       }
                       ${value === option.value ? 'font-medium' : ''}

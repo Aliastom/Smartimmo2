@@ -32,6 +32,19 @@ export const useUploadStaging = () => {
     transactionId?: string;
   }) => {
     console.log('[useUploadStaging] createUploadSession appelé avec options:', options);
+    
+    // ⚠️ Bloquer uniquement si hors ligne (pas seulement en mode app-shell)
+    // En mode app-shell mais en ligne, on peut créer une vraie session serveur
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+    
+    if (isOffline) {
+      console.log('[useUploadStaging] Mode offline détecté, session locale uniquement');
+      // Générer un ID de session local uniquement si vraiment offline
+      const localSessionId = `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      setUploadSessionId(localSessionId);
+      return localSessionId;
+    }
+    
     setLoading(true);
     setError(null);
     
@@ -70,6 +83,15 @@ export const useUploadStaging = () => {
 
   // Charger les documents d'une session
   const loadStagedDocuments = useCallback(async (sessionId: string) => {
+    // ⚠️ Charger uniquement si session serveur valide (pas local_)
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+    
+    if (isOffline || sessionId.startsWith('local_')) {
+      console.log('[useUploadStaging] Mode offline ou session locale, pas de chargement depuis API');
+      setStagedDocuments([]);
+      return [];
+    }
+    
     setLoading(true);
     setError(null);
     
@@ -109,6 +131,15 @@ export const useUploadStaging = () => {
 
   // Supprimer un document en staging
   const removeStagedDocument = useCallback(async (documentId: string) => {
+    // ⚠️ Supprimer uniquement de l'état local si offline
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+    
+    if (isOffline) {
+      console.log('[useUploadStaging] Mode offline, suppression locale uniquement');
+      setStagedDocuments(prev => prev.filter(doc => doc.id !== documentId));
+      return true;
+    }
+    
     try {
       const response = await fetch(`/api/upload-staged/${documentId}`, {
         method: 'DELETE'
@@ -140,6 +171,17 @@ export const useUploadStaging = () => {
   const deleteUploadSession = useCallback(async (sessionId?: string) => {
     const idToDelete = sessionId || uploadSessionId;
     if (!idToDelete) return true; // Pas de session à supprimer
+    
+    // ⚠️ Supprimer uniquement l'état local si offline ou session locale
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+    
+    if (isOffline || idToDelete.startsWith('local_')) {
+      console.log('[useUploadStaging] Mode offline ou session locale, suppression locale uniquement');
+      setUploadSessionId(null);
+      setStagedDocuments([]);
+      return true;
+    }
+    
     try {
       const response = await fetch(`/api/upload-session/${idToDelete}`, {
         method: 'DELETE'

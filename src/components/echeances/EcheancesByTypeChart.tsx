@@ -86,14 +86,14 @@ export function EcheancesByTypeChart({
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="min-w-0">
+      <CardHeader className="min-w-0">
         <CardTitle>Répartition par type</CardTitle>
         <p className="text-sm text-gray-600 mt-1">
           Total: {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(total)}
         </p>
       </CardHeader>
-      <CardContent className="overflow-visible md:overflow-auto">
+      <CardContent className="overflow-visible md:overflow-auto min-w-0">
         {data.length === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center text-gray-400">
             <Layers className="h-12 w-12 mb-2" />
@@ -101,7 +101,7 @@ export function EcheancesByTypeChart({
           </div>
         ) : (
           <>
-            <div className="w-full overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+            <div className="w-full overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 min-w-0">
               <ResponsiveContainer width="100%" height={200} minWidth={300}>
                 <PieChart>
                   <Pie

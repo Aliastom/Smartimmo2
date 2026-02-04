@@ -1,22 +1,38 @@
 import { prisma } from '@/lib/prisma';
 
 /**
- * Construit les liens à créer pour une transaction
+ * Construit les liens à créer pour une transaction ou un prêt
  * @param documentId ID du document
- * @param tx Transaction avec propertyId et leaseId optionnels
+ * @param tx Transaction/Prêt avec propertyId, leaseId, et loanId optionnels
  * @returns Array des liens à créer (sans les nulls)
  */
 export function buildLinksForTx(
   documentId: string, 
-  tx: { id: string, propertyId?: string | null, leaseId?: string | null }
+  tx: { id: string, propertyId?: string | null, leaseId?: string | null, loanId?: string | null }
 ) {
-  return [
-    { documentId, linkedType: 'transaction', linkedId: tx.id },
-    tx.propertyId ? { documentId, linkedType: 'property', linkedId: tx.propertyId } : null,
-    tx.leaseId ? { documentId, linkedType: 'lease', linkedId: tx.leaseId } : null,
-    // Ajouter le lien global pour que le document apparaisse sur la page documents
-    { documentId, linkedType: 'global', linkedId: 'global' },
-  ].filter(Boolean) as Array<{documentId: string; linkedType: string; linkedId: string}>;
+  const links: Array<{documentId: string; linkedType: string; linkedId: string} | null> = [];
+  
+  // Déterminer le type de lien principal selon le contexte
+  if ('loanId' in tx && tx.loanId) {
+    // Si c'est un prêt, créer un lien pour le prêt
+    links.push({ documentId, linkedType: 'loan', linkedId: tx.id });
+  } else {
+    // Sinon, c'est une transaction
+    links.push({ documentId, linkedType: 'transaction', linkedId: tx.id });
+  }
+  
+  // Liens secondaires (property, lease)
+  if (tx.propertyId) {
+    links.push({ documentId, linkedType: 'property', linkedId: tx.propertyId });
+  }
+  if (tx.leaseId) {
+    links.push({ documentId, linkedType: 'lease', linkedId: tx.leaseId });
+  }
+  
+  // Ajouter le lien global pour que le document apparaisse sur la page documents
+  links.push({ documentId, linkedType: 'global', linkedId: 'global' });
+  
+  return links.filter(Boolean) as Array<{documentId: string; linkedType: string; linkedId: string}>;
 }
 
 /**
@@ -53,15 +69,15 @@ export async function ensureCompatibleContext(
 }
 
 /**
- * Crée les liens pour un document et une transaction avec validation
+ * Crée les liens pour un document et une transaction/prêt avec validation
  * Gère manuellement les doublons car skipDuplicates ne fonctionne pas avec les clés composites
  * @param documentId ID du document
- * @param tx Transaction avec propertyId et leaseId optionnels
+ * @param tx Transaction/Prêt avec propertyId, leaseId, et loanId optionnels
  * @returns Nombre de liens créés
  */
 export async function createDocumentLinks(
   documentId: string, 
-  tx: { id: string, propertyId?: string | null, leaseId?: string | null }
+  tx: { id: string, propertyId?: string | null, leaseId?: string | null, loanId?: string | null }
 ) {
   // Vérifier la compatibilité du contexte
   await ensureCompatibleContext(documentId, tx);

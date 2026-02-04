@@ -42,7 +42,7 @@ export default function PropertyTenantsClient({ property }: PropertyTenantsClien
 
   const handleViewTenantLeases = (tenant: Tenant) => {
     // Rediriger vers la page baux avec un filtre sur ce locataire
-    window.location.href = `/biens/${property.id}/baux?tenantId=${tenant.id}`;
+    window.location.href = `/app?view=property&propertyId=${property.id}&tab=lease&tenantId=${tenant.id}`;
   };
 
   const handleCloseTenantModal = () => {

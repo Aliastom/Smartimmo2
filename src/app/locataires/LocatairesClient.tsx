@@ -7,7 +7,7 @@ import { InsightBar } from '@/components/ui/InsightBar';
 import { InsightChip } from '@/components/ui/InsightChip';
 import { InsightSkeleton } from '@/components/ui/InsightSkeleton';
 import { MiniDonut } from '@/components/ui/MiniDonut';
-import { useDashboardInsights } from '@/hooks/useDashboardInsights';
+import { useDashboardInsights } from '@/features/insights/hooks/useDashboardInsights';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { Table, TableHeader, TableHeaderCell, TableBody, TableRow, TableCell } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
@@ -59,7 +59,7 @@ interface LocatairesClientProps {
 export default function LocatairesClient({ initialData, stats }: LocatairesClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { insights, loading: insightsLoading } = useDashboardInsights('locataires');
+  const { insights, loading: insightsLoading } = useDashboardInsights({ mode: 'normal', scope: 'locataires' });
   
   // Détecter l'état actif des chips basé sur les paramètres URL
   const getActiveChip = () => {

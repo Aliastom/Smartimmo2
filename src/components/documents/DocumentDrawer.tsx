@@ -17,11 +17,23 @@ interface DocumentDrawerProps {
       label: string;
       code: string;
     };
+    DocumentType?: {
+      id: string;
+      label: string;
+      code: string;
+    };
     status: string;
     size: number;
     mime: string;
     createdAt: Date | string;
     links?: Array<{
+      id: string;
+      linkedType: string;
+      linkedId?: string;
+      entityName?: string;
+      role?: string;
+    }>;
+    DocumentLink?: Array<{
       id: string;
       linkedType: string;
       linkedId?: string;
@@ -71,8 +83,8 @@ export default function DocumentDrawer({
     if (mime.includes('pdf')) {
       return (
         <div className="relative">
-          <FileText className="h-16 w-16 text-red-500" />
-          <span className="absolute bottom-0 right-0 text-[10px] font-bold text-red-600 bg-red-100 px-1 rounded">PDF</span>
+          <FileText className="h-16 w-16 text-orange-500" />
+          <span className="absolute bottom-0 right-0 text-[10px] font-bold text-orange-700 bg-orange-100 px-1 rounded">PDF</span>
         </div>
       );
     }
@@ -81,8 +93,8 @@ export default function DocumentDrawer({
     if (mime.includes('image')) {
       return (
         <div className="relative">
-          <ImageIcon className="h-16 w-16 text-blue-500" />
-          <span className="absolute bottom-0 right-0 text-[10px] font-bold text-blue-600 bg-blue-100 px-1 rounded">IMG</span>
+          <ImageIcon className="h-16 w-16 text-gray-500" />
+          <span className="absolute bottom-0 right-0 text-[10px] font-bold text-gray-700 bg-gray-100 px-1 rounded">IMG</span>
         </div>
       );
     }
@@ -91,8 +103,8 @@ export default function DocumentDrawer({
     if (mime.includes('word') || mime.includes('msword') || mime.includes('officedocument.wordprocessing')) {
       return (
         <div className="relative">
-          <FileText className="h-16 w-16 text-blue-600" />
-          <span className="absolute bottom-0 right-0 text-[10px] font-bold text-blue-600 bg-blue-100 px-1 rounded">DOC</span>
+          <FileText className="h-16 w-16 text-gray-500" />
+          <span className="absolute bottom-0 right-0 text-[10px] font-bold text-gray-700 bg-gray-100 px-1 rounded">DOC</span>
         </div>
       );
     }
@@ -101,8 +113,8 @@ export default function DocumentDrawer({
     if (mime.includes('excel') || mime.includes('spreadsheet')) {
       return (
         <div className="relative">
-          <FileText className="h-16 w-16 text-green-600" />
-          <span className="absolute bottom-0 right-0 text-[10px] font-bold text-green-600 bg-green-100 px-1 rounded">XLS</span>
+          <FileText className="h-16 w-16 text-gray-500" />
+          <span className="absolute bottom-0 right-0 text-[10px] font-bold text-gray-700 bg-gray-100 px-1 rounded">XLS</span>
         </div>
       );
     }
@@ -144,7 +156,9 @@ export default function DocumentDrawer({
     if (document.DocumentLink && document.DocumentLink.length > 0) {
       return document.DocumentLink.map((link, index) => {
         const getEntityLabel = (linkedType: string) => {
-          switch (linkedType) {
+          // Normaliser linkedType en minuscules (peut être en majuscules depuis IndexedDB)
+          const normalizedType = linkedType.toLowerCase();
+          switch (normalizedType) {
             case 'property': return 'Bien';
             case 'lease': return 'Bail';
             case 'tenant': return 'Locataire';
@@ -161,6 +175,9 @@ export default function DocumentDrawer({
             {link.entityName && (
               <span className="font-medium">- {link.entityName}</span>
             )}
+            {link.linkedId && link.linkedId !== 'global' && (
+              <span className="text-xs text-gray-400">({link.linkedId.substring(0, 8)}...)</span>
+            )}
           </div>
         );
       });
@@ -175,18 +192,18 @@ export default function DocumentDrawer({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
+    <div className="fixed inset-0 z-50">
       {/* Overlay */}
       <div 
-        className="absolute inset-0 bg-black bg-opacity-50 transition-opacity"
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
         onClick={onClose}
       />
       
-      {/* Drawer */}
-      <div className="absolute right-0 top-0 h-full w-full max-w-2xl bg-white shadow-xl transform transition-transform">
+      {/* Drawer - Mobile: plein écran, Desktop: side panel */}
+      <div className="fixed right-0 top-0 h-screen w-full max-w-full sm:max-w-2xl bg-white shadow-xl transform transition-transform">
         <div className="flex flex-col h-full">
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b bg-gray-50">
+          <div className="flex items-center justify-between p-4 border-b">
             <div className="flex-1 min-w-0">
               <h2 className="text-xl font-semibold text-gray-900 truncate">
                 {document.filenameOriginal}
@@ -204,8 +221,8 @@ export default function DocumentDrawer({
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="space-y-6">
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="space-y-4">
               {/* Aperçu du document */}
               <div className="flex items-start gap-6">
                 <div className="flex-shrink-0">
@@ -216,8 +233,8 @@ export default function DocumentDrawer({
                     {document.filenameOriginal}
                   </h3>
                   <div className="flex flex-wrap gap-2">
-                    {document.DocumentType ? (
-                      <Badge variant="default">{document.DocumentType.label}</Badge>
+                    {(document.DocumentType || document.documentType) ? (
+                      <Badge variant="default">{(document.DocumentType || document.documentType)!.label}</Badge>
                     ) : (
                       <Badge variant="secondary">Non classé</Badge>
                     )}
@@ -227,9 +244,9 @@ export default function DocumentDrawer({
               </div>
 
               {/* Métadonnées du fichier */}
-              <div className="border-t pt-6">
+              <div className="border-t pt-4">
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Informations du fichier</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-sm text-gray-600">Taille</p>
                     <p className="font-medium">{formatFileSize(document.size)}</p>
@@ -252,7 +269,7 @@ export default function DocumentDrawer({
               </div>
 
               {/* Liaisons */}
-              <div className="border-t pt-6">
+              <div className="border-t pt-4">
                 <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center gap-2">
                   <LinkIcon className="h-5 w-5" />
                   Lié à: {document.DocumentLink && document.DocumentLink.length > 1 ? `Multiple (${document.DocumentLink.length})` : document.DocumentLink && document.DocumentLink.length === 1 ? document.DocumentLink[0].linkedType : 'Global'}
@@ -264,7 +281,7 @@ export default function DocumentDrawer({
 
               {/* Texte extrait */}
               {document.extractedText && (
-                <div className="border-t pt-6">
+                <div className="border-t pt-4">
                   <h3 className="text-lg font-medium text-gray-900 mb-4">
                     Texte extrait (aperçu)
                   </h3>
@@ -279,7 +296,7 @@ export default function DocumentDrawer({
               )}
 
               {/* Informations système */}
-              <div className="border-t pt-6">
+              <div className="border-t pt-4">
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Informations système</h3>
                 <div className="grid grid-cols-1 gap-4">
                   <div>
@@ -302,7 +319,7 @@ export default function DocumentDrawer({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
+          <div className="flex items-center justify-end gap-3 p-4 border-t">
             <Button
               variant="outline"
               onClick={() => onDownload(document)}

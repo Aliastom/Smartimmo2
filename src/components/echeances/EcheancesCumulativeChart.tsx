@@ -109,8 +109,8 @@ export function EcheancesCumulativeChart({
   }
 
   return (
-    <Card className="col-span-2">
-      <CardHeader>
+    <Card className="min-w-0">
+      <CardHeader className="min-w-0">
         <div className="flex items-center justify-between">
           <div>
             <CardTitle>Évolution {viewMode === 'monthly' ? 'mensuelle' : 'annuelle'}</CardTitle>
@@ -136,13 +136,14 @@ export function EcheancesCumulativeChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0">
         {chartData.length === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center text-gray-400">
             <Calendar className="h-12 w-12 mb-2" />
             <p>Aucune donnée disponible</p>
           </div>
         ) : (
+          <div className="min-w-0">
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -186,6 +187,7 @@ export function EcheancesCumulativeChart({
               />
             </LineChart>
           </ResponsiveContainer>
+          </div>
         )}
       </CardContent>
     </Card>

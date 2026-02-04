@@ -9,7 +9,7 @@ import { InfoChip } from '@/components/ui/InfoChip';
 import { InsightPopover } from '@/components/ui/InsightPopover';
 import { InsightSkeleton } from '@/components/ui/InsightSkeleton';
 import { MiniRadial } from '@/components/ui/MiniRadial';
-import { useDashboardInsights } from '@/hooks/useDashboardInsights';
+import { useDashboardInsights } from '@/features/insights/hooks/useDashboardInsights';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Table, TableHeader, TableHeaderCell, TableBody, TableRow, TableCell } from '@/components/ui/Table';
@@ -79,7 +79,7 @@ interface BiensClientProps {
 export default function BiensClient({ initialData, stats, properties, transactions }: BiensClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { insights, loading: insightsLoading } = useDashboardInsights('biens');
+  const { insights, loading: insightsLoading } = useDashboardInsights({ mode: 'normal', scope: 'biens' });
   const { setStatusFilter } = usePropertyFilters();
   const { organizationId } = useCurrentOrganization();
   const { showAlert, showConfirm } = useAlert();
@@ -120,8 +120,8 @@ export default function BiensClient({ initialData, stats, properties, transactio
             console.warn('[Offline] Pas d\'organizationId disponible, tentative depuis IndexedDB...');
             // Essayer de trouver l'organizationId depuis IndexedDB
             try {
-              const db = getLocalDB();
-              const firstProperty = await db.properties.toCollection().first();
+              const db = await getLocalDB();
+              const firstProperty = await db.Property.toCollection().first();
               if (firstProperty?.organizationId) {
                 localStorage.setItem('organizationId', firstProperty.organizationId);
                 orgId = firstProperty.organizationId;
@@ -219,8 +219,8 @@ export default function BiensClient({ initialData, stats, properties, transactio
           
           if (!orgId) {
             try {
-              const db = getLocalDB();
-              const firstProperty = await db.properties.toCollection().first();
+              const db = await getLocalDB();
+              const firstProperty = await db.Property.toCollection().first();
               if (firstProperty?.organizationId) {
                 localStorage.setItem('organizationId', firstProperty.organizationId);
                 orgId = firstProperty.organizationId;
@@ -877,7 +877,7 @@ export default function BiensClient({ initialData, stats, properties, transactio
                             if (nextStep) {
                               return (
                                 <Link 
-                                  href={`/biens/${property.id}/baux`}
+                                  href={`/app?view=property&propertyId=${property.id}&tab=lease`}
                                   className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline transition-colors"
                                   onClick={(e) => e.stopPropagation()}
                                 >

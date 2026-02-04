@@ -29,7 +29,7 @@ import { StatCard } from '@/components/ui/StatCard';
 import { InsightBar } from '@/components/ui/InsightBar';
 import { InsightChip } from '@/components/ui/InsightChip';
 import { MiniDonut } from '@/components/ui/MiniDonut';
-import { useDashboardInsights } from '@/hooks/useDashboardInsights';
+import { useDashboardInsights } from '@/features/insights/hooks/useDashboardInsights';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import {
   DocumentTable,
@@ -75,7 +75,7 @@ export function DocumentsPageUnified() {
     drafts: 0,
     orphans: 0,
   });
-  const { insights, loading: insightsLoading } = useDashboardInsights('documents');
+  const { insights, loading: insightsLoading } = useDashboardInsights({ mode: 'normal', scope: 'documents' });
 
   // Filtres
   const [filters, setFilters] = useState({

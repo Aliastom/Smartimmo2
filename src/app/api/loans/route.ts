@@ -253,6 +253,7 @@ export async function GET(request: NextRequest) {
 
       return {
         id: loan.id,
+        organizationId: loan.organizationId, // ⚠️ CRITIQUE: Ajouter organizationId pour la sync App Shell
         propertyId: loan.propertyId,
         propertyName: loan.property.name,
         label: loan.label,
@@ -476,32 +477,40 @@ export async function POST(request: NextRequest) {
       // Créer les liens DocumentLink
       const { createDocumentLinks } = await import('@/lib/services/documentLinkService');
       for (const docId of data.stagedDocumentIds) {
-        await createDocumentLinks(docId, result);
+        // ✅ Passer loanId pour que createDocumentLinks crée le lien pour le prêt
+        await createDocumentLinks(docId, {
+          id: result.id,
+          propertyId: result.propertyId,
+          loanId: result.id, // ✅ Indiquer que c'est un prêt
+        });
       }
     }
 
-    // Traiter les liens vers documents existants
+    // ✅ Traiter les liens vers documents existants (stagedLinkItemIds)
+    // ⚠️ IMPORTANT: stagedLinkItemIds contient les IDs des documents existants (pas les IDs des uploadStagedItem)
+    // En mode app-shell, on envoie directement les IDs des documents depuis PropertyLoansClient
     if (data.stagedLinkItemIds && data.stagedLinkItemIds.length > 0) {
-      const stagedLinks = await prisma.uploadStagedItem.findMany({
+      const { createDocumentLinks } = await import('@/lib/services/documentLinkService');
+      
+      // Vérifier que les documents existent et appartiennent à l'organisation
+      const existingDocuments = await prisma.document.findMany({
         where: {
           id: { in: data.stagedLinkItemIds },
-          kind: 'link',
           organizationId,
         },
-        include: {
-          Document: {
-            select: {
-              id: true,
-            },
-          },
+        select: {
+          id: true,
         },
       });
-
-      const { createDocumentLinks } = await import('@/lib/services/documentLinkService');
-      for (const stagedLink of stagedLinks) {
-        if (stagedLink.Document) {
-          await createDocumentLinks(stagedLink.Document.id, result);
-        }
+      
+      // Créer les liens pour chaque document existant
+      for (const doc of existingDocuments) {
+        // ✅ Passer loanId pour que createDocumentLinks crée le lien pour le prêt
+        await createDocumentLinks(doc.id, {
+          id: result.id,
+          propertyId: result.propertyId,
+          loanId: result.id, // ✅ Indiquer que c'est un prêt
+        });
       }
     }
 

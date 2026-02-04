@@ -12,11 +12,13 @@ export interface PendingOperation {
   entityId: string;
   operation: PendingOperationType;
   payload: Record<string, any>;
-  status: 'pending' | 'syncing' | 'synced' | 'error';
+  status: 'pending' | 'syncing' | 'synced' | 'error' | 'blocked_permanent';
   createdAt: string; // ISO string
   updatedAt: string; // ISO string
   errorMessage?: string;
   retryCount: number;
+  blockReason?: string; // Raison du blocage permanent (ex: docId, orgId, détails)
+  organizationId?: string; // ✅ CRITIQUE: Pour filtrer les pendingOps par organisation
 }
 
 export interface SyncMeta {

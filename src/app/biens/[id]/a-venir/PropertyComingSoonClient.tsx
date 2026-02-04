@@ -4,7 +4,6 @@ import React from 'react';
 import { Sliders, Sparkles } from 'lucide-react';
 import { SectionTitle } from '@/components/ui/SectionTitle';
 import { BackToPropertyButton } from '@/components/shared/BackToPropertyButton';
-import { PropertySubNav } from '@/components/bien/PropertySubNav';
 
 interface PropertyComingSoonClientProps {
   propertyId: string;
@@ -14,20 +13,9 @@ interface PropertyComingSoonClientProps {
 export default function PropertyComingSoonClient({ propertyId, propertyName }: PropertyComingSoonClientProps) {
   return (
     <div className="space-y-6">
-      {/* Header avec menu intégré */}
-      <div className="grid grid-cols-3 items-center mb-6 gap-6">
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 border-b-4 border-lime-400 pb-2 inline-block">À venir</h1>
-          <p className="text-gray-600 mt-2">Fonctionnalités à venir pour {propertyName}</p>
-        </div>
-        
-        <div className="flex justify-center">
-          <PropertySubNav propertyId={propertyId} />
-        </div>
-        
-        <div className="flex items-center gap-3 justify-end">
-          <BackToPropertyButton propertyId={propertyId} propertyName={propertyName} />
-        </div>
+      {/* Le titre et le menu contextuel sont déjà dans PropertyHeader via le layout */}
+      <div className="flex items-center justify-end mb-6">
+        <BackToPropertyButton propertyId={propertyId} propertyName={propertyName} />
       </div>
 
       {/* Contenu coming soon */}

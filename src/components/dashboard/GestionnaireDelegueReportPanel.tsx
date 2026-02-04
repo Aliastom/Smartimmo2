@@ -9,8 +9,14 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loader2, FileText, Mail } from 'lucide-react';
-import { createEml } from '@/lib/eml';
 import type { DelegatedManagementReportRequest } from '@/types/reports';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { computeDelegatedManagementIssuesOffline } from '@/services/reports/delegatedManagementReportOffline';
+import { generateReportHTML } from '@/services/reports/generateReportHTML';
+import { getLocalDB } from '@/lib/offline/db';
+import { pdf } from '@react-pdf/renderer';
+import { DelegatedManagementReportPDF } from '@/components/pdf/DelegatedManagementReportPDF';
+import { createEml } from '@/lib/eml';
 
 interface ManagementCompany {
   id: string;
@@ -20,9 +26,11 @@ interface ManagementCompany {
 
 interface GestionnaireDelegueReportPanelProps {
   currentMonth: string; // Format: 'YYYY-MM'
+  mode?: 'normal' | 'app-shell'; // Mode de fonctionnement
 }
 
-export function GestionnaireDelegueReportPanel({ currentMonth }: GestionnaireDelegueReportPanelProps) {
+export function GestionnaireDelegueReportPanel({ currentMonth, mode = 'normal' }: GestionnaireDelegueReportPanelProps) {
+  const { organizationId } = useCurrentOrganization();
   const [selectedGestionnaireId, setSelectedGestionnaireId] = useState<string>('');
   const [periodType, setPeriodType] = useState<'current' | 'last3' | 'year' | 'custom'>('current');
   const [customFrom, setCustomFrom] = useState<string>('');
@@ -34,8 +42,60 @@ export function GestionnaireDelegueReportPanel({ currentMonth }: GestionnaireDel
     missingIndexations: false,
   });
   const [isGenerating, setIsGenerating] = useState(false);
+  const [gestionnairesLocal, setGestionnairesLocal] = useState<ManagementCompany[]>([]);
+  const [userLocal, setUserLocal] = useState<{ email: string; name: string | null } | null>(null);
 
-  // Récupérer les gestionnaires délégués
+  // Charger les gestionnaires depuis IndexedDB en mode app-shell
+  React.useEffect(() => {
+    if (mode === 'app-shell' && organizationId) {
+      let cancelled = false;
+      async function loadFromIndexedDB() {
+        try {
+          const { getLocalDB } = await import('@/lib/offline/db');
+          const db = await getLocalDB();
+          // Filtrer par organizationId et actif: true
+          const allCompanies = await db.ManagementCompany
+            .where('organizationId')
+            .equals(organizationId)
+            .toArray();
+          const companies = allCompanies.filter(c => c.actif === true);
+          if (!cancelled) {
+            setGestionnairesLocal(companies.map(c => ({
+              id: c.id,
+              nom: c.nom, // CachedManagementCompany utilise 'nom', pas 'name'
+              email: c.email || null,
+            })));
+          }
+        } catch (e) {
+          console.warn('[GestionnaireDelegueReportPanel] Erreur chargement IndexedDB:', e);
+        }
+      }
+      loadFromIndexedDB();
+      return () => { cancelled = true; };
+    }
+  }, [mode, organizationId]);
+
+  // Charger l'utilisateur depuis localStorage en mode app-shell
+  React.useEffect(() => {
+    if (mode === 'app-shell') {
+      try {
+        const localUserStr = localStorage.getItem('localUser');
+        if (localUserStr) {
+          const localUser = JSON.parse(localUserStr);
+          setUserLocal({
+            email: localUser.email || 'noreply@smartimmo.fr',
+            name: localUser.name || null,
+          });
+        } else {
+          setUserLocal({ email: 'noreply@smartimmo.fr', name: null });
+        }
+      } catch (e) {
+        setUserLocal({ email: 'noreply@smartimmo.fr', name: null });
+      }
+    }
+  }, [mode]);
+
+  // Récupérer les gestionnaires délégués (mode normal uniquement)
   const { data: gestionnairesData } = useQuery<{ societes: ManagementCompany[] }>({
     queryKey: ['management-companies'],
     queryFn: async () => {
@@ -43,9 +103,10 @@ export function GestionnaireDelegueReportPanel({ currentMonth }: GestionnaireDel
       if (!res.ok) throw new Error('Erreur lors de la récupération des gestionnaires');
       return res.json();
     },
+    enabled: mode === 'normal',
   });
 
-  // Récupérer l'email de l'utilisateur connecté pour l'expéditeur de l'email
+  // Récupérer l'email de l'utilisateur connecté (mode normal uniquement)
   const { data: userData } = useQuery<{ user: { email: string; name: string | null } }>({
     queryKey: ['current-user'],
     queryFn: async () => {
@@ -53,9 +114,11 @@ export function GestionnaireDelegueReportPanel({ currentMonth }: GestionnaireDel
       if (!res.ok) return { user: { email: 'noreply@smartimmo.fr', name: null } };
       return res.json();
     },
+    enabled: mode === 'normal',
   });
 
-  const gestionnaires = gestionnairesData?.societes || [];
+  const gestionnaires = mode === 'app-shell' ? gestionnairesLocal : (gestionnairesData?.societes || []);
+  const userInfo = mode === 'app-shell' ? userLocal : userData?.user;
 
   // Calculer les dates de période
   const getPeriodDates = (): { from: string; to: string } => {
@@ -99,23 +162,60 @@ export function GestionnaireDelegueReportPanel({ currentMonth }: GestionnaireDel
     }
   };
 
-  const handleGenerateReport = async () => {
-    if (!selectedGestionnaireId) {
-      alert('Veuillez sélectionner un gestionnaire délégué');
-      return;
-    }
+  // Fonction helper pour récupérer les données du rapport
+  const fetchReportData = async () => {
+    const period = getPeriodDates();
+    const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+    
+    // ⚠️ OFFLINE-FIRST: Toujours essayer de générer depuis IndexedDB en priorité
+    let reportData: any;
+    let isFromLocalData = false;
+    let pendingOpsCount = 0;
 
-    setIsGenerating(true);
     try {
-      const period = getPeriodDates();
+      // 1. Compter les pendingOps pour informer l'utilisateur
+      if (mode === 'app-shell') {
+        // ⚠️ IMPORT STATIQUE pour éviter ChunkLoadError en mode offline
+        const db = await getLocalDB();
+        const allPendingOps = await db.pendingOperations
+          .where('organizationId')
+          .equals(organizationId!)
+          .toArray();
+        pendingOpsCount = allPendingOps.filter(op => op.status === 'pending').length;
+      }
+
+      // 2. Générer le rapport depuis IndexedDB (offline-first)
+      // ⚠️ IMPORT STATIQUE pour éviter ChunkLoadError en mode offline
+      reportData = await computeDelegatedManagementIssuesOffline({
+        gestionnaireId: selectedGestionnaireId,
+        period: {
+          from: new Date(period.from),
+          to: new Date(period.to),
+        },
+        include: includeFlags,
+        organizationId: organizationId!,
+      });
+      isFromLocalData = true;
+      console.log('[GestionnaireDelegueReportPanel] ✅ Rapport généré depuis IndexedDB');
+    } catch (offlineError) {
+      console.warn('[GestionnaireDelegueReportPanel] ⚠️ Erreur génération offline:', offlineError);
       
+      // 3. Fallback: Si offline et erreur, afficher un message
+      if (!isOnline) {
+        throw new Error(
+          `Impossible de générer le rapport en mode offline: ${offlineError instanceof Error ? offlineError.message : 'Données manquantes'}. ` +
+          'Veuillez synchroniser vos données puis réessayer.'
+        );
+      }
+
+      // 4. Si online, essayer l'API en fallback
+      console.log('[GestionnaireDelegueReportPanel] ⚠️ Fallback vers API serveur');
       const request: DelegatedManagementReportRequest = {
         gestionnaireId: selectedGestionnaireId,
         period,
         include: includeFlags,
       };
 
-      // Appeler l'API pour générer le rapport
       const response = await fetch('/api/reports/gestionnaire-delegue', {
         method: 'POST',
         headers: {
@@ -131,94 +231,144 @@ export function GestionnaireDelegueReportPanel({ currentMonth }: GestionnaireDel
 
       const result = await response.json();
       
-      if (!result.success || !result.pdfBase64 || !result.reportData) {
+      if (!result.success || !result.reportData) {
         throw new Error('Données du rapport invalides');
       }
 
-      // Convertir le PDF base64 en Blob
-      const pdfBlob = await fetch(`data:application/pdf;base64,${result.pdfBase64}`)
-        .then(res => res.blob());
+      reportData = result.reportData;
+      isFromLocalData = false;
+    }
 
-      // Récupérer les informations du gestionnaire
-      const gestionnaire = gestionnaires.find(g => g.id === selectedGestionnaireId);
-      const gestionnaireName = gestionnaire?.nom || 'Gestionnaire délégué';
-      const gestionnaireEmail = gestionnaire?.email || 'gestionnaire@example.com';
-      
-      // Récupérer l'email de l'utilisateur connecté
-      const userEmail = userData?.user?.email || 'noreply@smartimmo.fr';
-      const userName = userData?.user?.name || 'Propriétaire';
+    return { reportData, isFromLocalData, pendingOpsCount, period, isOnline };
+  };
 
-      // Préparer le texte et HTML de l'email
-      // Forcer le format jj/mm/yyyy pour éviter les problèmes de conversion et timezone
-      const formatDate = (dateStr: string) => {
-        // Parser la date ISO string en composants pour éviter les problèmes de timezone
-        const parts = dateStr.split('T')[0].split('-'); // YYYY-MM-DD
-        if (parts.length === 3) {
-          const year = parts[0];
-          const month = parts[1];
-          const day = parts[2];
-          return `${day}/${month}/${year}`;
+  const handleGenerateHTML = async () => {
+    if (!selectedGestionnaireId) {
+      alert('Veuillez sélectionner un gestionnaire délégué');
+      return;
+    }
+
+    if (!organizationId) {
+      alert('Organisation non trouvée');
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const { reportData, isFromLocalData, pendingOpsCount, period, isOnline } = await fetchReportData();
+
+      // Générer le HTML imprimable
+      const htmlContent = generateReportHTML(reportData);
+
+      // Créer un Blob HTML et le télécharger
+      const htmlBlob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(htmlBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `rapport-gestionnaire-${selectedGestionnaireId}-${period.from}-${period.to}.html`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      // Afficher un message informatif
+      let message = 'Rapport HTML généré avec succès !';
+      if (isFromLocalData) {
+        message += '\n\nRapport généré depuis les données locales.';
+        if (pendingOpsCount > 0) {
+          message += `\n⚠️ Attention: ${pendingOpsCount} opération(s) en attente de synchronisation. Les données peuvent être incomplètes.`;
         }
-        // Fallback si le format n'est pas ISO
-        const d = new Date(dateStr);
-        const day = String(d.getDate()).padStart(2, '0');
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const year = d.getFullYear();
-        return `${day}/${month}/${year}`;
-      };
-      
-      const periodFrom = formatDate(period.from);
-      const periodTo = formatDate(period.to);
-      
-      const textBody = `Bonjour,
-
-Suite à la vérification de la gestion locative déléguée pour la période du ${periodFrom} au ${periodTo}, plusieurs anomalies ont été détectées via mon outil de suivi Smartimmo.
-
-Vous trouverez ci-joint un rapport PDF détaillant :
-${includeFlags.lateRents ? '- les loyers en retard pour les biens en gestion déléguée,\n' : ''}${includeFlags.unmatchedTransactions ? '- les transactions bancaires non rapprochées,\n' : ''}${includeFlags.amountGaps ? '- les éventuels écarts entre loyers attendus et montants reversés,\n' : ''}${includeFlags.missingIndexations ? '- les indexations non appliquées le cas échéant.\n' : ''}
-Je vous remercie de bien vouloir analyser ces éléments, me confirmer les actions correctives envisagées et, le cas échéant, procéder aux régularisations nécessaires.
-
-N'hésitez pas à revenir vers moi si vous avez besoin de compléments.
-
-Cordialement.`;
-
-      const htmlBody = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #2563eb;">Rapport d'anomalies - Gestion locative déléguée</h2>
-          <p>Bonjour,</p>
-          <p>Suite à la vérification de la gestion locative déléguée pour la période du <strong>${periodFrom}</strong> au <strong>${periodTo}</strong>, plusieurs anomalies ont été détectées via mon outil de suivi Smartimmo.</p>
-          <p>Vous trouverez ci-joint un rapport PDF détaillant :</p>
-          <ul>
-            ${includeFlags.lateRents ? '<li>les loyers en retard pour les biens en gestion déléguée,</li>' : ''}
-            ${includeFlags.unmatchedTransactions ? '<li>les transactions bancaires non rapprochées,</li>' : ''}
-            ${includeFlags.amountGaps ? '<li>les éventuels écarts entre loyers attendus et montants reversés,</li>' : ''}
-            ${includeFlags.missingIndexations ? '<li>les indexations non appliquées le cas échéant.</li>' : ''}
-          </ul>
-          <p>Je vous remercie de bien vouloir analyser ces éléments, me confirmer les actions correctives envisagées et, le cas échéant, procéder aux régularisations nécessaires.</p>
-          <p>N'hésitez pas à revenir vers moi si vous avez besoin de compléments.</p>
-          <p>Cordialement.</p>
-        </div>
-      `;
-
-      // Objet de l'email
-      const emailSubject = `Anomalies de gestion - ${gestionnaireName} - ${periodFrom} à ${periodTo}`;
-
-      // Générer l'EML avec le PDF en pièce jointe
-      await createEml({
-        from: `${userName} <${userEmail}>`,
-        to: gestionnaireEmail,
-        subject: emailSubject,
-        text: textBody,
-        html: htmlBody,
-        attachments: [{
-          filename: result.pdfFileName,
-          blob: pdfBlob,
-        }],
-      });
-
-      alert('Fichier .eml généré avec succès ! Le PDF est inclus en pièce jointe.');
+        if (!isOnline) {
+          message += '\n📴 Mode offline: certaines données peuvent manquer.';
+        }
+      }
+      alert(message);
     } catch (error) {
       console.error('Erreur lors de la génération du rapport:', error);
+      alert(error instanceof Error ? error.message : 'Erreur lors de la génération du rapport');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleGenerateEMLPDF = async () => {
+    if (!selectedGestionnaireId) {
+      alert('Veuillez sélectionner un gestionnaire délégué');
+      return;
+    }
+
+    if (!organizationId) {
+      alert('Organisation non trouvée');
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const { reportData, isFromLocalData, pendingOpsCount, period, isOnline } = await fetchReportData();
+
+      // Générer le PDF côté client (utiliser pdf().toBlob() pour le navigateur)
+      const pdfDocument = React.createElement(DelegatedManagementReportPDF, {
+        data: reportData,
+      });
+      const pdfBlob = await pdf(pdfDocument).toBlob();
+
+      // Préparer le contenu de l'email
+      const selectedGestionnaire = gestionnaires.find(g => g.id === selectedGestionnaireId);
+      const gestionnaireName = selectedGestionnaire?.nom || 'Gestionnaire délégué';
+      const gestionnaireEmail = selectedGestionnaire?.email || userInfo?.email || 'noreply@smartimmo.fr';
+      
+      const formatDate = (date: string) => {
+        return new Date(date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+      };
+
+      const subject = `Rapport d'Anomalies - ${gestionnaireName} - ${formatDate(period.from)} au ${formatDate(period.to)}`;
+      
+      const emailText = `Bonjour,
+
+Veuillez trouver ci-joint le rapport d'anomalies pour le gestionnaire délégué ${gestionnaireName} pour la période du ${formatDate(period.from)} au ${formatDate(period.to)}.
+
+${isFromLocalData ? '⚠️ Ce rapport a été généré depuis les données locales.' : ''}
+${pendingOpsCount > 0 ? `⚠️ Attention: ${pendingOpsCount} opération(s) en attente de synchronisation.` : ''}
+${!isOnline ? '📴 Mode offline: certaines données peuvent manquer.' : ''}
+
+Cordialement,
+SmartImmo`;
+
+      const emailHTML = `
+        <html>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <p>Bonjour,</p>
+            <p>Veuillez trouver ci-joint le rapport d'anomalies pour le gestionnaire délégué <strong>${gestionnaireName}</strong> pour la période du <strong>${formatDate(period.from)}</strong> au <strong>${formatDate(period.to)}</strong>.</p>
+            ${isFromLocalData ? '<p>⚠️ <em>Ce rapport a été généré depuis les données locales.</em></p>' : ''}
+            ${pendingOpsCount > 0 ? `<p>⚠️ <em>Attention: ${pendingOpsCount} opération(s) en attente de synchronisation.</em></p>` : ''}
+            ${!isOnline ? '<p>📴 <em>Mode offline: certaines données peuvent manquer.</em></p>' : ''}
+            <p>Cordialement,<br>SmartImmo</p>
+          </body>
+        </html>
+      `;
+
+      // Créer le nom de fichier PDF
+      const pdfFileName = `rapport-gestionnaire-${selectedGestionnaireId}-${period.from}-${period.to}.pdf`;
+
+      // Créer et télécharger l'EML avec le PDF en pièce jointe
+      await createEml({
+        from: userInfo?.email || 'noreply@smartimmo.fr',
+        to: gestionnaireEmail,
+        subject,
+        text: emailText,
+        html: emailHTML,
+        attachments: [
+          {
+            filename: pdfFileName,
+            blob: pdfBlob,
+            mime: 'application/pdf',
+          },
+        ],
+      });
+
+      alert('Rapport EML avec PDF généré avec succès !');
+    } catch (error) {
+      console.error('Erreur lors de la génération du rapport EML+PDF:', error);
       alert(error instanceof Error ? error.message : 'Erreur lors de la génération du rapport');
     } finally {
       setIsGenerating(false);
@@ -385,24 +535,44 @@ Cordialement.`;
           </div>
         </div>
 
-        {/* Bouton de génération */}
-        <Button
-          onClick={handleGenerateReport}
-          disabled={!selectedGestionnaireId || isGenerating}
-          className="w-full"
-        >
-          {isGenerating ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Génération en cours...
-            </>
-          ) : (
-            <>
-              <Mail className="h-4 w-4 mr-2" />
-              Générer le mail + PDF
-            </>
-          )}
-        </Button>
+        {/* Boutons de génération */}
+        <div className="flex gap-2">
+          <Button
+            onClick={handleGenerateHTML}
+            disabled={!selectedGestionnaireId || isGenerating}
+            className="flex-1"
+            variant="outline"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Génération...
+              </>
+            ) : (
+              <>
+                <FileText className="h-4 w-4 mr-2" />
+                Télécharger HTML
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={handleGenerateEMLPDF}
+            disabled={!selectedGestionnaireId || isGenerating}
+            className="flex-1"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Génération...
+              </>
+            ) : (
+              <>
+                <Mail className="h-4 w-4 mr-2" />
+                Générer EML + PDF
+              </>
+            )}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

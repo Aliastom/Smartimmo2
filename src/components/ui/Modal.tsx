@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import { cn } from '@/utils/cn';
+// ⚠️ IMPORT: cn est déjà importé, utilisé pour les classes conditionnelles
 
 export interface ModalProps {
   isOpen: boolean;
@@ -23,7 +24,7 @@ const sizeClasses = {
   sm: 'max-w-md',
   md: 'max-w-lg',
   lg: 'max-w-2xl',
-  xl: 'max-w-4xl',
+  xl: 'max-w-5xl', // ✅ Augmenté de 4xl à 5xl pour plus d'espace
   full: 'max-w-full mx-4',
 };
 
@@ -95,7 +96,7 @@ export function Modal({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-3 md:p-4"
           style={{ touchAction: 'none' }} // Empêche le drag sur iOS
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -125,20 +126,26 @@ export function Modal({
             }}
           />
 
-          {/* Modal */}
+          {/* Modal - Mobile: quasi plein écran avec cadre, Desktop: centré */}
           <motion.div
             className={cn(
-              "relative w-full bg-white rounded-2xl shadow-lg border border-gray-200 flex flex-col",
-              "max-h-[90vh] md:max-h-[85vh]",
+              "relative bg-white rounded-2xl shadow-2xl border border-gray-200 md:border-base-200 flex flex-col",
+              // Mobile: quasi full-screen avec marges
+              "w-[calc(100vw-24px)] h-[calc(100dvh-24px)]",
+              // Desktop: taille adaptative selon size prop (xl = max-w-5xl)
+              "md:w-auto md:h-auto md:max-h-[85vh]",
+              // ⚠️ CORRECTION: En desktop, utiliser sizeClasses[size] au lieu de max-w-full pour éviter les modales trop larges
+              // Si className contient déjà max-w-*, il prendra la priorité
               sizeClasses[size],
+              "overflow-hidden", // ⚠️ CRITIQUE: Forcer overflow-hidden sur le container principal pour éviter les débordements
               className
             )}
             style={{ 
-              maxHeight: '90vh',
-              height: 'auto',
+              borderRadius: '1rem', // ⚠️ CORRECTION: Forcer rounded-2xl (1rem) partout pour éviter les angles carrés
               display: 'flex',
               flexDirection: 'column',
-              touchAction: 'none' // Empêche le drag sur iOS
+              touchAction: 'none', // Empêche le drag sur iOS
+              overflow: 'hidden' // ⚠️ CRITIQUE: Double protection - overflow hidden pour éviter les angles carrés
             }}
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -151,7 +158,10 @@ export function Modal({
           >
             {/* Header */}
             {(title || closeOnBackdropClick) && (
-              <div className="flex items-center justify-between p-4 md:p-6 border-b border-gray-200 flex-shrink-0">
+              <div className={cn(
+                "flex items-center justify-between p-4 md:p-6 border-b border-gray-200 flex-shrink-0 bg-white",
+                "rounded-t-2xl overflow-hidden" // ⚠️ CRITIQUE: Arrondir les coins supérieurs + overflow-hidden pour éviter les débordements
+              )}>
                 {title && (
                   <h2 id="modal-title" className="text-base md:text-lg font-semibold text-gray-900">
                     {title}
@@ -167,25 +177,31 @@ export function Modal({
               </div>
             )}
 
-            {/* Body - Scrollable */}
+            {/* Body - Scrollable avec safe areas iOS */}
             <div 
-              className="p-4 md:p-6 overflow-y-auto flex-1 modal-scrollable-content"
+              className="p-4 md:p-6 overflow-y-auto flex-1 modal-scrollable-content bg-white min-h-0"
               style={{ 
                 minHeight: 0,
-                maxHeight: 'calc(90vh - 120px)', // Hauteur max moins header et footer
                 WebkitOverflowScrolling: 'touch',
                 overflowY: 'auto',
                 overflowX: 'hidden',
                 touchAction: 'pan-y', // Permet uniquement le scroll vertical
-                overscrollBehavior: 'contain' // Empêche le scroll de se propager
+                overscrollBehavior: 'contain', // Empêche le scroll de se propager
+                // ⚠️ CRITIQUE: S'assurer que le body ne crée pas de débordement visuel
+                borderRadius: '0' // Pas de radius sur le body, le parent gère les coins arrondis
               }}
             >
               {children}
             </div>
 
-            {/* Footer */}
+            {/* Footer - Sticky avec safe-area iOS */}
             {footer && (
-              <div className="flex items-center justify-end gap-3 p-4 md:p-6 border-t border-gray-200 flex-shrink-0">
+              <div 
+                className="flex flex-col gap-3 p-4 md:p-6 border-t border-gray-200 flex-shrink-0 rounded-b-2xl bg-white overflow-hidden"
+                style={{
+                  paddingBottom: `max(1rem, calc(1rem + env(safe-area-inset-bottom)))`
+                }}
+              >
                 {footer}
               </div>
             )}

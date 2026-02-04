@@ -83,7 +83,7 @@ export function TabsTrigger({ value, children, className = '', disabled = false 
           : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
         }
         ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-        focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+        focus:outline-none
         ${className}
       `}
     >

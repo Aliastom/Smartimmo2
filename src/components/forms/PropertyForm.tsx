@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
+import { Tabs, TabsContent, TabsList } from '@/components/ui/Tabs';
+import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
 import { z } from 'zod';
 import AddressAutocomplete from '@/components/forms/AddressAutocomplete';
 import { useQuery } from '@tanstack/react-query';
@@ -69,8 +70,50 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
   const [fiscalTypes, setFiscalTypes] = useState<any[]>([]);
   const [fiscalRegimes, setFiscalRegimes] = useState<any[]>([]);
   const [loadingRegimes, setLoadingRegimes] = useState(false);
+  const [activeTab, setActiveTab] = useState('essentials');
 
-  // Charger les sociétés de gestion (avec fallback offline)
+  // ✅ Détecter le mode app-shell
+  const isAppShell = typeof window !== 'undefined' && window.location.pathname.startsWith('/app');
+
+  // ✅ APP-SHELL: Charger les sociétés de gestion depuis IndexedDB uniquement
+  const [societes, setSocietes] = useState<any[]>([]);
+  const [isGestionEnabled, setIsGestionEnabled] = useState(false);
+
+  useEffect(() => {
+    const loadManagementCompanies = async () => {
+      if (!isOpen) return;
+
+      if (isAppShell) {
+        // ✅ APP-SHELL: Charger UNIQUEMENT depuis IndexedDB (pas de fetch réseau)
+        try {
+          const { getLocalDB } = await import('@/lib/offline/db');
+          const db = await getLocalDB();
+          const cached = await db.ManagementCompany.toArray();
+          
+          const societesActives = cached
+            .map(c => {
+              const { cachedAt, ...rest } = c;
+              return rest;
+            })
+            .filter((s: any) => s.actif);
+          
+          setSocietes(societesActives);
+          setIsGestionEnabled(societesActives.length > 0);
+        } catch (error) {
+          console.error('[PropertyForm] Erreur lecture IndexedDB sociétés:', error);
+          setSocietes([]);
+          setIsGestionEnabled(false);
+        }
+      } else {
+        // Mode normal : utiliser useQuery avec fetch (comportement existant)
+        // Ce code sera géré par le useQuery ci-dessous
+      }
+    };
+
+    loadManagementCompanies();
+  }, [isOpen, isAppShell]);
+
+  // Mode normal : charger les sociétés de gestion (avec fallback offline)
   const { data: gestionData } = useQuery({
     queryKey: ['management-companies'],
     queryFn: async () => {
@@ -86,13 +129,13 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
             // Mettre en cache local
             if (typeof window !== 'undefined') {
               const { getLocalDB } = await import('@/lib/offline/db');
-              const db = getLocalDB();
+              const db = await getLocalDB();
               const now = new Date().toISOString();
               
               if (data.societes && Array.isArray(data.societes)) {
                 await Promise.all(
                   data.societes.map((societe: any) =>
-                    db.managementCompanies.put({
+                    db.ManagementCompany.put({
                       ...societe,
                       cachedAt: now,
                     })
@@ -112,8 +155,8 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
       if (typeof window !== 'undefined') {
         try {
           const { getLocalDB } = await import('@/lib/offline/db');
-          const db = getLocalDB();
-          const cached = await db.managementCompanies.toArray();
+          const db = await getLocalDB();
+          const cached = await db.ManagementCompany.toArray();
           
           if (cached.length > 0) {
             const societes = cached
@@ -137,10 +180,16 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
       return { societes: [], enabled: false };
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
+    enabled: !isAppShell && isOpen, // ✅ Désactiver en app-shell
   });
 
-  const societes = gestionData?.societes?.filter((s: any) => s.actif) || [];
-  const isGestionEnabled = gestionData?.enabled ?? false;
+  // Mode normal : utiliser les données du useQuery
+  const societesNormal = gestionData?.societes?.filter((s: any) => s.actif) || [];
+  const isGestionEnabledNormal = gestionData?.enabled ?? false;
+
+  // ✅ Utiliser les données selon le mode
+  const finalSocietes = isAppShell ? societes : societesNormal;
+  const finalIsGestionEnabled = isAppShell ? isGestionEnabled : isGestionEnabledNormal;
 
   // Charger les types fiscaux au mount
   useEffect(() => {
@@ -307,28 +356,57 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           <Button variant="ghost" onClick={onClose}>
             Annuler
           </Button>
-          <Button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={isSubmitting}
             onClick={handleSubmit}
+            className="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium bg-orange-600 hover:bg-orange-700 text-white transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
-          </Button>
+          </button>
         </div>
       }
     >
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Navigation par onglets */}
-        <Tabs defaultValue="essentials" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="essentials" className="flex items-center gap-2">
+        {/* Navigation par onglets - Style Smartimmo */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-2 border-b border-gray-200">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'essentials'}
+                    onClick={() => setActiveTab('essentials')}
+                    className={`
+                      flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors
+                      border-b-2 -mb-px focus:outline-none
+                      ${activeTab === 'essentials'
+                        ? 'border-orange-600 text-orange-600' 
+                        : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                      }
+                      cursor-pointer
+                    `}
+                  >
               <FileText className="h-4 w-4" />
               Informations essentielles
-            </TabsTrigger>
-            <TabsTrigger value="options" className="flex items-center gap-2">
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'options'}
+              onClick={() => setActiveTab('options')}
+              className={`
+                flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors
+                border-b-2 -mb-px focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2
+                ${activeTab === 'options'
+                  ? 'border-orange-600 text-orange-600' 
+                  : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                }
+                cursor-pointer
+              `}
+            >
               <Settings className="h-4 w-4" />
               Options avancées
-            </TabsTrigger>
+            </button>
           </TabsList>
 
           {/* ========== ONGLET 1 : ESSENTIELS ========== */}
@@ -342,7 +420,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               type="text"
               value={formData.name}
               onChange={(e) => handleChange('name', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.name ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: Appartement T3 - Paris"
@@ -354,19 +432,19 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Type *
             </label>
-            <select
+            <SmartSelect
               value={formData.type}
-              onChange={(e) => handleChange('type', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-                errors.type ? 'border-red-500' : 'border-gray-300'
-              }`}
-            >
-              <option value="apartment">Appartement</option>
-              <option value="house">Maison</option>
-              <option value="garage">Garage</option>
-              <option value="commercial">Commercial</option>
-              <option value="land">Terrain</option>
-            </select>
+              onChange={(value) => handleChange('type', value)}
+              options={[
+                { value: 'apartment', label: 'Appartement' },
+                { value: 'house', label: 'Maison' },
+                { value: 'garage', label: 'Garage' },
+                { value: 'commercial', label: 'Commercial' },
+                { value: 'land', label: 'Terrain' },
+              ]}
+              placeholder="Sélectionner un type"
+              error={!!errors.type}
+            />
             {errors.type && <p className="text-red-500 text-sm mt-1">{errors.type}</p>}
           </div>
 
@@ -377,21 +455,21 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Type fiscal
                 </label>
-                <select
+                <SmartSelect
                   value={formData.fiscalTypeId}
-                  onChange={(e) => handleChange('fiscalTypeId', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                >
-                  <option value="">-- Sélectionner un type fiscal --</option>
-                  {fiscalTypes.map((type: any) => (
-                    <option key={type.id} value={type.id}>
-                      {type.category === 'FONCIER' && '🏠'} 
-                      {type.category === 'BIC' && '🪑'} 
-                      {type.category === 'IS' && '🏢'} 
-                      {' '}{type.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => handleChange('fiscalTypeId', value)}
+                  options={[
+                    { value: '', label: '-- Sélectionner un type fiscal --' },
+                    ...fiscalTypes.map((type: any): SmartSelectOption => ({
+                      value: type.id,
+                      label: type.label,
+                      icon: type.category === 'FONCIER' ? '🏠' : 
+                            type.category === 'BIC' ? '🪑' : 
+                            type.category === 'IS' ? '🏢' : undefined,
+                    })),
+                  ]}
+                  placeholder="-- Sélectionner un type fiscal --"
+                />
                 <p className="text-xs text-gray-500 mt-1">
                   Définit la catégorie fiscale de ce bien (Foncier, BIC, IS)
                 </p>
@@ -402,33 +480,35 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Régime fiscal
                 </label>
-                <select
+                <SmartSelect
                   value={formData.fiscalRegimeId}
-                  onChange={(e) => handleChange('fiscalRegimeId', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  onChange={(value) => handleChange('fiscalRegimeId', value)}
                   disabled={!formData.fiscalTypeId || loadingRegimes}
-                >
-                  {!formData.fiscalTypeId && (
-                    <option value="">-- Sélectionnez d'abord un type fiscal --</option>
-                  )}
-                  {formData.fiscalTypeId && loadingRegimes && (
-                    <option value="">Chargement...</option>
-                  )}
-                  {formData.fiscalTypeId && !loadingRegimes && fiscalRegimes.length === 0 && (
-                    <option value="">Aucun régime disponible</option>
-                  )}
-                  {formData.fiscalTypeId && !loadingRegimes && fiscalRegimes.length > 0 && (
-                    <>
-                      <option value="">-- Sélectionner un régime --</option>
-                      {fiscalRegimes.map((regime: any) => (
-                        <option key={regime.id} value={regime.id}>
-                          {regime.label}
-                          {regime.engagementYears ? ` (${regime.engagementYears} ans)` : ''}
-                        </option>
-                      ))}
-                    </>
-                  )}
-                </select>
+                  options={
+                    !formData.fiscalTypeId
+                      ? [{ value: '', label: '-- Sélectionnez d\'abord un type fiscal --', disabled: true }]
+                      : loadingRegimes
+                      ? [{ value: '', label: 'Chargement...', disabled: true }]
+                      : fiscalRegimes.length === 0
+                      ? [{ value: '', label: 'Aucun régime disponible', disabled: true }]
+                      : [
+                          { value: '', label: '-- Sélectionner un régime --' },
+                          ...fiscalRegimes.map((regime: any): SmartSelectOption => ({
+                            value: regime.id,
+                            label: `${regime.label}${regime.engagementYears ? ` (${regime.engagementYears} ans)` : ''}`,
+                          })),
+                        ]
+                  }
+                  placeholder={
+                    !formData.fiscalTypeId
+                      ? '-- Sélectionnez d\'abord un type fiscal --'
+                      : loadingRegimes
+                      ? 'Chargement...'
+                      : fiscalRegimes.length === 0
+                      ? 'Aucun régime disponible'
+                      : '-- Sélectionner un régime --'
+                  }
+                />
                 {formData.fiscalRegimeId && (
                   <p className="text-xs text-gray-500 mt-1">
                     {fiscalRegimes.find((r: any) => r.id === formData.fiscalRegimeId)?.description}
@@ -441,28 +521,28 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
                 )}
               </div>
 
-              {/* Affichage des informations fiscales si sélection faite */}
+              {/* Affichage des informations fiscales si sélection faite - Style Smartimmo sobre */}
               {formData.fiscalTypeId && formData.fiscalRegimeId && (
-                <div className="md:col-span-2 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="md:col-span-2 bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0">
                       {(() => {
                         const type = fiscalTypes.find((t: any) => t.id === formData.fiscalTypeId);
-                        if (type?.category === 'FONCIER') return <Home className="h-5 w-5 text-blue-600" />;
-                        if (type?.category === 'BIC') return <Armchair className="h-5 w-5 text-green-600" />;
-                        if (type?.category === 'IS') return <Building2 className="h-5 w-5 text-purple-600" />;
+                        if (type?.category === 'FONCIER') return <Home className="h-5 w-5 text-gray-600" />;
+                        if (type?.category === 'BIC') return <Armchair className="h-5 w-5 text-gray-600" />;
+                        if (type?.category === 'IS') return <Building2 className="h-5 w-5 text-gray-600" />;
                         return null;
                       })()}
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-blue-900">
+                      <p className="text-sm font-medium text-gray-900">
                         Configuration fiscale sélectionnée
                       </p>
                       <div className="flex gap-2 mt-2">
-                        <Badge variant="default">
+                        <Badge variant="outline" className="bg-white border-gray-300 text-gray-700">
                           {fiscalTypes.find((t: any) => t.id === formData.fiscalTypeId)?.label}
                         </Badge>
-                        <Badge variant="secondary">
+                        <Badge variant="outline" className="bg-white border-gray-300 text-gray-700">
                           {fiscalRegimes.find((r: any) => r.id === formData.fiscalRegimeId)?.label}
                         </Badge>
                       </div>
@@ -480,9 +560,24 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
             <AddressAutocomplete
               initialValue={formData.address}
               onAddressSelect={(address) => {
-                handleChange('address', address.street);
-                handleChange('postalCode', address.postcode);
-                handleChange('city', address.city);
+                // ✅ Mettre à jour tous les champs en une seule opération pour éviter les problèmes de timing
+                setFormData(prev => ({
+                  ...prev,
+                  address: address.street || prev.address,
+                  postalCode: address.postcode || prev.postalCode,
+                  city: address.city || prev.city,
+                }));
+                
+                // Clear errors si présents
+                if (errors.address || errors.postalCode || errors.city) {
+                  setErrors(prev => {
+                    const newErrors = { ...prev };
+                    if (address.street) delete newErrors.address;
+                    if (address.postcode) delete newErrors.postalCode;
+                    if (address.city) delete newErrors.city;
+                    return newErrors;
+                  });
+                }
               }}
               placeholder="Ex: 123 Rue de la Paix, Paris"
               required
@@ -498,7 +593,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               type="text"
               value={formData.postalCode}
               onChange={(e) => handleChange('postalCode', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.postalCode ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: 75001"
@@ -514,7 +609,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               type="text"
               value={formData.city}
               onChange={(e) => handleChange('city', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.city ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: Paris"
@@ -530,7 +625,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               type="number"
               value={formData.surface}
               onChange={(e) => handleChange('surface', parseFloat(e.target.value) || 0)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.surface ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: 75"
@@ -547,7 +642,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               type="number"
               value={formData.rooms}
               onChange={(e) => handleChange('rooms', parseInt(e.target.value) || 1)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.rooms ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: 3"
@@ -564,7 +659,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               type="date"
               value={formData.acquisitionDate}
               onChange={(e) => handleChange('acquisitionDate', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.acquisitionDate ? 'border-red-500' : 'border-gray-300'
               }`}
             />
@@ -579,7 +674,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               type="number"
               value={formData.acquisitionPrice}
               onChange={(e) => handleChange('acquisitionPrice', parseFloat(e.target.value) || 0)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.acquisitionPrice ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: 250000"
@@ -601,7 +696,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               type="number"
               value={formData.notaryFees}
               onChange={(e) => handleChange('notaryFees', parseFloat(e.target.value) || 0)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.notaryFees ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: 15000"
@@ -618,7 +713,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               type="number"
               value={formData.currentValue}
               onChange={(e) => handleChange('currentValue', parseFloat(e.target.value) || 0)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.currentValue ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: 300000"
@@ -631,36 +726,37 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Statut
             </label>
-            <select
+            <SmartSelect
               value={formData.status}
-              onChange={(e) => handleChange('status', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-            >
-              <option value="vacant">Vacant</option>
-              <option value="occupied">Occupé</option>
-              <option value="renovation">En rénovation</option>
-              <option value="maintenance">En maintenance</option>
-            </select>
+              onChange={(value) => handleChange('status', value)}
+              options={[
+                { value: 'vacant', label: 'Vacant' },
+                { value: 'occupied', label: 'Occupé' },
+                { value: 'renovation', label: 'En rénovation' },
+                { value: 'maintenance', label: 'En maintenance' },
+              ]}
+              placeholder="Sélectionner un statut"
+            />
           </div>
 
           {/* Champ de sélection de société de gestion */}
-          {isGestionEnabled && societes.length > 0 && (
+          {finalIsGestionEnabled && finalSocietes.length > 0 && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Société de gestion
               </label>
-              <select
+              <SmartSelect
                 value={formData.managementCompanyId}
-                onChange={(e) => handleChange('managementCompanyId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              >
-                <option value="">Aucune (gestion directe)</option>
-                {societes.map((societe: any) => (
-                  <option key={societe.id} value={societe.id}>
-                    {societe.nom} ({(societe.taux * 100).toFixed(2)}%)
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => handleChange('managementCompanyId', value)}
+                options={[
+                  { value: '', label: 'Aucune (gestion directe)' },
+                  ...finalSocietes.map((societe: any): SmartSelectOption => ({
+                    value: societe.id,
+                    label: `${societe.nom} (${(societe.taux * 100).toFixed(2)}%)`,
+                  })),
+                ]}
+                placeholder="Aucune (gestion directe)"
+              />
               <p className="text-sm text-gray-500 mt-1">
                 Si vous sélectionnez une société de gestion, les commissions seront calculées automatiquement sur les loyers.
               </p>
@@ -672,14 +768,15 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Mode d'exploitation
             </label>
-            <select
+            <SmartSelect
               value={formData.rentalMode || 'LONG_TERM'}
-              onChange={(e) => handleChange('rentalMode', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-            >
-              <option value="LONG_TERM">Location classique (bail)</option>
-              <option value="SEASONAL_AIRBNB">Location saisonnière (Airbnb)</option>
-            </select>
+              onChange={(value) => handleChange('rentalMode', value)}
+              options={[
+                { value: 'LONG_TERM', label: 'Location classique (bail)' },
+                { value: 'SEASONAL_AIRBNB', label: 'Location saisonnière (Airbnb)' },
+              ]}
+              placeholder="Sélectionner un mode"
+            />
             <p className="text-sm text-gray-500 mt-1">
               Définit le mode d'exploitation du bien. Les biens Airbnb n'ont pas besoin de bail.
             </p>
@@ -695,7 +792,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
                 type="text"
                 value={formData.airbnbListingId || ''}
                 onChange={(e) => handleChange('airbnbListingId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                 placeholder="Ex: 12345678"
               />
               <p className="text-sm text-gray-500 mt-1">
@@ -711,7 +808,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
             <textarea
               value={formData.notes}
               onChange={(e) => handleChange('notes', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
               placeholder="Notes additionnelles sur le bien..."
               rows={3}
             />

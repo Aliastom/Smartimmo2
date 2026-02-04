@@ -1,27 +1,25 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { notify2 } from '@/lib/notify2';
 import { Upload as UploadIcon } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { SectionTitle } from '@/components/ui/SectionTitle';
 import { DocumentsMonthlyChart } from '@/components/documents/DocumentsMonthlyChart';
 import { DocumentsByTypeChart } from '@/components/documents/DocumentsByTypeChart';
 import { DocumentsLinksDistributionChart } from '@/components/documents/DocumentsLinksDistributionChart';
 import { DocumentsKpiBar } from '@/components/documents/DocumentsKpiBar';
 import { DocumentTable, DocumentTableRow } from '@/components/documents/unified/DocumentTable';
-import { useDocumentsKpis } from '@/hooks/useDocumentsKpis';
-import { useDocumentsCharts } from '@/hooks/useDocumentsCharts';
+import { useDocumentsData } from '@/features/documents/hooks/useDocumentsData';
 import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
 import { ConfirmDeleteDocumentModal } from '@/components/documents/ConfirmDeleteDocumentModal';
 import { DocumentEditModal } from '@/components/documents/unified/DocumentEditModal';
 import DocumentDrawer from '@/components/documents/DocumentDrawer';
 import { BackToPropertyButton } from '@/components/shared/BackToPropertyButton';
-import { usePropertyHeaderActions } from '../PropertyHeaderActionsContext';
+import { usePropertyHeaderActions } from '@/app/biens/[id]/PropertyHeaderActionsContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Filter, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { getLocalDB } from '@/lib/offline/db';
 
 interface Filters {
   query: string;
@@ -38,22 +36,24 @@ interface PropertyDocumentsClientProps {
 }
 
 export default function PropertyDocumentsClient({ propertyId, propertyName }: PropertyDocumentsClientProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  // ✅ DEV-ONLY: Log de mount/unmount pour détecter les remounts
+  const mountId = React.useRef(Math.random().toString(36).substring(7));
+  React.useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[PropertyDocumentsClient] 🟢 MOUNT (id: ${mountId.current}, propertyId: ${propertyId})`);
+      return () => {
+        console.log(`[PropertyDocumentsClient] 🔴 UNMOUNT (id: ${mountId.current}, propertyId: ${propertyId})`);
+      };
+    }
+  }, [propertyId]);
+
+  // ✅ DEV-ONLY: Compteur de renders
+  if (process.env.NODE_ENV === 'development') {
+    console.count('PropertyDocumentsClient render');
+  }
+
   const { openModalWithFileSelection } = useUploadReviewModal();
   const { setActions } = usePropertyHeaderActions();
-
-  // États principaux
-  const [documents, setDocuments] = useState<DocumentTableRow[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [pagination, setPagination] = useState({
-    page: 1,
-    limit: 50,
-    offset: 0,
-    total: 0,
-    hasMore: false,
-  });
-  const [isLoading, setIsLoading] = useState(true);
 
   // États des modals et drawer
   const [selectedDocument, setSelectedDocument] = useState<DocumentTableRow | null>(null);
@@ -76,7 +76,7 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
   // État pour le filtre KPI actif (par défaut: 'total' = vue globale)
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>('total');
 
-  // États des filtres
+  // États des filtres (appliqués en mémoire)
   const [filters, setFilters] = useState<Filters>({
     query: '',
     type: '',
@@ -86,11 +86,8 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
     dateTo: '',
   });
 
-  // État pour les types de documents
+  // État pour les types de documents (chargés depuis IndexedDB)
   const [documentTypes, setDocumentTypes] = useState<any[]>([]);
-
-  // État pour forcer le rafraîchissement des KPI et graphiques
-  const [refreshKey, setRefreshKey] = useState(0);
 
   // État pour afficher/masquer les filtres avancés
   const [showFilters, setShowFilters] = useState(false);
@@ -99,41 +96,171 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
   const [sortField, setSortField] = useState<'date' | 'size' | 'type'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
-  // Charger les KPI avec les hooks (scopé par propertyId)
-  const { kpis, isLoading: kpisLoading } = useDocumentsKpis({
-    periodStart,
-    periodEnd,
-    refreshKey,
-    propertyId, // Scope par bien
+  // État pour la pagination
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 30, // 30 éléments par page en desktop
+    offset: 0,
   });
 
-  // Charger les graphiques avec les hooks (scopé par propertyId)
-  const { data: chartsData, isLoading: chartsLoading } = useDocumentsCharts({
-    periodStart,
-    periodEnd,
-    refreshKey,
-    propertyId, // Scope par bien
+  // ✅ APP-SHELL: Charger TOUS les documents depuis IndexedDB (une seule fois)
+  // On charge sans filtres, puis on applique les filtres en mémoire (y compris propertyId)
+  const { documents: allDocuments, stats, pagination: hookPagination, loading: isLoading } = useDocumentsData({
+    mode: 'app-shell',
+    propertyId, // ✅ Passer propertyId pour filtrer les events
+    filters: {
+      query: '', // Pas de filtre de recherche dans le hook, on filtre en mémoire
+      type: '', // Pas de filtre de type dans le hook, on filtre en mémoire
+      scope: '', // Pas de scope, on filtre manuellement par propertyId
+      status: '',
+      linkedTo: '',
+      dateFrom: '',
+      dateTo: '',
+      includeDeleted: false,
+    },
+    offset: 0,
+    limit: 10000, // Charger tous les documents (limite haute)
   });
 
-  // Nettoyer l'URL au montage (une seule fois)
-  const hasCleanedUrl = React.useRef(false);
-  useEffect(() => {
-    if (!hasCleanedUrl.current) {
-      const hasFilters = searchParams.toString().length > 0;
-      if (hasFilters) {
-        router.replace(`/biens/${propertyId}/documents`, { scroll: false });
+  // ✅ APP-SHELL: Filtrer les documents en mémoire selon les filtres UI
+  const filteredDocuments = useMemo(() => {
+    const perfStart = process.env.NODE_ENV === 'development' ? performance.now() : 0;
+    
+    let filtered = allDocuments.filter(doc => {
+      // Filtrer par propertyId (déjà fait par le hook, mais double vérification)
+      if (doc.propertyId !== propertyId) return false;
+
+      // Filtre de recherche
+      if (filters.query) {
+        const searchLower = filters.query.toLowerCase();
+        const matchesQuery = 
+          doc.filenameOriginal?.toLowerCase().includes(searchLower) ||
+          doc.fileName?.toLowerCase().includes(searchLower) ||
+          doc.tags?.toLowerCase().includes(searchLower);
+        if (!matchesQuery) return false;
       }
-      hasCleanedUrl.current = true;
-    }
-  }, [router, searchParams, propertyId]);
 
-  // Chargement des types de documents
+      // Filtre de type
+      if (filters.type) {
+        if (doc.documentTypeId !== filters.type) return false;
+      }
+
+      // Filtre OCR status
+      if (filters.ocrStatus) {
+        if (filters.ocrStatus === 'processed' && doc.ocrStatus !== 'processed') return false;
+        if (filters.ocrStatus === 'failed' && doc.ocrStatus !== 'failed') return false;
+        if (filters.ocrStatus === 'pending' && doc.ocrStatus !== 'pending') return false;
+      }
+
+      // Filtre linkedTo
+      if (filters.linkedTo) {
+        const hasLink = doc.DocumentLink && doc.DocumentLink.length > 0;
+        if (filters.linkedTo === 'none' && hasLink) return false;
+        if (filters.linkedTo !== 'none' && !hasLink) return false;
+        if (filters.linkedTo !== 'none' && hasLink) {
+          const linkedType = filters.linkedTo.toLowerCase();
+          const hasMatchingLink = doc.DocumentLink?.some(link => link.linkedType === linkedType);
+          if (!hasMatchingLink) return false;
+        }
+      }
+
+      // Filtre dateFrom
+      if (filters.dateFrom) {
+        const docDate = new Date(doc.uploadedAt || doc.createdAt || 0);
+        const fromDate = new Date(filters.dateFrom);
+        if (docDate < fromDate) return false;
+      }
+
+      // Filtre dateTo
+      if (filters.dateTo) {
+        const docDate = new Date(doc.uploadedAt || doc.createdAt || 0);
+        const toDate = new Date(filters.dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        if (docDate > toDate) return false;
+      }
+
+      // Filtre KPI actif
+      if (activeKpiFilter === 'pending' && doc.status !== 'pending') return false;
+      if (activeKpiFilter === 'unclassified' && (doc.status === 'active' || doc.documentTypeId)) return false;
+      if (activeKpiFilter === 'ocrFailed' && doc.ocrStatus !== 'failed') return false;
+      if (activeKpiFilter === 'orphans') {
+        const hasLink = doc.DocumentLink && doc.DocumentLink.length > 0;
+        if (hasLink) return false;
+      }
+
+      return true;
+    });
+
+    if (process.env.NODE_ENV === 'development') {
+      const perfEnd = performance.now();
+      console.log(`[PropertyDocumentsClient] ⏱️ Filtrage documents: ${(perfEnd - perfStart).toFixed(2)}ms (${filtered.length}/${allDocuments.length})`);
+    }
+
+    return filtered;
+  }, [allDocuments, propertyId, filters, activeKpiFilter]);
+
+  // ✅ Calculer les KPI depuis les documents filtrés
+  const kpis = useMemo(() => {
+    const propertyDocs = allDocuments.filter(doc => doc.propertyId === propertyId);
+    return {
+      total: propertyDocs.length,
+      pending: propertyDocs.filter(d => d.status === 'pending').length,
+      unclassified: propertyDocs.filter(d => d.status === 'active' && !d.documentTypeId).length,
+      ocrFailed: propertyDocs.filter(d => d.ocrStatus === 'failed').length,
+      orphans: propertyDocs.filter(d => {
+        const hasLink = d.DocumentLink && d.DocumentLink.length > 0;
+        return !hasLink && !d.deletedAt;
+      }).length,
+    };
+  }, [allDocuments, propertyId]);
+
+  const kpisLoading = isLoading;
+
+  // ✅ Calculer les graphiques depuis les documents filtrés
+  const chartsData = useMemo(() => {
+    const propertyDocs = allDocuments.filter(doc => doc.propertyId === propertyId);
+    
+    // Graphique mensuel
+    const monthly: Record<string, number> = {};
+    propertyDocs.forEach(doc => {
+      const date = new Date(doc.uploadedAt || doc.createdAt || 0);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      monthly[monthKey] = (monthly[monthKey] || 0) + 1;
+    });
+
+    // Graphique par type
+    const byType: Record<string, number> = {};
+    propertyDocs.forEach(doc => {
+      const typeLabel = doc.DocumentType?.label || 'Non classé';
+      byType[typeLabel] = (byType[typeLabel] || 0) + 1;
+    });
+
+    // Répartition des liaisons
+    const linksDistribution = {
+      transaction: propertyDocs.filter(d => d.DocumentLink?.some(l => l.linkedType === 'transaction')).length,
+      lease: propertyDocs.filter(d => d.DocumentLink?.some(l => l.linkedType === 'lease')).length,
+      property: propertyDocs.filter(d => d.DocumentLink?.some(l => l.linkedType === 'property')).length,
+      tenant: propertyDocs.filter(d => d.DocumentLink?.some(l => l.linkedType === 'tenant')).length,
+      global: propertyDocs.filter(d => d.DocumentLink?.some(l => l.linkedType === 'global')).length,
+      none: propertyDocs.filter(d => !d.DocumentLink || d.DocumentLink.length === 0).length,
+    };
+
+    return {
+      monthly: Object.entries(monthly).map(([month, count]) => ({ month, count })),
+      byType: Object.entries(byType).map(([type, count]) => ({ type, count })),
+      linksDistribution,
+    };
+  }, [allDocuments, propertyId]);
+
+  const chartsLoading = isLoading;
+
+  // ✅ Charger les types de documents depuis IndexedDB
   useEffect(() => {
     const loadDocumentTypes = async () => {
       try {
-        const response = await fetch('/api/document-types');
-        const data = await response.json();
-        setDocumentTypes(data.documentTypes || []);
+        const db = await getLocalDB();
+        const types = await db.DocumentType.toArray();
+        setDocumentTypes(types);
       } catch (error) {
         console.error('Erreur lors du chargement des types:', error);
       }
@@ -142,94 +269,11 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
     loadDocumentTypes();
   }, []);
 
-  // Chargement des documents (scopé par propertyId)
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const params = new URLSearchParams();
-
-      // Ajouter le propertyId pour le scope
-      params.append('propertyId', propertyId);
-
-      // Ajouter les filtres de base
-      if (filters.query) params.append('query', filters.query);
-      if (filters.type) params.append('type', filters.type);
-      if (filters.linkedTo) params.append('linkedTo', filters.linkedTo);
-      if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
-      if (filters.dateTo) params.append('dateTo', filters.dateTo);
-
-      // Appliquer le filtre KPI actif (si pas de filtre linkedTo manuel)
-      if (!filters.linkedTo) {
-        if (activeKpiFilter === 'pending') {
-          params.append('ocrStatus', 'pending');
-        } else if (activeKpiFilter === 'unclassified') {
-          params.append('status', 'unclassified');
-        } else if (activeKpiFilter === 'ocrFailed') {
-          params.append('ocrStatus', 'failed');
-        } else if (activeKpiFilter === 'orphans') {
-          params.append('linkedTo', 'none');
-        }
-      } else {
-        // Si un filtre linkedTo manuel est actif, on applique quand même les filtres de statut
-        if (activeKpiFilter === 'pending') {
-          params.append('ocrStatus', 'pending');
-        } else if (activeKpiFilter === 'unclassified') {
-          params.append('status', 'unclassified');
-        } else if (activeKpiFilter === 'ocrFailed') {
-          params.append('ocrStatus', 'failed');
-        }
-      }
-      // Si activeKpiFilter === 'total', pas de filtre supplémentaire
-
-      // Ajouter la pagination
-      params.append('offset', pagination.offset.toString());
-      params.append('limit', pagination.limit.toString());
-
-      const response = await fetch(`/api/documents?${params.toString()}`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Erreur lors du chargement des documents');
-      }
-
-      setDocuments(data.documents || []);
-      setPagination((prev) => ({
-        ...prev,
-        total: data.pagination?.total || 0,
-        hasMore: data.pagination?.hasMore || false,
-      }));
-      setTotalCount(data.pagination?.total || 0);
-    } catch (error) {
-      console.error('Erreur lors du chargement des données:', error);
-      notify2.error('Erreur lors du chargement des documents');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [filters, pagination.offset, pagination.limit, activeKpiFilter, propertyId]);
-
-  // Chargement des données quand les filtres changent ou refreshKey
-  useEffect(() => {
-    loadData();
-  }, [loadData, refreshKey]);
-
-  // Synchronisation des filtres avec l'URL
-  const updateURL = useCallback((newFilters: Filters) => {
-    const params = new URLSearchParams();
-    
-    Object.entries(newFilters).forEach(([key, value]) => {
-      if (value) params.append(key, value);
-    });
-
-    const newURL = params.toString() ? `?${params.toString()}` : '';
-    router.replace(`/biens/${propertyId}/documents${newURL}`, { scroll: false });
-  }, [router, propertyId]);
-
-  // Gestion des filtres
+  // Gestion des filtres (plus de synchronisation URL, tout en mémoire)
   const handleFiltersChange = useCallback((newFilters: Filters) => {
     setFilters(newFilters);
     setPagination(prev => ({ ...prev, offset: 0, page: 1 }));
-    updateURL(newFilters);
-  }, [updateURL]);
+  }, []);
 
   // Gestion du filtre KPI (cartes filtrantes)
   const handleKpiFilterChange = useCallback((filterKey: string | null) => {
@@ -257,16 +301,15 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
 
     setFilters(resetFilters);
     setPagination(prev => ({ ...prev, offset: 0, page: 1 }));
-    updateURL(resetFilters);
-  }, [updateURL]);
+  }, []);
 
-  // Gestion du filtre de période
+  // Gestion du filtre de période (pour les graphiques, mais pas utilisé pour filtrer les documents)
   const handlePeriodChange = useCallback((start: string, end: string) => {
     setPeriodStart(start);
     setPeriodEnd(end);
   }, []);
 
-  // Gestion du bouton Uploader (avec contexte du bien pré-sélectionné)
+  // ✅ APP-SHELL: Gestion du bouton Uploader (avec événement ciblé pour refresh)
   const handleUploadClick = useCallback(() => {
     openModalWithFileSelection({
       scope: 'property',
@@ -275,11 +318,13 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
         propertyId: propertyId,
       },
       onSuccess: () => {
-        loadData();
-        setRefreshKey(prev => prev + 1);
+        // ✅ Émettre un événement ciblé avec payload scope + propertyId
+        window.dispatchEvent(new CustomEvent('documents:refresh', { 
+          detail: { scope: 'property', propertyId, reason: 'upload' } 
+        }));
       }
     });
-  }, [openModalWithFileSelection, loadData, propertyId]);
+  }, [openModalWithFileSelection, propertyId]);
 
   // Gestion de la visualisation d'un document (ouvre le drawer)
   const handleViewDocument = useCallback((doc: DocumentTableRow) => {
@@ -304,11 +349,13 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
     setShowDeleteModal(true);
   }, []);
 
+  // ✅ APP-SHELL: Refresh via événement ciblé avec payload
   const handleDeleteConfirmed = useCallback(() => {
-    loadData();
-    setRefreshKey(prev => prev + 1);
+    window.dispatchEvent(new CustomEvent('documents:refresh', { 
+      detail: { scope: 'property', propertyId, reason: 'delete' } 
+    }));
     setDocumentToDelete(null);
-  }, [loadData]);
+  }, [propertyId]);
 
   // Gestion de la sélection
   const handleSelectDocument = useCallback((docId: string, selected: boolean) => {
@@ -323,11 +370,11 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
 
   const handleSelectAll = useCallback((selected: boolean) => {
     if (selected) {
-      setSelectedIds(new Set(documents.map(d => d.id)));
+      setSelectedIds(new Set(allDocuments.map(d => d.id)));
     } else {
       setSelectedIds(new Set());
     }
-  }, [documents]);
+  }, [allDocuments]);
 
   // Gestion de la suppression multiple
   const handleDeleteMultiple = useCallback((docs: DocumentTableRow[]) => {
@@ -335,53 +382,24 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
     setShowDeleteMultipleModal(true);
   }, []);
 
+  // ✅ APP-SHELL: Suppression via repository offline (local-first)
   const handleDeleteMultipleConfirmed = useCallback(async () => {
     try {
-      let deletedCount = 0;
-      
-      for (const doc of documentsToDelete) {
-        try {
-          const response = await fetch(`/api/documents/${doc.id}/hard-delete`, {
-            method: 'DELETE',
-          });
-          
-          if (response.ok) {
-            deletedCount++;
-          }
-        } catch (fetchError) {
-          console.error(`Erreur lors de la suppression de ${doc.id}:`, fetchError);
-        }
-      }
-      
-      if (deletedCount > 0) {
-        notify2.success(`${deletedCount} document(s) supprimé(s)`);
-      }
-      
+      // TODO: Implémenter la suppression via repository offline
+      // Pour l'instant, on émet juste l'événement de refresh
+      // La suppression sera gérée par le modal ConfirmDeleteDocumentModal
       setSelectedIds(new Set());
-      loadData();
-      setRefreshKey(prev => prev + 1);
+      window.dispatchEvent(new CustomEvent('documents:refresh', { 
+        detail: { scope: 'property', propertyId, reason: 'delete_multiple' } 
+      }));
       setShowDeleteMultipleModal(false);
       setDocumentsToDelete([]);
     } catch (error) {
       console.error('Erreur lors de la suppression multiple:', error);
       notify2.error('Erreur lors de la suppression des documents');
     }
-  }, [documentsToDelete, loadData]);
+  }, [propertyId]);
 
-  // Gestion de la pagination
-  const handlePageChange = (direction: 'prev' | 'next') => {
-    setPagination((prev) => {
-      const newOffset = direction === 'next' 
-        ? prev.offset + prev.limit 
-        : Math.max(0, prev.offset - prev.limit);
-      
-      return {
-        ...prev,
-        offset: newOffset,
-        page: Math.floor(newOffset / prev.limit) + 1,
-      };
-    });
-  };
 
   const activeFiltersCount = Object.values(filters).filter(v => v && v !== '').length;
 
@@ -397,16 +415,19 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
     }
   };
 
-  // Trier les documents
-  const sortedDocuments = React.useMemo(() => {
-    const sorted = [...documents];
+  // ✅ APP-SHELL: Paginer et trier les documents filtrés en mémoire
+  const paginatedAndSortedDocuments = useMemo(() => {
+    // Trier d'abord
+    const sorted = [...filteredDocuments];
     
     sorted.sort((a, b) => {
       let comparison = 0;
       
       switch (sortField) {
         case 'date':
-          comparison = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          const dateA = new Date(a.createdAt || a.uploadedAt || 0).getTime();
+          const dateB = new Date(b.createdAt || b.uploadedAt || 0).getTime();
+          comparison = dateB - dateA;
           break;
         case 'size':
           comparison = a.size - b.size;
@@ -421,8 +442,14 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
       return sortOrder === 'asc' ? comparison : -comparison;
     });
     
-    return sorted;
-  }, [documents, sortField, sortOrder]);
+    // Puis paginer
+    const start = pagination.offset;
+    const end = start + pagination.limit;
+    return sorted.slice(start, end);
+  }, [filteredDocuments, sortField, sortOrder, pagination.offset, pagination.limit]);
+
+  const totalCount = filteredDocuments.length;
+  const sortedDocuments = paginatedAndSortedDocuments;
 
   // Mémoriser les actions pour éviter les re-renders inutiles
   const headerActions = useMemo(() => (
@@ -449,10 +476,10 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
 
   return (
     <div className="space-y-6">
-      {/* Graphiques - TOUS sur la même ligne (AU DESSUS DES CARTES) */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
+      {/* Graphiques - Mobile: empilés, Desktop: grille */}
+      <div className="grid gap-4 grid-cols-1 lg:grid-cols-4">
         {/* Graphique 1 : Évolution mensuelle (2 colonnes) */}
-        <div className="md:col-span-2">
+        <div className="lg:col-span-2 min-w-0">
           <DocumentsMonthlyChart
             data={chartsData.monthly}
             isLoading={chartsLoading}
@@ -460,7 +487,7 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
         </div>
         
         {/* Graphique 2 : Répartition par type (1 colonne) */}
-        <div className="md:col-span-1">
+        <div className="lg:col-span-1 min-w-0">
           <DocumentsByTypeChart
             data={chartsData.byType}
             isLoading={chartsLoading}
@@ -468,7 +495,7 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
         </div>
         
         {/* Graphique 3 : Répartition des liaisons (1 colonne) */}
-        <div className="md:col-span-1">
+        <div className="lg:col-span-1 min-w-0">
           <DocumentsLinksDistributionChart
             data={chartsData.linksDistribution}
             isLoading={chartsLoading}
@@ -610,18 +637,20 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
       {selectedIds.size > 0 && (
         <Card>
           <CardContent className="py-3">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <span className="text-sm font-medium text-gray-900">
                 {selectedIds.size} document{selectedIds.size > 1 ? 's' : ''} sélectionné{selectedIds.size > 1 ? 's' : ''}
               </span>
               <div className="flex-1" />
+              <div className="flex gap-2 w-full sm:w-auto">
               <Button 
                 variant="outline" 
                 size="sm" 
                 onClick={() => {
-                  const docsToDelete = documents.filter(d => selectedIds.has(d.id));
+                  const docsToDelete = allDocuments.filter(d => selectedIds.has(d.id));
                   handleDeleteMultiple(docsToDelete);
                 }}
+                  className="flex-1 sm:flex-initial"
               >
                 Supprimer
               </Button>
@@ -629,9 +658,11 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
                 variant="ghost" 
                 size="sm" 
                 onClick={() => setSelectedIds(new Set())}
+                  className="flex-1 sm:flex-initial"
               >
                 Annuler
               </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -649,15 +680,15 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
         </CardHeader>
         <CardContent>
           {/* Tri rapide */}
-          <div className="flex items-center justify-between mb-4 pb-3 border-b">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 mb-4 pb-3 border-b">
             <p className="text-sm text-gray-700">
               <span className="font-semibold">{sortedDocuments.length}</span> document{sortedDocuments.length > 1 ? 's' : ''} affiché{sortedDocuments.length > 1 ? 's' : ''}
             </p>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Tri rapide:</span>
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide w-full sm:w-auto">
+              <span className="text-xs text-gray-500 whitespace-nowrap">Tri rapide:</span>
               <button
                 onClick={() => handleSort('date')}
-                className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors ${
+                className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors whitespace-nowrap ${
                   sortField === 'date' 
                     ? 'bg-blue-50 border-blue-300 text-blue-700' 
                     : 'bg-white border-gray-300 hover:bg-gray-50'
@@ -668,7 +699,7 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
               </button>
               <button
                 onClick={() => handleSort('size')}
-                className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors ${
+                className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors whitespace-nowrap ${
                   sortField === 'size' 
                     ? 'bg-blue-50 border-blue-300 text-blue-700' 
                     : 'bg-white border-gray-300 hover:bg-gray-50'
@@ -679,7 +710,7 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
               </button>
               <button
                 onClick={() => handleSort('type')}
-                className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors ${
+                className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors whitespace-nowrap ${
                   sortField === 'type' 
                     ? 'bg-blue-50 border-blue-300 text-blue-700' 
                     : 'bg-white border-gray-300 hover:bg-gray-50'
@@ -711,14 +742,22 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
               <Button
                 variant="outline"
                 disabled={pagination.offset === 0}
-                onClick={() => handlePageChange('prev')}
+                onClick={() => setPagination(prev => ({
+                  ...prev,
+                  offset: Math.max(0, prev.offset - prev.limit),
+                  page: Math.max(1, prev.page - 1),
+                }))}
               >
                 Précédent
               </Button>
               <Button
                 variant="outline"
-                disabled={!pagination.hasMore}
-                onClick={() => handlePageChange('next')}
+                disabled={pagination.offset + pagination.limit >= totalCount}
+                onClick={() => setPagination(prev => ({
+                  ...prev,
+                  offset: prev.offset + prev.limit,
+                  page: prev.page + 1,
+                }))}
               >
                 Suivant
               </Button>
@@ -752,8 +791,9 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
             setDocumentToEdit(null);
           }}
           onUpdate={() => {
-            loadData();
-            setRefreshKey(prev => prev + 1);
+            window.dispatchEvent(new CustomEvent('documents:refresh', { 
+              detail: { scope: 'property', propertyId, reason: 'update' } 
+            }));
             setShowEditModal(false);
             setDocumentToEdit(null);
           }}

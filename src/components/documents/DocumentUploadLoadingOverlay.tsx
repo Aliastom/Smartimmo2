@@ -18,9 +18,17 @@ export function DocumentUploadLoadingOverlay({
   currentStep,
 }: DocumentUploadLoadingOverlayProps) {
   const [animatedProgress, setAnimatedProgress] = useState(0);
+  const prevIsUploadingRef = React.useRef(false);
 
   // Animer la progression
   useEffect(() => {
+    // Détecter le passage de false à true (début d'upload)
+    if (isUploading && !prevIsUploadingRef.current) {
+      // Réinitialiser uniquement au début d'un nouvel upload
+      setAnimatedProgress(0);
+    }
+    prevIsUploadingRef.current = isUploading;
+
     if (isUploading && progress !== undefined) {
       // Animation fluide de la barre de progression
       const targetProgress = Math.min(progress, 95); // Ne pas aller à 100% pendant l'upload
@@ -35,13 +43,6 @@ export function DocumentUploadLoadingOverlay({
       setAnimatedProgress(100);
     }
   }, [isUploading, progress]);
-
-  // Réinitialiser quand l'upload commence
-  useEffect(() => {
-    if (isUploading) {
-      setAnimatedProgress(0);
-    }
-  }, [isUploading]);
 
   if (!isUploading) return null;
 
@@ -61,13 +62,13 @@ export function DocumentUploadLoadingOverlay({
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       {/* Backdrop avec blur */}
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 via-indigo-900/50 to-purple-900/40 backdrop-blur-md" />
+      <div className="absolute inset-0 bg-gradient-to-br from-orange-900/40 via-amber-900/50 to-orange-900/40 backdrop-blur-md" />
       
       {/* Contenu centré */}
       <div className="relative z-10 w-full max-w-2xl px-4">
         <div className="relative overflow-hidden rounded-2xl bg-white/95 shadow-2xl backdrop-blur-xl border border-white/20">
           {/* Effet de brillance animé en haut */}
-          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-400 to-transparent animate-pulse" />
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-orange-400 to-transparent animate-pulse" />
           
           {/* Contenu principal */}
           <div className="relative p-8">
@@ -75,18 +76,18 @@ export function DocumentUploadLoadingOverlay({
             <div className="flex items-center justify-center gap-4 mb-6">
               <div className="relative">
                 {/* Icône upload avec animation */}
-                <div className="absolute inset-0 bg-blue-400/20 rounded-full blur-xl animate-ping" />
-                <div className="relative bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-600 p-4 rounded-2xl shadow-lg transform transition-transform duration-300 hover:scale-110">
+                <div className="absolute inset-0 bg-orange-400/20 rounded-full blur-xl animate-ping" />
+                <div className="relative bg-gradient-to-br from-orange-500 via-amber-600 to-orange-600 p-4 rounded-2xl shadow-lg transform transition-transform duration-300 hover:scale-110">
                   <Upload className="h-8 w-8 text-white animate-pulse" />
                 </div>
                 {/* Particules animées autour */}
                 <Sparkles className="absolute -top-1 -right-1 h-4 w-4 text-yellow-400 animate-spin" style={{ animationDuration: '3s' }} />
-                <FileText className="absolute -bottom-1 -left-1 h-3 w-3 text-blue-400 animate-pulse" style={{ animationDelay: '1s' }} />
+                <FileText className="absolute -bottom-1 -left-1 h-3 w-3 text-orange-400 animate-pulse" style={{ animationDelay: '1s' }} />
               </div>
               <div>
                 <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
                   Enregistrement du document
-                  <FileText className="h-5 w-5 text-blue-500" />
+                  <FileText className="h-5 w-5 text-orange-500" />
                 </h3>
                 <p className="text-sm text-gray-600 mt-1">
                   {fileName ? `Traitement de ${fileName}...` : 'Traitement en cours...'}
@@ -98,7 +99,7 @@ export function DocumentUploadLoadingOverlay({
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">Progression</span>
-                <span className="text-sm font-bold text-blue-600">{progressPercent}%</span>
+                <span className="text-sm font-bold text-orange-600">{progressPercent}%</span>
               </div>
               <div className="relative h-3 bg-gray-200 rounded-full overflow-hidden">
                 {/* Fond avec gradient */}
@@ -106,8 +107,8 @@ export function DocumentUploadLoadingOverlay({
                 {/* Barre de progression animée */}
                 <div
                   className={cn(
-                    'absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-600 to-purple-500 rounded-full transition-all duration-500 ease-out',
-                    'shadow-lg shadow-blue-500/50'
+                    'absolute left-0 top-0 h-full bg-gradient-to-r from-orange-500 via-amber-600 to-orange-500 rounded-full transition-all duration-500 ease-out',
+                    'shadow-lg shadow-orange-500/50'
                   )}
                   style={{ width: `${animatedProgress}%` }}
                 >
@@ -130,14 +131,14 @@ export function DocumentUploadLoadingOverlay({
                     className={cn(
                       'flex items-center gap-3 p-3 rounded-lg border transition-all duration-300',
                       isCompleted && 'bg-green-50 border-green-200',
-                      isCurrent && 'bg-blue-50 border-blue-300 shadow-md',
+                      isCurrent && 'bg-orange-50 border-orange-300 shadow-md',
                       !isCompleted && !isCurrent && 'bg-gray-50 border-gray-200 opacity-50'
                     )}
                   >
                     <div className={cn(
                       'flex items-center justify-center w-8 h-8 rounded-full transition-all',
                       isCompleted && 'bg-green-500',
-                      isCurrent && 'bg-blue-500 animate-pulse',
+                      isCurrent && 'bg-orange-500 animate-pulse',
                       !isCompleted && !isCurrent && 'bg-gray-300'
                     )}>
                       {isCompleted ? (
@@ -153,13 +154,13 @@ export function DocumentUploadLoadingOverlay({
                     <span className={cn(
                       'text-sm font-medium flex-1',
                       isCompleted && 'text-green-700',
-                      isCurrent && 'text-blue-700 font-semibold',
+                      isCurrent && 'text-orange-700 font-semibold',
                       !isCompleted && !isCurrent && 'text-gray-500'
                     )}>
                       {step.name}
                     </span>
                     {isCurrent && StepIcon !== Loader2 && (
-                      <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
+                      <Loader2 className="h-4 w-4 text-orange-600 animate-spin" />
                     )}
                   </div>
                 );

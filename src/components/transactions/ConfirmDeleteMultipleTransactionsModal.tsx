@@ -51,13 +51,13 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
         onClick={isDeleting || deletingProgress !== null ? undefined : onClose}
       />
       
-      {/* Modal */}
+      {/* Modal - Mobile: quasi plein écran avec cadre, Desktop: centré */}
       <div 
-        className="fixed inset-0 flex items-center justify-center"
+        className="fixed inset-0 flex items-center justify-center p-3 md:p-4"
         style={{ zIndex: 9999, pointerEvents: 'none' }}
       >
         <div 
-          className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6"
+          className="bg-white rounded-2xl shadow-2xl border border-gray-200 md:border-base-200 max-w-[560px] md:max-w-2xl w-[calc(100vw-24px)] h-[calc(100dvh-24px)] md:h-auto md:max-h-[90vh] overflow-y-auto p-4 md:p-6"
           style={{ pointerEvents: 'auto' }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -160,18 +160,18 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
               </div>
             )}
 
-            <div className="flex gap-3 w-full">
+            <div className="flex flex-col sm:flex-row gap-3 w-full">
               <Button
                 variant="outline"
                 onClick={onClose}
-                className="flex-1"
+                className="flex-1 w-full sm:w-auto"
                 disabled={isDeleting || deletingProgress !== null}
               >
                 Annuler
               </Button>
               <Button
                 onClick={handleConfirm}
-                className="flex-1 btn-error"
+                className="flex-1 w-full sm:w-auto btn-error"
                 disabled={isDeleting || deletingProgress !== null}
               >
                 {isDeleting || deletingProgress !== null ? (

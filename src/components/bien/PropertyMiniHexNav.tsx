@@ -37,7 +37,7 @@ export function PropertyMiniHexNav({ propertyId, currentPage }: PropertyMiniHexN
     },
     {
       id: 'baux',
-      href: `/biens/${propertyId}/baux`,
+      href: `/app?view=property&propertyId=${propertyId}&tab=lease`,
       icon: 'fa-file-contract',
       title: 'Baux',
     },
@@ -49,7 +49,7 @@ export function PropertyMiniHexNav({ propertyId, currentPage }: PropertyMiniHexN
     },
     {
       id: 'prets',
-      href: `/biens/${propertyId}/loans`,
+      href: `/app?view=property&propertyId=${propertyId}&tab=loans`,
       icon: 'fa-credit-card',
       title: 'Prêts',
     },

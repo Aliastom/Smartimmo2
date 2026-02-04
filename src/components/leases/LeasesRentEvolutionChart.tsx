@@ -147,12 +147,12 @@ export function LeasesRentEvolutionChart({
           </div>
           
           {/* Toggle Mois/Année */}
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+          <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-1">
             <button
               onClick={() => setViewMode('monthly')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 viewMode === 'monthly'
-                  ? 'bg-white text-blue-600 shadow-sm'
+                  ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
@@ -162,7 +162,7 @@ export function LeasesRentEvolutionChart({
               onClick={() => setViewMode('yearly')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 viewMode === 'yearly'
-                  ? 'bg-white text-blue-600 shadow-sm'
+                  ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
@@ -171,14 +171,15 @@ export function LeasesRentEvolutionChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 min-w-0">
         {currentData.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
             <Home className="h-12 w-12 mb-2 opacity-30" />
             <p className="text-sm">Aucun bail actif sur cette période</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={180}>
+          <div className="min-w-0">
+            <ResponsiveContainer width="100%" height={180}>
             <AreaChart data={currentData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
               <defs>
                 <linearGradient id="colorRent" x1="0" y1="0" x2="0" y2="1">
@@ -216,6 +217,7 @@ export function LeasesRentEvolutionChart({
               />
             </AreaChart>
           </ResponsiveContainer>
+          </div>
         )}
       </CardContent>
     </Card>

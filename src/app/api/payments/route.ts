@@ -119,6 +119,7 @@ export async function GET(request: NextRequest) {
     // Sérialiser les données
     const toDTO = (p: any) => ({
       id: p.id,
+      organizationId: organizationId, // ⚠️ CRITIQUE: Ajouter organizationId pour la sync App Shell
       propertyId: p.propertyId,
       leaseId: p.leaseId,
       periodYear: p.periodYear,

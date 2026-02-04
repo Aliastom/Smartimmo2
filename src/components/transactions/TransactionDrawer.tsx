@@ -1,11 +1,15 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Edit, Trash2, FileText, Plus, Calendar, Euro, Building2, Users, Tag, Info } from 'lucide-react';
+import { X, Edit, Trash2, FileText, Plus, Calendar, Euro, Building2, Users, Tag, Info, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { Switch } from '@/components/ui/Switch';
 import { useToggleRapprochement, type RapprochementStatus } from '@/hooks/useToggleRapprochement';
 import { notify2 } from '@/lib/notify2';
+import { useTransactionDocuments } from '@/hooks/offline/useTransactionDocuments';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
 
 interface Transaction {
   id: string;
@@ -74,6 +78,7 @@ interface TransactionDrawerProps {
   onDelete: (transaction: Transaction) => void;
   onViewDocument?: (documentId: string, documentName: string) => void;
   onRefresh?: () => void;
+  mode?: 'normal' | 'app-shell'; // Mode pour le rapprochement offline-first
 }
 
 const PAYMENT_METHODS = {
@@ -91,36 +96,66 @@ export default function TransactionDrawer({
   onEdit,
   onDelete,
   onViewDocument,
-  onRefresh
+  onRefresh,
+  mode = 'normal'
 }: TransactionDrawerProps) {
-  const { mutate: toggleRapprochement, isPending: isTogglingRapprochement } = useToggleRapprochement();
+  const { mutate: toggleRapprochement, isPending: isTogglingRapprochement } = useToggleRapprochement(mode);
+  const { organizationId } = useCurrentOrganization();
   const [localRapprochementStatus, setLocalRapprochementStatus] = useState<RapprochementStatus>(
     transaction?.rapprochementStatus === 'rapprochee' ? 'rapprochee' : 'non_rapprochee'
   );
+  
+  // En mode app-shell, utiliser le hook pour charger les documents depuis IndexedDB
+  const { 
+    documents: linkedDocuments, 
+    loading: documentsLoading,
+    hasMissingDocuments 
+  } = useTransactionDocuments(
+    mode === 'app-shell' ? transaction?.id : null,
+    mode === 'app-shell' && isOpen
+  );
+  
+  // Utiliser les documents du hook en app-shell, sinon ceux de la transaction
+  const displayDocuments = mode === 'app-shell' 
+    ? linkedDocuments.map(doc => ({
+        id: doc.id,
+        name: doc.filenameOriginal,
+        type: doc.documentTypeLabel || 'Non classé',
+        createdAt: doc.uploadedAt,
+      }))
+    : (transaction?.Document || []);
 
-  // Synchroniser l'état local quand la transaction change
+  // ✅ OFFLINE-FIRST: Recharger la transaction depuis IndexedDB quand le drawer s'ouvre en mode app-shell
   React.useEffect(() => {
-    if (transaction) {
-      console.log('[TransactionDrawer] 🔍 Transaction reçue:', {
-        id: transaction.id,
-        label: transaction.label,
-        rapprochementStatus: transaction.rapprochementStatus,
-        status: transaction.status,
-        dateRapprochement: transaction.dateRapprochement,
-        bankRef: transaction.bankRef
-      });
+    if (!isOpen || !transaction) return;
+    
+    const syncStatus = async () => {
+      // ✅ En mode app-shell, recharger depuis IndexedDB pour avoir le statut le plus récent
+      if (mode === 'app-shell' && organizationId) {
+        try {
+          const repo = getTransactionRepositoryOffline();
+          const localTransaction = await repo.getById(transaction.id, organizationId);
+          
+          if (localTransaction) {
+            const status = localTransaction.rapprochementStatus || localTransaction.status;
+            const newStatus: RapprochementStatus = status === 'rapprochee' ? 'rapprochee' : 'non_rapprochee';
+            setLocalRapprochementStatus(newStatus);
+            return;
+          }
+        } catch (error) {
+          console.warn('[TransactionDrawer] Erreur lors du rechargement depuis IndexedDB:', error);
+          // Fallback : utiliser le prop transaction
+        }
+      }
       
+      // Mode normal ou fallback : utiliser le prop transaction directement
       const status = transaction.rapprochementStatus || transaction.status;
-      console.log('[TransactionDrawer] 🔍 Status utilisé:', status);
-      
       const newStatus: RapprochementStatus = status === 'rapprochee' ? 'rapprochee' : 'non_rapprochee';
-      console.log('[TransactionDrawer] 🔍 Nouveau localRapprochementStatus:', newStatus);
-      
       setLocalRapprochementStatus(newStatus);
-    }
-  }, [transaction]);
-
-  console.log('[TransactionDrawer] 🎨 Rendu - localRapprochementStatus actuel:', localRapprochementStatus);
+    };
+    
+    syncStatus();
+  }, [isOpen, transaction?.id, mode, organizationId]);
 
   if (!isOpen || !transaction) return null;
 
@@ -134,14 +169,15 @@ export default function TransactionDrawer({
     }, {
       onSuccess: () => {
         // Le toast est déjà géré dans useToggleRapprochement
-        // Rafraîchir les données (KPI, graphiques, liste)
-        if (onRefresh) {
+        // ⚠️ APP-SHELL : Pas de refresh en mode app-shell - les données sont déjà dans IndexedDB
+        // L'état local est déjà à jour via setLocalRapprochementStatus
+        // La liste se mettra à jour naturellement au prochain render (fermeture drawer, etc.)
+        if (mode !== 'app-shell' && onRefresh) {
           onRefresh();
         }
       },
       onError: (error) => {
         // Le toast est déjà géré dans useToggleRapprochement
-        console.error('[TransactionDrawer] Erreur:', error);
         // Revenir à l'état précédent en cas d'erreur
         setLocalRapprochementStatus(checked ? 'non_rapprochee' : 'rapprochee');
       }
@@ -183,18 +219,18 @@ export default function TransactionDrawer({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
+    <div className="fixed inset-0 z-50">
       {/* Overlay */}
       <div 
-        className="absolute inset-0 bg-black bg-opacity-50 transition-opacity"
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
         onClick={onClose}
       />
       
-      {/* Drawer */}
-      <div className="absolute right-0 top-0 h-full w-full max-w-2xl bg-white shadow-xl transform transition-transform">
+      {/* Drawer - Mobile: plein écran, Desktop: side panel */}
+      <div className="fixed right-0 top-0 h-screen w-full lg:w-auto lg:max-w-2xl bg-white shadow-xl transform transition-transform">
         <div className="flex flex-col h-full">
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b bg-gray-50">
+          <div className="flex items-center justify-between p-4 border-b">
             <div>
               <h2 className="text-xl font-semibold text-gray-900">
                 Détail de la transaction
@@ -212,9 +248,9 @@ export default function TransactionDrawer({
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-4">
             {/* Informations principales */}
-            <div className="space-y-6">
+            <div className="space-y-4">
               {/* Montant et statut */}
               <div className="flex items-center justify-between">
                 <div>
@@ -246,29 +282,29 @@ export default function TransactionDrawer({
               </div>
 
               {/* Rapprochement bancaire (autosave) */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="w-5 h-5 text-green-600 border-gray-300 rounded focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center gap-3">
+                  <Switch
                     checked={localRapprochementStatus === 'rapprochee'}
-                    onChange={(e) => handleToggleRapprochement(e.target.checked)}
+                    onCheckedChange={handleToggleRapprochement}
                     disabled={isTogglingRapprochement}
                   />
-                  <span className="text-sm font-medium text-gray-900">
-                    Marquer comme rapprochée
-                  </span>
-                  {isTogglingRapprochement && (
-                    <span className="text-xs text-gray-500 ml-auto">Enregistrement...</span>
-                  )}
-                </label>
-                <p className="text-xs text-gray-600 mt-2 ml-8">
+                  <div className="flex-1">
+                    <span className="text-sm font-medium text-gray-900">
+                      Marquer comme rapprochée
+                    </span>
+                    {isTogglingRapprochement && (
+                      <span className="text-xs text-gray-500 ml-2">Enregistrement...</span>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-600 mt-2">
                   Cette modification est automatiquement sauvegardée.
                 </p>
               </div>
 
               {/* Détails */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Bien */}
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -328,7 +364,7 @@ export default function TransactionDrawer({
 
               {/* Paiement */}
               {(transaction.paymentDate || transaction.paymentMethod || transaction.paidAt || transaction.method) && (
-                <div className="border-t pt-6">
+                <div className="border-t pt-4">
                   <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center gap-2">
                     <Euro className="h-5 w-5" />
                     Informations de paiement
@@ -354,7 +390,7 @@ export default function TransactionDrawer({
 
               {/* Période */}
               {(transaction.accountingMonth || transaction.monthsCovered) && (
-                <div className="border-t pt-6">
+                <div className="border-t pt-4">
                   <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center gap-2">
                     <Calendar className="h-5 w-5" />
                     Période couverte
@@ -362,9 +398,9 @@ export default function TransactionDrawer({
                   
                   {/* Mois comptable - Format visible et important */}
                   {transaction.accountingMonth && (
-                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4 mb-4">
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
                       <p className="text-sm text-gray-600 mb-1">Mois comptable</p>
-                      <p className="text-2xl font-bold text-blue-900">
+                      <p className="text-2xl font-bold text-gray-900">
                         {formatAccountingMonth(transaction.accountingMonth)}
                       </p>
                     </div>
@@ -378,37 +414,25 @@ export default function TransactionDrawer({
                   )}
                   
                   {/* Badge de série multi-mois - Debug et affichage */}
-                  {(() => {
-                    console.log('[TransactionDrawer] Badge check:', {
-                      moisTotal: transaction.moisTotal,
-                      moisIndex: transaction.moisIndex,
-                      parentTransactionId: transaction.parentTransactionId,
-                      willShow: !!(transaction.moisTotal && transaction.moisIndex)
-                    });
-                    
-                    if (transaction.moisTotal && transaction.moisIndex) {
-                      return (
-                        <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  {transaction.moisTotal && transaction.moisIndex && (
+                        <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
                           <div className="flex items-start gap-3">
-                            <Info className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                            <Info className="h-5 w-5 text-gray-600 mt-0.5 flex-shrink-0" />
                             <div>
-                              <p className="text-sm text-blue-900 font-medium flex items-center gap-2">
+                              <p className="text-sm text-gray-900 font-medium flex items-center gap-2">
                                 Transaction multi-mois
-                                <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                                <Badge variant="secondary" className="bg-gray-100 text-gray-700">
                                   Série ({transaction.moisTotal}) — {transaction.moisIndex}/{transaction.moisTotal}
                                 </Badge>
                               </p>
-                              <p className="text-xs text-blue-700 mt-1">
+                              <p className="text-xs text-gray-600 mt-1">
                                 Cette transaction fait partie d'une série de {transaction.moisTotal} mois. 
                                 Le nombre de mois couverts n'est modifiable qu'à la création.
                               </p>
                             </div>
                           </div>
                         </div>
-                      );
-                    }
-                    return null;
-                  })()}
+                  )}
                   
                   {transaction.autoDistribution && (
                     <div className="mt-4">
@@ -420,14 +444,14 @@ export default function TransactionDrawer({
 
               {/* Notes */}
               {transaction.notes && (
-                <div className="border-t pt-6">
+                <div className="border-t pt-4">
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Notes</h3>
                   <p className="text-gray-700 whitespace-pre-wrap">{transaction.notes}</p>
                 </div>
               )}
 
               {/* Métadonnées */}
-              <div className="border-t pt-6">
+              <div className="border-t pt-4">
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Informations système</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {transaction.accountingMonth && (
@@ -456,7 +480,7 @@ export default function TransactionDrawer({
               </div>
 
               {/* Documents liés */}
-              <div className="border-t pt-6">
+              <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
                     <FileText className="h-5 w-5" />
@@ -473,9 +497,14 @@ export default function TransactionDrawer({
                   </Button>
                 </div>
                 
-                {transaction.Document && transaction.Document.length > 0 ? (
+                {documentsLoading ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-2"></div>
+                    <p>Chargement des documents...</p>
+                  </div>
+                ) : displayDocuments && displayDocuments.length > 0 ? (
                   <div className="space-y-2">
-                    {transaction.Document.map((doc) => (
+                    {displayDocuments.map((doc) => (
                       <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <div className="flex-1">
                           <p className="font-medium">{doc.name}</p>
@@ -492,6 +521,12 @@ export default function TransactionDrawer({
                         </Button>
                       </div>
                     ))}
+                    {hasMissingDocuments && (
+                      <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800 flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4" />
+                        <span>Certains documents liés ne sont pas encore synchronisés</span>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-center py-8 text-gray-500">
@@ -504,15 +539,27 @@ export default function TransactionDrawer({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
+          <div className="flex items-center justify-end gap-3 p-4 border-t">
+            {/* ⚠️ Désactiver le bouton Supprimer pour les commissions auto (server-only, supprimées en cascade) */}
+            {(() => {
+              const isAutoCommission = transaction.isAuto === true &&
+                transaction.autoSource === 'gestion' &&
+                transaction.parentTransactionId !== null &&
+                transaction.parentTransactionId !== undefined;
+              
+              return (
             <Button
               variant="outline"
               onClick={() => onDelete(transaction)}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  disabled={isAutoCommission}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={isAutoCommission ? "Cette commission est supprimée automatiquement avec la transaction parent" : undefined}
             >
               <Trash2 className="h-4 w-4 mr-2" />
               Supprimer
             </Button>
+              );
+            })()}
             {/* Bouton Modifier masqué - le rapprochement se fait via la checkbox avec autosave */}
           </div>
         </div>

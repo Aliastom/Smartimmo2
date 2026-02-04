@@ -32,6 +32,7 @@ export default function AddressAutocomplete({
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const hasSelectedSuggestionRef = useRef(false); // ✅ Flag pour éviter que blur écrase une sélection
 
   const {
     suggestions,
@@ -73,10 +74,21 @@ export default function AddressAutocomplete({
     setInputValue(value);
     setSelectedIndex(-1);
 
-    // En mode offline ou si l'API n'est pas disponible, mettre à jour l'adresse manuellement en temps réel
-    // MAIS seulement si on est vraiment offline (pas si l'API est juste en chargement)
+    // ✅ Si l'utilisateur vide le champ, propager un clear explicite
+    if (value.trim().length === 0) {
+      onAddressSelect({
+        street: '',
+        postcode: '',
+        city: '',
+      });
+      clearSuggestions();
+      setIsOpen(false);
+      return;
+    }
+
+    // En mode offline: mettre à jour l'adresse manuellement en temps réel
     const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-    if (isOffline && !isApiAvailable && value.trim().length > 0) {
+    if (isOffline && value.trim().length > 0) {
       // Extraire l'adresse manuellement (format simple : "adresse code_postal ville" ou "adresse, code_postal ville")
       const parts = value.split(/[,\s]+/).filter(p => p.length > 0);
       if (parts.length >= 2) {
@@ -122,11 +134,19 @@ export default function AddressAutocomplete({
     setIsOpen(false);
     selectAddress(suggestion);
     
+    // ✅ Marquer qu'une suggestion a été sélectionnée pour éviter que blur écrase
+    hasSelectedSuggestionRef.current = true;
+    
     onAddressSelect({
       street: suggestion.street,
       postcode: suggestion.postcode,
       city: suggestion.city,
     });
+    
+    // Réinitialiser le flag après un court délai
+    setTimeout(() => {
+      hasSelectedSuggestionRef.current = false;
+    }, 300);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -167,8 +187,23 @@ export default function AddressAutocomplete({
     setTimeout(() => {
       setIsOpen(false);
       
+      // ✅ Ne pas traiter si une suggestion a été sélectionnée (évite d'écraser les valeurs)
+      if (hasSelectedSuggestionRef.current) {
+        return;
+      }
+      
       const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
       
+      // Si l'utilisateur a vidé le champ, clear explicite
+      if (inputValue.trim().length === 0) {
+        onAddressSelect({
+          street: '',
+          postcode: '',
+          city: '',
+        });
+        return;
+      }
+
       // Si l'utilisateur a tapé quelque chose mais n'a pas sélectionné de suggestion
       // (soit parce que l'API n'est pas disponible, soit parce qu'il a tapé manuellement)
       if (inputValue.trim().length > 0) {
@@ -222,7 +257,7 @@ export default function AddressAutocomplete({
           disabled={disabled}
           required={required}
           placeholder={placeholder}
-          className={`w-full pl-10 pr-10 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+          className={`w-full pl-10 pr-10 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
             error ? 'border-red-500' : 'border-gray-300'
           } ${disabled ? 'bg-gray-100 cursor-not-allowed' : ''} ${className}`}
           autoComplete="off"
@@ -230,7 +265,7 @@ export default function AddressAutocomplete({
 
         {isLoading && (
           <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-            <Loader2 className="h-4 w-4 text-primary-500 animate-spin" />
+            <Loader2 className="h-4 w-4 text-orange-500 animate-spin" />
           </div>
         )}
 
@@ -275,11 +310,11 @@ export default function AddressAutocomplete({
                   onMouseEnter={() => setSelectedIndex(index)}
                   className={`px-4 py-2 cursor-pointer flex items-start gap-2 transition-colors ${
                     selectedIndex === index
-                      ? 'bg-primary-50 text-primary-700'
+                      ? 'bg-gray-100 text-gray-900'
                       : 'hover:bg-gray-50'
                   }`}
                 >
-                  <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0 text-primary-500" />
+                  <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0 text-gray-400" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-900 truncate">
                       {suggestion.street}
@@ -294,7 +329,7 @@ export default function AddressAutocomplete({
                     )}
                   </div>
                   {selectedIndex === index && (
-                    <Check className="h-4 w-4 text-primary-500 flex-shrink-0" />
+                    <Check className="h-4 w-4 text-orange-500 flex-shrink-0" />
                   )}
                 </li>
               ))}

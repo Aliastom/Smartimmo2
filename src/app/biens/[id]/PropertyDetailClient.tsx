@@ -55,7 +55,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { UploadReviewModal } from '@/components/documents/UploadReviewModal';
 import { AirbnbImportButton } from '@/components/airbnb/AirbnbImportButton';
-import { usePropertyInsights, PropertyTransactionsInsights, PropertyDocumentsInsights, PropertyLeasesInsights } from '@/hooks/usePropertyInsights';
+import { usePropertyInsights, PropertyTransactionsInsights, PropertyDocumentsInsights, PropertyLeasesInsights } from '@/features/insights/hooks/usePropertyInsights';
 import { BackToPropertyButton } from '@/components/shared/BackToPropertyButton';
 
 interface PropertyDetailClientProps {
@@ -112,23 +112,26 @@ export default function PropertyDetailClient({
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Insights property-scoped pour chaque onglet
-  const { insights: transactionsInsights, loading: transactionsLoading } = usePropertyInsights(
-    property.id,
-    'transactions',
-    'month'
-  ) as { insights: PropertyTransactionsInsights | null; loading: boolean };
+  const { insights: transactionsInsights, loading: transactionsLoading } = usePropertyInsights({
+    mode: 'normal',
+    propertyId: property.id,
+    scope: 'transactions',
+    period: 'month',
+  }) as { insights: PropertyTransactionsInsights | null; loading: boolean };
 
-  const { insights: documentsInsights, loading: documentsLoading } = usePropertyInsights(
-    property.id,
-    'documents',
-    'month'
-  ) as { insights: PropertyDocumentsInsights | null; loading: boolean };
+  const { insights: documentsInsights, loading: documentsLoading } = usePropertyInsights({
+    mode: 'normal',
+    propertyId: property.id,
+    scope: 'documents',
+    period: 'month',
+  }) as { insights: PropertyDocumentsInsights | null; loading: boolean };
 
-  const { insights: leasesInsights, loading: leasesLoading } = usePropertyInsights(
-    property.id,
-    'leases',
-    'month'
-  ) as { insights: PropertyLeasesInsights | null; loading: boolean };
+  const { insights: leasesInsights, loading: leasesLoading } = usePropertyInsights({
+    mode: 'normal',
+    propertyId: property.id,
+    scope: 'leases',
+    period: 'month',
+  }) as { insights: PropertyLeasesInsights | null; loading: boolean };
 
   const handleTabChange = (tabId: string) => {
     // 🎯 Rediriger vers la page dédiée Transactions

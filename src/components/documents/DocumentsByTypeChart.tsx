@@ -97,16 +97,16 @@ export function DocumentsByTypeChart({
           Total: {total} document{total > 1 ? 's' : ''}
         </p>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 min-w-0">
         {data.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
             <Tag className="h-12 w-12 mb-2 opacity-30" />
             <p className="text-sm">Aucun document</p>
           </div>
         ) : (
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 min-w-0">
             {/* Donut à gauche */}
-            <div className="flex-shrink-0 w-2/5">
+            <div className="flex-shrink-0 w-2/5 min-w-0">
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
                   <Pie

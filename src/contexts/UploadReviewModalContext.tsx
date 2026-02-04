@@ -92,7 +92,6 @@ export function UploadReviewModalProvider({ children }: { children: ReactNode })
   // Ouvrir la modal avec sélection de fichier
   const openModalWithFileSelection = useCallback((config: UploadReviewModalConfig = {}) => {
     console.log('[UploadReviewModalContext] openModalWithFileSelection called');
-    notify2.info('📤 Ouverture de la sélection...');
     
     // Utiliser l'input file natif (iOS affichera le menu natif avec photothèque, caméra, fichiers)
     const input = document.createElement('input');
@@ -127,7 +126,6 @@ export function UploadReviewModalProvider({ children }: { children: ReactNode })
         }
         
         console.log('[UploadReviewModalContext] Opening modal with', validFiles.length, 'valid files');
-        notify2.success(`✅ ${validFiles.length} fichier(s) sélectionné(s)`);
         
         // Utiliser setTimeout pour s'assurer que le fichier est complètement chargé (surtout sur iOS)
         setTimeout(() => {
@@ -202,8 +200,11 @@ export function UploadReviewModalProvider({ children }: { children: ReactNode })
   }, []);
 
   // Gérer le succès de l'upload
-  const handleSuccess = useCallback(() => {
-    modalState.config.onSuccess?.();
+  const handleSuccess = useCallback(async () => {
+    // Attendre le callback asynchrone s'il existe
+    if (modalState.config.onSuccess) {
+      await modalState.config.onSuccess();
+    }
     closeModal();
   }, [modalState.config, closeModal]);
 

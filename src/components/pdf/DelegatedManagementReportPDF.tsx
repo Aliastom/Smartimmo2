@@ -19,13 +19,13 @@ const styles = StyleSheet.create({
   // Header
   header: {
     marginBottom: 30,
-    borderBottom: '3 solid #2563eb',
+    borderBottom: '3 solid #f97316',
     paddingBottom: 15,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#1e40af',
+    color: '#1a1a1a',
     marginBottom: 5,
   },
   subtitle: {
@@ -48,10 +48,10 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#1e40af',
+    color: '#374151',
     marginBottom: 10,
-    paddingBottom: 5,
-    borderBottom: '1 solid #cbd5e1',
+    paddingBottom: 8,
+    borderBottom: '2 solid #e5e7eb',
   },
   
   // Grille de données
@@ -74,9 +74,9 @@ const styles = StyleSheet.create({
   
   // Cartes colorées
   card: {
-    backgroundColor: '#f8fafc',
-    border: '1 solid #e2e8f0',
-    borderRadius: 5,
+    backgroundColor: '#fff',
+    border: '1 solid #e5e7eb',
+    borderRadius: 8,
     padding: 12,
     marginBottom: 10,
   },
@@ -85,6 +85,32 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#334155',
     marginBottom: 8,
+  },
+  // Cartes de synthèse (comme HTML)
+  summaryCard: {
+    backgroundColor: '#fff',
+    border: '1 solid #e5e7eb',
+    borderRadius: 8,
+    padding: 15,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  summaryCardTitle: {
+    fontSize: 11,
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    fontWeight: 'bold',
+  },
+  summaryCardValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1a1a1a',
+    marginBottom: 4,
+  },
+  summaryCardSubValue: {
+    fontSize: 11,
+    color: '#6b7280',
   },
   
   // Highlights
@@ -110,11 +136,11 @@ const styles = StyleSheet.create({
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#e0e7ff',
-    padding: 8,
-    fontWeight: 'bold',
+    backgroundColor: '#f3f4f6',
+    padding: 12,
+    fontWeight: '600',
     fontSize: 9,
-    borderBottom: '2 solid #6366f1',
+    borderBottom: '2 solid #e5e7eb',
   },
   tableRow: {
     flexDirection: 'row',
@@ -185,12 +211,22 @@ export function DelegatedManagementReportPDF({ data }: DelegatedManagementReport
     <View style={styles.header}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Rapport d'anomalies</Text>
-          <Text style={[styles.subtitle, { color: '#2563eb', fontSize: 10, fontWeight: 'bold' }]}>
-            Gestionnaire délégué : {data.gestionnaire.name}
+          <Text style={styles.title}>Rapport d'Anomalies - Gestionnaire Délégué</Text>
+          <Text style={[styles.subtitle, { fontSize: 11, marginTop: 8 }]}>
+            <Text style={{ fontWeight: 'bold' }}>Gestionnaire:</Text> {data.gestionnaire.name}
+            {data.gestionnaire.email && ` (${data.gestionnaire.email})`}
           </Text>
-          <Text style={styles.subtitle}>
-            Période : {formatPeriod()}
+          <Text style={[styles.subtitle, { fontSize: 11 }]}>
+            <Text style={{ fontWeight: 'bold' }}>Période:</Text> Du {formatDate(data.period.from)} au {formatDate(data.period.to)}
+          </Text>
+          <Text style={[styles.subtitle, { fontSize: 11 }]}>
+            <Text style={{ fontWeight: 'bold' }}>Date de génération:</Text> {new Date().toLocaleDateString('fr-FR', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })}
           </Text>
         </View>
         <View style={{ textAlign: 'right' }}>
@@ -228,62 +264,29 @@ export function DelegatedManagementReportPDF({ data }: DelegatedManagementReport
         {/* HEADER */}
         {renderHeader()}
 
-        {/* SYNTHÈSE GLOBALE */}
+        {/* SYNTHÈSE GLOBALE - Cartes comme HTML */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>SYNTHÈSE GLOBALE</Text>
-          
-          {!hasAnomalies ? (
-            <View style={[styles.card, { backgroundColor: '#f0fdf4', border: '1 solid #bbf7d0' }]}>
-              <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#166534', marginBottom: 5 }}>
-                ✅ Aucune anomalie détectée
-              </Text>
-              <Text style={{ fontSize: 10, color: '#15803d' }}>
-                Aucune anomalie n'a été détectée pour la période sélectionnée concernant le gestionnaire délégué {data.gestionnaire.name}.
-              </Text>
-              <Text style={{ fontSize: 9, color: '#64748b', marginTop: 8 }}>
-                Nombre de baux concernés : {data.summary.totalBaux}
-              </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
+            <View style={[styles.summaryCard, { flex: 1, minWidth: '45%' }]}>
+              <Text style={styles.summaryCardTitle}>Loyers en retard</Text>
+              <Text style={styles.summaryCardValue}>{data.summary.totalLateRents}</Text>
+              <Text style={styles.summaryCardSubValue}>{formatEuro(data.summary.totalLateRentsAmount)}</Text>
             </View>
-          ) : (
-            <View style={styles.card}>
-              <View style={styles.grid}>
-                <Text style={styles.gridLabel}>Nombre de baux concernés</Text>
-                <Text style={styles.gridValue}>{data.summary.totalBaux}</Text>
-              </View>
-              {data.summary.totalLateRents > 0 && (
-                <View style={styles.grid}>
-                  <Text style={styles.gridLabel}>Loyers en retard</Text>
-                  <Text style={[styles.gridValue, { color: '#dc2626' }]}>
-                    {data.summary.totalLateRents} ({formatEuro(data.summary.totalLateRentsAmount)})
-                  </Text>
-                </View>
-              )}
-              {data.summary.totalUnmatchedTransactions > 0 && (
-                <View style={styles.grid}>
-                  <Text style={styles.gridLabel}>Transactions non rapprochées</Text>
-                  <Text style={[styles.gridValue, { color: '#f97316' }]}>
-                    {data.summary.totalUnmatchedTransactions} ({formatEuro(data.summary.totalUnmatchedAmount)})
-                  </Text>
-                </View>
-              )}
-              {data.summary.totalAmountGapsCases > 0 && (
-                <View style={styles.grid}>
-                  <Text style={styles.gridLabel}>Écarts de montant</Text>
-                  <Text style={[styles.gridValue, { color: '#f97316' }]}>
-                    {data.summary.totalAmountGapsCases} ({formatEuro(data.summary.totalAmountGapsValue)})
-                  </Text>
-                </View>
-              )}
-              {data.summary.totalMissingIndexationsCases > 0 && (
-                <View style={styles.grid}>
-                  <Text style={styles.gridLabel}>Indexations non appliquées</Text>
-                  <Text style={[styles.gridValue, { color: '#f97316' }]}>
-                    {data.summary.totalMissingIndexationsCases} ({formatEuro(data.summary.totalMissingIndexationsAmount)})
-                  </Text>
-                </View>
-              )}
+            <View style={[styles.summaryCard, { flex: 1, minWidth: '45%' }]}>
+              <Text style={styles.summaryCardTitle}>Transactions non rapprochées</Text>
+              <Text style={styles.summaryCardValue}>{data.summary.totalUnmatchedTransactions}</Text>
+              <Text style={styles.summaryCardSubValue}>{formatEuro(data.summary.totalUnmatchedAmount)}</Text>
             </View>
-          )}
+            <View style={[styles.summaryCard, { flex: 1, minWidth: '45%' }]}>
+              <Text style={styles.summaryCardTitle}>Écarts de montant</Text>
+              <Text style={styles.summaryCardValue}>{data.summary.totalAmountGapsCases}</Text>
+              <Text style={styles.summaryCardSubValue}>{formatEuro(data.summary.totalAmountGapsValue)}</Text>
+            </View>
+            <View style={[styles.summaryCard, { flex: 1, minWidth: '45%' }]}>
+              <Text style={styles.summaryCardTitle}>Total baux</Text>
+              <Text style={styles.summaryCardValue}>{data.summary.totalBaux}</Text>
+            </View>
+          </View>
         </View>
 
         {/* LOYERS EN RETARD */}

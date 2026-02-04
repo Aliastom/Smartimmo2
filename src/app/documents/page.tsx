@@ -1,11 +1,11 @@
 import { Suspense } from 'react';
-import { DocumentsPageUnified } from '@/components/documents/DocumentsPageUnified';
+import { DocumentsPageCore } from '@/features/documents/DocumentsPageCore';
 
 export default function DocumentsPage() {
   return (
     <div className="space-y-6">
       <Suspense fallback={<div>Chargement...</div>}>
-        <DocumentsPageUnified />
+        <DocumentsPageCore mode="normal" />
       </Suspense>
     </div>
   );

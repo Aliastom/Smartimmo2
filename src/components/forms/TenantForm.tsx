@@ -98,7 +98,7 @@ export default function TenantForm({ isOpen, onClose, onSubmit, initialData, tit
               type="text"
               value={formData.firstName}
               onChange={(e) => handleChange('firstName', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.firstName ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: Jean"
@@ -114,7 +114,7 @@ export default function TenantForm({ isOpen, onClose, onSubmit, initialData, tit
               type="text"
               value={formData.lastName}
               onChange={(e) => handleChange('lastName', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.lastName ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: Dupont"
@@ -130,7 +130,7 @@ export default function TenantForm({ isOpen, onClose, onSubmit, initialData, tit
               type="email"
               value={formData.email}
               onChange={(e) => handleChange('email', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.email ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: jean.dupont@email.com"
@@ -146,7 +146,7 @@ export default function TenantForm({ isOpen, onClose, onSubmit, initialData, tit
               type="tel"
               value={formData.phone}
               onChange={(e) => handleChange('phone', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
               placeholder="Ex: +33 6 12 34 56 78"
             />
           </div>
@@ -159,7 +159,7 @@ export default function TenantForm({ isOpen, onClose, onSubmit, initialData, tit
               type="date"
               value={formData.birthDate}
               onChange={(e) => handleChange('birthDate', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
             />
           </div>
 
@@ -171,7 +171,7 @@ export default function TenantForm({ isOpen, onClose, onSubmit, initialData, tit
               type="text"
               value={formData.nationality}
               onChange={(e) => handleChange('nationality', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
               placeholder="Ex: Française"
             />
           </div>
@@ -184,7 +184,7 @@ export default function TenantForm({ isOpen, onClose, onSubmit, initialData, tit
               value={formData.notes}
               onChange={(e) => handleChange('notes', e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
               placeholder="Notes supplémentaires..."
             />
           </div>

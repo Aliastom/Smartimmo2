@@ -107,37 +107,40 @@ export const aiConfig = {
   },
 };
 
-import { logDebug } from '@/lib/utils/logger';
+// TODO: Companion IA temporairement désactivé
+// import { logDebug } from '@/lib/utils/logger';
 
 /**
  * Helper pour logger la configuration au démarrage
+ * TODO: Désactivé temporairement avec le companion
  */
 export function logAiConfig() {
-  logDebug('═'.repeat(60));
-  logDebug('🤖 Smartimmo AI Configuration');
-  logDebug('═'.repeat(60));
+  // TODO: Companion IA temporairement désactivé
+  // logDebug('═'.repeat(60));
+  // logDebug('🤖 Smartimmo AI Configuration');
+  // logDebug('═'.repeat(60));
   
-  if (!aiConfig.enabled) {
-    logDebug('❌ IA DÉSACTIVÉE (NEXT_PUBLIC_AI_ENABLED=false)');
-    logDebug('═'.repeat(60));
-    return;
-  }
+  // if (!aiConfig.enabled) {
+  //   logDebug('❌ IA DÉSACTIVÉE (NEXT_PUBLIC_AI_ENABLED=false)');
+  //   logDebug('═'.repeat(60));
+  //   return;
+  // }
   
-  logDebug(`Mode: ${aiConfig.mode.toUpperCase()}`);
-  logDebug(`Ollama: ${aiConfig.ollama.host} (${aiConfig.ollama.model})`);
-  logDebug(`Qdrant: ${aiConfig.qdrant.url} (${aiConfig.qdrant.collection})`);
-  logDebug(`Embeddings: ${aiConfig.embeddings.model}`);
+  // logDebug(`Mode: ${aiConfig.mode.toUpperCase()}`);
+  // logDebug(`Ollama: ${aiConfig.ollama.host} (${aiConfig.ollama.model})`);
+  // logDebug(`Qdrant: ${aiConfig.qdrant.url} (${aiConfig.qdrant.collection})`);
+  // logDebug(`Embeddings: ${aiConfig.embeddings.model}`);
   
-  if (aiConfig.mode === 'react') {
-    logDebug('\n✅ Agent ReAct activé avec outils:');
-    logDebug(`   - SQL: ${aiConfig.features.sqlTool ? '✓' : '✗'}`);
-    logDebug(`   - KB Search: ${aiConfig.features.kbSearch ? '✓' : '✗'}`);
-    logDebug(`   - Doc Fetch: ${aiConfig.features.docFetch ? '✓' : '✗'}`);
-    logDebug(`   - OCR Summarize: ${aiConfig.features.ocrSummarize ? '✓' : '✗'}`);
-  } else {
-    logDebug('\n⚠️  Mode Legacy (RAG simple)');
-  }
+  // if (aiConfig.mode === 'react') {
+  //   logDebug('\n✅ Agent ReAct activé avec outils:');
+  //   logDebug(`   - SQL: ${aiConfig.features.sqlTool ? '✓' : '✗'}`);
+  //   logDebug(`   - KB Search: ${aiConfig.features.kbSearch ? '✓' : '✗'}`);
+  //   logDebug(`   - Doc Fetch: ${aiConfig.features.docFetch ? '✓' : '✗'}`);
+  //   logDebug(`   - OCR Summarize: ${aiConfig.features.ocrSummarize ? '✓' : '✗'}`);
+  // } else {
+  //   logDebug('\n⚠️  Mode Legacy (RAG simple)');
+  // }
   
-  logDebug('═'.repeat(60));
+  // logDebug('═'.repeat(60));
 }
 

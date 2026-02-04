@@ -86,9 +86,9 @@ export function UserDisplay({ className }: { className?: string }) {
     <div className={cn("relative", className)} ref={menuRef}>
       {/* Menu Popup */}
       {isMenuOpen && (
-        <div className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-xl shadow-xl border border-gray-200 py-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+        <div className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-2xl shadow-lg border border-gray-200 py-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
           {/* Header du menu */}
-          <div className="px-4 py-3 border-b border-gray-100">
+          <div className="px-4 py-3 border-b border-gray-200">
             <p className="text-sm font-semibold text-gray-900 truncate">
               {user.name || 'Utilisateur'}
             </p>
@@ -108,9 +108,9 @@ export function UserDisplay({ className }: { className?: string }) {
                 setIsMenuOpen(false);
                 router.push('/profil');
               }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-2xl transition-all duration-150"
             >
-              <User className="w-4 h-4 text-gray-400" />
+              <User className="w-4 h-4 text-gray-500" />
               Mon Profil
             </button>
 
@@ -119,19 +119,19 @@ export function UserDisplay({ className }: { className?: string }) {
                 setIsMenuOpen(false);
                 router.push('/parametres');
               }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-2xl transition-all duration-150"
             >
-              <Settings className="w-4 h-4 text-gray-400" />
+              <Settings className="w-4 h-4 text-gray-500" />
               Paramètres
             </button>
           </div>
 
           {/* Déconnexion */}
-          <div className="border-t border-gray-100 pt-1">
+          <div className="border-t border-gray-200 pt-1">
             <button
               onClick={handleLogout}
               disabled={isLoggingOut}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-2xl transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <LogOut className="w-4 h-4" />
               {isLoggingOut ? 'Déconnexion...' : 'Se déconnecter'}
@@ -151,7 +151,7 @@ export function UserDisplay({ className }: { className?: string }) {
       >
         {/* Avatar */}
         <div className="relative flex-shrink-0">
-          <div className="w-10 h-10 rounded-full bg-primary-500 text-white flex items-center justify-center font-semibold text-sm">
+          <div className="w-10 h-10 rounded-full bg-[#ff6b35] text-white flex items-center justify-center font-semibold text-sm">
             {initials}
           </div>
           {/* Badge Administrateur - toujours visible en bas du menu */}

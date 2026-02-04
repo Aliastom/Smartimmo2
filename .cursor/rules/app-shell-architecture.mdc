@@ -1,0 +1,262 @@
+# 🏗️ ARCHITECTURE APP SHELL - SMARTIMMO
+
+Ce document définit **une fois pour toutes** l'architecture App Shell de Smartimmo pour que l'IA comprenne et respecte ce modèle.
+
+---
+
+## 1. Principe fondamental : Un seul HTML pour toutes les vues
+
+### 1.1. Structure unique
+
+- **Une seule page HTML** : `/app` (fichier `src/app/app/page.tsx`)
+- **Toutes les vues** sont des composants React rendus conditionnellement dans ce même shell
+- **Navigation interne** = changement d'état React, **PAS** de nouvelle requête HTML
+
+### 1.2. URLs et vues
+
+Toutes ces URLs utilisent **le même HTML** `/app` :
+
+```
+/app                    → vue "dashboard" (par défaut)
+/app?view=dashboard     → vue "dashboard"
+/app?view=biens         → vue "biens"
+/app?view=transactions  → vue "transactions"
+/app?view=property&propertyId=xxx&tab=transactions → vue "property"
+```
+
+**Important** : Ce ne sont **PAS** des pages distinctes. Ce sont des **variantes d'URL** qui pointent vers le même App Shell HTML.
+
+### 1.3. Rendu des vues
+
+Les vues sont rendues via un `switch` dans `AppShellClient.tsx` :
+
+```typescript
+const renderView = useMemo(() => {
+  switch (currentView) {
+    case 'dashboard':
+      return <DashboardPageCore mode="app-shell" />;
+    case 'biens':
+      return <PropertiesPageCore mode="app-shell" />;
+    // ... autres vues
+  }
+}, [currentView, organizationId, urlParams]);
+```
+
+**Aucune page HTML distincte n'est générée** pour chaque vue.
+
+---
+
+## 2. Service Worker : Cache du shell unique
+
+### 2.1. Stratégie de cache
+
+Le Service Worker (configuré dans `next.config.mjs`) utilise :
+
+- **Stratégie** : `NetworkFirst` pour les navigations (`request.mode === 'navigate'`)
+- **Cache name** : `html-pages`
+- **Option critique** : `ignoreSearch: true` (ligne 254)
+
+```javascript
+{
+  urlPattern: ({ request }) => request.mode === 'navigate',
+  handler: 'NetworkFirst',
+  options: {
+    cacheName: 'html-pages',
+    matchOptions: {
+      ignoreSearch: true, // ⚠️ CRITIQUE : Ignore les query params
+    },
+  },
+}
+```
+
+### 2.2. Comportement
+
+1. **Première visite** : `/app` est chargée depuis le réseau et mise en cache
+2. **Visites suivantes** : 
+   - `/app?view=biens` → Le SW trouve `/app` dans le cache (grâce à `ignoreSearch: true`)
+   - `/app?view=property&propertyId=xxx` → Même HTML de base servi depuis le cache
+3. **Offline** : Toutes les variantes `/app?*` fonctionnent car elles utilisent le même HTML en cache
+
+### 2.3. Bundles JavaScript
+
+- Les bundles JS sont mis en cache séparément par Next.js
+- Le SW les met en cache via `precacheAndRoute` (dans `sw.js`)
+- **Toute l'UI de l'app-shell est disponible offline** après le premier chargement
+
+---
+
+## 3. Navigation interne : React uniquement
+
+### 3.1. Pas de routing Next.js
+
+La navigation dans l'app-shell **ne passe pas** par le routing Next.js :
+
+- ❌ Pas de `<Link>` Next.js
+- ❌ Pas de `router.push()` pour changer de vue
+- ✅ Utilisation de `window.history.pushState()` + `setCurrentView()`
+
+### 3.2. Implémentation
+
+Dans `AppShellClient.tsx` :
+
+```typescript
+const handleNavigation = (view: ViewType) => {
+  setCurrentView(view); // État React
+  // Mettre à jour l'URL sans recharger
+  if (typeof window !== 'undefined') {
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', view);
+    window.history.pushState({}, '', url); // ⚠️ Pas de rechargement
+  }
+};
+```
+
+### 3.3. Écoute des changements d'URL
+
+Un `useEffect` écoute les changements d'URL (via `popstate` ou interval) :
+
+```typescript
+useEffect(() => {
+  const handleLocationChange = () => {
+    const params = new URLSearchParams(window.location.search);
+    const viewParam = params.get('view');
+    if (viewParam) {
+      setCurrentView(viewParam as ViewType); // Mise à jour de l'état React
+    }
+  };
+  
+  window.addEventListener('popstate', handleLocationChange);
+  const interval = setInterval(handleLocationChange, 500);
+  
+  return () => {
+    window.removeEventListener('popstate', handleLocationChange);
+    clearInterval(interval);
+  };
+}, []);
+```
+
+**Résultat** : Changer de vue = changement d'état React uniquement, **aucun rechargement réseau**.
+
+---
+
+## 4. Données : IndexedDB uniquement en app-shell
+
+### 4.1. Principe
+
+En mode app-shell (`mode="app-shell"`), les composants **ne doivent jamais** :
+
+- ❌ Appeler directement Supabase/Prisma
+- ❌ Faire des `fetch()` vers `/api/*` pour les données métier
+- ❌ Utiliser des Server Components
+
+Ils **doivent** :
+
+- ✅ Lire uniquement depuis IndexedDB via les repositories offline
+- ✅ Utiliser les hooks unifiés (`useXxxData({ mode: "app-shell" })`)
+
+### 4.2. Exemple
+
+```typescript
+// ✅ CORRECT
+const { properties } = usePropertiesData({ mode: "app-shell" });
+// → Lit depuis IndexedDB uniquement
+
+// ❌ INCORRECT
+const response = await fetch('/api/properties');
+// → Ne doit jamais être fait en app-shell
+```
+
+### 4.3. Navigation = pas de refetch
+
+Quand on navigue de `/app?view=biens` vers `/app?view=transactions` :
+
+- ✅ Les données sont lues depuis IndexedDB (déjà en cache)
+- ❌ Aucun appel réseau pour récupérer les données
+- ❌ Aucun rechargement de l'App Shell HTML
+
+---
+
+## 5. Synchronisation : Données uniquement, pas l'UI
+
+### 5.1. Sync silencieuse
+
+La sync silencieuse concerne **uniquement** :
+
+- ✅ IndexedDB ↔ Supabase (données)
+- ✅ pendingOps → Supabase
+- ✅ Supabase → IndexedDB (overwrite)
+
+Elle **ne concerne pas** :
+
+- ❌ Préchargement de l'UI
+- ❌ Mise à jour du cache HTML
+- ❌ Rechargement des bundles JS
+
+### 5.2. UI déjà disponible
+
+L'UI de l'app-shell est **déjà disponible** via :
+
+- Le cache Service Worker (HTML + bundles JS)
+- Les données IndexedDB (mises à jour par la sync)
+
+**La sync ne précharge pas l'UI**, elle met à jour les données.
+
+---
+
+## 6. Règles à respecter par l'IA
+
+### 6.1. Ne jamais dire que "chaque page doit être visitée pour être mise en cache"
+
+❌ **INCORRECT** :
+> "Le service worker met en cache les pages au fur et à mesure des visites"
+
+✅ **CORRECT** :
+> "Le service worker met en cache `/app` une fois, et toutes les variantes `/app?*` utilisent ce même HTML grâce à `ignoreSearch: true`"
+
+### 6.2. Ne jamais parler de "préchargement de pages app-shell"
+
+❌ **INCORRECT** :
+> "Il faut précharger toutes les pages app-shell"
+
+✅ **CORRECT** :
+> "Il n'y a qu'une seule page HTML `/app`. Les vues sont des composants React rendus conditionnellement. Le SW met en cache `/app` et ses bundles, donc toute l'UI est disponible offline."
+
+### 6.3. Distinguer UI et données
+
+❌ **INCORRECT** :
+> "La sync silencieuse précharge l'UI"
+
+✅ **CORRECT** :
+> "La sync silencieuse met à jour IndexedDB. L'UI est déjà disponible via le cache Service Worker."
+
+### 6.4. Navigation = React uniquement
+
+❌ **INCORRECT** :
+> "La navigation charge une nouvelle page HTML"
+
+✅ **CORRECT** :
+> "La navigation change l'état React et l'URL via `pushState`, sans recharger le HTML."
+
+---
+
+## 7. Résumé des points clés
+
+1. **Un seul HTML** : `/app` sert pour toutes les vues
+2. **Service Worker** : Met en cache `/app` avec `ignoreSearch: true` → toutes les variantes fonctionnent offline
+3. **Navigation interne** : React uniquement, pas de rechargement HTML
+4. **Vues** : Composants React conditionnels, pas des pages distinctes
+5. **Données** : IndexedDB uniquement en app-shell, jamais Supabase/API direct
+6. **Sync** : Données uniquement, pas l'UI (qui est déjà en cache)
+
+---
+
+## 8. Fichiers clés
+
+- `src/app/app/page.tsx` : Point d'entrée App Shell (HTML unique)
+- `src/app/app/AppShellClient.tsx` : Logique de navigation et rendu des vues
+- `next.config.mjs` : Configuration Service Worker (lignes 238-269)
+- `public/sw.js` : Service Worker généré (avec `ignoreSearch: true`)
+
+---
+
+**Cette architecture doit être respectée dans toutes les réponses et modifications de code.**

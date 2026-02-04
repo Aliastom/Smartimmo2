@@ -4,7 +4,8 @@ import React, { useState, useMemo } from 'react';
 import { Search, Filter, X, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
+import { SmartDatePicker } from '@/components/ui/SmartDatePicker';
 
 interface TransactionFiltersProps {
   filters: {
@@ -223,11 +224,11 @@ export default function TransactionFilters({
   return (
     <div className="bg-white rounded-xl border border-gray-200 mb-6">
       {/* Header avec bouton toggle - Style Documents */}
-      <div className="flex items-center justify-between px-6 py-4">
+      <div className="flex items-center justify-between px-4 sm:px-6 py-4">
         <div className="flex items-center gap-2">
           <h3 className="text-lg font-bold text-gray-900">Filtres</h3>
           {hasActiveFilters && (
-            <span className="bg-blue-100 text-blue-600 text-xs font-medium px-2 py-1 rounded-full">
+            <span className="bg-orange-100 text-orange-600 text-xs font-medium px-2 py-1 rounded-full">
               {activeFiltersCount} actif{activeFiltersCount > 1 ? 's' : ''}
             </span>
           )}
@@ -243,7 +244,7 @@ export default function TransactionFilters({
       </div>
 
       {/* Contenu - Style Documents */}
-      <div className="px-6 py-4 space-y-4">
+      <div className="px-4 sm:px-6 py-4 space-y-4">
         {/* Période comptable - Toujours visible */}
         {periodStart && periodEnd && onPeriodChange && (
           <div>
@@ -258,7 +259,7 @@ export default function TransactionFilters({
                 onClick={() => handleQuickPeriod('all')}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                   activePeriod === 'all'
-                    ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                    ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                     : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
                 }`}
               >
@@ -268,7 +269,7 @@ export default function TransactionFilters({
                 onClick={() => handleQuickPeriod('current-month')}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                   activePeriod === 'current-month'
-                    ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                    ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                     : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
                 }`}
               >
@@ -278,7 +279,7 @@ export default function TransactionFilters({
                 onClick={() => handleQuickPeriod('current-year')}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                   activePeriod === 'current-year'
-                    ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                    ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                     : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
                 }`}
               >
@@ -288,7 +289,7 @@ export default function TransactionFilters({
                 onClick={() => handleQuickPeriod('last-3-months')}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                   activePeriod === 'last-3-months'
-                    ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                    ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                     : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
                 }`}
               >
@@ -298,7 +299,7 @@ export default function TransactionFilters({
                 onClick={() => handleQuickPeriod('last-12-months')}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                   activePeriod === 'last-12-months'
-                    ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                    ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                     : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
                 }`}
               >
@@ -335,76 +336,58 @@ export default function TransactionFilters({
             id="includeArchivedProperties"
             checked={filters.includeArchived === true}
             onChange={(e) => handleFilterChange('includeArchived', e.target.checked)}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+            className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-4 w-4 cursor-pointer"
           />
           <label htmlFor="includeArchivedProperties" className="text-sm text-gray-700 cursor-pointer select-none">
             Inclure les biens archivés
           </label>
           {filters.includeArchived && (
-            <span className="text-xs text-blue-600 font-medium">Actif</span>
+            <span className="text-xs text-orange-600 font-medium">Actif</span>
           )}
         </div>
       </div>
 
       {/* Filtres étendus - Style Documents */}
       {isExpanded && (
-        <div className="px-6 pb-4 pt-4 border-t space-y-4">
+        <div className="px-4 sm:px-6 pb-4 pt-4 border-t space-y-4">
           {/* Sélecteurs de période détaillés */}
           {periodStart && periodEnd && onPeriodChange && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-4 border-b">
               <div>
                 <label className="block text-xs text-gray-600 mb-1">Du</label>
                 <div className="flex gap-2">
-                  <select
-                    value={startParsed?.month}
-                    onChange={(e) => handlePeriodStartChange(undefined, e.target.value)}
-                    className="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {months.map((m) => (
-                      <option key={m.value} value={m.value}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={startParsed?.year}
-                    onChange={(e) => handlePeriodStartChange(parseInt(e.target.value), undefined)}
-                    className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {years.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
+                  <SmartSelect
+                    value={startParsed?.month || ''}
+                    onChange={(value) => handlePeriodStartChange(undefined, value)}
+                    options={months.map(m => ({ value: m.value, label: m.label }))}
+                    placeholder="Mois"
+                    className="flex-1"
+                  />
+                  <SmartSelect
+                    value={startParsed?.year?.toString() || ''}
+                    onChange={(value) => handlePeriodStartChange(parseInt(value), undefined)}
+                    options={years.map(y => ({ value: y.toString(), label: y.toString() }))}
+                    placeholder="Année"
+                  />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs text-gray-600 mb-1">Au</label>
                 <div className="flex gap-2">
-                  <select
-                    value={endParsed?.month}
-                    onChange={(e) => handlePeriodEndChange(undefined, e.target.value)}
-                    className="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {months.map((m) => (
-                      <option key={m.value} value={m.value}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={endParsed?.year}
-                    onChange={(e) => handlePeriodEndChange(parseInt(e.target.value), undefined)}
-                    className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {years.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
+                  <SmartSelect
+                    value={endParsed?.month || ''}
+                    onChange={(value) => handlePeriodEndChange(undefined, value)}
+                    options={months.map(m => ({ value: m.value, label: m.label }))}
+                    placeholder="Mois"
+                    className="flex-1"
+                  />
+                  <SmartSelect
+                    value={endParsed?.year?.toString() || ''}
+                    onChange={(value) => handlePeriodEndChange(parseInt(value), undefined)}
+                    options={years.map(y => ({ value: y.toString(), label: y.toString() }))}
+                    placeholder="Année"
+                  />
                 </div>
               </div>
             </div>
@@ -418,14 +401,14 @@ export default function TransactionFilters({
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Nature
                 </label>
-                <Select
+                <SmartSelect
                   value={filters.natureId}
-                  onChange={(e) => {
+                  onChange={(value) => {
                     // Réinitialiser la catégorie quand on change de nature (en un seul appel)
                     onFiltersChange({
                       ...filters,
-                      natureId: e.target.value,
-                      categoryId: e.target.value !== filters.natureId ? '' : filters.categoryId
+                      natureId: value,
+                      categoryId: value !== filters.natureId ? '' : filters.categoryId
                     });
                   }}
                   options={[
@@ -444,9 +427,9 @@ export default function TransactionFilters({
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Catégorie comptable
                 </label>
-                <Select
+                <SmartSelect
                   value={filters.categoryId}
-                  onChange={(e) => handleFilterChange('categoryId', e.target.value)}
+                  onChange={(value) => handleFilterChange('categoryId', value)}
                   options={[
                     { value: '', label: 'Toutes les catégories' },
                     ...(Array.isArray(filteredCategories) ? filteredCategories.map(category => ({
@@ -469,9 +452,9 @@ export default function TransactionFilters({
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Bien
                 </label>
-                <Select
+                <SmartSelect
                   value={filters.propertyId}
-                  onChange={(e) => handleFilterChange('propertyId', e.target.value)}
+                  onChange={(value) => handleFilterChange('propertyId', value)}
                   options={[
                     { value: '', label: 'Tous les biens' },
                     ...(Array.isArray(properties) ? properties.map(property => ({
@@ -489,9 +472,9 @@ export default function TransactionFilters({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Bail
               </label>
-              <Select
+              <SmartSelect
                 value={filters.leaseId}
-                onChange={(e) => handleFilterChange('leaseId', e.target.value)}
+                onChange={(value) => handleFilterChange('leaseId', value)}
                 options={[
                   { value: '', label: 'Tous les baux' },
                   ...(Array.isArray(leases) ? leases.map(lease => ({
@@ -508,9 +491,9 @@ export default function TransactionFilters({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Locataire
               </label>
-              <Select
+              <SmartSelect
                 value={filters.tenantId}
-                onChange={(e) => handleFilterChange('tenantId', e.target.value)}
+                onChange={(value) => handleFilterChange('tenantId', value)}
                 options={[
                   { value: '', label: 'Tous les locataires' },
                   ...(Array.isArray(tenants) ? tenants.map(tenant => ({
@@ -555,10 +538,10 @@ export default function TransactionFilters({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Date du
               </label>
-              <Input
-                type="date"
+              <SmartDatePicker
                 value={filters.dateFrom}
-                onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
+                onChange={(value) => handleFilterChange('dateFrom', value)}
+                placeholder="jj/mm/aaaa"
               />
             </div>
 
@@ -567,10 +550,10 @@ export default function TransactionFilters({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Date au
               </label>
-              <Input
-                type="date"
+              <SmartDatePicker
                 value={filters.dateTo}
-                onChange={(e) => handleFilterChange('dateTo', e.target.value)}
+                onChange={(value) => handleFilterChange('dateTo', value)}
+                placeholder="jj/mm/aaaa"
               />
             </div>
 
@@ -579,9 +562,9 @@ export default function TransactionFilters({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Document
               </label>
-              <Select
+              <SmartSelect
                 value={filters.hasDocument}
-                onChange={(e) => handleFilterChange('hasDocument', e.target.value)}
+                onChange={(value) => handleFilterChange('hasDocument', value)}
                 options={DOCUMENT_OPTIONS}
                 placeholder="Filtrer par document"
               />

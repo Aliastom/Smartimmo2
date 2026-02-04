@@ -5,7 +5,7 @@
  */
 
 import { Metadata } from 'next';
-import { FiscalPage } from './FiscalPage';
+import { FiscalPageCore } from '@/features/fiscal/FiscalPageCore';
 
 export const metadata: Metadata = {
   title: 'Espace fiscal | SmartImmo',
@@ -13,6 +13,6 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <FiscalPage />;
+  return <FiscalPageCore mode="normal" />;
 }
 

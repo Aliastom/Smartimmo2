@@ -1,11 +1,11 @@
 import { Suspense } from 'react';
-import LoansClient from './LoansClient';
+import { LoansPageCore } from '@/features/loans/LoansPageCore';
 
 export default function LoansPage() {
   return (
     <div className="space-y-6">
       <Suspense fallback={<div>Chargement...</div>}>
-        <LoansClient />
+        <LoansPageCore mode="normal" />
       </Suspense>
     </div>
   );

@@ -27,6 +27,8 @@ const updateLoanSchema = z.object({
   amortizationProfile: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
+  stagedDocumentIds: z.array(z.string()).optional(),
+  stagedLinkItemIds: z.array(z.string()).optional(),
 });
 
 /**
@@ -240,6 +242,125 @@ export async function PATCH(
       },
     });
 
+    // ✅ Traiter les documents en staging (stagedDocumentIds)
+    if (data.stagedDocumentIds && data.stagedDocumentIds.length > 0) {
+      // Mettre à jour les documents avec loanId et status: 'active'
+      await prisma.document.updateMany({
+        where: {
+          id: { in: data.stagedDocumentIds },
+          organizationId,
+        },
+        data: {
+          loanId: loan.id,
+          status: 'active',
+          uploadSessionId: null,
+          intendedContextType: null,
+          intendedContextTempKey: null,
+        },
+      });
+
+      // Finaliser les documents (migrer de tmp/ vers documents/)
+      const { getStorageService } = await import('@/services/storage.service');
+      const storageService = getStorageService();
+      
+      for (const docId of data.stagedDocumentIds) {
+        const doc = await prisma.document.findFirst({
+          where: { id: docId, organizationId },
+          select: {
+            id: true,
+            bucketKey: true,
+            filenameOriginal: true,
+            fileName: true,
+            mime: true
+          }
+        });
+        
+        if (!doc || !doc.bucketKey) continue;
+        
+        // Si le bucketKey est déjà dans documents/, pas besoin de migrer
+        if (doc.bucketKey.startsWith('documents/')) continue;
+        
+        // Lire le fichier temporaire
+        let fileBuffer: Buffer;
+        try {
+          fileBuffer = await storageService.downloadDocument(doc.bucketKey);
+        } catch (error: any) {
+          console.error(`[API] Erreur lecture fichier temporaire pour ${docId}:`, error);
+          continue;
+        }
+        
+        // Générer le nom de fichier final
+        const fileExtension = doc.filenameOriginal?.split('.').pop() || 'pdf';
+        const finalFilename = `${doc.id}.${fileExtension}`;
+        
+        // Upload vers le stockage permanent
+        try {
+          const uploadResult = await storageService.uploadDocument(
+            fileBuffer,
+            doc.id,
+            finalFilename,
+            doc.mime || 'application/octet-stream'
+          );
+          
+          // Supprimer l'ancien fichier temporaire
+          try {
+            await storageService.deleteDocument(doc.bucketKey);
+          } catch (deleteError) {
+            console.warn(`[API] Impossible de supprimer l'ancien fichier ${doc.bucketKey}:`, deleteError);
+          }
+          
+          // Mettre à jour le document avec le nouveau bucketKey
+          await prisma.document.update({
+            where: { id: doc.id },
+            data: {
+              bucketKey: uploadResult.key,
+              url: `/api/documents/${doc.id}/file`
+            }
+          });
+        } catch (uploadError: any) {
+          console.error(`[API] Erreur upload document final pour ${docId}:`, uploadError);
+        }
+      }
+      
+      // Créer les liens DocumentLink
+      const { createDocumentLinks } = await import('@/lib/services/documentLinkService');
+      for (const docId of data.stagedDocumentIds) {
+        // ✅ Passer loanId pour que createDocumentLinks crée le lien pour le prêt
+        await createDocumentLinks(docId, {
+          id: loan.id,
+          propertyId: loan.propertyId,
+          loanId: loan.id, // ✅ Indiquer que c'est un prêt
+        });
+      }
+    }
+
+    // ✅ Traiter les liens vers documents existants (stagedLinkItemIds)
+    // ⚠️ IMPORTANT: stagedLinkItemIds contient les IDs des documents existants (pas les IDs des uploadStagedItem)
+    if (data.stagedLinkItemIds && data.stagedLinkItemIds.length > 0) {
+      const { createDocumentLinks } = await import('@/lib/services/documentLinkService');
+      
+      // Vérifier que les documents existent et appartiennent à l'organisation
+      const existingDocuments = await prisma.document.findMany({
+        where: {
+          id: { in: data.stagedLinkItemIds },
+          organizationId,
+        },
+        select: {
+          id: true,
+        },
+      });
+      
+      // Créer les liens pour chaque document existant
+      for (const doc of existingDocuments) {
+        // ✅ Passer loanId pour que createDocumentLinks crée le lien pour le prêt
+        await createDocumentLinks(doc.id, {
+          id: loan.id,
+          propertyId: loan.propertyId,
+          loanId: loan.id, // ✅ Indiquer que c'est un prêt
+        });
+      }
+    }
+
     return NextResponse.json({
       id: loan.id,
       propertyId: loan.propertyId,
@@ -283,6 +404,8 @@ export async function DELETE(
   try {
     const user = await requireAuth();
     const organizationId = user.organizationId;
+    const { searchParams } = new URL(request.url);
+    const hard = searchParams.get('hard') === '1';
     // Vérifier que le prêt existe
     const loan = await prisma.loan.findFirst({
       where: { id: params.id, organizationId },
@@ -295,13 +418,29 @@ export async function DELETE(
       );
     }
 
-    // Soft delete : mettre isActive à false
-    await prisma.loan.update({
-      where: { id: params.id, organizationId },
-      data: {
-        isActive: false,
-      },
-    });
+    if (hard) {
+      // Hard delete : supprimer définitivement et nettoyer les liens
+      await prisma.$transaction(async (tx) => {
+        await tx.documentLink.deleteMany({
+          where: { linkedType: 'loan', linkedId: params.id },
+        });
+        await tx.document.updateMany({
+          where: { loanId: params.id, organizationId },
+          data: { loanId: null },
+        });
+        await tx.loan.delete({
+          where: { id: params.id },
+        });
+      });
+    } else {
+      // Soft delete : mettre isActive à false
+      await prisma.loan.update({
+        where: { id: params.id, organizationId },
+        data: {
+          isActive: false,
+        },
+      });
+    }
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {

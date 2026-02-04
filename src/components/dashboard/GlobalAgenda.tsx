@@ -6,13 +6,15 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Separator } from '@/components/ui/Separator';
 import { AgendaItem } from '@/types/dashboard';
-import { Calendar, ChevronRight, ExternalLink } from 'lucide-react';
+import { Calendar, ChevronRight, ChevronLeft, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/utils/cn';
+import { navigateToView } from '@/utils/appShellNavigation';
 
 interface GlobalAgendaProps {
   agenda: AgendaItem[];
   isLoading?: boolean;
+  mode?: 'normal' | 'app-shell';
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -39,11 +41,12 @@ const TYPE_COLORS: Record<string, string> = {
   transaction: 'bg-slate-100 text-slate-700 border-slate-200',
 };
 
-const ITEMS_PER_PAGE = 40;
+const ITEMS_PER_PAGE = 15; // Pagination de 15 éléments
 
-export function GlobalAgenda({ agenda, isLoading = false }: GlobalAgendaProps) {
+export function GlobalAgenda({ agenda, isLoading = false, mode = 'normal' }: GlobalAgendaProps) {
   const [showAll, setShowAll] = useState(false);
   const [collapsedYears, setCollapsedYears] = useState<Set<string>>(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
 
   if (isLoading) {
     return (
@@ -130,19 +133,65 @@ export function GlobalAgenda({ agenda, isLoading = false }: GlobalAgendaProps) {
   const getEntityUrl = (item: AgendaItem) => {
     if (!item.entity) return null;
     const { kind, id } = item.entity;
-    switch (kind) {
-      case 'property':
-        return `/biens/${id}/transactions`;
-      case 'lease':
-        return `/baux/${id}`;
-      case 'transaction':
-        return `/transactions?highlight=${id}`;
-      default:
-        return null;
+    
+    if (mode === 'app-shell') {
+      // URLs app-shell (utilisées pour l'attribut href, mais la navigation réelle se fait via handleEntityClick)
+      switch (kind) {
+        case 'property':
+          return `/app?view=property&propertyId=${id}&tab=transactions`;
+        case 'lease':
+          return `/app?view=baux`;
+        case 'transaction':
+          return `/app?view=transactions&highlight=${id}`;
+        default:
+          return null;
+      }
+    } else {
+      // URLs mode normal
+      switch (kind) {
+        case 'property':
+          return `/biens/${id}/transactions`;
+        case 'lease':
+          return `/baux/${id}`;
+        case 'transaction':
+          return `/transactions?highlight=${id}`;
+        default:
+          return null;
+      }
     }
   };
 
-  const displayedItems = showAll ? agenda : agenda.slice(0, ITEMS_PER_PAGE);
+  const handleEntityClick = (e: React.MouseEvent, item: AgendaItem) => {
+    if (mode === 'app-shell' && item.entity) {
+      e.preventDefault();
+      const { kind, id } = item.entity;
+      
+      if (kind === 'property') {
+        // Navigation vers la vue property avec l'onglet transactions
+        const newUrl = `/app?view=property&propertyId=${id}&tab=transactions`;
+        window.history.pushState({ view: 'property', propertyId: id, tab: 'transactions' }, '', newUrl);
+      } else if (kind === 'lease') {
+        // Navigation vers la vue baux (pas de vue détaillée d'un bail dans app-shell pour l'instant)
+        navigateToView('baux');
+      } else if (kind === 'transaction') {
+        // Navigation vers la vue transactions avec highlight
+        navigateToView('transactions');
+        // Note: highlight sera géré par le composant TransactionsPageCore
+        setTimeout(() => {
+          const url = new URL(window.location.href);
+          url.searchParams.set('highlight', id);
+          window.history.pushState({ view: 'transactions', highlight: id }, '', url.toString());
+        }, 100);
+      }
+    }
+  };
+
+  // Pagination
+  const totalPages = Math.ceil(agenda.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const paginatedItems = agenda.slice(startIndex, endIndex);
+  const displayedItems = showAll ? agenda : paginatedItems;
   const groupedByYear = groupByYear(displayedItems);
   const years = Array.from(groupedByYear.keys()).sort((a, b) => parseInt(a) - parseInt(b));
 
@@ -171,12 +220,26 @@ export function GlobalAgenda({ agenda, isLoading = false }: GlobalAgendaProps) {
             <Badge variant="secondary" className="text-xs">
               {agenda.length} échéance{agenda.length > 1 ? 's' : ''}
             </Badge>
-            <Link href="/echeances">
-              <Button variant="outline" size="sm">
-                Voir plus
-                <ExternalLink className="h-4 w-4 ml-2" />
-              </Button>
-            </Link>
+            {mode === 'app-shell' ? (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigateToView('echeances');
+                }}
+              >
+                <Button variant="outline" size="sm">
+                  Voir plus
+                  <ExternalLink className="h-4 w-4 ml-2" />
+                </Button>
+              </button>
+            ) : (
+              <Link href="/echeances">
+                <Button variant="outline" size="sm">
+                  Voir plus
+                  <ExternalLink className="h-4 w-4 ml-2" />
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -216,7 +279,8 @@ export function GlobalAgenda({ agenda, isLoading = false }: GlobalAgendaProps) {
 
                       return (
                         <React.Fragment key={`${item.date}-${item.label}-${index}`}>
-                          <div className="flex items-center justify-between py-3 px-2 hover:bg-gray-50 rounded-lg transition-colors">
+                          {/* Desktop: Tableau */}
+                          <div className="hidden md:flex items-center justify-between py-3 px-2 hover:bg-gray-50 rounded-lg transition-colors">
                             {/* Date (à gauche) */}
                             <div className="flex items-center gap-3 min-w-0 flex-1">
                               <div className="flex-shrink-0 flex items-center gap-2 text-sm text-gray-600 min-w-[100px]">
@@ -247,20 +311,79 @@ export function GlobalAgenda({ agenda, isLoading = false }: GlobalAgendaProps) {
                                 </p>
                               )}
                               {entityUrl && (
-                                <Link href={entityUrl}>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8"
+                                mode === 'app-shell' ? (
+                                  <button
+                                    onClick={(e) => handleEntityClick(e, item)}
                                     aria-label="Voir le détail"
                                   >
-                                    <ExternalLink className="h-4 w-4" />
-                                  </Button>
-                                </Link>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      type="button"
+                                    >
+                                      <ExternalLink className="h-4 w-4" />
+                                    </Button>
+                                  </button>
+                                ) : (
+                                  <Link href={entityUrl}>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      aria-label="Voir le détail"
+                                    >
+                                      <ExternalLink className="h-4 w-4" />
+                                    </Button>
+                                  </Link>
+                                )
                               )}
                             </div>
                           </div>
-                          {index < yearItems.length - 1 && <Separator />}
+                          
+                          {/* Mobile: Carte */}
+                          <div className="md:hidden p-3 bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <Calendar className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                                <span className="text-sm font-medium text-gray-900">{formatDate(item.date)}</span>
+                              </div>
+                              {getStatusBadge(status)}
+                            </div>
+                            <div className="mb-2">
+                              <p className="text-sm font-semibold text-gray-900 mb-1">{item.label}</p>
+                              <Badge
+                                variant="outline"
+                                className={cn('text-xs border', typeColor)}
+                              >
+                                {typeLabel}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              {item.amount !== undefined && (
+                                <p className="text-base font-bold text-gray-900">
+                                  {formatCurrency(item.amount)}
+                                </p>
+                              )}
+                              {entityUrl && (
+                                mode === 'app-shell' ? (
+                                  <button
+                                    onClick={(e) => handleEntityClick(e, item)}
+                                    aria-label="Voir le détail"
+                                    className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                                  >
+                                    <ExternalLink className="h-5 w-5" />
+                                  </button>
+                                ) : (
+                                  <Link href={entityUrl} className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+                                    <ExternalLink className="h-5 w-5" />
+                                  </Link>
+                                )
+                              )}
+                            </div>
+                          </div>
+                          
+                          {index < yearItems.length - 1 && <Separator className="md:block hidden" />}
                         </React.Fragment>
                       );
                     })}
@@ -271,15 +394,54 @@ export function GlobalAgenda({ agenda, isLoading = false }: GlobalAgendaProps) {
           })}
         </div>
 
-        {/* Bouton "Afficher plus/moins" */}
-        {agenda.length > ITEMS_PER_PAGE && (
+        {/* Pagination */}
+        {!showAll && agenda.length > ITEMS_PER_PAGE && (
           <div className="mt-4 pt-4 border-t border-gray-200">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-xs sm:text-sm text-gray-600 text-center sm:text-left">
+                Page {currentPage} sur {totalPages} ({agenda.length} échéance{agenda.length > 1 ? 's' : ''})
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="flex-1 sm:flex-initial"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="hidden sm:inline ml-1">Précédent</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  className="flex-1 sm:flex-initial"
+                >
+                  <span className="hidden sm:inline mr-1">Suivant</span>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Bouton "Afficher tout" (optionnel) */}
+        {agenda.length > ITEMS_PER_PAGE && (
+          <div className="mt-2">
             <Button
-              variant="outline"
+              variant="ghost"
+              size="sm"
               className="w-full"
-              onClick={() => setShowAll(!showAll)}
+              onClick={() => {
+                setShowAll(!showAll);
+                if (!showAll) {
+                  setCurrentPage(1);
+                }
+              }}
             >
-              {showAll ? 'Afficher moins' : `Voir plus d'échéances (${agenda.length - ITEMS_PER_PAGE} de plus)`}
+              {showAll ? 'Afficher moins' : `Afficher toutes les échéances (${agenda.length})`}
               <ChevronRight className={cn("h-4 w-4 ml-2", showAll && "rotate-90")} />
             </Button>
           </div>

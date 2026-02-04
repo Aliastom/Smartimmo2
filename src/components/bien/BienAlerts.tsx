@@ -41,7 +41,7 @@ export function BienAlerts({ alerts, propertyId, className }: BienAlertsProps) {
       id: 'indexations',
       label: 'Indexations à venir',
       count: alerts.indexations,
-      href: `/biens/${propertyId}/baux?filter=indexations`,
+      href: `/app?view=property&propertyId=${propertyId}&tab=lease&filter=indexations`,
       icon: <TrendingUp className="h-4 w-4" />,
       variant: 'warning'
     });
@@ -53,7 +53,7 @@ export function BienAlerts({ alerts, propertyId, className }: BienAlertsProps) {
       id: 'baux-finissant',
       label: 'Baux finissant < 60j',
       count: alerts.bauxFinissant,
-      href: `/biens/${propertyId}/baux?filter=finissant`,
+      href: `/app?view=property&propertyId=${propertyId}&tab=lease&filter=finissant`,
       icon: <Calendar className="h-4 w-4" />,
       variant: 'warning'
     });
@@ -65,7 +65,7 @@ export function BienAlerts({ alerts, propertyId, className }: BienAlertsProps) {
       id: 'docs-non-classes',
       label: 'Documents à classer',
       count: alerts.docsNonClasses,
-      href: `/biens/${propertyId}/documents?filter=unclassified`,
+      href: `/app?view=property&propertyId=${propertyId}&tab=documents&filter=unclassified`,
       icon: <FileX className="h-4 w-4" />,
       variant: 'info'
     });

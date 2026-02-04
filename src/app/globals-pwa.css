@@ -290,8 +290,7 @@
   /* Menu horizontal d'icônes - ajuster padding top */
   .property-icon-menu,
   [class*="icon-menu"],
-  nav[class*="horizontal"],
-  .property-glass-nav {
+  nav[class*="horizontal"] {
     padding-top: 0.5rem !important;
   }
   

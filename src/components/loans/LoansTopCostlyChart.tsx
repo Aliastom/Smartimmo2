@@ -24,6 +24,7 @@ export interface TopCostlyLoan {
 interface LoansTopCostlyChartProps {
   data: TopCostlyLoan[];
   isLoading?: boolean;
+  onViewMore?: () => void; // Callback pour ouvrir la modal
 }
 
 const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
@@ -61,7 +62,11 @@ const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
 export function LoansTopCostlyChart({
   data,
   isLoading = false,
+  onViewMore,
 }: LoansTopCostlyChartProps) {
+  // Afficher uniquement les 2 premiers éléments
+  const displayedData = data.slice(0, 2);
+  const hasMore = data.length > 2;
   if (isLoading) {
     return (
       <Card>
@@ -83,16 +88,17 @@ export function LoansTopCostlyChart({
         <CardTitle>Top 5 - Coûts les plus élevés</CardTitle>
         <p className="text-sm text-gray-600 mt-1">Intérêts totaux par prêt</p>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0">
         {data.length === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center text-gray-400">
             <AlertCircle className="h-12 w-12 mb-2" />
             <p>Aucune donnée disponible</p>
           </div>
         ) : (
-          <>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={data} layout="horizontal">
+          <div className="space-y-3">
+            <div className="min-w-0">
+              <ResponsiveContainer width="100%" height={120}>
+              <BarChart data={displayedData} layout="horizontal">
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis
                   type="category"
@@ -113,31 +119,32 @@ export function LoansTopCostlyChart({
                 <Bar dataKey="totalInterest" fill="#ef4444" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-            <div className="mt-4 space-y-3">
-              {data.map((item, index) => (
-                <div key={item.loanId} className="border-b border-gray-100 last:border-0 pb-3 last:pb-0">
-                  <div className="flex items-center justify-between text-sm mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xs font-bold">
+            </div>
+            <div className="space-y-2">
+              {displayedData.map((item, index) => (
+                <div key={item.loanId} className="border-b border-gray-100 last:border-0 pb-2 last:pb-0">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <div className="w-5 h-5 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
                         {index + 1}
                       </div>
-                      <span className="text-gray-700 font-medium">{item.label}</span>
+                      <span className="text-gray-700 font-medium truncate">{item.label}</span>
                     </div>
-                    <span className="font-medium text-red-600">
+                    <span className="font-medium text-red-600 flex-shrink-0 ml-2">
                       {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(item.totalInterest)}
                     </span>
                   </div>
                   {/* Répartition des co-emprunteurs */}
                   {item.borrowers && item.borrowers.length > 0 && (
-                    <div className="ml-7 mt-2 space-y-1">
-                      <div className="text-xs text-gray-500 mb-1">Co-emprunteurs:</div>
+                    <div className="ml-7 mt-1 space-y-0.5">
+                      <div className="text-xs text-gray-500">Co-emprunteurs:</div>
                       {item.borrowers.map((borrower, idx) => (
                         <div key={idx} className="flex items-center justify-between text-xs">
-                          <span className="text-gray-600">
+                          <span className="text-gray-600 truncate">
                             {borrower.name.substring(0, 20)}{borrower.name.length > 20 ? '...' : ''}
                           </span>
                           {borrower.pct !== null && (
-                            <span className="font-medium text-gray-700 ml-2">
+                            <span className="font-medium text-gray-700 ml-2 flex-shrink-0">
                               {borrower.pct.toFixed(1)}%
                             </span>
                           )}
@@ -148,7 +155,15 @@ export function LoansTopCostlyChart({
                 </div>
               ))}
             </div>
-          </>
+            {hasMore && onViewMore && (
+              <button
+                onClick={onViewMore}
+                className="w-full text-xs text-gray-500 hover:text-gray-700 text-center py-1 border-t border-gray-100 pt-2 transition-colors"
+              >
+                Voir les {data.length} prêts →
+              </button>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>

@@ -99,16 +99,38 @@ export async function POST(request: NextRequest) {
     const fileSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
 
     // 🔍 VÉRIFICATION DES BROUILLONS EXISTANTS
+    // ⚠️ PROBLÈME 3: Un document avec status='draft' mais qui a déjà des liaisons (pas juste globale)
+    // n'est pas vraiment un brouillon à bloquer - il a déjà été utilisé
     const existingDraft = await prisma.document.findFirst({
       where: {
         fileSha256,
         status: 'draft',
         organizationId
+      },
+      include: {
+        DocumentLink: {
+          select: {
+            linkedType: true,
+            linkedId: true
+          }
+        }
       }
     });
 
     if (existingDraft) {
-      console.log('[API] Document existe déjà en brouillon:', existingDraft.id);
+      // Compter les liaisons non-globales (liaisons spécifiques à des entités)
+      const nonGlobalLinks = existingDraft.DocumentLink.filter(link => 
+        link.linkedType !== 'GLOBAL' && link.linkedId !== 'global'
+      );
+      
+      // Si le document a des liaisons spécifiques, ce n'est pas vraiment un brouillon à bloquer
+      // On considère qu'un brouillon n'a que des liaisons globales ou aucune liaison
+      if (nonGlobalLinks.length > 0) {
+        console.log('[API] Document avec status=draft mais liaisons existantes, autorisation de ré-upload:', existingDraft.id);
+        // Ne pas bloquer - le document a déjà des liaisons, il peut être réutilisé
+      } else {
+        // Vraiment un brouillon (pas de liaisons spécifiques) - bloquer
+        console.log('[API] Document existe déjà en brouillon (sans liaisons spécifiques):', existingDraft.id);
       return NextResponse.json({
         success: false,
         code: 'DRAFT_EXISTS',
@@ -116,6 +138,7 @@ export async function POST(request: NextRequest) {
         draftId: existingDraft.id,
         fileName: existingDraft.filenameOriginal
       }, { status: 400 });
+      }
     }
 
     // 🔍 DÉTECTION DES DOUBLONS - Conforme à la spécification
@@ -263,13 +286,19 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    // ⚠️ CRITIQUE: Retourner TOUS les champs nécessaires pour IndexedDB
+    // (documentTypeId, ocrStatus, etc.) pour éviter les problèmes de sync
     return NextResponse.json({
       success: true,
       document: {
         id: document.id,
         name: document.fileName,
-        status: 'draft',
+        fileName: document.fileName,
+        filenameOriginal: document.filenameOriginal,
+        status: document.status,
         type: typeId,
+        documentTypeId: document.documentTypeId || null, // ⚠️ CRITIQUE: Inclure documentTypeId si auto-assigné
+        detectedTypeId: document.detectedTypeId || null,
         intendedContext: {
           type: intendedContextType,
           tempKey: intendedContextTempKey
@@ -277,6 +306,26 @@ export async function POST(request: NextRequest) {
         size: document.size,
         mime: document.mime,
         uploadedAt: document.uploadedAt,
+        createdAt: document.createdAt,
+        updatedAt: document.updatedAt,
+        ownerId: document.ownerId,
+        bucketKey: document.bucketKey,
+        url: document.url,
+        fileSha256: document.fileSha256 || null,
+        textSha256: document.textSha256 || null,
+        // ⚠️ CRITIQUE: Inclure ocrStatus et champs OCR pour éviter "En attente" dans l'UI
+        ocrStatus: document.ocrStatus || 'pending',
+        ocrError: document.ocrError || null,
+        ocrVendor: document.ocrVendor || null,
+        ocrConfidence: document.ocrConfidence || null,
+        extractedText: document.extractedText || null,
+        indexed: document.indexed || false,
+        source: document.source,
+        uploadedBy: document.uploadedBy || null,
+        uploadSessionId: document.uploadSessionId,
+        intendedContextType: document.intendedContextType,
+        intendedContextTempKey: document.intendedContextTempKey,
+        version: document.version,
         // Ajouter les résultats de l'analyse
         analysis: {
           textExtracted: !!textContent,

@@ -1,0 +1,1211 @@
+{
+  "config": {
+    "configFile": "D:\\Smartimmo2\\playwright.config.ts",
+    "rootDir": "D:/Smartimmo2/tests/e2e/app-shell",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        {
+          "outputFolder": "playwright-report"
+        }
+      ],
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "playwright-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "D:/Smartimmo2/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "D:/Smartimmo2/tests/e2e/app-shell",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.55.1",
+    "workers": 1,
+    "webServer": {
+      "command": "npm run dev",
+      "url": "http://localhost:3000",
+      "reuseExistingServer": true,
+      "timeout": 120000,
+      "stdout": "ignore",
+      "stderr": "pipe"
+    }
+  },
+  "suites": [
+    {
+      "title": "01-smoke-app-shell.spec.ts",
+      "file": "01-smoke-app-shell.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "A. Smoke App-Shell",
+          "file": "01-smoke-app-shell.spec.ts",
+          "line": 16,
+          "column": 6,
+          "specs": [
+            {
+              "title": "A1. Boot app-shell et chargement depuis cache",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 0,
+                      "error": {
+                        "message": "Error: Failed to seed test data: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>",
+                        "stack": "Error: Failed to seed test data: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>\n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\01-smoke-app-shell.spec.ts:31:13",
+                        "location": {
+                          "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\01-smoke-app-shell.spec.ts",
+                          "column": 13,
+                          "line": 31
+                        },
+                        "snippet": "  29 |       testPropertyId = seedResult.data.properties[0].id;\n  30 |     } else {\n> 31 |       throw new Error(`Failed to seed test data: ${seedResult.error}`);\n     |             ^\n  32 |     }\n  33 |   });\n  34 |   "
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\01-smoke-app-shell.spec.ts",
+                            "column": 13,
+                            "line": 31
+                          },
+                          "message": "Error: Failed to seed test data: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>\n\n  29 |       testPropertyId = seedResult.data.properties[0].id;\n  30 |     } else {\n> 31 |       throw new Error(`Failed to seed test data: ${seedResult.error}`);\n     |             ^\n  32 |     }\n  33 |   });\n  34 |   \n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\01-smoke-app-shell.spec.ts:31:13"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:49.438Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Smartimmo2\\test-results\\01-smoke-app-shell-A-Smoke-4fe57--et-chargement-depuis-cache-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\01-smoke-app-shell.spec.ts",
+                        "column": 13,
+                        "line": 31
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "de9165ea2bd137cf22d9-3c4c2d4e461681a22d6a",
+              "file": "01-smoke-app-shell.spec.ts",
+              "line": 40,
+              "column": 3
+            },
+            {
+              "title": "A2. Navigation interne app-shell sans rechargement",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:53.455Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "de9165ea2bd137cf22d9-5df0dc3126664c59a1c9",
+              "file": "01-smoke-app-shell.spec.ts",
+              "line": 65,
+              "column": 3
+            },
+            {
+              "title": "A3. Aucun lien vers routes \"normal\"",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:53.455Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "de9165ea2bd137cf22d9-9bce9d455e8e12c2eab8",
+              "file": "01-smoke-app-shell.spec.ts",
+              "line": 105,
+              "column": 3
+            },
+            {
+              "title": "A4. Sidebar utilise navigation app-shell",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:53.455Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "de9165ea2bd137cf22d9-824c7beb051f17668639",
+              "file": "01-smoke-app-shell.spec.ts",
+              "line": 120,
+              "column": 3
+            },
+            {
+              "title": "A5. Navigation vers vue property avec propertyId",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:53.455Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "de9165ea2bd137cf22d9-84cbe46dc4b006494285",
+              "file": "01-smoke-app-shell.spec.ts",
+              "line": 142,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "02-crud-transaction.spec.ts",
+      "file": "02-crud-transaction.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "B. CRUD Transaction (offline-first)",
+          "file": "02-crud-transaction.spec.ts",
+          "line": 18,
+          "column": 6,
+          "specs": [
+            {
+              "title": "B1. Création transaction offline → local + pendingOp",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 0,
+                      "error": {
+                        "message": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>",
+                        "stack": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>\n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\02-crud-transaction.spec.ts:38:13",
+                        "location": {
+                          "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\02-crud-transaction.spec.ts",
+                          "column": 13,
+                          "line": 38
+                        },
+                        "snippet": "  36 |       testLeaseId = seedResult.data.leases?.[0]?.id || '';\n  37 |     } else {\n> 38 |       throw new Error(`Failed to seed: ${seedResult.error}`);\n     |             ^\n  39 |     }\n  40 |   });\n  41 |   "
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\02-crud-transaction.spec.ts",
+                            "column": 13,
+                            "line": 38
+                          },
+                          "message": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>\n\n  36 |       testLeaseId = seedResult.data.leases?.[0]?.id || '';\n  37 |     } else {\n> 38 |       throw new Error(`Failed to seed: ${seedResult.error}`);\n     |             ^\n  39 |     }\n  40 |   });\n  41 |   \n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\02-crud-transaction.spec.ts:38:13"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:54.530Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Smartimmo2\\test-results\\02-crud-transaction-B-CRUD-a389d-n-offline-→-local-pendingOp-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\02-crud-transaction.spec.ts",
+                        "column": 13,
+                        "line": 38
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "5360d4682adfb2507a7b-4fd116043baa9c484d45",
+              "file": "02-crud-transaction.spec.ts",
+              "line": 46,
+              "column": 3
+            },
+            {
+              "title": "B2. Création transaction gestion déléguée → commission auto",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:54.830Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5360d4682adfb2507a7b-05ffc77c4536e2a1efc1",
+              "file": "02-crud-transaction.spec.ts",
+              "line": 126,
+              "column": 3
+            },
+            {
+              "title": "B3. Modification transaction → commission recalculée",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:54.830Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5360d4682adfb2507a7b-5589b4f7fd69f8f9e98b",
+              "file": "02-crud-transaction.spec.ts",
+              "line": 184,
+              "column": 3
+            },
+            {
+              "title": "B4. Suppression transaction → cascade commission",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:54.830Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5360d4682adfb2507a7b-9e2d7c40ea8aa2f03ce7",
+              "file": "02-crud-transaction.spec.ts",
+              "line": 243,
+              "column": 3
+            },
+            {
+              "title": "B5. Reprise réseau → pendingOps vidées",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:54.830Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5360d4682adfb2507a7b-6193c9191fa63029f8c7",
+              "file": "02-crud-transaction.spec.ts",
+              "line": 297,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "03-crud-property.spec.ts",
+      "file": "03-crud-property.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "C. CRUD Property (offline + delete modes)",
+          "file": "03-crud-property.spec.ts",
+          "line": 18,
+          "column": 6,
+          "specs": [
+            {
+              "title": "C1. Création bien offline → local + pendingOp",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 252,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_INTERNET_DISCONNECTED at http://localhost:3000/app?view=biens\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/app?view=biens\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_INTERNET_DISCONNECTED at http://localhost:3000/app?view=biens\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/app?view=biens\", waiting until \"load\"\u001b[22m\n\n    at navigateToAppShellView (D:\\Smartimmo2\\tests\\e2e\\app-shell\\helpers\\appShellNav.ts:28:14)\n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\03-crud-property.spec.ts:43:11",
+                        "location": {
+                          "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\helpers\\appShellNav.ts",
+                          "column": 14,
+                          "line": 28
+                        },
+                        "snippet": "   at helpers\\appShellNav.ts:28\n\n  26 |   }\n  27 |   \n> 28 |   await page.goto(url.toString());\n     |              ^\n  29 |   \n  30 |   // Vérifier que l'URL est bien /app?view=...\n  31 |   await expect(page).toHaveURL(new RegExp(`/app\\\\?view=${view}`));"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\helpers\\appShellNav.ts",
+                            "column": 14,
+                            "line": 28
+                          },
+                          "message": "Error: page.goto: net::ERR_INTERNET_DISCONNECTED at http://localhost:3000/app?view=biens\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/app?view=biens\", waiting until \"load\"\u001b[22m\n\n\n   at helpers\\appShellNav.ts:28\n\n  26 |   }\n  27 |   \n> 28 |   await page.goto(url.toString());\n     |              ^\n  29 |   \n  30 |   // Vérifier que l'URL est bien /app?view=...\n  31 |   await expect(page).toHaveURL(new RegExp(`/app\\\\?view=${view}`));\n    at navigateToAppShellView (D:\\Smartimmo2\\tests\\e2e\\app-shell\\helpers\\appShellNav.ts:28:14)\n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\03-crud-property.spec.ts:43:11"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:55.695Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "D:\\Smartimmo2\\test-results\\03-crud-property-C-CRUD-Pr-2d6c6-n-offline-→-local-pendingOp-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "D:\\Smartimmo2\\test-results\\03-crud-property-C-CRUD-Pr-2d6c6-n-offline-→-local-pendingOp-chromium\\video.webm"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Smartimmo2\\test-results\\03-crud-property-C-CRUD-Pr-2d6c6-n-offline-→-local-pendingOp-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\helpers\\appShellNav.ts",
+                        "column": 14,
+                        "line": 28
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "60137b94d8985e2cd722-c9d4bdb59d020159e44a",
+              "file": "03-crud-property.spec.ts",
+              "line": 39,
+              "column": 3
+            },
+            {
+              "title": "C2. Modification bien offline → local + pendingOp",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "location": {
+                        "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\03-crud-property.spec.ts",
+                        "line": 106,
+                        "column": 12
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 166,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:57.053Z",
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\03-crud-property.spec.ts",
+                            "line": 106,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "60137b94d8985e2cd722-923cd80d0658aa38b7b0",
+              "file": "03-crud-property.spec.ts",
+              "line": 102,
+              "column": 3
+            },
+            {
+              "title": "C3. Suppression bien (archive) → local + pendingOp",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "location": {
+                        "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\03-crud-property.spec.ts",
+                        "line": 169,
+                        "column": 12
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 118,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:57.378Z",
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\03-crud-property.spec.ts",
+                            "line": 169,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "60137b94d8985e2cd722-aa4aa57c979f836e2fa6",
+              "file": "03-crud-property.spec.ts",
+              "line": 165,
+              "column": 3
+            },
+            {
+              "title": "C4. Reprise réseau → cohérence serveur",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "location": {
+                        "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\03-crud-property.spec.ts",
+                        "line": 229,
+                        "column": 12
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 137,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:57.507Z",
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\03-crud-property.spec.ts",
+                            "line": 229,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "60137b94d8985e2cd722-f814d3292a7b2b514aa0",
+              "file": "03-crud-property.spec.ts",
+              "line": 225,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "04-crud-lease.spec.ts",
+      "file": "04-crud-lease.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "D. CRUD Lease (overlaps + termination)",
+          "file": "04-crud-lease.spec.ts",
+          "line": 17,
+          "column": 6,
+          "specs": [
+            {
+              "title": "D1. Création bail offline → local + pendingOp",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 0,
+                      "error": {
+                        "message": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>",
+                        "stack": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>\n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\04-crud-lease.spec.ts:37:13",
+                        "location": {
+                          "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\04-crud-lease.spec.ts",
+                          "column": 13,
+                          "line": 37
+                        },
+                        "snippet": "  35 |       testTenantId = seedResult.data.tenants?.[0]?.id || '';\n  36 |     } else {\n> 37 |       throw new Error(`Failed to seed: ${seedResult.error}`);\n     |             ^\n  38 |     }\n  39 |   });\n  40 |   "
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\04-crud-lease.spec.ts",
+                            "column": 13,
+                            "line": 37
+                          },
+                          "message": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>\n\n  35 |       testTenantId = seedResult.data.tenants?.[0]?.id || '';\n  36 |     } else {\n> 37 |       throw new Error(`Failed to seed: ${seedResult.error}`);\n     |             ^\n  38 |     }\n  39 |   });\n  40 |   \n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\04-crud-lease.spec.ts:37:13"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:57.721Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Smartimmo2\\test-results\\04-crud-lease-D-CRUD-Lease-7784b-l-offline-→-local-pendingOp-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\04-crud-lease.spec.ts",
+                        "column": 13,
+                        "line": 37
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "45430906f4c673558857-b8e95854bcb52a1b76b5",
+              "file": "04-crud-lease.spec.ts",
+              "line": 45,
+              "column": 3
+            },
+            {
+              "title": "D2. Tentative création overlap → erreur métier",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:57.871Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "45430906f4c673558857-109c617cd9ea03df332e",
+              "file": "04-crud-lease.spec.ts",
+              "line": 123,
+              "column": 3
+            },
+            {
+              "title": "D3. Résiliation bail → transition statut",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:57.871Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "45430906f4c673558857-a09094a7f1628ff56611",
+              "file": "04-crud-lease.spec.ts",
+              "line": 194,
+              "column": 3
+            },
+            {
+              "title": "D4. Reprise réseau → cohérence serveur",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:57.871Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "45430906f4c673558857-c6a7e8bca81b805504ee",
+              "file": "04-crud-lease.spec.ts",
+              "line": 250,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "05-documents-linking.spec.ts",
+      "file": "05-documents-linking.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "E. Documents (au moins liaison)",
+          "file": "05-documents-linking.spec.ts",
+          "line": 18,
+          "column": 6,
+          "specs": [
+            {
+              "title": "E1. Attacher document à transaction → lien local",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 0,
+                      "error": {
+                        "message": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>",
+                        "stack": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>\n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\05-documents-linking.spec.ts:45:13",
+                        "location": {
+                          "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\05-documents-linking.spec.ts",
+                          "column": 13,
+                          "line": 45
+                        },
+                        "snippet": "  43 |       testTransactionId = seedResult.data.transactions?.[0]?.id || '';\n  44 |     } else {\n> 45 |       throw new Error(`Failed to seed: ${seedResult.error}`);\n     |             ^\n  46 |     }\n  47 |   });\n  48 |   "
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\05-documents-linking.spec.ts",
+                            "column": 13,
+                            "line": 45
+                          },
+                          "message": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>\n\n  43 |       testTransactionId = seedResult.data.transactions?.[0]?.id || '';\n  44 |     } else {\n> 45 |       throw new Error(`Failed to seed: ${seedResult.error}`);\n     |             ^\n  46 |     }\n  47 |   });\n  48 |   \n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\05-documents-linking.spec.ts:45:13"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:58.752Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Smartimmo2\\test-results\\05-documents-linking-E-Doc-a292a--à-transaction-→-lien-local-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\05-documents-linking.spec.ts",
+                        "column": 13,
+                        "line": 45
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "bdcfde2231090635b8f8-bde07825bfdd2449bbd5",
+              "file": "05-documents-linking.spec.ts",
+              "line": 53,
+              "column": 3
+            },
+            {
+              "title": "E2. Reprise réseau → cohérence serveur",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:58.952Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "bdcfde2231090635b8f8-98dcce5a272d657aafa1",
+              "file": "05-documents-linking.spec.ts",
+              "line": 121,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "06-reprise-resilience.spec.ts",
+      "file": "06-reprise-resilience.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "F. Reprise réseau + résilience",
+          "file": "06-reprise-resilience.spec.ts",
+          "line": 17,
+          "column": 6,
+          "specs": [
+            {
+              "title": "F1. Enchaîner 10 actions offline → toutes en pendingOps",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 0,
+                      "error": {
+                        "message": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>",
+                        "stack": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>\n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\06-reprise-resilience.spec.ts:33:13",
+                        "location": {
+                          "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\06-reprise-resilience.spec.ts",
+                          "column": 13,
+                          "line": 33
+                        },
+                        "snippet": "  31 |       testTenantId = seedResult.data.tenants?.[0]?.id || '';\n  32 |     } else {\n> 33 |       throw new Error(`Failed to seed: ${seedResult.error}`);\n     |             ^\n  34 |     }\n  35 |   });\n  36 |   "
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\06-reprise-resilience.spec.ts",
+                            "column": 13,
+                            "line": 33
+                          },
+                          "message": "Error: Failed to seed: Seed failed: 500 <!DOCTYPE html><html><head><style data-next-hide-fouc=\"true\">body{display:none}</style><noscript data-next-hide-fouc=\"true\"><style>body{display:block}</style></noscript><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"next-head-count\" content=\"2\"/><noscript data-n-css=\"\"></noscript><script defer=\"\" nomodule=\"\" src=\"/_next/static/chunks/polyfills.js\"></script><script src=\"/_next/static/chunks/fallback/webpack.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/main.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_app.js\" defer=\"\"></script><script src=\"/_next/static/chunks/fallback/pages/_error.js\" defer=\"\"></script><noscript id=\"__next_css__DO_NOT_USE__\"></noscript></head><body><div id=\"__next\"></div><script src=\"/_next/static/chunks/fallback/react-refresh.js\"></script><script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"statusCode\":500}},\"page\":\"/_error\",\"query\":{},\"buildId\":\"development\",\"isFallback\":false,\"err\":{\"name\":\"ModuleBuildError\",\"source\":\"server\",\"message\":\"Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  x Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[D:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts:66:1]\\n 66 |         acquisitionDate: prop.acquisitionDate || new Date(),\\n 67 |         acquisitionPrice: prop.acquisitionPrice || 0,\\n 68 |         notaryFees: prop.notaryFees ?? 0,\\n 69 |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n 70 |         status: prop.status || 'vacant',\\n 71 |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n 71 |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\",\"stack\":\"ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):\\nError: \\n  \\u001b[31mx\\u001b[0m Nullish coalescing operator(??) requires parens when mixing with logical operators\\n    ,-[\\u001b[36;1;4mD:\\\\Smartimmo2\\\\src\\\\app\\\\api\\\\test\\\\seed\\\\route.ts\\u001b[0m:66:1]\\n \\u001b[2m66\\u001b[0m |         acquisitionDate: prop.acquisitionDate || new Date(),\\n \\u001b[2m67\\u001b[0m |         acquisitionPrice: prop.acquisitionPrice || 0,\\n \\u001b[2m68\\u001b[0m |         notaryFees: prop.notaryFees ?? 0,\\n \\u001b[2m69\\u001b[0m |         currentValue: prop.currentValue ?? prop.acquisitionPrice || 0,\\n    : \\u001b[31;1m                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\u001b[0m\\n \\u001b[2m70\\u001b[0m |         status: prop.status || 'vacant',\\n \\u001b[2m71\\u001b[0m |         ...(prop.managementCompanyId \\u0026\\u0026 { managementCompanyId: prop.managementCompanyId }),\\n \\u001b[2m71\\u001b[0m |         ...(prop.fiscalTypeId \\u0026\\u0026 { fiscalTypeId: prop.fiscalTypeId }),\\r\\n    `----\\n\\n\\nCaused by:\\n    Syntax Error\\n    at processResult (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:400590)\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\webpack\\\\bundle5.js:28:402302\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:8645\\n    at D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:5019\\n    at r.callback (D:\\\\Smartimmo2\\\\node_modules\\\\next\\\\dist\\\\compiled\\\\loader-runner\\\\LoaderRunner.js:1:4039)\"},\"gip\":true,\"scriptLoader\":[]}</script></body></html>\n\n  31 |       testTenantId = seedResult.data.tenants?.[0]?.id || '';\n  32 |     } else {\n> 33 |       throw new Error(`Failed to seed: ${seedResult.error}`);\n     |             ^\n  34 |     }\n  35 |   });\n  36 |   \n    at D:\\Smartimmo2\\tests\\e2e\\app-shell\\06-reprise-resilience.spec.ts:33:13"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:32:59.828Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Smartimmo2\\test-results\\06-reprise-resilience-F-Re-06dfc-line-→-toutes-en-pendingOps-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Smartimmo2\\tests\\e2e\\app-shell\\06-reprise-resilience.spec.ts",
+                        "column": 13,
+                        "line": 33
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "b7073db567af7a64faf1-ba2af5f5672dbaff4678",
+              "file": "06-reprise-resilience.spec.ts",
+              "line": 41,
+              "column": 3
+            },
+            {
+              "title": "F2. Reprise réseau → tout se synchronise",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:33:00.012Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "b7073db567af7a64faf1-42e77d7dcd8f201f4e56",
+              "file": "06-reprise-resilience.spec.ts",
+              "line": 185,
+              "column": 3
+            },
+            {
+              "title": "F3. UI se rafraîchit sans reload complet",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-19T16:33:00.012Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "b7073db567af7a64faf1-3f00c5f4185bf10c3418",
+              "file": "06-reprise-resilience.spec.ts",
+              "line": 235,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2025-12-19T16:32:30.535Z",
+    "duration": 29551.431,
+    "expected": 0,
+    "skipped": 17,
+    "unexpected": 6,
+    "flaky": 0
+  }
+}

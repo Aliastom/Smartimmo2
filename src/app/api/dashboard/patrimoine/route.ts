@@ -162,8 +162,10 @@ async function calculateRealise(
   const cashflowValues = cashflow.map(item => item.value);
   const kpis = await calculateKPIs(fromDate, toDate, organizationId, propertyId, 'realise', transactions, undefined, cashflowValues);
 
-  // Répartition par bien
-  const repartition = await calculateRepartitionParBien(transactions, type || 'loyers');
+  // Répartition par bien - Calculer pour les 3 types
+  const repartitionLoyers = await calculateRepartitionParBien(transactions, 'loyers');
+  const repartitionCharges = await calculateRepartitionParBien(transactions, 'charges');
+  const repartitionCashflow = await calculateRepartitionParBienCashflow(transactions);
 
   // Agenda (transactions réelles)
   const agenda = transactions
@@ -185,7 +187,10 @@ async function calculateRealise(
     period: { from: months[0], to: months[months.length - 1], months },
     kpis,
     series: { loyers, charges, cashflow },
-    repartitionParBien: repartition,
+    repartitionParBien: repartitionLoyers,
+    repartitionParBienLoyers: repartitionLoyers,
+    repartitionParBienCharges: repartitionCharges,
+    repartitionParBienCashflow: repartitionCashflow,
     agenda,
   };
 }
@@ -411,18 +416,80 @@ async function calculatePrevision(
   // Override cashflowMois avec la valeur calculée depuis les séries
   kpis.cashflowMois = lastMonthCashflow;
 
-  // Répartition par bien (basée sur les baux)
-  const repartition = leases.reduce((acc, lease) => {
+  // Répartition par bien - Calculer pour les 3 types (loyers, charges, cashflow)
+  const repartitionMapLoyers = new Map<string, number>();
+  const repartitionMapCharges = new Map<string, number>();
+  const repartitionMapCashflow = new Map<string, number>();
+  
+  // Répartition basée sur les baux (loyers)
+  leases.forEach((lease) => {
     const label = lease.Property?.name || `Bien ${lease.propertyId}`;
-    const value = (lease.rentAmount || 0) + (lease.chargesRecupMensuelles || 0);
-    const existing = acc.find((r) => r.label === label);
-    if (existing) {
-      existing.value += value;
-    } else {
-      acc.push({ label, value });
+    const loyer = lease.rentAmount || 0;
+    const chargesRecup = lease.chargesRecupMensuelles || 0;
+    const totalLoyer = loyer + chargesRecup;
+    repartitionMapLoyers.set(label, (repartitionMapLoyers.get(label) || 0) + totalLoyer);
+    repartitionMapCashflow.set(label, (repartitionMapCashflow.get(label) || 0) + totalLoyer);
+  });
+  
+  // Répartition basée sur les échéances (charges)
+  occurrences.forEach((occ) => {
+    const property = leases.find(l => l.propertyId === occ.propertyId);
+    const label = property?.Property?.name || `Bien ${occ.propertyId}`;
+    const amount = Math.abs(occ.amount || 0);
+    
+    if (occ.sens === 'DEBIT') {
+      // Charges (dépenses)
+      repartitionMapCharges.set(label, (repartitionMapCharges.get(label) || 0) + amount);
+      repartitionMapCashflow.set(label, (repartitionMapCashflow.get(label) || 0) - amount);
+    } else if (occ.sens === 'CREDIT') {
+      // Revenus
+      repartitionMapLoyers.set(label, (repartitionMapLoyers.get(label) || 0) + amount);
+      repartitionMapCashflow.set(label, (repartitionMapCashflow.get(label) || 0) + amount);
     }
-    return acc;
-  }, [] as { label: string; value: number }[]);
+  });
+  
+  // Ajouter les mensualités de prêts aux charges
+  loans.forEach((loan) => {
+    const property = leases.find(l => l.propertyId === loan.propertyId);
+    const label = property?.Property?.name || `Bien ${loan.propertyId}`;
+    const schedule = buildSchedule({
+      principal: Number(loan.principal),
+      annualRatePct: Number(loan.annualRatePct),
+      durationMonths: loan.durationMonths,
+      defermentMonths: loan.defermentMonths,
+      insurancePct: loan.insurancePct ? Number(loan.insurancePct) : 0,
+      startDate: loan.startDate,
+      paymentDay: loan.paymentDay || undefined,
+    });
+    
+    // Calculer la mensualité moyenne
+    const monthlyPayment = schedule.length > 0 
+      ? schedule.reduce((sum, row) => sum + row.paymentTotal, 0) / schedule.length
+      : 0;
+    
+    repartitionMapCharges.set(label, (repartitionMapCharges.get(label) || 0) + monthlyPayment);
+    repartitionMapCashflow.set(label, (repartitionMapCashflow.get(label) || 0) - monthlyPayment);
+  });
+  
+  const repartition = Array.from(repartitionMapLoyers.entries()).map(([label, value]) => ({
+    label,
+    value,
+  }));
+  
+  const repartitionLoyers = Array.from(repartitionMapLoyers.entries()).map(([label, value]) => ({
+    label,
+    value,
+  }));
+  
+  const repartitionCharges = Array.from(repartitionMapCharges.entries()).map(([label, value]) => ({
+    label,
+    value,
+  }));
+  
+  const repartitionCashflow = Array.from(repartitionMapCashflow.entries()).map(([label, value]) => ({
+    label,
+    value: Math.abs(value), // Valeur absolue pour l'affichage
+  }));
 
   // Agenda : baux + échéances récurrentes
   const agendaLeases = leases.map((lease) => ({
@@ -473,6 +540,9 @@ async function calculatePrevision(
     kpis,
     series: { loyers, charges, cashflow },
     repartitionParBien: repartition,
+    repartitionParBienLoyers: repartitionLoyers,
+    repartitionParBienCharges: repartitionCharges,
+    repartitionParBienCashflow: repartitionCashflow,
     agenda,
   };
 }
@@ -504,6 +574,9 @@ function smoothData(data: PatrimoineResponse): PatrimoineResponse {
     },
     // Préserver la répartition par bien (pas lissée)
     repartitionParBien: Array.isArray(data.repartitionParBien) ? data.repartitionParBien : [],
+    repartitionParBienLoyers: Array.isArray(data.repartitionParBienLoyers) ? data.repartitionParBienLoyers : (Array.isArray(data.repartitionParBien) ? data.repartitionParBien : []),
+    repartitionParBienCharges: Array.isArray(data.repartitionParBienCharges) ? data.repartitionParBienCharges : [],
+    repartitionParBienCashflow: Array.isArray(data.repartitionParBienCashflow) ? data.repartitionParBienCashflow : [],
   };
 }
 
@@ -705,6 +778,26 @@ async function calculateRepartitionParBien(
   });
 
   return Array.from(map.entries()).map(([label, value]) => ({ label, value }));
+}
+
+/**
+ * Calcul de la répartition par bien pour le cashflow (loyers - charges)
+ */
+async function calculateRepartitionParBienCashflow(
+  transactions: any[]
+): Promise<{ label: string; value: number }[]> {
+  const map = new Map<string, number>();
+
+  transactions.forEach((tx) => {
+    const label = tx.Property?.name || `Bien ${tx.propertyId}`;
+    const amount = tx.amount || 0;
+    map.set(label, (map.get(label) || 0) + amount);
+  });
+
+  return Array.from(map.entries()).map(([label, value]) => ({ 
+    label, 
+    value: Math.abs(value) // Valeur absolue pour l'affichage
+  }));
 }
 
 // Helpers

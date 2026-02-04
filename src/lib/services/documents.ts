@@ -524,6 +524,12 @@ export class DocumentsService {
       whereClause.organizationId = filters.organizationId;
     }
 
+    // ⚠️ CRITIQUE: Pour la sync (includeDeleted=true), ne pas filtrer par deletedAt
+    // Tous les documents (y compris supprimés) doivent être récupérés pour la sync
+    if (!filters.includeDeleted) {
+      whereClause.deletedAt = null;
+    }
+
     if (filters.type) {
       whereClause.DocumentType = { code: filters.type };
     }
@@ -691,6 +697,7 @@ export class DocumentsService {
         documentWhere.documentTypeId = { not: null };
       }
 
+
       if (documentWhere.isOrphan) {
         // Documents orphelins = sans liaisons
         delete documentWhere.isOrphan;
@@ -721,6 +728,32 @@ export class DocumentsService {
         });
         
         documents = orphanDocuments;
+      } else {
+        // ⚠️ CRITIQUE: Si includeDeleted=true (pour la sync), récupérer TOUS les documents directement
+        // Sinon, utiliser DocumentLink pour la recherche normale (uniquement les documents avec liaison GLOBAL)
+        if (filters.includeDeleted) {
+          // Pour la sync: récupérer TOUS les documents directement (y compris brouillons/draft et sans DocumentLink)
+          const allDocuments = await prisma.document.findMany({
+            where: documentWhere,
+            include: {
+              DocumentType: true,
+              DocumentLink: true,
+              DocumentField: true,
+              Reminder: {
+                where: { status: 'open' },
+                orderBy: { dueDate: 'asc' },
+              },
+            },
+            orderBy: { createdAt: 'desc' },
+            skip: filters.offset || 0,
+            take: filters.limit || 50,
+          });
+          
+          total = await prisma.document.count({
+            where: documentWhere
+          });
+          
+          documents = allDocuments;
       } else {
         // Recherche normale - UNIQUEMENT les documents avec liaison GLOBAL
         // Source de vÃ©ritÃ© = DocumentLink WHERE linkedType = global
@@ -757,6 +790,7 @@ export class DocumentsService {
         
         // Extraire les documents des liens
         documents = globalLinks.map(link => link.Document);
+        }
       }
     }
 
@@ -1005,6 +1039,21 @@ export class DocumentsService {
       data: {
         documentTypeId: documentType.id,
         status: 'classified',
+      },
+    });
+  }
+
+  /**
+   * Mettre à jour le statut d'un document
+   * ⚠️ CRITIQUE: Permet de passer un document de draft à active (ou autre statut)
+   */
+  static async updateStatus(documentId: string, newStatus: string, organizationId?: string): Promise<void> {
+    await this.ensureDocumentBelongsToOrg(documentId, organizationId);
+
+    await prisma.document.update({
+      where: { id: documentId },
+      data: {
+        status: newStatus,
       },
     });
   }

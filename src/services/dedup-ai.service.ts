@@ -73,46 +73,71 @@ export class DedupAIService {
       return this.createNoneResult(tempFile);
     }
 
-    // 1) Normaliser les textes
+    // ✅ OPTIMISATION: Vérifier d'abord les checksums (rapide) avant les calculs textuels (lents)
+    // Si on trouve un match exact par checksum, on peut arrêter immédiatement
+    let exactChecksumMatch: ExistingCandidate | null = null;
+    if (tempFile.checksum) {
+      exactChecksumMatch = existingCandidates.find(candidate => 
+        candidate.checksum && tempFile.checksum === candidate.checksum
+      );
+      
+      if (exactChecksumMatch) {
+        // Match exact trouvé, on peut arrêter ici
+        const normalizedTempText = this.normalizeText(tempFile.ocr_text);
+        const normalizedCandidateText = this.normalizeText(exactChecksumMatch.ocr_text);
+        const similarity = this.calculateTextSimilarity(normalizedTempText, normalizedCandidateText);
+        const bestSignals = this.calculateSignals(tempFile, exactChecksumMatch, similarity);
+        
+        return {
+          duplicateType: 'exact' as const,
+          suggestedAction: 'replace' as const,
+          matchedDocument: {
+            id: exactChecksumMatch.id,
+            name: exactChecksumMatch.name,
+            uploadedAt: exactChecksumMatch.uploadedAt,
+            type: exactChecksumMatch.type
+          },
+          signals: bestSignals,
+          ui: {
+            title: 'Doublon exact détecté',
+            message: `Ce document est identique à "${exactChecksumMatch.name}" (même checksum SHA256).`,
+            recommendation: 'Remplacer le document existant'
+          }
+        };
+      }
+    }
+    
+    // 1) Normaliser les textes (seulement si pas de match checksum)
     const normalizedTempText = this.normalizeText(tempFile.ocr_text);
     
     let bestMatch: ExistingCandidate | null = null;
     let bestSimilarity = 0;
     let bestSignals: any = null;
 
-    // 2) Analyser chaque candidat
-    for (const candidate of existingCandidates) {
+    // 2) Analyser chaque candidat (limité pour performance)
+    // ✅ OPTIMISATION: Limiter le nombre de candidats analysés pour éviter les boucles infinies
+    const maxCandidatesToAnalyze = 20;
+    const candidatesToAnalyze = existingCandidates.slice(0, maxCandidatesToAnalyze);
+    
+    for (const candidate of candidatesToAnalyze) {
       const normalizedCandidateText = this.normalizeText(candidate.ocr_text);
       const similarity = this.calculateTextSimilarity(normalizedTempText, normalizedCandidateText);
       
-      console.log('[DedupAI] Analyse candidat:', {
-        candidateName: candidate.name,
-        tempTextLength: normalizedTempText.length,
-        candidateTextLength: normalizedCandidateText.length,
-        tempTextPreview: normalizedTempText.slice(0, 100),
-        candidateTextPreview: normalizedCandidateText.slice(0, 100),
-        similarity: similarity
-      });
+      // ✅ OPTIMISATION: Log seulement en dev et limiter la fréquence
+      if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) { // Log seulement 10% des candidats
+        console.log('[DedupAI] Analyse candidat:', {
+          candidateName: candidate.name,
+          tempTextLength: normalizedTempText.length,
+          candidateTextLength: normalizedCandidateText.length,
+          similarity: similarity
+        });
+      }
       
       if (similarity > bestSimilarity) {
         bestSimilarity = similarity;
         bestMatch = candidate;
         bestSignals = this.calculateSignals(tempFile, candidate, similarity);
       }
-    }
-
-    // Si on a un match par checksum exact, on l'utilise même avec une faible similarité textuelle
-    const exactChecksumMatch = existingCandidates.find(candidate => 
-      tempFile.checksum && candidate.checksum && tempFile.checksum === candidate.checksum
-    );
-    
-    if (exactChecksumMatch && (!bestMatch || bestSimilarity < 0.75)) {
-      // Utiliser le match par checksum exact
-      bestMatch = exactChecksumMatch;
-      const normalizedCandidateText = this.normalizeText(exactChecksumMatch.ocr_text);
-      const similarity = this.calculateTextSimilarity(normalizedTempText, normalizedCandidateText);
-      bestSignals = this.calculateSignals(tempFile, exactChecksumMatch, similarity);
-      console.log('[DedupAI] Utilisation du match par checksum exact');
     }
     
     // Seuil plus strict : seulement si similarité très élevée (≥ 0.99) OU checksum exact
@@ -146,11 +171,17 @@ export class DedupAIService {
 
   /**
    * Normalise le texte OCR
+   * ⚠️ OPTIMISATION: Limiter la longueur pour éviter les calculs trop longs
    */
   private normalizeText(text: string): string {
     if (!text) return '';
     
-    return text
+    // ✅ OPTIMISATION: Limiter à 20000 caractères pour éviter les calculs trop longs
+    // Les premiers caractères contiennent généralement les informations les plus importantes
+    const maxLength = 20000;
+    const truncatedText = text.length > maxLength ? text.slice(0, maxLength) : text;
+    
+    return truncatedText
       .toLowerCase()
       .trim()
       .replace(/\s+/g, ' ') // Normaliser les espaces

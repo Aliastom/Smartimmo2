@@ -186,6 +186,12 @@ export async function POST(request: NextRequest) {
     // GÃ©rer la dÃ©cision de dÃ©duplication
     const decision = dedup?.decision;
     const matchedId = dedup?.matchedId;
+    const keepDuplicate =
+      decision === 'keep_both' ||
+      keepDespiteDuplicate ||
+      userReason === 'doublon_conserve_manuellement';
+    const isReplace = decision === 'replace' || !!replaceDuplicateId;
+    const isLinkExisting = decision === 'link_existing';
 
     // === CAS 1: CANCEL ===
     if (decision === 'cancel') {
@@ -200,12 +206,47 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // DÃ©tection de doublon exact (fileSha256) pour Ã©viter un P2002 silencieux
+    const exactDuplicate = await prisma.document.findFirst({
+      where: {
+        organizationId: meta.organizationId,
+        fileSha256: meta.sha256,
+        deletedAt: null,
+        status: { not: 'draft' },
+      },
+      select: {
+        id: true,
+        filenameOriginal: true,
+        uploadedAt: true,
+        DocumentType: { select: { code: true, label: true } },
+      },
+    });
+
+    if (exactDuplicate && !keepDuplicate && !isReplace && !isLinkExisting) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'DUPLICATE_FILE',
+          details: 'Ce fichier existe déjà en base. Choisissez une action.',
+          duplicate: {
+            id: exactDuplicate.id,
+            name: exactDuplicate.filenameOriginal,
+            uploadedAt: exactDuplicate.uploadedAt,
+            type: exactDuplicate.DocumentType,
+          },
+        },
+        { status: 409 }
+      );
+    }
+
     // === CAS 2: LINK_EXISTING ===
     // Ne crÃ©e AUCUN nouveau Document, seulement un DocumentLink
-    if (decision === 'link_existing' && matchedId) {
+    const effectiveMatchedId =
+      isLinkExisting && !matchedId && exactDuplicate ? exactDuplicate.id : matchedId;
+    if (isLinkExisting && effectiveMatchedId) {
       // VÃ©rifier que le document existant existe
       const existingDoc = await prisma.document.findFirst({
-        where: { id: matchedId, organizationId: meta.organizationId },
+        where: { id: effectiveMatchedId, organizationId: meta.organizationId },
         select: { 
           id: true, 
           filenameOriginal: true,
@@ -224,7 +265,7 @@ export async function POST(request: NextRequest) {
       // VÃ©rifier si un lien existe dÃ©jÃ 
       const existingLink = await prisma.documentLink.findFirst({
         where: {
-          documentId: matchedId,
+          documentId: effectiveMatchedId,
           entityType: documentContext.entityType,
           entityId: documentContext.entityId || null,
           Document: {
@@ -235,14 +276,14 @@ export async function POST(request: NextRequest) {
 
       if (existingLink) {
         // Lien dÃ©jÃ  existant, on ne fait rien
-        console.log(`[Finalize] Lien dÃ©jÃ  existant pour document ${matchedId} vers ${documentContext.entityType}/${documentContext.entityId}`);
+          console.log(`[Finalize] Lien dÃ©jÃ  existant pour document ${effectiveMatchedId} vers ${documentContext.entityType}/${documentContext.entityId}`);
       } else {
         // CrÃ©er le lien seulement si ce n'est pas un contexte GLOBAL
         // (les liens GLOBAL sont gÃ©rÃ©s par DocumentAutoLinkingServiceServer)
         if (documentContext.entityType !== 'GLOBAL') {
           await prisma.documentLink.create({
             data: {
-              documentId: matchedId,
+              documentId: effectiveMatchedId,
               linkedType: documentContext.entityType.toLowerCase(),
               linkedId: documentContext.entityId || documentContext.entityType
             }
@@ -252,7 +293,7 @@ export async function POST(request: NextRequest) {
         // Note: La liaison GLOBAL est maintenant gÃ©rÃ©e par DocumentAutoLinkingServiceServer
         // pour Ã©viter les doublons
 
-        console.log(`[Finalize] Lien crÃ©Ã© pour document existant ${matchedId} vers ${documentContext.entityType}/${documentContext.entityId}`);
+        console.log(`[Finalize] Lien crÃ©Ã© pour document existant ${effectiveMatchedId} vers ${documentContext.entityType}/${documentContext.entityId}`);
       }
 
       // Supprimer le fichier temporaire (pas besoin de le stocker)
@@ -262,7 +303,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         linked: true,
-        documentId: matchedId,
+        documentId: effectiveMatchedId,
         message: 'Document liÃ© au contexte existant',
         document: {
           id: existingDoc.id,
@@ -323,7 +364,7 @@ export async function POST(request: NextRequest) {
     let typeLabel: string = '';
     
     // Pour les doublons conservÃ©s, essayer de rÃ©cupÃ©rer le type de l'original AVANT de modifier le SHA256
-    if ((decision === 'keep_both' || userReason === 'doublon_conserve_manuellement')) {
+    if (keepDuplicate) {
       // Chercher l'original avec le SHA256 original (pas modifiÃ©)
       const originalDoc = await prisma.document.findFirst({
         where: { 
@@ -381,7 +422,7 @@ export async function POST(request: NextRequest) {
 
     // Pour les doublons conservÃ©s manuellement, modifier le hash pour Ã©viter la contrainte d'unicitÃ©
     let finalSha256 = meta.sha256;
-    if (decision === 'keep_both' || userReason === 'doublon_conserve_manuellement') {
+    if (keepDuplicate || isReplace) {
       // Ajouter un suffixe unique au hash pour permettre la conservation du doublon
       finalSha256 = `${meta.sha256}_duplicate_${Date.now()}`;
     }

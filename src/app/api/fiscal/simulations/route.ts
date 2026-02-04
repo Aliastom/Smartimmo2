@@ -42,13 +42,16 @@ export async function GET(request: NextRequest) {
       take: limit,
       select: {
         id: true,
+        organizationId: true, // ⚠️ CRITIQUE: Ajouter organizationId pour la sync App Shell
+        userId: true,
         name: true,
         year: true,
         fiscalVersionId: true,
-        createdAt: true,
+        inputsJson: true, // Charger pour la sync complète
+        resultJson: true, // Charger pour la sync complète
         createdBy: true,
+        createdAt: true,
         updatedAt: true,
-        // On ne charge pas inputsJson et resultJson pour optimiser
       },
     });
     

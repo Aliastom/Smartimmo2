@@ -10,7 +10,10 @@ import { RefreshCw, FileText, Edit, CheckCircle, AlertCircle, Link } from 'lucid
 import { DocumentTableRow } from './DocumentTable';
 import { Badge } from '@/components/ui/Badge';
 import { DocumentLinkSelector } from './DocumentLinkSelector';
-// import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'; // Composant non disponible
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { createDocumentServiceWithMode } from '@/domain/services/documentServiceFactory';
+import { getGlobalSyncService } from '@/lib/offline/syncGlobal';
+import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
 
 interface DocumentEditModalProps {
   isOpen: boolean;
@@ -25,9 +28,15 @@ interface DocumentEditModalProps {
     typeAlternatives?: string; // JSON string of predictions
   };
   onUpdate?: () => void;
+  mode?: 'normal' | 'app-shell'; // Mode pour déterminer si utiliser DocumentService ou API directe
+  organizationId?: string; // Nécessaire en mode app-shell pour DocumentService
 }
 
-export function DocumentEditModal({ isOpen, onClose, document, onUpdate }: DocumentEditModalProps) {
+export function DocumentEditModal({ isOpen, onClose, document, onUpdate, mode = 'normal', organizationId: organizationIdProp }: DocumentEditModalProps) {
+  // ⚠️ Récupérer organizationId depuis le hook si non fourni en prop
+  const { organizationId: organizationIdFromHook } = useCurrentOrganization();
+  const organizationId = organizationIdProp || organizationIdFromHook || '';
+  
   const [activeTab, setActiveTab] = useState('rename');
   const [newFilename, setNewFilename] = useState(document.filenameOriginal);
   const [isSaving, setIsSaving] = useState(false);
@@ -36,7 +45,7 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate }: Docum
   const [selectedPredictionType, setSelectedPredictionType] = useState<string | null>(document.DocumentType?.code || null);
   const [documentTypes, setDocumentTypes] = useState<Array<{ code: string, label: string }>>([]);
   const [isLinking, setIsLinking] = useState(false);
-  const [currentLinks, setCurrentLinks] = useState<Array<{ entityType: string; entityId?: string; entityName?: string }>>([]);
+  const [currentLinks, setCurrentLinks] = useState<Array<{ id?: string; entityType: string; entityId?: string; entityName?: string }>>([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -60,18 +69,37 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate }: Docum
 
   // Load all document types for the select dropdown
   useEffect(() => {
-    fetch('/api/admin/document-types?includeInactive=false')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setDocumentTypes(data.data.map((t: any) => ({
+    const loadDocumentTypes = async () => {
+      try {
+        if (mode === 'app-shell' && organizationId) {
+          // ⚠️ En app-shell : charger depuis IndexedDB
+          const { getLocalDB } = await import('@/lib/offline/db');
+          const db = await getLocalDB();
+          const types = await db.DocumentType
+            .filter((t: any) => t.isActive !== false)
+            .toArray();
+          setDocumentTypes(types.map((t: any) => ({
             code: t.code,
-            label: t.label
+            label: t.label,
           })));
+        } else {
+          // Mode normal : utiliser l'API
+          const response = await fetch('/api/admin/document-types?includeInactive=false');
+          const data = await response.json();
+          if (data.success) {
+            setDocumentTypes(data.data.map((t: any) => ({
+              code: t.code,
+              label: t.label
+            })));
+          }
         }
-      })
-      .catch(console.error);
-  }, []);
+      } catch (error) {
+        console.error('Error loading document types:', error);
+      }
+    };
+    
+    loadDocumentTypes();
+  }, [mode, organizationId]);
 
   // Load current document links
   useEffect(() => {
@@ -82,10 +110,28 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate }: Docum
 
   const loadDocumentLinks = async () => {
     try {
-      const response = await fetch(`/api/documents/${document.id}/links`);
-      const result = await response.json();
-      if (result.success && result.data) {
-        setCurrentLinks(result.data);
+      // ⚠️ En mode app-shell : lire depuis IndexedDB via DocumentService
+      if (mode === 'app-shell' && organizationId) {
+        const documentService = createDocumentServiceWithMode('app-shell');
+        const links = await documentService.deps.documentLinkRepo.findMany({
+          documentId: document.id,
+        });
+        // Convertir vers le format attendu par l'UI
+        // Note: En IndexedDB, DocumentLink n'a pas d'ID unique (clé composite)
+        // On génère un ID composite pour l'UI
+        setCurrentLinks(links.map(link => ({
+          id: `${link.documentId}-${link.linkedType}-${link.linkedId}`, // ID composite pour l'UI
+          entityType: link.linkedType,
+          entityId: link.linkedId,
+          entityName: link.entityName || undefined,
+        })));
+      } else {
+        // Mode normal : utiliser l'API
+        const response = await fetch(`/api/documents/${document.id}/links`);
+        const result = await response.json();
+        if (result.success && result.data) {
+          setCurrentLinks(result.data);
+        }
       }
     } catch (error) {
       console.error('Error loading document links:', error);
@@ -93,24 +139,55 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate }: Docum
   };
 
   const handleSaveRename = async () => {
+    if (!organizationId) {
+      alert('Erreur: OrganizationId manquant');
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const response = await fetch(`/api/documents/${document.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filenameOriginal: newFilename }),
-      });
-      const result = await response.json();
-      if (result.success) {
+      // ⚠️ Utiliser DocumentService en mode app-shell
+      if (mode === 'app-shell') {
+        const documentService = createDocumentServiceWithMode('app-shell');
+        await documentService.updateDocument(document.id, organizationId, {
+          filenameOriginal: newFilename,
+        });
+
+        // ⚠️ En app-shell online : push → pull → refresh
+        const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+        if (isOnline) {
+          try {
+            const syncService = getGlobalSyncService();
+            await syncService.syncAllPendingToRemote(organizationId);
+            await syncService.syncEntityFromRemoteByName('document', organizationId);
+            window.dispatchEvent(new CustomEvent('sync:refresh'));
+          } catch (syncError) {
+            console.warn('[DocumentEditModal] Erreur sync après renommage:', syncError);
+          }
+        }
+
         alert('✅ Nom du document mis à jour avec succès');
         onUpdate?.();
         onClose();
       } else {
-        alert(`Erreur: ${result.error || 'Erreur lors de la mise à jour du nom'}`);
+        // Mode normal : utiliser l'API
+        const response = await fetch(`/api/documents/${document.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filenameOriginal: newFilename }),
+        });
+        const result = await response.json();
+        if (result.success) {
+          alert('✅ Nom du document mis à jour avec succès');
+          onUpdate?.();
+          onClose();
+        } else {
+          alert(`Erreur: ${result.error || 'Erreur lors de la mise à jour du nom'}`);
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error renaming document:', error);
-      alert('Erreur lors du renommage du document');
+      alert(error.message || 'Erreur lors du renommage du document');
     } finally {
       setIsSaving(false);
     }
@@ -151,80 +228,165 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate }: Docum
   };
 
   const handleSaveReclassify = async () => {
-    if (!selectedPredictionType) {
-      alert('Veuillez sélectionner un type de document.');
+    if (!selectedPredictionType || !organizationId) {
+      if (!selectedPredictionType) {
+        alert('Veuillez sélectionner un type de document.');
+      } else {
+        alert('Erreur: OrganizationId manquant');
+      }
       return;
     }
+
     setIsSaving(true);
     try {
-      const response = await fetch(`/api/documents/${document.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chosenTypeId: selectedPredictionType }),
-      });
-      const result = await response.json();
-      if (result.success) {
+      // ⚠️ Utiliser DocumentService en mode app-shell
+      if (mode === 'app-shell') {
+        const documentService = createDocumentServiceWithMode('app-shell');
+        await documentService.updateDocument(document.id, organizationId, {
+          documentTypeId: selectedPredictionType,
+        });
+
+        // ⚠️ En app-shell online : push → pull → refresh
+        const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+        if (isOnline) {
+          try {
+            const syncService = getGlobalSyncService();
+            await syncService.syncAllPendingToRemote(organizationId);
+            await syncService.syncEntityFromRemoteByName('document', organizationId);
+            window.dispatchEvent(new CustomEvent('sync:refresh'));
+          } catch (syncError) {
+            console.warn('[DocumentEditModal] Erreur sync après reclassification:', syncError);
+          }
+        }
+
         alert('✅ Type de document mis à jour avec succès');
         onUpdate?.();
         onClose();
       } else {
-        alert(`Erreur: ${result.error || 'Erreur lors de la mise à jour du type'}`);
+        // Mode normal : utiliser l'API
+        const response = await fetch(`/api/documents/${document.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chosenTypeId: selectedPredictionType }),
+        });
+        const result = await response.json();
+        if (result.success) {
+          alert('✅ Type de document mis à jour avec succès');
+          onUpdate?.();
+          onClose();
+        } else {
+          alert(`Erreur: ${result.error || 'Erreur lors de la mise à jour du type'}`);
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating document type:', error);
-      alert('Erreur lors de la mise à jour du type de document');
+      alert(error.message || 'Erreur lors de la mise à jour du type de document');
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleLinkDocument = async (linkedTo: 'global' | 'property' | 'lease' | 'transaction' | 'loan' | 'tenant', linkedId?: string) => {
+    if (!organizationId) {
+      alert('Erreur: OrganizationId manquant');
+      return;
+    }
+
     setIsLinking(true);
     try {
-      const response = await fetch(`/api/documents/${document.id}/links`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          entityType: linkedTo.toUpperCase(),
-          entityId: linkedId || null,
-        }),
-      });
-      const result = await response.json();
-      if (result.success) {
+      // ⚠️ Utiliser DocumentService en mode app-shell
+      if (mode === 'app-shell') {
+        const documentService = createDocumentServiceWithMode('app-shell');
+        await documentService.linkDocument(
+          {
+            documentId: document.id,
+            linkedType: linkedTo,
+            linkedId: linkedTo === 'global' ? null : linkedId || null,
+          },
+          organizationId
+        );
+
+        // ⚠️ En app-shell online : push → pull → refresh
+        const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+        if (isOnline) {
+          try {
+            const syncService = getGlobalSyncService();
+            await syncService.syncAllPendingToRemote(organizationId);
+            await syncService.syncEntityFromRemoteByName('documentLink', organizationId);
+            window.dispatchEvent(new CustomEvent('sync:refresh'));
+          } catch (syncError) {
+            console.warn('[DocumentEditModal] Erreur sync après liaison:', syncError);
+          }
+        }
+
         alert('✅ Document lié avec succès');
         loadDocumentLinks(); // Recharger les liens
         onUpdate?.();
       } else {
-        alert(`Erreur: ${result.error || 'Erreur lors de la liaison du document'}`);
+        // Mode normal : utiliser l'API
+        const response = await fetch(`/api/documents/${document.id}/links`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entityType: linkedTo.toUpperCase(),
+            entityId: linkedId || null,
+          }),
+        });
+        const result = await response.json();
+        if (result.success) {
+          alert('✅ Document lié avec succès');
+          loadDocumentLinks(); // Recharger les liens
+          onUpdate?.();
+        } else {
+          alert(`Erreur: ${result.error || 'Erreur lors de la liaison du document'}`);
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error linking document:', error);
-      alert('Erreur lors de la liaison du document');
+      alert(error.message || 'Erreur lors de la liaison du document');
     } finally {
       setIsLinking(false);
     }
   };
 
-  const handleUnlinkDocument = async (linkId: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer cette liaison ?')) {
+  const handleUnlinkDocument = async (link: { id?: string; entityType: string; entityId?: string }) => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer cette liaison ?') || !organizationId) {
       return;
     }
     
     try {
-      const response = await fetch(`/api/documents/${document.id}/links/${linkId}`, {
-        method: 'DELETE',
-      });
-      const result = await response.json();
-      if (result.success) {
-        alert('✅ Liaison supprimée avec succès');
-        loadDocumentLinks(); // Recharger les liens
-        onUpdate?.();
-      } else {
-        alert(`Erreur: ${result.error || 'Erreur lors de la suppression de la liaison'}`);
+      // ⚠️ Utiliser DocumentService (app-shell et normal)
+      const documentService = createDocumentServiceWithMode(mode);
+      await documentService.unlinkDocument(
+        {
+          documentId: document.id,
+          linkedType: link.entityType.toLowerCase() as 'property' | 'lease' | 'transaction' | 'tenant' | 'loan' | 'global',
+          linkedId: link.entityId,
+        },
+        organizationId
+      );
+
+      // ⚠️ En app-shell online : push → pull → refresh
+      if (mode === 'app-shell') {
+        const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+        if (isOnline) {
+          try {
+            const syncService = getGlobalSyncService();
+            await syncService.syncAllPendingToRemote(organizationId);
+            await syncService.syncEntityFromRemoteByName('documentLink', organizationId);
+            window.dispatchEvent(new CustomEvent('sync:refresh'));
+          } catch (syncError) {
+            console.warn('[DocumentEditModal] Erreur sync après suppression liaison:', syncError);
+          }
+        }
       }
-    } catch (error) {
+
+      alert('✅ Liaison supprimée avec succès');
+      loadDocumentLinks(); // Recharger les liens
+      onUpdate?.();
+    } catch (error: any) {
       console.error('Error unlinking document:', error);
-      alert('Erreur lors de la suppression de la liaison');
+      alert(error.message || 'Erreur lors de la suppression de la liaison');
     }
   };
 
@@ -308,19 +470,19 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate }: Docum
 
                 <div>
                   <Label htmlFor="documentType">Type de document</Label>
-                  <select
+                  <div className="mt-1">
+                    <SmartSelect
                     id="documentType"
                     value={selectedPredictionType || ''}
-                    onChange={(e) => setSelectedPredictionType(e.target.value)}
-                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="">Sélectionner un type</option>
-                    {documentTypes.map((type) => (
-                      <option key={type.code} value={type.code}>
-                        {type.label}
-                      </option>
-                    ))}
-                  </select>
+                      onChange={(value) => setSelectedPredictionType(value || null)}
+                      options={documentTypes.map((type) => ({
+                        value: type.code,
+                        label: type.label,
+                      })) as SmartSelectOption[]}
+                      placeholder="Sélectionner un type"
+                      aria-label="Type de document"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -361,7 +523,7 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate }: Docum
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleUnlinkDocument(`${link.entityType}:${link.entityId}`)}
+                              onClick={() => handleUnlinkDocument(link)}
                               disabled={isLastLink}
                               className={isLastLink ? 'opacity-50 cursor-not-allowed' : ''}
                             >

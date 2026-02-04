@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Euro, Calendar, FileText, Building2, Users, Zap, Lock } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Button } from '@/components/ui/Button';
+import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
 
 interface TransactionModalProps {
   isOpen: boolean;
@@ -339,21 +340,20 @@ export default function TransactionModal({
                     <Lock className="h-4 w-4 inline ml-2 text-gray-400" />
                   )}
                 </label>
-                <select
+                <SmartSelect
                   value={formData.propertyId}
-                  onChange={(e) => handleFieldChange('propertyId', e.target.value)}
+                  onChange={(value) => handleFieldChange('propertyId', value)}
                   disabled={lockedFields.has('propertyId')}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                    errors.propertyId ? 'border-red-500' : 'border-gray-300'
-                  } ${lockedFields.has('propertyId') ? 'bg-gray-100' : ''}`}
-                >
-                  <option value="">Sélectionner un bien</option>
-                  {(properties || []).map((property) => (
-                    <option key={property.id} value={property.id}>
-                      {property.name} - {property.address}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: 'Sélectionner un bien' },
+                    ...(properties || []).map((property): SmartSelectOption => ({
+                      value: property.id,
+                      label: `${property.name} - ${property.address}`,
+                    })),
+                  ]}
+                  placeholder="Sélectionner un bien"
+                  error={!!errors.propertyId}
+                />
                 {errors.propertyId && (
                   <p className="text-sm text-red-600">{errors.propertyId}</p>
                 )}
@@ -364,20 +364,19 @@ export default function TransactionModal({
                 <label className="block text-sm font-medium text-gray-700">
                   Bail
                 </label>
-                <select
+                <SmartSelect
                   value={formData.leaseId}
-                  onChange={(e) => handleFieldChange('leaseId', e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                    errors.leaseId ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                >
-                  <option value="">Aucun bail</option>
-                  {(leases || []).map((lease) => (
-                    <option key={lease.id} value={lease.id}>
-                      {lease.Tenant?.firstName} {lease.Tenant?.lastName} - {lease.status}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => handleFieldChange('leaseId', value)}
+                  options={[
+                    { value: '', label: 'Aucun bail' },
+                    ...(leases || []).map((lease): SmartSelectOption => ({
+                      value: lease.id,
+                      label: `${lease.Tenant?.firstName || ''} ${lease.Tenant?.lastName || ''} - ${lease.status}`,
+                    })),
+                  ]}
+                  placeholder="Aucun bail"
+                  error={!!errors.leaseId}
+                />
               </div>
 
               {/* Date */}
@@ -389,7 +388,7 @@ export default function TransactionModal({
                   type="date"
                   value={formData.date}
                   onChange={(e) => handleFieldChange('date', e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+                  className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                     errors.date ? 'border-red-500' : 'border-gray-300'
                   }`}
                 />
@@ -403,26 +402,27 @@ export default function TransactionModal({
                 <label className="block text-sm font-medium text-gray-700">
                   Nature <span className="text-red-500">*</span>
                   {autoFields.has('natureId') && (
-                    <Zap className="h-4 w-4 inline ml-2 text-blue-500" />
+                    <Zap className="h-4 w-4 inline ml-2 text-orange-500" />
                   )}
                 </label>
-                <select
+                <SmartSelect
                   value={formData.natureId}
-                  onChange={(e) => handleFieldChange('natureId', e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                    errors.natureId ? 'border-red-500' : 'border-gray-300'
-                  }`}
+                  onChange={(value) => handleFieldChange('natureId', value)}
                   disabled={loadingNatures}
-                >
-                  <option value="">
-                    {loadingNatures ? 'Chargement...' : 'Sélectionner une nature'}
-                  </option>
-                  {natures.map((nature) => (
-                    <option key={nature.id} value={nature.id}>
-                      {nature.label}
-                    </option>
-                  ))}
-                </select>
+                  options={
+                    loadingNatures
+                      ? [{ value: '', label: 'Chargement...', disabled: true }]
+                      : [
+                          { value: '', label: 'Sélectionner une nature' },
+                          ...natures.map((nature): SmartSelectOption => ({
+                            value: nature.id,
+                            label: nature.label,
+                          })),
+                        ]
+                  }
+                  placeholder={loadingNatures ? 'Chargement...' : 'Sélectionner une nature'}
+                  error={!!errors.natureId}
+                />
                 {errors.natureId && (
                   <p className="text-sm text-red-600">{errors.natureId}</p>
                 )}
@@ -433,20 +433,19 @@ export default function TransactionModal({
                 <label className="block text-sm font-medium text-gray-700">
                   Catégorie <span className="text-red-500">*</span>
                 </label>
-                <select
+                <SmartSelect
                   value={formData.categoryId}
-                  onChange={(e) => handleFieldChange('categoryId', e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                    errors.categoryId ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                >
-                  <option value="">Sélectionner une catégorie</option>
-                  {(categories || []).map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => handleFieldChange('categoryId', value)}
+                  options={[
+                    { value: '', label: 'Sélectionner une catégorie' },
+                    ...(categories || []).map((category): SmartSelectOption => ({
+                      value: category.id,
+                      label: category.label,
+                    })),
+                  ]}
+                  placeholder="Sélectionner une catégorie"
+                  error={!!errors.categoryId}
+                />
                 {errors.categoryId && (
                   <p className="text-sm text-red-600">{errors.categoryId}</p>
                 )}
@@ -457,7 +456,7 @@ export default function TransactionModal({
                 <label className="block text-sm font-medium text-gray-700">
                   Montant <span className="text-red-500">*</span>
                   {autoFields.has('amount') && (
-                    <Zap className="h-4 w-4 inline ml-2 text-blue-500" />
+                    <Zap className="h-4 w-4 inline ml-2 text-orange-500" />
                   )}
                 </label>
                 <input
@@ -483,7 +482,7 @@ export default function TransactionModal({
                   type="text"
                   value={formData.label}
                   onChange={(e) => handleFieldChange('label', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                   placeholder="Libellé de la transaction"
                 />
               </div>
@@ -497,7 +496,7 @@ export default function TransactionModal({
                   type="text"
                   value={formData.reference}
                   onChange={(e) => handleFieldChange('reference', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                   placeholder="Référence (optionnel)"
                 />
               </div>
@@ -515,7 +514,7 @@ export default function TransactionModal({
                   type="date"
                   value={formData.paymentDate}
                   onChange={(e) => handleFieldChange('paymentDate', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                 />
               </div>
 
@@ -524,18 +523,18 @@ export default function TransactionModal({
                 <label className="block text-sm font-medium text-gray-700">
                   Mode de paiement
                 </label>
-                <select
+                <SmartSelect
                   value={formData.paymentMethod}
-                  onChange={(e) => handleFieldChange('paymentMethod', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">Sélectionner un mode de paiement</option>
-                  {PAYMENT_METHODS.map((method) => (
-                    <option key={method.id} value={method.id}>
-                      {method.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => handleFieldChange('paymentMethod', value)}
+                  options={[
+                    { value: '', label: 'Sélectionner un mode de paiement' },
+                    ...PAYMENT_METHODS.map((method): SmartSelectOption => ({
+                      value: method.id,
+                      label: method.label,
+                    })),
+                  ]}
+                  placeholder="Sélectionner un mode de paiement"
+                />
               </div>
 
               {/* Notes */}
@@ -547,7 +546,7 @@ export default function TransactionModal({
                   value={formData.notes}
                   onChange={(e) => handleFieldChange('notes', e.target.value)}
                   rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                   placeholder="Notes additionnelles (optionnel)"
                 />
               </div>
@@ -565,7 +564,7 @@ export default function TransactionModal({
                   type="month"
                   value={formData.periodStart}
                   onChange={(e) => handleFieldChange('periodStart', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                 />
               </div>
 
@@ -579,7 +578,7 @@ export default function TransactionModal({
                   min="1"
                   value={formData.monthsCovered}
                   onChange={(e) => handleFieldChange('monthsCovered', parseInt(e.target.value) || 1)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                 />
               </div>
 

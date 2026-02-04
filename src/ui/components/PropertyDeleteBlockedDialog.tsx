@@ -186,7 +186,7 @@ export default function PropertyDeleteBlockedDialog({
           )}
           {hardBlockers.Loan.active > 0 && (
             <Link
-              href={`/biens/${propertyId}/loans`}
+              href={`/app?view=property&propertyId=${propertyId}&tab=loans`}
               onClick={onClose}
               className="px-4 py-2 text-sm font-medium text-primary-600 hover:text-primary-700 transition-colors"
             >

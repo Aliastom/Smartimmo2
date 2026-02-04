@@ -10,12 +10,18 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Badge } from '@/components/ui/Badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
+import { Modal } from '@/components/ui/Modal';
+import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
+import { SmartDatePicker } from '@/components/ui/SmartDatePicker';
 import { useUploadStaging } from '@/hooks/useUploadStaging';
 import { UploadReviewModal } from '@/components/documents/UploadReviewModal';
 import { DuplicateDetectedModal } from '@/components/documents/DuplicateDetectedModal';
 import { ConfirmDeleteDocumentModal } from '@/components/documents/ConfirmDeleteDocumentModal';
 import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { useLoanDocuments } from '@/hooks/offline/useLoanDocuments';
+import { getLocalDB } from '@/lib/offline/db';
+import { createDocumentServiceWithMode } from '@/domain/services/documentServiceFactory';
 
 // Schéma de validation pour le formulaire de prêt
 const loanFormSchema = z.object({
@@ -81,6 +87,7 @@ interface LoanModalV2Props {
   };
   mode?: 'create' | 'edit';
   title?: string;
+  lockPropertyId?: boolean; // Si true, le champ "Bien" est verrouillé (désactivé)
 }
 
 export const LoanModalV2: React.FC<LoanModalV2Props> = ({
@@ -91,7 +98,9 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
   initialData,
   mode = 'create',
   title,
+  lockPropertyId = false,
 }) => {
+  const { organizationId } = useCurrentOrganization();
   const [activeTab, setActiveTab] = useState('informations');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -121,6 +130,40 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
     clearStaging
   } = useUploadStaging();
 
+  // ✅ Détecter si on est en mode app-shell
+  const isAppShellMode = typeof window !== 'undefined' && window.location.pathname.startsWith('/app');
+  
+  // En mode app-shell, utiliser le hook pour charger les documents depuis IndexedDB
+  const { 
+    documents: hookLinkedDocuments, 
+    loading: documentsLoading,
+    hasMissingDocuments 
+  } = useLoanDocuments(
+    isAppShellMode && mode === 'edit' ? initialData?.id : null,
+    isAppShellMode && mode === 'edit' && isOpen
+  );
+  
+  // ⚠️ CORRECTION: Filtrer les stagedDocuments pour exclure ceux qui sont déjà finalisés ou liés au prêt
+  // Cela évite d'afficher les brouillons des documents déjà validés lors de la réouverture de la modal
+  // ⚠️ IMPORTANT: Ce useMemo doit être APRÈS la déclaration de stagedDocuments ET linkedDocuments
+  const filteredStagedDocuments = React.useMemo(() => {
+    if (!stagedDocuments || stagedDocuments.length === 0) {
+      return [];
+    }
+
+    // Filtrer les stagedDocuments
+    // ⚠️ CORRECTION: Afficher TOUS les brouillons (status === 'draft'), même s'ils sont déjà liés
+    // Les brouillons doivent être visibles pour permettre leur modification/suppression
+    return stagedDocuments.filter(doc => {
+      // Exclure UNIQUEMENT les documents qui ne sont plus en brouillon (déjà finalisés)
+      // Ne PAS exclure les brouillons même s'ils sont liés au prêt
+      if (doc.status && doc.status !== 'draft') {
+        return false;
+      }
+      return true;
+    });
+  }, [stagedDocuments]);
+  
   // États pour les documents
   const [linkedDocuments, setLinkedDocuments] = useState<any[]>([]);
   const [stagedLinks, setStagedLinks] = useState<any[]>([]);
@@ -128,8 +171,118 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [showDeleteDocModal, setShowDeleteDocModal] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<any>(null);
+  const [isDeletingDocument, setIsDeletingDocument] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateData, setDuplicateData] = useState<any>(null);
+  
+  // ✅ Synchroniser les documents du hook avec l'état local en mode app-shell
+  useEffect(() => {
+    if (isAppShellMode && mode === 'edit' && hookLinkedDocuments) {
+      // Convertir le format du hook (LinkedDocument[]) au format attendu par la modal
+      const formattedDocuments = hookLinkedDocuments.map(doc => ({
+        id: doc.id,
+        fileName: doc.fileName || doc.filenameOriginal,
+        filenameOriginal: doc.filenameOriginal,
+        DocumentType: doc.documentTypeLabel ? { label: doc.documentTypeLabel } : null,
+        documentTypeLabel: doc.documentTypeLabel,
+        uploadedAt: doc.uploadedAt,
+        createdAt: doc.createdAt,
+        status: doc.status,
+        url: doc.url,
+        mime: doc.mime,
+        size: doc.size,
+      }));
+      setLinkedDocuments(formattedDocuments);
+    }
+  }, [isAppShellMode, mode, hookLinkedDocuments]);
+
+  // État pour stocker les DocumentLink de chaque document (en mode app-shell)
+  const [documentLinksMap, setDocumentLinksMap] = useState<Map<string, any[]>>(new Map());
+
+  // Charger les DocumentLink pour tous les documents liés (en mode app-shell)
+  useEffect(() => {
+    if (!isAppShellMode || !organizationId || !isOpen) return;
+    
+    const loadDocumentLinks = async () => {
+      try {
+        const db = await getLocalDB();
+        const allDocuments = isAppShellMode ? hookLinkedDocuments : linkedDocuments;
+        
+        if (allDocuments.length === 0) {
+          setDocumentLinksMap(new Map());
+          return;
+        }
+        
+        // Charger tous les DocumentLink pour ces documents
+        const documentIds = allDocuments.map(doc => doc.id);
+        const allLinks = await db.DocumentLink.toArray();
+        
+        // Filtrer les liens pour ces documents
+        const linksMap = new Map<string, any[]>();
+        for (const docId of documentIds) {
+          const docLinks = allLinks.filter(link => link.documentId === docId);
+          if (docLinks.length > 0) {
+            linksMap.set(docId, docLinks);
+          }
+        }
+        
+        setDocumentLinksMap(linksMap);
+      } catch (error) {
+        console.error('Erreur lors du chargement des DocumentLink:', error);
+      }
+    };
+    
+    loadDocumentLinks();
+  }, [isAppShellMode, organizationId, isOpen, hookLinkedDocuments, linkedDocuments]);
+  
+  // Fonction pour formater les liaisons d'un document de manière compacte
+  const formatDocumentLinks = (doc: any) => {
+    let links: any[] = [];
+    
+    if (isAppShellMode) {
+      // En mode app-shell, utiliser documentLinksMap
+      links = documentLinksMap.get(doc.id) || [];
+    } else {
+      // En mode normal, utiliser doc.DocumentLink
+      links = doc.DocumentLink || [];
+    }
+    
+    if (links.length === 0) {
+      return null;
+    }
+    
+    // Filtrer la liaison vers le prêt courant pour ne pas l'afficher
+    const otherLinks = links.filter((link: any) => {
+      const linkedType = (link.linkedType || '').toLowerCase();
+      const linkedId = link.linkedId || '';
+      return !(linkedType === 'loan' && linkedId === initialData?.id);
+    });
+    
+    if (otherLinks.length === 0) {
+      return null;
+    }
+    
+    // Utiliser entityInfo si disponible, sinon utiliser les types bruts
+    const linkLabels = otherLinks.map((link: any) => {
+      if (link.entityInfo) {
+        const label = link.entityInfo.type === 'Transaction' || link.entityInfo.type === 'Bien' || link.entityInfo.type === 'Bail' 
+          ? link.entityInfo.name 
+          : link.entityInfo.type;
+        return label;
+      } else {
+        const typeMap: Record<string, string> = {
+          'property': 'Bien',
+          'lease': 'Bail',
+          'transaction': 'Transaction',
+          'loan': 'Prêt',
+          'global': 'Global',
+        };
+        return typeMap[link.linkedType?.toLowerCase()] || link.linkedType || 'Inconnu';
+      }
+    });
+    
+    return linkLabels.join(', ');
+  };
 
   const {
     register,
@@ -255,9 +408,45 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
     }
   }, [isOpen, mode, initialData?.id]);
 
+  // ✅ Écouter l'événement documents:refresh pour recharger les documents après sync
+  useEffect(() => {
+    if (!isOpen || mode !== 'edit' || !initialData?.id) return;
+
+    const handleDocumentsRefresh = () => {
+      loadLinkedDocuments(initialData.id);
+    };
+
+    window.addEventListener('documents:refresh', handleDocumentsRefresh);
+    return () => {
+      window.removeEventListener('documents:refresh', handleDocumentsRefresh);
+    };
+  }, [isOpen, mode, initialData?.id]);
+
   // Charger les co-emprunteurs
   const loadBorrowers = async (loanId: string) => {
     try {
+      // ✅ APP-SHELL: Charger depuis IndexedDB si on est en mode app-shell
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/app') && organizationId) {
+        const { getLocalDB } = await import('@/lib/offline/db');
+        const db = await getLocalDB();
+        const borrowers = await db.LoanBorrower
+          .where('[organizationId+loanId]')
+          .equals([organizationId, loanId])
+          .toArray();
+        
+        setBorrowers(borrowers.map(b => ({
+          id: b.id,
+          firstName: b.firstName,
+          lastName: b.lastName,
+          birthDate: b.birthDate || null,
+          email: b.email || null,
+          phone: b.phone || null,
+          responsibilityPct: b.responsibilityPct || null,
+        })));
+        return;
+      }
+      
+      // Mode normal : charger depuis l'API
       const response = await fetch(`/api/loans/${loanId}/borrowers`);
       if (response.ok) {
         const data = await response.json();
@@ -271,10 +460,56 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
   // Charger les documents liés
   const loadLinkedDocuments = async (loanId: string) => {
     try {
-      const response = await fetch(`/api/loans/${loanId}/documents`);
-      if (response.ok) {
-        const data = await response.json();
-        setLinkedDocuments(data.documents || []);
+      // ✅ APP-SHELL: Charger depuis IndexedDB si on est en mode app-shell
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/app') && organizationId) {
+        const { getLocalDB } = await import('@/lib/offline/db');
+        const db = await getLocalDB();
+        
+        // Charger les documents liés au prêt de deux façons :
+        // 1. Documents avec loanId direct
+        const documentsWithLoanId = await db.Document
+          .where('organizationId')
+          .equals(organizationId)
+          .and(doc => doc.loanId === loanId && !doc.deletedAt)
+          .toArray();
+        
+        // 2. Documents liés via DocumentLink
+        const documentLinks = await db.DocumentLink
+          .where('[linkedType+linkedId]')
+          .equals(['loan', loanId])
+          .toArray();
+        
+        const linkedDocumentIds = new Set<string>();
+        documentsWithLoanId.forEach(doc => linkedDocumentIds.add(doc.id));
+        documentLinks.forEach(link => linkedDocumentIds.add(link.documentId));
+        
+        // Charger les documents complets avec leurs types
+        const allLinkedDocuments = [];
+        for (const docId of linkedDocumentIds) {
+          const doc = await db.Document.get(docId);
+          if (doc && doc.organizationId === organizationId && !doc.deletedAt) {
+            // Charger le type de document
+            let docType = null;
+            if (doc.documentTypeId) {
+              docType = await db.DocumentType.get(doc.documentTypeId);
+            }
+            
+            allLinkedDocuments.push({
+              ...doc,
+              DocumentType: docType ? { label: docType.label } : null,
+              documentTypeLabel: docType?.label || 'Non classé',
+            });
+          }
+        }
+        
+        setLinkedDocuments(allLinkedDocuments);
+      } else {
+        // Mode normal : charger depuis l'API
+        const response = await fetch(`/api/loans/${loanId}/documents`);
+        if (response.ok) {
+          const data = await response.json();
+          setLinkedDocuments(data.documents || []);
+        }
       }
     } catch (error) {
       console.error('Erreur lors du chargement des documents:', error);
@@ -329,19 +564,69 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
     setEditingBorrower(null);
   };
 
-  const handleDeleteBorrower = (borrower: LoanBorrower) => {
-    if (confirm('Êtes-vous sûr de vouloir supprimer ce co-emprunteur ?')) {
-      if (borrower.id) {
-        // Supprimer via API si déjà sauvegardé
-        fetch(`/api/loans/borrowers/${borrower.id}`, {
-          method: 'DELETE',
-        }).then(() => {
-          setBorrowers(prev => prev.filter(b => b.id !== borrower.id));
-        });
-      } else {
-        // Supprimer de la liste locale
-        setBorrowers(prev => prev.filter(b => b !== borrower));
+  const handleDeleteBorrower = async (borrower: LoanBorrower) => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer ce co-emprunteur ?')) {
+      return;
+    }
+
+    // ✅ APP-SHELL: Supprimer en localDB et créer une pendingOp
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/app') && organizationId && borrower.id) {
+      try {
+        const { getLocalDB } = await import('@/lib/offline/db');
+        const db = await getLocalDB();
+        const now = new Date().toISOString();
+
+        // Supprimer de IndexedDB
+        await db.LoanBorrower.delete(borrower.id);
+
+        // ✅ Vérifier si une pendingOp de suppression existe déjà pour éviter les doublons
+        const existingDeletePendingOp = await db.pendingOperations
+          .where('[entity+entityId+operation]')
+          .equals(['loanBorrower', borrower.id, 'delete'])
+          .first();
+
+        // Créer une pendingOp pour la suppression seulement si elle n'existe pas déjà
+        if (!existingDeletePendingOp) {
+          await db.pendingOperations.add({
+            id: crypto.randomUUID(),
+            entity: 'loanBorrower',
+            entityId: borrower.id,
+            operation: 'delete',
+            payload: null,
+            organizationId,
+            status: 'pending',
+            error: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+
+        // Mettre à jour l'UI
+        setBorrowers(prev => prev.filter(b => b.id !== borrower.id));
+        notify2.success('Co-emprunteur supprimé');
+      } catch (error: any) {
+        console.error('Erreur lors de la suppression du co-emprunteur:', error);
+        notify2.error('Erreur lors de la suppression');
       }
+    } else if (borrower.id) {
+      // Mode normal : supprimer via API
+      try {
+        const response = await fetch(`/api/loans/borrowers/${borrower.id}`, {
+          method: 'DELETE',
+        });
+        if (response.ok) {
+          setBorrowers(prev => prev.filter(b => b.id !== borrower.id));
+          notify2.success('Co-emprunteur supprimé');
+        } else {
+          throw new Error('Erreur lors de la suppression');
+        }
+      } catch (error: any) {
+        console.error('Erreur lors de la suppression du co-emprunteur:', error);
+        notify2.error('Erreur lors de la suppression');
+      }
+    } else {
+      // Co-emprunteur non sauvegardé : supprimer de la liste locale
+      setBorrowers(prev => prev.filter(b => b !== borrower));
     }
   };
 
@@ -374,7 +659,60 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
         } else if (response.ok) {
           // Upload réussi
           const result = await response.json();
-          if (result.success) {
+          if (result.success && result.document) {
+            // ✅ APP-SHELL: Ajouter le document dans IndexedDB localement
+            // (identique à TransactionModalV2)
+            if (typeof window !== 'undefined' && window.location.pathname.startsWith('/app') && organizationId) {
+              try {
+                const { getLocalDB } = await import('@/lib/offline/db');
+                const db = await getLocalDB();
+                const docData = result.document;
+                
+                // Construire l'objet document pour IndexedDB
+                const fileName = docData.fileName || docData.filenameOriginal || file.name;
+                const localDoc: any = {
+                  id: docData.id,
+                  organizationId,
+                  propertyId: docData.propertyId || null,
+                  leaseId: docData.leaseId || null,
+                  tenantId: docData.tenantId || null,
+                  transactionId: docData.transactionId || null,
+                  loanId: docData.loanId || null,
+                  filenameOriginal: fileName,
+                  fileName: fileName,
+                  mime: docData.mime || file.type,
+                  size: docData.size || file.size,
+                  bucketKey: docData.bucketKey || null,
+                  url: docData.url || '',
+                  status: docData.status || 'draft',
+                  source: docData.source || 'staged-upload',
+                  documentTypeId: docData.documentTypeId || docData.DocumentType?.id || null,
+                  uploadSessionId: docData.uploadSessionId || uploadSessionId,
+                  intendedContextType: docData.intendedContextType || 'loan',
+                  intendedContextTempKey: docData.intendedContextTempKey || (mode === 'create' ? 'loan:new' : (initialData?.id || 'loan:edit')),
+                  ocrStatus: docData.ocrStatus || 'pending',
+                  ocrVendor: docData.ocrVendor || null,
+                  ocrConfidence: docData.ocrConfidence || null,
+                  ocrError: docData.ocrError || null,
+                  extractedText: docData.extractedText || null,
+                  textSha256: docData.textSha256 || null,
+                  fileSha256: docData.fileSha256 || null,
+                  deletedAt: null,
+                  createdAt: docData.createdAt || new Date().toISOString(),
+                  updatedAt: docData.updatedAt || new Date().toISOString(),
+                  version: docData.version || 1,
+                  // ⚠️ GARDE-FOU: Document existe côté serveur → ne pas purger comme orphelin
+                  _remoteReady: true,
+                };
+                
+                await db.Document.put(localDoc);
+                console.log(`[LoanModalV2] ✅ Document ajouté dans IndexedDB: docId=${docData.id}, status=${localDoc.status}, documentTypeId=${localDoc.documentTypeId || 'null'}`);
+              } catch (dbError) {
+                console.error('[LoanModalV2] ❌ Erreur lors de l\'ajout du document dans IndexedDB:', dbError);
+                // Ne pas bloquer, le document existe côté serveur et sera récupéré lors du pull
+              }
+            }
+            
             // Recharger la liste des documents et liens
             await loadStagedDocuments(uploadSessionId);
             
@@ -468,8 +806,10 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
   const onSubmitForm = async (data: LoanFormData) => {
     setIsSubmitting(true);
     try {
-      const stagedDocumentIds = stagedDocuments.map(doc => doc.id);
-      const stagedLinkItemIds = stagedLinks.map(link => link.id);
+      // ✅ Utiliser filteredStagedDocuments pour éviter d'envoyer les documents déjà finalisés
+      const stagedDocumentIds = filteredStagedDocuments.map(doc => doc.id);
+      // ✅ Utiliser existingDocument.id pour les liens (comme dans TransactionModalV2)
+      const stagedLinkItemIds = stagedLinks.map(link => link.existingDocument?.id || link.id);
 
       await onSubmit({
         ...data,
@@ -478,6 +818,12 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
         stagedLinkItemIds,
         borrowers,
       });
+
+      // ✅ Recharger les documents liés si on est en mode édition
+      // (les documents viennent d'être liés dans IndexedDB)
+      if (mode === 'edit' && initialData?.id) {
+        await loadLinkedDocuments(initialData.id);
+      }
 
       // Nettoyer après succès
       reset();
@@ -559,30 +905,53 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
     }
   }, [principal, annualRatePct, durationMonths, defermentMonths, insurancePct, startDate, paymentDay]);
 
+  // Footer avec boutons
+  const modalFooter = (
+    <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 w-full">
+      <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting} className="w-full sm:w-auto">
+        Annuler
+      </Button>
+      <Button type="submit" form="loan-form" disabled={isSubmitting} className="w-full sm:w-auto">
+        {isSubmitting ? 'Enregistrement...' : mode === 'edit' ? 'Mettre à jour' : 'Créer'}
+      </Button>
+    </div>
+  );
+
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>
-              {title || (mode === 'edit' ? 'Modifier le prêt' : 'Nouveau prêt')}
-            </DialogTitle>
-            <DialogDescription>
-              {mode === 'edit'
-                ? 'Modifiez les informations du prêt immobilier'
-                : 'Ajoutez un nouveau prêt immobilier à votre patrimoine'}
-            </DialogDescription>
-          </DialogHeader>
+      <Modal
+        isOpen={isOpen}
+        onClose={onClose}
+        title={title || (mode === 'edit' ? 'Modifier le prêt' : 'Nouveau prêt')}
+        size="xl"
+        className="md:max-w-[1000px]"
+        footer={modalFooter}
+      >
+        {/* Structure sticky : header (dans Modal) + tabs sticky + content scrollable + footer (dans Modal) */}
+        <div className="flex flex-col h-full min-h-0 overflow-hidden">
+          {/* Description (optionnelle, affichée uniquement si nécessaire) */}
+          {mode === 'create' && (
+            <p className="text-sm text-gray-600 mb-4">
+              Ajoutez un nouveau prêt immobilier à votre patrimoine
+            </p>
+          )}
 
-          {/* Navigation des onglets */}
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8">
+          {/* Navigation des onglets - Sticky */}
+          <div className="sticky top-0 z-10 bg-white border-b border-gray-200 -mx-4 md:-mx-6 px-4 md:px-6 overflow-x-hidden">
+            <nav 
+              className="flex space-x-4 md:space-x-8 overflow-x-auto -mb-px [&::-webkit-scrollbar]:hidden" 
+              style={{ 
+                scrollbarWidth: 'none', 
+                msOverflowStyle: 'none',
+                WebkitOverflowScrolling: 'touch',
+              }}
+            >
               <button
                 type="button"
                 onClick={() => setActiveTab('informations')}
-                className={`py-3 px-1 border-b-2 font-medium text-sm ${
+                className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap flex-shrink-0 ${
                   activeTab === 'informations'
-                    ? 'border-blue-500 text-blue-600'
+                    ? 'border-orange-600 text-orange-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
@@ -591,9 +960,9 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('co-emprunteurs')}
-                className={`py-3 px-1 border-b-2 font-medium text-sm ${
+                className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap flex-shrink-0 ${
                   activeTab === 'co-emprunteurs'
-                    ? 'border-blue-500 text-blue-600'
+                    ? 'border-orange-600 text-orange-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
@@ -602,9 +971,9 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('documents')}
-                className={`py-3 px-1 border-b-2 font-medium text-sm ${
+                className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap flex-shrink-0 ${
                   activeTab === 'documents'
-                    ? 'border-blue-500 text-blue-600'
+                    ? 'border-orange-600 text-orange-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
@@ -614,87 +983,100 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
           </div>
 
           {/* Contenu scrollable */}
-          <div className="flex-1 overflow-y-auto p-6">
-            <form onSubmit={handleSubmit(onSubmitForm)} className="space-y-6">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden -mx-4 md:-mx-6 px-4 md:px-6">
+            <form id="loan-form" onSubmit={handleSubmit(onSubmitForm)} className="space-y-6 pb-4">
               {activeTab === 'informations' && (
-                <div className="space-y-4">
-                  {/* Bien */}
-                  <div className="space-y-2">
-                    <Label htmlFor="propertyId">Bien *</Label>
-                    <select
-                      value={selectedPropertyId}
-                      onChange={(e) => setValue('propertyId', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">Sélectionner un bien</option>
-                      {properties.map((property) => (
-                        <option key={property.id} value={property.id}>
-                          {property.name}
-                        </option>
-                      ))}
-                    </select>
-                    {errors.propertyId && (
-                      <p className="text-sm text-red-500">{errors.propertyId.message}</p>
-                    )}
+                <div className="space-y-4 md:space-y-6">
+                  {/* Ligne 1 : Bien / Nom du prêt (2 colonnes) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Bien */}
+                    <div className="space-y-2">
+                      <Label htmlFor="propertyId">Bien *</Label>
+                      <SmartSelect
+                        value={selectedPropertyId}
+                        onChange={(value) => setValue('propertyId', value)}
+                        options={[
+                          { value: '', label: 'Sélectionner un bien' },
+                          ...properties.map((property): SmartSelectOption => ({
+                            value: property.id,
+                            label: property.name,
+                          })),
+                        ]}
+                        placeholder="Sélectionner un bien"
+                        error={!!errors.propertyId}
+                        disabled={lockPropertyId}
+                      />
+                      {errors.propertyId && (
+                        <p className="text-sm text-red-500">{errors.propertyId.message}</p>
+                      )}
+                    </div>
+
+                    {/* Libellé */}
+                    <div className="space-y-2">
+                      <Label htmlFor="label">Nom du prêt *</Label>
+                      <Input
+                        id="label"
+                        {...register('label')}
+                        placeholder="Ex: Prêt immobilier principal"
+                      />
+                      {errors.label && (
+                        <p className="text-sm text-red-500">{errors.label.message}</p>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Libellé */}
-                  <div className="space-y-2">
-                    <Label htmlFor="label">Nom du prêt *</Label>
-                    <Input
-                      id="label"
-                      {...register('label')}
-                      placeholder="Ex: Prêt immobilier principal"
-                    />
-                    {errors.label && (
-                      <p className="text-sm text-red-500">{errors.label.message}</p>
-                    )}
-                  </div>
-
-                  {/* Type de prêt */}
+                  {/* Ligne 2 : Type de prêt (plein) */}
                   <div className="space-y-2">
                     <Label htmlFor="loanType">Type de prêt</Label>
-                    <select
-                      {...register('loanType')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">Sélectionner un type</option>
-                      <option value="IMMOBILIER">Prêt immobilier</option>
-                      <option value="TRAVAUX">Prêt travaux</option>
-                      <option value="PERSONNEL">Prêt personnel</option>
-                      <option value="AUTRE">Autre</option>
-                    </select>
+                    <SmartSelect
+                      value={watch('loanType') || ''}
+                      onChange={(value) => setValue('loanType', value)}
+                      options={[
+                        { value: '', label: 'Sélectionner un type' },
+                        { value: 'IMMOBILIER', label: 'Prêt immobilier' },
+                        { value: 'TRAVAUX', label: 'Prêt travaux' },
+                        { value: 'PERSONNEL', label: 'Prêt personnel' },
+                        { value: 'AUTRE', label: 'Autre' },
+                      ]}
+                      placeholder="Sélectionner un type"
+                    />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Ligne 3 : Type de remboursement / Profil d'amortissement (2 colonnes) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Type de remboursement */}
                     <div className="space-y-2">
                       <Label htmlFor="repaymentType">Type de remboursement</Label>
-                      <select
-                        {...register('repaymentType')}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Sélectionner un type</option>
-                        <option value="CLASSIC">Prêt classique (remboursement progressif)</option>
-                        <option value="IN_FINE">Prêt in fine</option>
-                      </select>
+                      <SmartSelect
+                        value={watch('repaymentType') || ''}
+                        onChange={(value) => setValue('repaymentType', value)}
+                        options={[
+                          { value: '', label: 'Sélectionner un type' },
+                          { value: 'CLASSIC', label: 'Prêt classique (remboursement progressif)' },
+                          { value: 'IN_FINE', label: 'Prêt in fine' },
+                        ]}
+                        placeholder="Sélectionner un type"
+                      />
                     </div>
 
                     {/* Profil d'amortissement */}
                     <div className="space-y-2">
                       <Label htmlFor="amortizationProfile">Profil d'amortissement</Label>
-                      <select
-                        {...register('amortizationProfile')}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Sélectionner un profil</option>
-                        <option value="CONSTANT_PAYMENT">Mensualités constantes (annuité classique)</option>
-                        <option value="CONSTANT_AMORTIZATION">Amortissement constant (mensualités dégressives)</option>
-                      </select>
+                      <SmartSelect
+                        value={watch('amortizationProfile') || ''}
+                        onChange={(value) => setValue('amortizationProfile', value)}
+                        options={[
+                          { value: '', label: 'Sélectionner un profil' },
+                          { value: 'CONSTANT_PAYMENT', label: 'Mensualités constantes (annuité classique)' },
+                          { value: 'CONSTANT_AMORTIZATION', label: 'Amortissement constant (mensualités dégressives)' },
+                        ]}
+                        placeholder="Sélectionner un profil"
+                      />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Ligne 4 : Capital / Taux (2 colonnes) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Capital */}
                     <div className="space-y-2">
                       <Label htmlFor="principal">Capital emprunté (€) *</Label>
@@ -726,7 +1108,8 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Ligne 5 : Durée / Différé (2 colonnes) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Durée */}
                     <div className="space-y-2">
                       <Label htmlFor="durationMonths">Durée (mois) *</Label>
@@ -756,7 +1139,8 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Ligne 6 : Assurance / Frais de dossier (2 colonnes) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Assurance */}
                     <div className="space-y-2">
                       <Label htmlFor="insurancePct">Assurance (%/an)</Label>
@@ -792,11 +1176,19 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Ligne 7 : Date de début / Jour paiement (2 colonnes) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Date de début */}
                     <div className="space-y-2">
                       <Label htmlFor="startDate">Date de début *</Label>
-                      <Input id="startDate" type="date" {...register('startDate')} />
+                      <SmartDatePicker
+                        id="startDate"
+                        value={watch('startDate') || ''}
+                        onChange={(value) => setValue('startDate', value)}
+                        placeholder="Sélectionner une date"
+                        error={!!errors.startDate}
+                        aria-label="Date de début"
+                      />
                       {errors.startDate && (
                         <p className="text-sm text-red-500">{errors.startDate.message}</p>
                       )}
@@ -824,32 +1216,32 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
 
                   {/* Calculs automatiques - Badges informatifs */}
                   {(calculatedMonthlyPayment !== null || calculatedEndDate !== null || calculatedCRD !== null) && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                       <div className="flex items-center gap-2 mb-3">
-                        <Info className="h-5 w-5 text-blue-600" />
-                        <h4 className="text-sm font-medium text-blue-900">Calculs automatiques</h4>
+                        <Info className="h-5 w-5 text-orange-600" />
+                        <h4 className="text-sm font-medium text-orange-900">Calculs automatiques</h4>
                       </div>
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         {calculatedMonthlyPayment !== null && (
-                          <div className="bg-white rounded-md p-3 border border-blue-100">
-                            <p className="text-xs text-gray-600 mb-1">Mensualité</p>
-                            <p className="text-lg font-semibold text-blue-900">
+                          <div className="bg-white rounded-md p-3 border border-orange-200">
+                            <p className="text-xs text-orange-700 mb-1">Mensualité</p>
+                            <p className="text-lg font-semibold text-orange-900">
                               {calculatedMonthlyPayment.toFixed(2)} €
                             </p>
                           </div>
                         )}
                         {calculatedEndDate !== null && (
-                          <div className="bg-white rounded-md p-3 border border-blue-100">
-                            <p className="text-xs text-gray-600 mb-1">Date de fin</p>
-                            <p className="text-lg font-semibold text-blue-900">
+                          <div className="bg-white rounded-md p-3 border border-orange-200">
+                            <p className="text-xs text-orange-700 mb-1">Date de fin</p>
+                            <p className="text-lg font-semibold text-orange-900">
                               {calculatedEndDate}
                             </p>
                           </div>
                         )}
                         {calculatedCRD !== null && (
-                          <div className="bg-white rounded-md p-3 border border-blue-100">
-                            <p className="text-xs text-gray-600 mb-1">Capital restant dû</p>
-                            <p className="text-lg font-semibold text-blue-900">
+                          <div className="bg-white rounded-md p-3 border border-orange-200">
+                            <p className="text-xs text-orange-700 mb-1">Capital restant dû</p>
+                            <p className="text-lg font-semibold text-orange-900">
                               {calculatedCRD.toFixed(2)} €
                             </p>
                           </div>
@@ -858,14 +1250,14 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                     </div>
                   )}
 
-                  {/* Notes */}
+                  {/* Notes : pleine largeur */}
                   <div className="space-y-2">
                     <Label htmlFor="notes">Notes</Label>
                     <textarea
                       id="notes"
                       {...register('notes')}
                       rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors overflow-x-hidden"
                       placeholder="Notes additionnelles sur ce prêt..."
                     />
                   </div>
@@ -886,9 +1278,9 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
               )}
 
               {activeTab === 'co-emprunteurs' && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
+                <div className="space-y-4 md:space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div className="mt-4">
                       <h3 className="text-lg font-medium text-gray-900">Co-emprunteurs</h3>
                       <p className="text-sm text-gray-600 mt-1">
                         Gérez les co-emprunteurs associés à ce prêt
@@ -898,22 +1290,22 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                       type="button"
                       variant="outline"
                       onClick={handleAddBorrower}
-                      className="flex items-center gap-2"
+                      className="h-10 w-10 p-0 flex items-center justify-center rounded-md"
+                      title="Ajouter un co-emprunteur"
                     >
                       <UserPlus className="h-4 w-4" />
-                      Ajouter un co-emprunteur
                     </Button>
                   </div>
 
                   {borrowers.length > 0 ? (
                     <div className="space-y-3">
                       {borrowers.map((borrower, index) => (
-                        <div key={index} className="flex items-center justify-between p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                          <div>
-                            <p className="font-medium text-gray-900">
+                        <div key={index} className="flex items-center justify-between p-4 bg-gray-50 border border-gray-200 rounded-lg overflow-x-hidden">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-gray-900 truncate">
                               {borrower.firstName} {borrower.lastName}
                             </p>
-                            <div className="text-sm text-gray-500 mt-1">
+                            <div className="text-sm text-gray-500 mt-1 truncate">
                               {borrower.email && <span>{borrower.email}</span>}
                               {borrower.phone && <span className="ml-2">{borrower.phone}</span>}
                               {borrower.responsibilityPct && (
@@ -921,7 +1313,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                               )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-shrink-0">
                             <Button
                               type="button"
                               variant="ghost"
@@ -943,52 +1335,154 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                       ))}
                     </div>
                   ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      <UserPlus className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p className="text-sm">Aucun co-emprunteur</p>
-                      <p className="text-xs mt-1">Cliquez sur "Ajouter un co-emprunteur" pour en ajouter</p>
+                    <div className="flex flex-col items-center justify-center py-12 md:py-16 text-gray-500">
+                      <UserPlus className="h-12 w-12 mb-4 text-gray-300" />
+                      <p className="text-sm font-medium">Aucun co-emprunteur</p>
+                      <p className="text-xs mt-1 text-center max-w-xs">Cliquez sur le bouton ci-dessous pour en ajouter</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleAddBorrower}
+                        className="h-10 w-10 p-0 flex items-center justify-center rounded-md mt-4"
+                        title="Ajouter un co-emprunteur"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                      </Button>
                     </div>
                   )}
                 </div>
               )}
 
               {activeTab === 'documents' && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
+                <div className="space-y-4 md:space-y-6">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div>
                       <h3 className="text-lg font-medium text-gray-900">Documents liés</h3>
                       <p className="text-sm text-gray-600 mt-1">
                         Ajoutez des documents justificatifs à ce prêt
                       </p>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        const input = document.createElement('input');
-                        input.type = 'file';
-                        input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx';
-                        input.multiple = true;
-                        input.onchange = (e) => {
-                          const files = Array.from((e.target as HTMLInputElement).files || []);
-                          if (files.length > 0) {
-                            handleFileUpload(files);
+                    {/* Boutons - Mobile: empilés verticalement, Desktop: en ligne */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                      {/* Bouton secondaire - Lier un document existant */}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          // Sélectionner un document existant
+                          if (!organizationId) {
+                            notify2.error('Organisation non disponible');
+                            return;
                           }
-                        };
-                        input.click();
-                      }}
-                      className="flex items-center gap-2"
-                      disabled={stagingLoading}
-                    >
-                      <Upload className="h-4 w-4" />
-                      {stagingLoading ? 'Chargement...' : 'Ajouter des documents'}
-                    </Button>
+                          
+                          try {
+                            const { getLocalDB } = await import('@/lib/offline/db');
+                            const db = await getLocalDB();
+                            // Charger tous les documents de l'organisation (non supprimés)
+                            const allDocs = await db.Document.where('organizationId').equals(organizationId).and(doc => !doc.deletedAt).toArray();
+                            
+                            if (allDocs.length === 0) {
+                              notify2.info('Aucun document disponible');
+                              return;
+                            }
+                            
+                            // Charger les types de documents pour afficher les labels
+                            const docTypes = await db.DocumentType.toArray();
+                            const docTypeMap = new Map(docTypes.map(dt => [dt.id, dt]));
+                            
+                            // Créer une liste simple pour sélection
+                            const docList = allDocs.map((doc, idx) => {
+                              const docType = doc.documentTypeId ? docTypeMap.get(doc.documentTypeId) : null;
+                              return `${idx + 1}. ${doc.fileName || doc.filenameOriginal} (${docType?.label || 'Non classé'})`;
+                            }).join('\n');
+                            
+                            const selected = prompt(`Sélectionnez un document (entre 1 et ${allDocs.length}):\n\n${docList}\n\nEntrez le numéro:`);
+                            
+                            if (!selected) return;
+                            
+                            const index = parseInt(selected) - 1;
+                            if (index < 0 || index >= allDocs.length) {
+                              notify2.error('Numéro invalide');
+                              return;
+                            }
+                            
+                            const selectedDoc = allDocs[index];
+                            
+                            // Vérifier si le document n'est pas déjà lié
+                            if (stagedLinks.some(link => link.existingDocument?.id === selectedDoc.id)) {
+                              notify2.warning('Ce document est déjà lié');
+                              return;
+                            }
+                            
+                            const docType = selectedDoc.documentTypeId ? docTypeMap.get(selectedDoc.documentTypeId) : null;
+                            
+                            // Ajouter aux stagedLinks au format attendu
+                            const newLink = {
+                              id: selectedDoc.id, // Utiliser l'ID du document comme ID du lien
+                              existingDocument: {
+                                id: selectedDoc.id,
+                                fileName: selectedDoc.fileName || selectedDoc.filenameOriginal,
+                                filenameOriginal: selectedDoc.filenameOriginal,
+                                typeLabel: docType?.label || 'Non classé',
+                                uploadedAt: selectedDoc.uploadedAt,
+                                type: docType?.label || 'Non classé',
+                              }
+                            };
+                            
+                            setStagedLinks(prev => [...prev, newLink]);
+                            notify2.success('Document ajouté');
+                          } catch (error) {
+                            console.error('Erreur lors de la sélection du document:', error);
+                            notify2.error('Erreur lors de la sélection du document');
+                          }
+                        }}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 h-10 text-xs sm:text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none w-full sm:w-auto"
+                        disabled={stagingLoading || !organizationId}
+                      >
+                        <Link className="h-3.5 w-3.5 flex-shrink-0" />
+                        <span className="font-medium">Lier</span>
+                        <span className="hidden sm:inline">un document existant</span>
+                      </button>
+                      
+                      {/* Bouton principal - Ajouter des documents */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Utiliser notre fonction d'upload avec détection de doublons
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx';
+                          input.multiple = true;
+                          
+                          input.onchange = (e) => {
+                            const files = Array.from((e.target as HTMLInputElement).files || []);
+                            if (files.length > 0) {
+                              handleFileUpload(files);
+                            }
+                          };
+                          
+                          input.click();
+                        }}
+                        className="relative flex items-center justify-center gap-1.5 px-3 py-2 h-10 text-xs sm:text-sm bg-orange-600 text-white rounded-lg transition-all duration-300 ease-out disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none overflow-hidden group w-full sm:w-auto"
+                        disabled={stagingLoading}
+                      >
+                        <span className="absolute inset-0 bg-gradient-to-r from-orange-500 to-red-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ease-out"></span>
+                        <Upload className="h-3.5 w-3.5 relative z-10 flex-shrink-0" />
+                        <span className="relative z-10 font-medium">
+                          {stagingLoading ? 'Chargement...' : (
+                            <>
+                              <span>Ajouter</span>
+                              <span className="hidden sm:inline"> des documents</span>
+                            </>
+                          )}
+                        </span>
+                      </button>
+                    </div>
                   </div>
 
-                  {(stagedDocuments.length > 0 || stagedLinks.length > 0 || linkedDocuments.length > 0) ? (
+                  {(filteredStagedDocuments.length > 0 || stagedLinks.length > 0 || linkedDocuments.length > 0) ? (
                     <div className="space-y-3">
                       {/* Documents en staging (brouillon) */}
-                      {stagedDocuments.map((doc) => {
+                      {filteredStagedDocuments.map((doc) => {
                         const documentType = String(doc.type || 'Type inconnu');
                         const isUnclassified = documentType === 'Non classé' || documentType === 'Type inconnu';
                         
@@ -1048,13 +1542,13 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
 
                       {/* Liens vers documents existants */}
                       {stagedLinks.map((link) => (
-                        <div key={link.id} className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div key={link.id} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
                           <div className="flex items-center gap-3">
-                            <Link className="h-5 w-5 text-blue-600" />
+                            <Link className="h-5 w-5 text-gray-600" />
                             <div>
                               <div className="flex items-center gap-2">
                                 <p className="text-sm font-medium text-gray-900">{link.existingDocument?.fileName || link.existingDocument?.filename}</p>
-                                <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                                <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-700">
                                   Lien existant
                                 </Badge>
                               </div>
@@ -1106,19 +1600,26 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
 
                       {/* Documents liés (en mode édition) */}
                       {linkedDocuments.map((doc) => {
-                        const documentType = String(doc.DocumentType?.label || 'Type inconnu');
+                        // Support des deux formats : API (DocumentType.label) et App Shell (documentTypeLabel)
+                        const documentType = String(
+                          doc.DocumentType?.label || 
+                          doc.documentTypeLabel || 
+                          'Type inconnu'
+                        );
                         const isUnclassified = documentType === 'Non classé' || documentType === 'Type inconnu';
+                        const isDraft = doc.status === 'draft';
                         
                         return (
                           <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                             <div className="flex items-center gap-3">
                               <FileText className="h-5 w-5 text-gray-500" />
-                              <div>
-                                <p className="text-sm font-medium text-gray-900">{doc.fileName || doc.filename}</p>
-                                <p className="text-xs text-gray-500">
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-gray-900">{doc.fileName || doc.filename || doc.filenameOriginal}</p>
+                                <div className="flex items-center gap-2 text-xs text-gray-500">
                                   <button
                                     type="button"
                                     onClick={() => {
+                                      // Ouvrir le fichier dans un nouvel onglet (même pour les brouillons)
                                       window.open(`/api/documents/${doc.id}/file`, '_blank');
                                     }}
                                     className={isUnclassified 
@@ -1129,8 +1630,27 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                                   >
                                     {documentType}
                                   </button>
-                                  <span className="text-gray-400"> • {new Date(doc.uploadedAt || doc.createdAt).toLocaleDateString('fr-FR')}</span>
-                                </p>
+                                  <span className="text-gray-400">•</span>
+                                  <span className="text-gray-400">{new Date(doc.uploadedAt || doc.createdAt).toLocaleDateString('fr-FR')}</span>
+                                </div>
+                                {/* Affichage des liaisons */}
+                                {(() => {
+                                  const links = formatDocumentLinks(doc);
+                                  return links ? (
+                                    <div className="mt-1 flex items-center gap-1">
+                                      <Link className="h-3 w-3 text-gray-500" />
+                                      <span className="text-xs text-gray-600 font-medium">
+                                        Lié à: {links}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className="mt-1 flex items-center gap-1">
+                                      <span className="text-xs text-gray-400">
+                                        Aucune liaison détectée
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
@@ -1159,125 +1679,137 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                       })}
                     </div>
                   ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p className="text-sm">Aucun document lié à ce prêt</p>
-                      <p className="text-xs mt-1">Cliquez sur "Ajouter des documents" pour en associer</p>
+                    <div className="flex flex-col items-center justify-center py-12 md:py-16 text-gray-500">
+                      <FileText className="h-12 w-12 mb-4 text-gray-300" />
+                      <p className="text-sm font-medium">Aucun document lié à ce prêt</p>
+                      <p className="text-xs mt-1 text-center max-w-xs">Cliquez sur "Ajouter des documents" pour en associer</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx';
+                          input.multiple = true;
+                          input.onchange = (e) => {
+                            const files = Array.from((e.target as HTMLInputElement).files || []);
+                            if (files.length > 0) {
+                              handleFileUpload(files);
+                            }
+                          };
+                          input.click();
+                        }}
+                        className="flex items-center gap-2 mt-4"
+                        disabled={stagingLoading}
+                      >
+                        <Upload className="h-4 w-4" />
+                        {stagingLoading ? 'Chargement...' : 'Ajouter des documents'}
+                      </Button>
                     </div>
                   )}
 
                   {/* Information sur le contexte */}
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                     <div className="flex items-start gap-3">
-                      <Info className="h-5 w-5 text-blue-600 mt-0.5" />
+                      <Info className="h-5 w-5 text-gray-600 mt-0.5" />
                       <div>
-                        <p className="text-sm text-blue-900 font-medium">
+                        <p className="text-sm text-gray-900 font-medium">
                           Contexte de liaison automatique
                         </p>
-                        <p className="text-xs text-blue-700 mt-1">
+                        <p className="text-xs text-gray-700 mt-1">
                           Les documents uploadés seront automatiquement liés à ce prêt.
+                          Ils seront également associés au bien sélectionné.
                         </p>
                       </div>
                     </div>
                   </div>
                 </div>
               )}
-
-              {/* Footer avec boutons */}
-              <div className="flex justify-end gap-3 pt-4 border-t">
-                <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
-                  Annuler
-                </Button>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? 'Enregistrement...' : mode === 'edit' ? 'Mettre à jour' : 'Créer'}
-                </Button>
-              </div>
             </form>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </Modal>
 
       {/* Modal pour ajouter/modifier un co-emprunteur */}
-      {showBorrowerModal && (
-        <Dialog open={showBorrowerModal} onOpenChange={setShowBorrowerModal}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                {editingBorrower ? 'Modifier le co-emprunteur' : 'Ajouter un co-emprunteur'}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="borrowerFirstName">Prénom *</Label>
-                  <Input
-                    id="borrowerFirstName"
-                    value={borrowerFormData.firstName}
-                    onChange={(e) => setBorrowerFormData(prev => ({ ...prev, firstName: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="borrowerLastName">Nom *</Label>
-                  <Input
-                    id="borrowerLastName"
-                    value={borrowerFormData.lastName}
-                    onChange={(e) => setBorrowerFormData(prev => ({ ...prev, lastName: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="borrowerBirthDate">Date de naissance</Label>
-                <Input
-                  id="borrowerBirthDate"
-                  type="date"
-                  value={borrowerFormData.birthDate || ''}
-                  onChange={(e) => setBorrowerFormData(prev => ({ ...prev, birthDate: e.target.value || null }))}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="borrowerEmail">Email</Label>
-                  <Input
-                    id="borrowerEmail"
-                    type="email"
-                    value={borrowerFormData.email || ''}
-                    onChange={(e) => setBorrowerFormData(prev => ({ ...prev, email: e.target.value || null }))}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="borrowerPhone">Téléphone</Label>
-                  <Input
-                    id="borrowerPhone"
-                    type="tel"
-                    value={borrowerFormData.phone || ''}
-                    onChange={(e) => setBorrowerFormData(prev => ({ ...prev, phone: e.target.value || null }))}
-                  />
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="borrowerResponsibilityPct">Part de responsabilité (%)</Label>
-                <Input
-                  id="borrowerResponsibilityPct"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={borrowerFormData.responsibilityPct || ''}
-                  onChange={(e) => setBorrowerFormData(prev => ({ ...prev, responsibilityPct: e.target.value ? parseFloat(e.target.value) : null }))}
-                />
-              </div>
-              <div className="flex justify-end gap-3">
-                <Button type="button" variant="outline" onClick={() => setShowBorrowerModal(false)}>
-                  Annuler
-                </Button>
-                <Button type="button" onClick={handleSaveBorrower}>
-                  {editingBorrower ? 'Modifier' : 'Ajouter'}
-                </Button>
-              </div>
+      <Modal
+        isOpen={showBorrowerModal}
+        onClose={() => setShowBorrowerModal(false)}
+        title={editingBorrower ? 'Modifier le co-emprunteur' : 'Ajouter un co-emprunteur'}
+        size="md"
+        footer={
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 w-full">
+            <Button type="button" variant="outline" onClick={() => setShowBorrowerModal(false)} className="w-full sm:w-auto">
+              Annuler
+            </Button>
+            <Button type="button" onClick={handleSaveBorrower} className="w-full sm:w-auto">
+              {editingBorrower ? 'Modifier' : 'Ajouter'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 overflow-x-hidden">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="borrowerFirstName">Prénom *</Label>
+              <Input
+                id="borrowerFirstName"
+                value={borrowerFormData.firstName}
+                onChange={(e) => setBorrowerFormData(prev => ({ ...prev, firstName: e.target.value }))}
+              />
             </div>
-          </DialogContent>
-        </Dialog>
-      )}
+            <div>
+              <Label htmlFor="borrowerLastName">Nom *</Label>
+              <Input
+                id="borrowerLastName"
+                value={borrowerFormData.lastName}
+                onChange={(e) => setBorrowerFormData(prev => ({ ...prev, lastName: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="borrowerBirthDate">Date de naissance</Label>
+            <SmartDatePicker
+              id="borrowerBirthDate"
+              value={borrowerFormData.birthDate || ''}
+              onChange={(value) => setBorrowerFormData(prev => ({ ...prev, birthDate: value || null }))}
+              placeholder="Sélectionner une date"
+              aria-label="Date de naissance"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="borrowerEmail">Email</Label>
+              <Input
+                id="borrowerEmail"
+                type="email"
+                value={borrowerFormData.email || ''}
+                onChange={(e) => setBorrowerFormData(prev => ({ ...prev, email: e.target.value || null }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="borrowerPhone">Téléphone</Label>
+              <Input
+                id="borrowerPhone"
+                type="tel"
+                value={borrowerFormData.phone || ''}
+                onChange={(e) => setBorrowerFormData(prev => ({ ...prev, phone: e.target.value || null }))}
+              />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="borrowerResponsibilityPct">Part de responsabilité (%)</Label>
+            <Input
+              id="borrowerResponsibilityPct"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={borrowerFormData.responsibilityPct || ''}
+              onChange={(e) => setBorrowerFormData(prev => ({ ...prev, responsibilityPct: e.target.value ? parseFloat(e.target.value) : null }))}
+            />
+          </div>
+        </div>
+      </Modal>
 
       {/* Modals pour les documents */}
       {/* Modale de review-draft pour modifier les documents en brouillon */}
@@ -1313,22 +1845,293 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
         />
       )}
 
+      {/* Modal de confirmation de suppression de document */}
       {documentToDelete && (
         <ConfirmDeleteDocumentModal
           isOpen={showDeleteDocModal}
           onClose={() => {
-            setShowDeleteDocModal(false);
-            setDocumentToDelete(null);
-          }}
-          document={documentToDelete}
-          onConfirm={async () => {
-            // Supprimer le document
-            setShowDeleteDocModal(false);
-            setDocumentToDelete(null);
-            if (initialData?.id) {
-              await loadLinkedDocuments(initialData.id);
+            if (!isDeletingDocument) {
+              setShowDeleteDocModal(false);
+              setDocumentToDelete(null);
             }
           }}
+          onConfirm={async (deleteMode: 'all' | 'transaction-links-only') => {
+            if (!documentToDelete || !organizationId) return;
+            
+            setIsDeletingDocument(true);
+            
+            try {
+              // Vérifier si c'est un document en staging (brouillon) ou un document lié
+              const isStagedDocument = filteredStagedDocuments.some(doc => doc.id === documentToDelete.id);
+              const isLinkedDocument = (isAppShellMode ? hookLinkedDocuments : linkedDocuments).some(doc => doc.id === documentToDelete.id);
+              
+              if (isStagedDocument) {
+                // Supprimer un document en staging
+                // ⚠️ CRITIQUE: En mode app-shell, supprimer aussi le document de IndexedDB et créer une pendingOp
+                if (isAppShellMode && organizationId) {
+                  try {
+                    const { IndexedDBDocumentRepository } = await import('@/domain/repositories/adapters/IndexedDBDocumentRepository');
+                    const documentRepo = new IndexedDBDocumentRepository();
+                    
+                    // Vérifier si le document existe dans IndexedDB
+                    const db = await getLocalDB();
+                    const existingDoc = await db.Document.get(documentToDelete.id);
+                    
+                    if (existingDoc) {
+                      // ⚠️ CRITIQUE: Supprimer d'abord tous les DocumentLink associés au document
+                      const allLinks = await db.DocumentLink
+                        .where('documentId')
+                        .equals(documentToDelete.id)
+                        .toArray();
+                      
+                      // Supprimer chaque lien de IndexedDB et créer une pendingOp
+                      const now = new Date().toISOString();
+                      for (const link of allLinks) {
+                        await db.DocumentLink.delete([link.documentId, link.linkedType, link.linkedId]);
+                        
+                        // Créer une pendingOp pour chaque lien supprimé
+                        const linkEntityId = `${link.documentId}-${link.linkedType}-${link.linkedId}`;
+                        const existingLinkPendingOp = await db.pendingOperations
+                          .where('[entity+entityId+operation]')
+                          .equals(['documentLink', linkEntityId, 'delete'])
+                          .first();
+                        
+                        if (!existingLinkPendingOp) {
+                          await db.pendingOperations.add({
+                            id: crypto.randomUUID(),
+                            organizationId,
+                            entity: 'documentLink',
+                            entityId: linkEntityId,
+                            operation: 'delete',
+                            payload: {
+                              documentId: link.documentId,
+                              linkedType: link.linkedType,
+                              linkedId: link.linkedId,
+                            },
+                            status: 'pending',
+                            error: null,
+                            createdAt: now,
+                            updatedAt: now,
+                          });
+                        }
+                      }
+                      
+                      // Supprimer de IndexedDB (créera automatiquement une pendingOp)
+                      await documentRepo.delete(documentToDelete.id, organizationId);
+                      console.log(`[LoanModalV2] ✅ Document supprimé de IndexedDB: docId=${documentToDelete.id}, pendingOp créée`);
+                      
+                      // Déclencher un refresh de la page Documents si elle est ouverte
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('documents:refresh'));
+                        window.dispatchEvent(new CustomEvent('loans:refresh'));
+                      }
+                    }
+                  } catch (dbError) {
+                    console.error(`[LoanModalV2] ❌ Erreur lors de la suppression du document dans IndexedDB: ${dbError}`);
+                    // Continuer quand même avec la suppression du staging
+                  }
+                }
+                
+                // Supprimer du staging (état React + API si online)
+                const success = await removeStagedDocument(documentToDelete.id);
+                if (success) {
+                  console.log(`[LoanModalV2] ✅ Document supprimé du staging: docId=${documentToDelete.id}`);
+                  
+                  // Rafraîchir les stagedDocuments
+                  if (uploadSessionId) {
+                    try {
+                      await loadStagedDocuments(uploadSessionId);
+                    } catch (error) {
+                      // Erreur silencieuse lors du rechargement
+                    }
+                  }
+                  
+                  notify2.success('Document supprimé');
+                  
+                  // Fermer la modal après la suppression réussie
+                  setShowDeleteDocModal(false);
+                  setDocumentToDelete(null);
+                } else {
+                  notify2.error('Erreur lors de la suppression du document');
+                }
+              } else if (isLinkedDocument) {
+                // Supprimer un document lié (déjà finalisé)
+                if (deleteMode === 'transaction-links-only' && initialData?.id) {
+                  // ⚠️ NOTE: Pour les prêts, on utilise 'loan-links-only' mais la modal utilise 'transaction-links-only'
+                  // On adapte pour les prêts
+                  // Supprimer uniquement les liaisons avec ce prêt
+                  if (isAppShellMode && organizationId) {
+                    // Mode app-shell : supprimer les DocumentLink depuis IndexedDB
+                    const db = await getLocalDB();
+                    const linksToDelete = await db.DocumentLink
+                      .where('documentId')
+                      .equals(documentToDelete.id)
+                      .filter(link => {
+                        const linkedType = (link.linkedType || '').toLowerCase();
+                        return linkedType === 'loan' && link.linkedId === initialData.id;
+                      })
+                      .toArray();
+                    
+                    // Supprimer chaque lien
+                    for (const link of linksToDelete) {
+                      await db.DocumentLink.delete([link.documentId, link.linkedType, link.linkedId]);
+                    }
+                    
+                    // Créer une pendingOp pour chaque lien supprimé
+                    const now = new Date().toISOString();
+                    for (const link of linksToDelete) {
+                      await db.pendingOperations.add({
+                        id: crypto.randomUUID(),
+                        organizationId,
+                        entity: 'documentLink',
+                        entityId: `${link.documentId}-${link.linkedType}-${link.linkedId}`,
+                        operation: 'delete',
+                        payload: {
+                          documentId: link.documentId,
+                          linkedType: link.linkedType,
+                          linkedId: link.linkedId,
+                        },
+                        status: 'pending',
+                        error: null,
+                        createdAt: now,
+                        updatedAt: now,
+                      });
+                    }
+                    
+                    // Rafraîchir les documents liés
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('documents:refresh'));
+                      window.dispatchEvent(new CustomEvent('loans:refresh'));
+                    }
+                    
+                    notify2.success('Liaisons avec ce prêt supprimées. La suppression sera synchronisée avec le serveur lors de la prochaine synchronisation.');
+                  } else {
+                    // Mode normal : utiliser l'API pour supprimer chaque lien
+                    // L'API utilise le format /api/documents/{documentId}/links/{linkedType}:{linkedId}
+                    const linkId = `loan:${initialData.id}`;
+                    const response = await fetch(`/api/documents/${documentToDelete.id}/links/${linkId}`, {
+                      method: 'DELETE'
+                    });
+                    
+                    if (!response.ok) {
+                      const errorData = await response.json().catch(() => ({}));
+                      throw new Error(errorData.error || 'Erreur lors de la suppression des liaisons');
+                    }
+                    
+                    // Recharger les documents liés
+                    if (initialData.id) {
+                      await loadLinkedDocuments(initialData.id);
+                    }
+                    
+                    notify2.success('Liaisons avec ce prêt supprimées avec succès');
+                  }
+                } else {
+                  // Supprimer le document et toutes ses liaisons
+                  if (isAppShellMode && organizationId) {
+                    // Mode app-shell : utiliser DocumentService
+                    const documentService = createDocumentServiceWithMode('app-shell');
+                    
+                    // ⚠️ CRITIQUE: Supprimer d'abord tous les DocumentLink associés au document
+                    const db = await getLocalDB();
+                    const allLinks = await db.DocumentLink
+                      .where('documentId')
+                      .equals(documentToDelete.id)
+                      .toArray();
+                    
+                    // Supprimer chaque lien de IndexedDB et créer une pendingOp
+                    const now = new Date().toISOString();
+                    for (const link of allLinks) {
+                      await db.DocumentLink.delete([link.documentId, link.linkedType, link.linkedId]);
+                      
+                      // Créer une pendingOp pour chaque lien supprimé
+                      const pendingOp = {
+                        id: crypto.randomUUID(),
+                        organizationId,
+                        entity: 'documentLink',
+                        entityId: `${link.documentId}-${link.linkedType}-${link.linkedId}`,
+                        operation: 'delete',
+                        payload: {
+                          documentId: link.documentId,
+                          linkedType: link.linkedType,
+                          linkedId: link.linkedId,
+                        },
+                        status: 'pending',
+                        error: null,
+                        createdAt: now,
+                        updatedAt: now,
+                      };
+                      await db.pendingOperations.add(pendingOp);
+                    }
+                    
+                    // Supprimer le document (créera automatiquement une pendingOp)
+                    await documentService.deleteDocument(documentToDelete.id, organizationId);
+                    
+                    // ⚠️ En mode app-shell online : push → pull → refresh (comme DocumentsPageCore)
+                    const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+                    if (isOnline) {
+                      try {
+                        const { getGlobalSyncService } = await import('@/lib/offline/syncGlobal');
+                        const syncService = getGlobalSyncService();
+                        await syncService.syncAllPendingToRemote(organizationId);
+                        // Pull immédiat pour mettre à jour IndexedDB
+                        await syncService.syncEntityFromRemoteByName('document', organizationId);
+                        await syncService.syncEntityFromRemoteByName('documentLink', organizationId);
+                        window.dispatchEvent(new CustomEvent('sync:refresh'));
+                      } catch (syncError) {
+                        console.warn('[LoanModalV2] Erreur lors du sync après suppression:', syncError);
+                        // Ne pas bloquer l'opération si la sync échoue
+                      }
+                    }
+                    
+                    // Rafraîchir les documents liés
+                    // En mode app-shell, le hook useLoanDocuments se rafraîchira automatiquement via les événements
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('documents:refresh'));
+                      window.dispatchEvent(new CustomEvent('loans:refresh'));
+                    }
+                    
+                    notify2.success(
+                      isOnline 
+                        ? 'Document supprimé avec succès'
+                        : 'Document supprimé localement. La suppression sera synchronisée avec le serveur lors de la prochaine synchronisation.'
+                    );
+                  } else {
+                    // Mode normal : utiliser l'API
+                    const response = await fetch(`/api/documents/${documentToDelete.id}`, {
+                      method: 'DELETE'
+                    });
+                    
+                    if (!response.ok) {
+                      const errorData = await response.json().catch(() => ({}));
+                      throw new Error(errorData.error || 'Erreur lors de la suppression du document');
+                    }
+                    
+                    // Recharger les documents liés
+                    if (initialData?.id) {
+                      await loadLinkedDocuments(initialData.id);
+                    }
+                    
+                    notify2.success('Document supprimé avec succès');
+                  }
+                }
+              }
+              
+              // Fermer la modal et réinitialiser
+              setShowDeleteDocModal(false);
+              setDocumentToDelete(null);
+            } catch (error: any) {
+              console.error('[LoanModalV2] Erreur lors de la suppression du document:', error);
+              notify2.error(error.message || 'Erreur lors de la suppression du document');
+            } finally {
+              setIsDeletingDocument(false);
+            }
+          }}
+          documentId={documentToDelete.id}
+          documentName={documentToDelete.fileName || documentToDelete.filenameOriginal || documentToDelete.name}
+          mode={isAppShellMode ? 'app-shell' : 'normal'}
+          organizationId={organizationId}
+          isDeleting={isDeletingDocument}
+          loanId={initialData?.id} // ✅ Passer loanId pour identifier les liaisons à supprimer
         />
       )}
     </>

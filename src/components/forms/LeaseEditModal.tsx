@@ -6,9 +6,17 @@ import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { getLeaseStatusVariant, getLeaseStatusLabel } from '@/utils/leaseStatusBadge';
 import { notify2 } from '@/lib/notify2';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { createLeaseServiceWithMode } from '@/domain/services/leaseServiceFactory';
+// ✅ OFFLINE-FIRST: Imports statiques pour éviter ChunkLoadError en offline
+import { getLeaseRepositoryOffline } from '@/lib/offline/repositories/LeaseRepositoryOffline';
+import { getLocalDB } from '@/lib/offline/db';
+import { getGlobalSyncService } from '@/lib/offline/syncGlobal';
+import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
 
 // Fonctions utilitaires pour vérifier les statuts (compatibilité FR/EN)
 const isDraft = (status: string) => status === 'DRAFT' || status === 'BROUILLON';
+const isToSend = (status: string) => status === 'TO_SEND' || status === 'À_ENVOYER' || status === 'A_ENVOYER';
 const isSent = (status: string) => status === 'SENT' || status === 'ENVOYÉ' || status === 'ENVOYE';
 const isSigned = (status: string) => status === 'SIGNED' || status === 'SIGNÉ' || status === 'SIGNE';
 const isActiveStatus = (status: string) => status === 'ACTIVE' || status === 'ACTIF';
@@ -40,7 +48,8 @@ import {
   TrendingUp,
   History
 } from 'lucide-react';
-import { SearchableSelect } from './SearchableSelect';
+import { SmartSelect } from '@/components/ui/SmartSelect';
+import { SmartDatePicker } from '@/components/ui/SmartDatePicker';
 
 const leaseSchema = z.object({
   propertyId: z.string().min(1, 'Le bien est requis'),
@@ -67,6 +76,8 @@ interface LeaseEditModalProps {
   lease: any;
   properties: any[];
   tenants: any[];
+  mode?: 'normal' | 'app-shell'; // ✅ Mode pour détecter App Shell
+  propertyId?: string; // ✅ PropertyId pour le refresh ciblé
 }
 
 export default function LeaseEditModal({ 
@@ -75,8 +86,19 @@ export default function LeaseEditModal({
   onSubmit, 
   lease,
   properties: externalProperties,
-  tenants: externalTenants
+  tenants: externalTenants,
+  mode = 'normal',
+  propertyId: propPropertyId
 }: LeaseEditModalProps) {
+  // ✅ OFFLINE-FIRST: Détecter explicitement offline/app-shell
+  // ⚠️ DURCISSEMENT: Utiliser UNIQUEMENT le paramètre mode, pas window.location
+  const isAppShell = mode === 'app-shell';
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  const shouldUseLocalData = isAppShell || isOffline;
+  
+  // ✅ Hook pour récupérer organizationId en app-shell
+  const { organizationId } = useCurrentOrganization();
+  
   const [formData, setFormData] = useState({
     id: '',
     propertyId: '',
@@ -99,6 +121,7 @@ export default function LeaseEditModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
   const [isWorkflowActionLoading, setIsWorkflowActionLoading] = useState(false);
+  const [isUploadingSigned, setIsUploadingSigned] = useState(false);
   const [properties, setProperties] = useState<any[]>([]);
   const [tenants, setTenants] = useState<any[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
@@ -111,15 +134,53 @@ export default function LeaseEditModal({
   const [showIndexationModal, setShowIndexationModal] = useState(false);
   const [indexationHistory, setIndexationHistory] = useState<any[]>([]);
   const [isLoadingIndexation, setIsLoadingIndexation] = useState(false);
+  const [showErrorsAccordion, setShowErrorsAccordion] = useState(false); // Mobile: accordéon erreurs
   
   // Hook pour la modal d'upload unifiée
-  const { openModalWithDocumentType } = useUploadReviewModal();
+  const { openModalWithDocumentType, isOpen: isUploadModalOpen } = useUploadReviewModal();
+  
+  // Écouter la fermeture de la modal d'upload pour désactiver le loader
+  // ⚠️ IMPORTANT: Le loader doit rester actif pendant toute la durée de l'upload ET de la finalisation
+  // Il ne doit se désactiver que quand le callback onSuccess est appelé (ou après un timeout de sécurité)
+  useEffect(() => {
+    // Timeout de sécurité global : désactiver le loader après 60 secondes maximum
+    if (isUploadingSigned) {
+      const safetyTimeout = setTimeout(() => {
+        console.warn('[LeaseEditModal] [UPLOAD-SIGNED] ⚠️ Timeout de sécurité global: désactivation du loader après 60s');
+        setIsUploadingSigned(false);
+      }, 60000); // 60 secondes maximum
+      
+      return () => clearTimeout(safetyTimeout);
+    }
+  }, [isUploadingSigned]);
+  
+  // Écouter la fermeture de la modal pour désactiver le loader après un délai
+  // (le callback onSuccess devrait normalement le faire, mais c'est une sécurité)
+  useEffect(() => {
+    if (!isUploadModalOpen && isUploadingSigned) {
+      // Attendre un peu pour laisser le temps au callback onSuccess de s'exécuter
+      const timeout = setTimeout(() => {
+        console.log('[LeaseEditModal] [UPLOAD-SIGNED] Modal fermée, désactivation du loader (timeout de sécurité après fermeture)');
+        setIsUploadingSigned(false);
+      }, 10000); // 10 secondes pour laisser le temps au callback et à la sync
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [isUploadModalOpen, isUploadingSigned]);
   
   // Charger les données
   const loadData = async () => {
     setIsLoadingData(true);
     try {
-      // Augmenter la limite à 10000 pour récupérer tous les biens et locataires
+      // ✅ APP-SHELL: Utiliser les props passés depuis IndexedDB
+      if (shouldUseLocalData && externalProperties && externalTenants) {
+        setProperties(externalProperties);
+        setTenants(externalTenants);
+        setIsLoadingData(false);
+        return;
+      }
+      
+      // Mode normal : charger depuis l'API
       const [propertiesRes, tenantsRes] = await Promise.all([
         fetch('/api/properties?limit=10000'),
         fetch('/api/tenants?limit=10000')
@@ -130,7 +191,6 @@ export default function LeaseEditModal({
         // L'API retourne { data: [...], pagination: {...} }
         const propertiesList = propertiesData.data || propertiesData.properties || propertiesData.items || (Array.isArray(propertiesData) ? propertiesData : []);
         const finalList = Array.isArray(propertiesList) ? propertiesList : [];
-        console.log('[LeaseEditModal] Propriétés chargées:', finalList.length, 'sur', propertiesData?.pagination?.total || '?');
         setProperties(finalList);
       }
 
@@ -139,7 +199,6 @@ export default function LeaseEditModal({
         // L'API retourne { data: [...], pagination: {...} }
         const tenantsList = tenantsData.data || tenantsData.tenants || tenantsData.items || (Array.isArray(tenantsData) ? tenantsData : []);
         const finalList = Array.isArray(tenantsList) ? tenantsList : [];
-        console.log('[LeaseEditModal] Locataires chargés:', finalList.length, 'sur', tenantsData?.pagination?.total || '?');
         setTenants(finalList);
       }
     } catch (error) {
@@ -149,9 +208,56 @@ export default function LeaseEditModal({
     }
   };
 
-  // Charger l'historique des réindexations
+  // ✅ OFFLINE-FIRST: Charger l'historique des réindexations
   const loadIndexationHistory = async () => {
     if (!lease?.id) return;
+    
+    // ✅ OFFLINE-FIRST: En offline/app-shell, lire depuis IndexedDB
+    if (shouldUseLocalData && organizationId) {
+      try {
+        // ✅ APP-SHELL/OFFLINE: Lire depuis IndexedDB
+        const db = await getLocalDB();
+        
+        // ✅ Utiliser l'index composite [organizationId+leaseId] pour une recherche efficace
+        const indexations = await db.RentIndexation
+          .where('[organizationId+leaseId]')
+          .equals([organizationId, lease.id])
+          .sortBy('effectiveDate');
+        
+        // Convertir en format attendu par l'UI (ordre décroissant par date d'effet)
+        const formattedIndexations = indexations
+          .map((indexation: any) => ({
+          id: indexation.id,
+          previousRentAmount: indexation.previousRentAmount,
+          newRentAmount: indexation.newRentAmount,
+          effectiveDate: indexation.effectiveDate,
+          indexType: indexation.indexType,
+          indexValue: indexation.indexValue,
+          indexDate: indexation.indexDate,
+          reason: indexation.reason,
+          notes: indexation.notes,
+          createdAt: indexation.createdAt,
+          }))
+          .reverse(); // Inverser pour avoir les plus récentes en premier (comme l'API)
+        
+        setIndexationHistory(formattedIndexations);
+      } catch (error) {
+        // ✅ OFFLINE-FIRST: En offline/app-shell, pas d'erreur console (comportement attendu)
+        // Utiliser console.warn en DEV uniquement pour le debug
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[LeaseEditModal] Erreur chargement historique indexation depuis IndexedDB (offline/app-shell):', error);
+        }
+        setIndexationHistory([]);
+      }
+      return;
+    }
+    
+    // ✅ MODE NORMAL: Utiliser l'API uniquement si online
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      // Si on passe en offline, retourner un tableau vide
+      setIndexationHistory([]);
+      return;
+    }
     
     try {
       const response = await fetch(`/api/leases/${lease.id}/index-rent`);
@@ -160,7 +266,14 @@ export default function LeaseEditModal({
         setIndexationHistory(data.indexations || []);
       }
     } catch (error) {
+      // ✅ Ne pas logguer si c'est une erreur réseau attendue en offline
+      if (error instanceof Error && error.message.includes('Failed to fetch')) {
+        // Erreur réseau attendue, ne pas logguer
+        setIndexationHistory([]);
+        return;
+      }
       console.error('Error loading indexation history:', error);
+      setIndexationHistory([]);
     }
   };
 
@@ -184,27 +297,158 @@ export default function LeaseEditModal({
       }
       
       if (lease) {
-        // Édition d'un bail existant
-        console.log('[LeaseEditModal] Mode édition - Lease:', lease);
-        console.log('[LeaseEditModal] PropertyId:', lease.propertyId, 'TenantId:', lease.tenantId);
+        // ✅ APP-SHELL: Recharger le bail depuis IndexedDB pour avoir les données les plus récentes
+        // ⚠️ CRITIQUE : Ne pas utiliser directement le prop lease qui peut être obsolète
+        // Lire depuis IndexedDB pour garantir la cohérence avec les mises à jour locales
+        const loadLeaseData = async () => {
+          let currentLease = lease;
+          
+          if (isAppShell && organizationId && lease.id) {
+            try {
+              const leaseRepo = getLeaseRepositoryOffline();
+              
+              // ✅ Lire le bail depuis IndexedDB (source locale) - PAS de fetch vers Supabase
+              // ⚠️ CRITIQUE: L'ID peut avoir changé après une sync (UUID local → ID Prisma)
+              // On essaie d'abord avec l'ID du prop, puis on cherche par critères si pas trouvé
+              let localLease = await leaseRepo.getById(lease.id, organizationId);
+              
+              // Si pas trouvé avec l'ID du prop, chercher par critères (ID peut avoir changé après sync)
+              if (!localLease && (lease.propertyId || lease.Property?.id) && (lease.tenantId || lease.Tenant?.id) && lease.startDate) {
+                try {
+                  const db = await getLocalDB();
+                  const propertyId = lease.propertyId || lease.Property?.id;
+                  const tenantId = lease.tenantId || lease.Tenant?.id;
+                  
+                  // Chercher par propertyId + tenantId + startDate (critères uniques)
+                  const matchingLeases = await db.Lease
+                    .where('organizationId')
+                    .equals(organizationId)
+                    .and((l: any) => 
+                      l.propertyId === propertyId && 
+                      l.tenantId === tenantId &&
+                      l.startDate === (typeof lease.startDate === 'string' ? lease.startDate : new Date(lease.startDate).toISOString().split('T')[0])
+                    )
+                    .toArray();
+                  
+                  if (matchingLeases.length > 0) {
+                    const foundLease = matchingLeases[0];
+                    localLease = foundLease;
+                    if (process.env.NODE_ENV === 'development') {
+                      console.log('[LeaseEditModal] [LOCAL-FIRST] ✅ Bail trouvé par critères (ID changé après sync):', {
+                        oldId: lease.id,
+                        newId: foundLease.id,
+                        propertyId,
+                        tenantId
+                      });
+                    }
+                  }
+                } catch (searchError) {
+                  console.warn('[LeaseEditModal] ⚠️ Erreur lors de la recherche par critères:', searchError);
+                }
+              }
+              
+              if (localLease) {
+                // ✅ Utiliser les données locales (plus récentes) au lieu du prop lease
+                // ⚠️ CRITIQUE: Utiliser l'ID local (peut être différent de lease.id après sync)
+                currentLease = {
+                  ...lease, // Conserver les relations (Property, Tenant) du prop
+                  ...localLease, // Écraser avec les données locales (status, dates, ID mis à jour, etc.)
+                  id: localLease.id, // ✅ CRITIQUE: Utiliser l'ID local (peut avoir changé)
+                  Property: lease.Property || localLease.propertyId ? { id: localLease.propertyId } : undefined,
+                  Tenant: lease.Tenant || localLease.tenantId ? { id: localLease.tenantId } : undefined,
+                };
+                
+                if (process.env.NODE_ENV === 'development') {
+                  console.log('[LeaseEditModal] [LOCAL-FIRST] Bail rechargé depuis IndexedDB:', {
+                    propId: lease.id,
+                    localId: localLease?.id,
+                    idChanged: localLease ? (lease.id !== localLease.id) : false,
+                    localStatus: localLease?.status,
+                    propStatus: lease.status,
+                    usingLocal: !!localLease
+                  });
+                }
+              } else {
+                console.warn('[LeaseEditModal] ⚠️ Bail non trouvé dans IndexedDB, utilisation du prop lease');
+              }
+            } catch (localLoadError) {
+              console.error('[LeaseEditModal] ⚠️ Erreur lors du rechargement local, utilisation du prop lease:', localLoadError);
+              // En cas d'erreur, utiliser le prop lease (fallback)
+            }
+          }
+          
+          // Édition d'un bail existant
+          console.log('[LeaseEditModal] Mode édition - Lease:', currentLease);
+          console.log('[LeaseEditModal] PropertyId:', currentLease.propertyId, 'TenantId:', currentLease.tenantId);
+          console.log('[LeaseEditModal] ID complet:', currentLease.id, 'Longueur:', currentLease.id?.length);
+          
+          // ✅ Vérifier que l'ID est présent (les IDs Prisma sont ~25 caractères, pas 36)
+          // ⚠️ CRITIQUE: S'assurer que l'ID est complet et non tronqué
+          const leaseId = String(currentLease.id || '').trim();
+          if (!leaseId || leaseId.length < 20) {
+            console.error('[LeaseEditModal] ⚠️ ID du bail invalide ou tronqué:', {
+              id: currentLease.id,
+              idLength: currentLease.id?.length || 0,
+              trimmedId: leaseId,
+              trimmedLength: leaseId.length,
+              leaseId: lease?.id,
+              leaseIdLength: lease?.id?.length || 0
+            });
+            notify2.error('Erreur', `ID du bail invalide ou tronqué: "${leaseId}" (longueur: ${leaseId.length}). Veuillez recharger la page.`);
+            return;
+          }
+          
+          // ✅ En mode app-shell, s'assurer que propertyId et tenantId sont présents
+          // Ils devraient être inclus dans useLeasesData, mais on fait un fallback au cas où
+          const propertyId = currentLease.propertyId || currentLease.Property?.id || '';
+          const tenantId = currentLease.tenantId || currentLease.Tenant?.id || '';
+          
+          if (isAppShell && (!propertyId || !tenantId)) {
+            console.warn('[LeaseEditModal] ⚠️ PropertyId ou TenantId manquant, bail:', currentLease);
+          }
+          
+          setFormData({
+            id: leaseId, // ✅ Utiliser l'ID complet et validé
+            propertyId,
+            tenantId,
+            type: currentLease.type || 'residential',
+            furnishedType: currentLease.furnishedType || 'vide',
+            startDate: currentLease.startDate ? new Date(currentLease.startDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            endDate: currentLease.endDate ? new Date(currentLease.endDate).toISOString().split('T')[0] : '',
+            rentAmount: currentLease.rentAmount || 0,
+            deposit: currentLease.deposit || 0,
+            paymentDay: currentLease.paymentDay || 1,
+            indexationType: currentLease.indexationType || 'none',
+            notes: currentLease.notes || '',
+            status: currentLease.status || 'BROUILLON', // ✅ CRITIQUE: Utiliser le statut local (à jour)
+            chargesRecupMensuelles: currentLease.chargesRecupMensuelles || 0,
+            chargesNonRecupMensuelles: currentLease.chargesNonRecupMensuelles || 0,
+          });
+        };
         
-        setFormData({
-          id: lease.id,
-          propertyId: lease.propertyId || lease.Property?.id || '',
-          tenantId: lease.tenantId || lease.Tenant?.id || '',
-          type: lease.type || 'residential',
-          furnishedType: lease.furnishedType || 'vide',
-          startDate: lease.startDate ? new Date(lease.startDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-          endDate: lease.endDate ? new Date(lease.endDate).toISOString().split('T')[0] : '',
-          rentAmount: lease.rentAmount || 0,
-          deposit: lease.deposit || 0,
-          paymentDay: lease.paymentDay || 1,
-          indexationType: lease.indexationType || 'none',
-          notes: lease.notes || '',
-          status: lease.status || 'BROUILLON',
-          chargesRecupMensuelles: lease.chargesRecupMensuelles || 0,
-          chargesNonRecupMensuelles: lease.chargesNonRecupMensuelles || 0,
-        });
+        // ✅ APP-SHELL: Charger depuis IndexedDB de manière asynchrone
+        if (isAppShell && organizationId) {
+          loadLeaseData();
+        } else {
+          // Mode normal: utiliser directement le prop lease
+          setFormData({
+            id: lease.id,
+            propertyId: lease.propertyId || lease.Property?.id || '',
+            tenantId: lease.tenantId || lease.Tenant?.id || '',
+            type: lease.type || 'residential',
+            furnishedType: lease.furnishedType || 'vide',
+            startDate: lease.startDate ? new Date(lease.startDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            endDate: lease.endDate ? new Date(lease.endDate).toISOString().split('T')[0] : '',
+            rentAmount: lease.rentAmount || 0,
+            deposit: lease.deposit || 0,
+            paymentDay: lease.paymentDay || 1,
+            indexationType: lease.indexationType || 'none',
+            notes: lease.notes || '',
+            status: lease.status || 'BROUILLON',
+            chargesRecupMensuelles: lease.chargesRecupMensuelles || 0,
+            chargesNonRecupMensuelles: lease.chargesNonRecupMensuelles || 0,
+          });
+        }
       } else {
         // Création d'un nouveau bail
         setFormData({
@@ -298,6 +542,20 @@ export default function LeaseEditModal({
     );
   };
 
+  // Liste des champs manquants pour l'affichage mobile
+  const getMissingFields = () => {
+    const missing: string[] = [];
+    if (!formData.propertyId) missing.push('Bien');
+    if (!formData.tenantId) missing.push('Locataire');
+    if (!formData.type) missing.push('Type de bail');
+    if (!formData.startDate) missing.push('Date de début');
+    if (formData.rentAmount <= 0) missing.push('Montant du loyer (onglet "Conditions financières")');
+    return missing;
+  };
+
+  const missingFields = getMissingFields();
+  const missingCount = missingFields.length;
+
   // Fonction pour vérifier si un onglet a des champs obligatoires manquants
   const hasMissingRequiredFields = (tabId: string) => {
     switch (tabId) {
@@ -315,17 +573,30 @@ export default function LeaseEditModal({
     if (isDraft(formData.status)) return { canDelete: true, reason: null };
     
     try {
-      // Vérifier s'il y a des transactions liées à ce bail
-      const response = await fetch(`/api/transactions?leaseId=${formData.id}`);
-      if (response.ok) {
-        const data = await response.json();
-        const hasTransactions = data.transactions && data.transactions.length > 0;
+      // ✅ APP-SHELL: Vérifier les transactions depuis IndexedDB
+      if (isAppShell && organizationId) {
+        const transactionRepo = getTransactionRepositoryOffline();
+        const transactions = await transactionRepo.getAll(organizationId, { leaseId: formData.id });
         
-        if (hasTransactions) {
+        if (transactions.length > 0) {
           return { 
             canDelete: false, 
             reason: 'Ce bail ne peut pas être supprimé car il contient des transactions. Résiliez-le à la place.' 
           };
+        }
+      } else if (!isAppShell) {
+        // Mode normal : vérifier depuis l'API
+        const response = await fetch(`/api/transactions?leaseId=${formData.id}`);
+        if (response.ok) {
+          const data = await response.json();
+          const hasTransactions = data.transactions && data.transactions.length > 0;
+          
+          if (hasTransactions) {
+            return { 
+              canDelete: false, 
+              reason: 'Ce bail ne peut pas être supprimé car il contient des transactions. Résiliez-le à la place.' 
+            };
+          }
         }
       }
       
@@ -337,7 +608,19 @@ export default function LeaseEditModal({
   };
 
   const handleWorkflowAction = async (action: string) => {
-    if (isWorkflowActionLoading) return; // Empêcher les double-clics
+    // ✅ Empêcher les double-clics et les appels multiples
+    if (isWorkflowActionLoading) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[LeaseEditModal] ⚠️ Action déjà en cours, ignore l\'appel:', action);
+      }
+      return;
+    }
+    
+    // ✅ APP-SHELL: Désactiver les actions spéciales en offline
+    if (isAppShell && !navigator.onLine) {
+      notify2.error('Action indisponible', 'Cette action nécessite une connexion internet. Veuillez vous connecter et réessayer.');
+      return;
+    }
     
     setIsWorkflowActionLoading(true);
     try {
@@ -349,101 +632,404 @@ export default function LeaseEditModal({
       
       switch (action) {
         case 'send-for-signature':
-          // Vérifier d'abord le profil utilisateur
+          // ✅ APP-SHELL: LOCAL-FIRST - Mettre à jour le statut localement AVANT tout appel API
+          // ⚠️ RÈGLE PRODUIT CRITIQUE: Ne jamais marquer ENVOYÉ sans confirmation serveur
+          // - Offline: set À_ENVOYER (pendingOp update), message "sera envoyé quand connecté"
+          // - Online: set À_ENVOYER local + pendingOp, appeler API send
+          //   - si OK: set ENVOYÉ local + pendingOp + dispatch leases:refresh
+          //   - si KO: rester À_ENVOYER + afficher erreur
+          
+          // ✅ ÉTAPE 1: Vérifier le statut local et mettre à jour en À_ENVOYER (local-first)
+          let localLease: any = null;
+          let targetPropertyId: string | undefined = undefined;
+          
+          if (isAppShell && organizationId && formData.id) {
+            try {
+              const leaseRepo = getLeaseRepositoryOffline();
+              
+              // ✅ Lire le bail depuis IndexedDB (source locale)
+              // ⚠️ CRITIQUE: L'ID peut avoir changé après une sync (UUID local → ID Prisma)
+              localLease = await leaseRepo.getById(formData.id, organizationId);
+              
+              // Si pas trouvé avec formData.id, chercher par critères (ID peut avoir changé après sync)
+              if (!localLease && formData.propertyId && formData.tenantId && formData.startDate) {
+                try {
+                  const db = await getLocalDB();
+                  
+                  // Chercher par propertyId + tenantId + startDate (critères uniques)
+                  const matchingLeases = await db.Lease
+                    .where('organizationId')
+                    .equals(organizationId)
+                    .and((l: any) => 
+                      l.propertyId === formData.propertyId && 
+                      l.tenantId === formData.tenantId &&
+                      l.startDate === formData.startDate
+                    )
+                    .toArray();
+                  
+                  if (matchingLeases.length > 0) {
+                    localLease = matchingLeases[0];
+                    // ✅ CRITIQUE: Mettre à jour formData.id avec le nouvel ID trouvé
+                    setFormData(prev => ({ ...prev, id: localLease.id }));
+                    
+                    if (process.env.NODE_ENV === 'development') {
+                      console.log('[LeaseEditModal] [SEND-FOR-SIGNATURE] ✅ ID mis à jour après recherche par critères:', {
+                        oldId: formData.id,
+                        newId: localLease.id
+                      });
+                    }
+                  }
+                } catch (searchError) {
+                  console.warn('[LeaseEditModal] ⚠️ Erreur lors de la recherche par critères:', searchError);
+                }
+              }
+              
+              if (!localLease) {
+                setIsWorkflowActionLoading(false);
+                notify2.error('Erreur', `Bail introuvable dans les données locales (ID: ${formData.id})`);
+                return;
+              }
+              
+              const currentStatus = localLease.status || 'BROUILLON';
+              
+              // ✅ Accepter BROUILLON ou À_ENVOYER (pour réessayer un envoi)
+              if (!isDraft(currentStatus) && !isToSend(currentStatus)) {
+                setIsWorkflowActionLoading(false);
+                notify2.error(
+                  'Action impossible', 
+                  `Le bail doit être en statut BROUILLON ou À ENVOYER pour être envoyé pour signature. Statut actuel : ${getLeaseStatusLabel(currentStatus)}`
+                );
+                return;
+              }
+              
+              // ✅ ÉTAPE 1a: Mettre à jour le statut en À_ENVOYER localement (offline ou online)
+              const leaseService = createLeaseServiceWithMode('app-shell');
+              await leaseService.updateLease(formData.id, organizationId, {
+                status: 'À_ENVOYER',
+              });
+              
+              targetPropertyId = propPropertyId || formData.propertyId || localLease.propertyId;
+              
+              // ✅ Dispatcher un refresh ciblé immédiatement (statut À_ENVOYER)
+              if (targetPropertyId) {
+                window.dispatchEvent(new CustomEvent('leases:refresh', {
+                  detail: { scope: 'property', propertyId: targetPropertyId, reason: 'update' }
+                }));
+              }
+              
+              if (process.env.NODE_ENV === 'development') {
+                console.log('[LeaseEditModal] [LOCAL-FIRST] ✅ Statut mis à jour en À_ENVOYER localement');
+              }
+            } catch (localError) {
+              console.error('[LeaseEditModal] ❌ Erreur lors de la mise à jour locale:', localError);
+              setIsWorkflowActionLoading(false);
+              notify2.error('Erreur', 'Impossible de mettre à jour le bail localement. Veuillez réessayer.');
+              return;
+            }
+          }
+          
+          // ✅ ÉTAPE 2: Vérifier si on est online pour l'appel API
+          if (!navigator.onLine) {
+            // Offline: le statut est déjà À_ENVOYER, on peut terminer
+            if (isAppShell) {
+              successMessage = 'Bail marqué comme "À envoyer" (mode offline)';
+              newStatus = 'À_ENVOYER';
+              notify2.success(successMessage, 'Veuillez réessayer manuellement une fois connecté');
+              break;
+            } else {
+              setIsWorkflowActionLoading(false);
+              notify2.error('Action indisponible', 'L\'envoi pour signature nécessite une connexion internet.');
+              return;
+            }
+          }
+          
+          // ✅ ÉTAPE 3: Vérifier le profil utilisateur (pour la génération PDF)
           const profileValidation = await fetch('/api/profiles/validate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
           });
           
           if (!profileValidation.ok) {
-            setIsWorkflowActionLoading(false);
-            notify2.error('Erreur de validation', 'Impossible de valider le profil utilisateur');
-            return; // Ne pas changer le statut en cas d'erreur
+            // En mode app-shell, le statut est déjà À_ENVOYER, on peut continuer
+            if (isAppShell) {
+              notify2.warning('Profil incomplet', 'Le bail a été marqué comme "À envoyer", mais le PDF ne pourra pas être généré sans profil complet.');
+              successMessage = 'Bail marqué comme "À envoyer"';
+              newStatus = 'À_ENVOYER';
+              break;
+            } else {
+              setIsWorkflowActionLoading(false);
+              notify2.error('Erreur de validation', 'Impossible de valider le profil utilisateur');
+              return;
+            }
           }
           
           const validationResult = await profileValidation.json();
           
           if (!validationResult.isValid) {
-            // Afficher une modal d'alerte avec les champs manquants
-            const missingFieldsList = validationResult.missingFields.map(field => `• ${field}`).join('\n');
-            const alertMessage = `${validationResult.message}\n\nChamps manquants :\n${missingFieldsList}`;
-            
-            setProfileAlertData({
-              title: 'Profil incomplet',
-              message: alertMessage,
-              missingFields: validationResult.missingFields
-            });
-            setShowProfileAlert(true);
-            setIsWorkflowActionLoading(false);
-            return; // Arrêter l'exécution, ne pas changer le statut
-          }
-          
-          // Générer PDF et EML côté serveur
-          const response = await fetch(`/api/leases/${formData.id}/send-for-signature`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              email: tenants.find(t => t.id === formData.tenantId)?.email,
-              message: 'Bail à signer' 
-            }),
-          });
-          
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ error: 'Erreur inconnue' }));
-            setIsWorkflowActionLoading(false);
-            notify2.error('Erreur lors de l\'envoi', errorData.error || 'Impossible d\'envoyer le bail pour signature');
-            return; // Ne pas changer le statut en cas d'erreur
-          }
-          
-          result = await response.json();
-          
-          // Télécharger le fichier EML (URL Supabase signée, publique)
-          if (result.downloadUrl) {
-            try {
-              // Les URLs Supabase signées sont publiques, pas besoin de credentials
-              const fileResponse = await fetch(result.downloadUrl, {
-                method: 'GET',
-                // Pas de credentials pour éviter les erreurs CORS avec Supabase
-              });
+            // En mode app-shell, le statut est déjà À_ENVOYER, on peut continuer
+            if (isAppShell) {
+              const shouldGoToProfile = confirm(
+                `${validationResult.message}\n\nLe bail a été marqué comme "À envoyer", mais le PDF ne pourra pas être généré sans profil complet.\n\nSouhaitez-vous aller à votre profil pour le compléter ?`
+              );
               
-              if (!fileResponse.ok) {
-                throw new Error('Erreur lors du téléchargement du fichier');
+              if (shouldGoToProfile) {
+                window.location.href = '/app?view=profil';
               }
               
-              const blob = await fileResponse.blob();
-              const url = window.URL.createObjectURL(blob);
-              const link = document.createElement('a');
-              link.href = url;
-              link.download = `bail-signature-${formData.id}.eml`;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              window.URL.revokeObjectURL(url);
-            } catch (downloadError) {
-              console.error('Erreur lors du téléchargement du fichier EML:', downloadError);
-              notify2.error('Erreur de téléchargement', 'Impossible de télécharger le fichier EML');
+              successMessage = 'Bail marqué comme "À envoyer"';
+              newStatus = 'À_ENVOYER';
+              break;
+            } else {
+              setIsWorkflowActionLoading(false);
+              const missingFieldsList = validationResult.missingFields.map((field: string) => `• ${field}`).join('\n');
+              const alertMessage = `${validationResult.message}\n\nChamps manquants :\n${missingFieldsList}`;
+              
+              const shouldGoToProfile = confirm(
+                `${alertMessage}\n\nSouhaitez-vous aller à votre profil pour le compléter ?`
+              );
+              
+              if (shouldGoToProfile) {
+                window.location.href = '/profil';
+              }
+              return;
             }
           }
           
-          successMessage = 'Bail envoyé pour signature avec succès';
-          newStatus = 'ENVOYÉ';
-          notify2.success(successMessage, 'Le fichier EML a été téléchargé automatiquement');
-          break;
-        case 'mark-active':
-          const activeResponse = await fetch(`/api/leases/${formData.id}/mark-active`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-          });
-          
-          if (!activeResponse.ok) {
-            const errorData = await activeResponse.json();
-            throw new Error(errorData.error || 'Erreur lors de l\'activation');
+          // ✅ Vérifier que l'ID est complet
+          if (!formData.id || formData.id.length < 20) {
+            setIsWorkflowActionLoading(false);
+            notify2.error('Erreur', 'ID du bail invalide ou incomplet');
+            return;
           }
           
-          result = await activeResponse.json();
-          successMessage = 'Bail marqué comme actif !';
-          newStatus = 'ACTIF';
+          // ✅ ÉTAPE 4: Annuler les pendingOps À_ENVOYER obsolètes et synchroniser AVANT l'appel API
+          // ⚠️ OPTIMISATION: En mode online, on a fait une mise à jour locale directe sans pendingOp
+          // Mais il peut y avoir des pendingOps À_ENVOYER d'une tentative précédente qu'il faut annuler
+          if (isAppShell && organizationId) {
+            try {
+              const db = await getLocalDB();
+              
+              // Annuler les pendingOps À_ENVOYER pour ce bail (elles sont obsolètes car on va directement à ENVOYÉ)
+              // ⚠️ NOTE: L'index [entity+entityId+operation] n'existe pas, on filtre par entity puis manuellement
+              const allPendingOps = await db.pendingOperations
+                .where('entity')
+                .equals('lease')
+                .toArray();
+              
+              const obsoletePendingOps = allPendingOps.filter((op: any) => 
+                op.entityId === formData.id &&
+                op.operation === 'update' &&
+                op.status === 'pending' &&
+                op.payload?.status === 'À_ENVOYER'
+              );
+              
+              if (obsoletePendingOps.length > 0) {
+                await Promise.all(
+                  obsoletePendingOps.map((op: any) =>
+                    db.pendingOperations.delete(op.id)
+                  )
+                );
+                
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`[LeaseEditModal] [SEND-FOR-SIGNATURE] ✅ ${obsoletePendingOps.length} pendingOp(s) À_ENVOYER annulée(s) (obsolètes)`);
+                }
+              }
+              
+              // Synchroniser les autres pendingOps (s'il y en a)
+              const syncService = getGlobalSyncService();
+              await syncService.syncAllPendingToRemote(organizationId);
+            } catch (syncError) {
+              console.error('[LeaseEditModal] ⚠️ Erreur lors de la synchronisation:', syncError);
+              notify2.warning(
+                'Synchronisation incomplète', 
+                'Les données locales n\'ont pas pu être synchronisées. L\'envoi peut échouer si le statut n\'est pas à jour.'
+              );
+            }
+          }
+          
+          // ✅ ÉTAPE 5: Appeler l'API pour générer PDF/EML
+          // ⚠️ CRITIQUE: Vérifier que formData.id est complet et valide
+          if (!formData.id || formData.id.length < 20) {
+            setIsWorkflowActionLoading(false);
+            notify2.error('Erreur', `ID du bail invalide ou incomplet: "${formData.id}" (longueur: ${formData.id?.length || 0})`);
+            console.error('[LeaseEditModal] [SEND-FOR-SIGNATURE] ID invalide:', {
+              formDataId: formData.id,
+              idLength: formData.id?.length || 0,
+              localLeaseId: localLease?.id,
+              localLeaseIdLength: localLease?.id?.length || 0
+            });
+            return;
+          }
+          
+          const leaseIdEncoded = encodeURIComponent(formData.id);
+          const apiUrl = `/api/leases/${leaseIdEncoded}/send-for-signature`;
+          
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[LeaseEditModal] [SEND-FOR-SIGNATURE] Appel API:', {
+              originalId: formData.id,
+              encodedId: leaseIdEncoded,
+              fullUrl: apiUrl,
+              idLength: formData.id.length
+            });
+          }
+          
+          try {
+            const response = await fetch(apiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                email: tenants.find(t => t.id === formData.tenantId)?.email,
+                message: 'Bail à signer' 
+              }),
+            });
+            
+            if (response.ok) {
+              // ✅ ÉTAPE 6: Si l'API réussit, mettre à jour en ENVOYÉ
+              result = await response.json();
+              
+              // Télécharger le fichier EML
+              if (result.downloadUrl) {
+                try {
+                  const fileResponse = await fetch(result.downloadUrl, { method: 'GET' });
+                  if (fileResponse.ok) {
+                    const blob = await fileResponse.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `bail-signature-${formData.id}.eml`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(url);
+                  }
+                } catch (downloadError) {
+                  console.error('Erreur lors du téléchargement du fichier EML:', downloadError);
+                  // Ne pas bloquer, le statut est déjà À_ENVOYER
+                }
+              }
+              
+              // ✅ Mettre à jour en ENVOYÉ uniquement si l'API a réussi
+              if (isAppShell && organizationId && formData.id) {
+                try {
+                  const leaseService = createLeaseServiceWithMode('app-shell');
+                  const updatedLeaseFromApi = result.lease;
+                  
+                  if (!targetPropertyId) {
+                    targetPropertyId = propPropertyId || formData.propertyId || updatedLeaseFromApi?.propertyId || localLease?.propertyId;
+                  }
+                  
+                  // ✅ Mettre à jour en ENVOYÉ (confirmation serveur)
+                  await leaseService.updateLease(formData.id, organizationId, {
+                    status: 'ENVOYÉ',
+                  });
+                  
+                  // ✅ Dispatcher un refresh ciblé
+                  if (targetPropertyId) {
+                    window.dispatchEvent(new CustomEvent('leases:refresh', {
+                      detail: { scope: 'property', propertyId: targetPropertyId, reason: 'update' }
+                    }));
+                  }
+                  
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log('[LeaseEditModal] [LOCAL-FIRST] ✅ Statut mis à jour en ENVOYÉ après confirmation serveur');
+                  }
+                } catch (error) {
+                  console.error('[LeaseEditModal] Erreur lors de la mise à jour en ENVOYÉ:', error);
+                  // Ne pas bloquer, le statut reste À_ENVOYER
+                }
+              }
+              
+              successMessage = 'Bail envoyé pour signature avec succès';
+              newStatus = 'ENVOYÉ';
+              notify2.success(successMessage, 'Le fichier EML a été téléchargé automatiquement');
+            } else {
+              // ✅ ÉTAPE 7: Si l'API échoue, rester en À_ENVOYER
+              const errorData = await response.json().catch(() => ({ error: 'Erreur inconnue' }));
+              setIsWorkflowActionLoading(false);
+              
+              // Le statut reste À_ENVOYER (déjà mis à jour localement)
+              if (errorData.error && errorData.error.includes('BROUILLON')) {
+              notify2.error(
+                'Erreur lors de l\'envoi', 
+                'Le statut du bail n\'est pas synchronisé. Le bail reste en "À envoyer". Veuillez synchroniser puis réessayer manuellement.'
+              );
+              } else {
+                notify2.error(
+                  'Erreur lors de l\'envoi', 
+                  `Le bail reste en "À envoyer". Erreur : ${errorData.error || 'Impossible d\'envoyer le bail pour signature'}`
+                );
+              }
+              
+              // Le statut est déjà À_ENVOYER, pas besoin de le changer
+              successMessage = 'Bail marqué comme "À envoyer" (erreur lors de l\'envoi)';
+              newStatus = 'À_ENVOYER';
+            }
+          } catch (apiError) {
+            // ✅ ÉTAPE 8: Si erreur réseau, rester en À_ENVOYER
+            console.error('[LeaseEditModal] Erreur lors de l\'appel API:', apiError);
+            setIsWorkflowActionLoading(false);
+            
+            // Le statut reste À_ENVOYER (déjà mis à jour localement)
+            notify2.error(
+              'Erreur réseau', 
+              'Le bail reste en "À envoyer". Veuillez réessayer manuellement une fois connecté.'
+            );
+            
+            successMessage = 'Bail marqué comme "À envoyer" (erreur réseau)';
+            newStatus = 'À_ENVOYER';
+          }
+          
+          // ✅ En mode normal (non app-shell), mettre à jour le statut selon le résultat
+          if (!isAppShell) {
+            // En mode normal, on fait confiance à l'API pour mettre à jour le statut
+            // (le code existant gère déjà cela)
+          }
+          break;
+        case 'mark-active':
+          // ✅ APP-SHELL: Mettre à jour localement via LeaseService (création de pending opération)
+          if (isAppShell && organizationId && formData.id) {
+            try {
+              const leaseService = createLeaseServiceWithMode('app-shell');
+              await leaseService.updateLease(formData.id, organizationId, {
+                status: 'ACTIF',
+              });
+              
+              // ✅ Dispatcher un événement de refresh ciblé
+              // Utiliser propPropertyId en priorité, puis formData.propertyId
+              const targetPropertyId = propPropertyId || formData.propertyId;
+              if (targetPropertyId) {
+                window.dispatchEvent(new CustomEvent('leases:refresh', { 
+                  detail: { scope: 'property', propertyId: targetPropertyId, reason: 'update' } 
+                }));
+              } else {
+                window.dispatchEvent(new CustomEvent('leases:refresh', { 
+                  detail: { scope: 'global', reason: 'update' } 
+                }));
+              }
+              
+              successMessage = 'Bail marqué comme actif !';
+              newStatus = 'ACTIF';
+            } catch (error) {
+              console.error('[LeaseEditModal] Erreur lors de la mise à jour locale du statut:', error);
+              throw error;
+            }
+          } else {
+            // Mode normal : appel API
+            const activeResponse = await fetch(`/api/leases/${formData.id}/mark-active`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({}),
+            });
+            
+            if (!activeResponse.ok) {
+              const errorData = await activeResponse.json();
+              throw new Error(errorData.error || 'Erreur lors de l\'activation');
+            }
+            
+            result = await activeResponse.json();
+            successMessage = 'Bail marqué comme actif !';
+            newStatus = 'ACTIF';
+          }
           break;
         case 'delete':
           // Vérifier si le bail peut être supprimé
@@ -462,70 +1048,226 @@ export default function LeaseEditModal({
             }
           }
           
-          const deleteResponse = await fetch(`/api/leases/${formData.id}`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-          });
-          
-          if (!deleteResponse.ok) {
-            const errorData = await deleteResponse.json();
-            throw new Error(errorData.error || 'Erreur lors de la suppression');
+          // ✅ APP-SHELL: Supprimer localement via LeaseService (création de pending opération)
+          if (isAppShell && organizationId && formData.id) {
+            try {
+              const leaseService = createLeaseServiceWithMode('app-shell');
+              await leaseService.deleteLease(formData.id, organizationId);
+              
+              // ✅ Dispatcher un événement de refresh ciblé
+              // Utiliser propPropertyId en priorité, puis formData.propertyId
+              const targetPropertyId = propPropertyId || formData.propertyId;
+              if (targetPropertyId) {
+                window.dispatchEvent(new CustomEvent('leases:refresh', { 
+                  detail: { scope: 'property', propertyId: targetPropertyId, reason: 'delete' } 
+                }));
+              } else {
+                window.dispatchEvent(new CustomEvent('leases:refresh', { 
+                  detail: { scope: 'global', reason: 'delete' } 
+                }));
+              }
+              
+              successMessage = 'Bail supprimé avec succès !';
+              // Fermer la modal sans recharger
+              setTimeout(() => {
+                onClose();
+              }, 500);
+              return;
+            } catch (error) {
+              console.error('[LeaseEditModal] Erreur lors de la suppression locale:', error);
+              throw error;
+            }
+          } else {
+            // Mode normal : appel API
+            const deleteResponse = await fetch(`/api/leases/${formData.id}`, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+            });
+            
+            if (!deleteResponse.ok) {
+              const errorData = await deleteResponse.json();
+              throw new Error(errorData.error || 'Erreur lors de la suppression');
+            }
+            
+            successMessage = 'Bail supprimé avec succès !';
+            // Fermer la modal et recharger
+            window.location.reload();
+            return;
           }
-          
-          successMessage = 'Bail supprimé avec succès !';
-          // Fermer la modal et recharger
-          window.location.reload();
-          return;
         case 'terminate':
-          const terminateResponse = await fetch(`/api/leases/${formData.id}/terminate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-          });
-          
-          if (!terminateResponse.ok) {
-            const errorData = await terminateResponse.json();
-            throw new Error(errorData.error || 'Erreur lors de la résiliation');
+          // ✅ APP-SHELL: Mettre à jour IndexedDB DIRECTEMENT (sans passer par LeaseService pour éviter les appels multiples)
+          if (isAppShell && organizationId && formData.id) {
+            try {
+              // ✅ ÉTAPE 1: Mettre à jour IndexedDB DIRECTEMENT via le repository offline
+              const leaseRepo = getLeaseRepositoryOffline();
+              
+              // Lire le lease existant
+              const db = await getLocalDB();
+              const existing = await db.Lease.get(formData.id);
+              
+              if (!existing) {
+                throw new Error('Bail non trouvé');
+              }
+              
+              // ✅ ÉTAPE 2: Mettre à jour DIRECTEMENT avec upsert (crée automatiquement la pendingOp)
+              await leaseRepo.upsert({
+                ...existing,
+                id: formData.id,
+                organizationId,
+                status: 'RÉSILIÉ',
+                updatedAt: new Date().toISOString(),
+              }, organizationId);
+              
+              // ✅ ÉTAPE 3: Vérifier que l'update a bien fonctionné
+              const updatedLease = await db.Lease.get(formData.id);
+              
+              if (!updatedLease) {
+                throw new Error('Bail non trouvé après mise à jour');
+              }
+              
+              if (updatedLease.status !== 'RÉSILIÉ') {
+                console.error('[LeaseEditModal] ⚠️ Le status n\'a pas été mis à jour correctement:', {
+                  expected: 'RÉSILIÉ',
+                  actual: updatedLease.status
+                });
+                throw new Error('Le status n\'a pas été mis à jour correctement dans IndexedDB');
+              }
+              
+              // ✅ ÉTAPE 4: Dispatcher l'événement APRÈS vérification de l'update
+              const targetPropertyId = propPropertyId || formData.propertyId || updatedLease.propertyId;
+              if (targetPropertyId) {
+                window.dispatchEvent(new CustomEvent('leases:refresh', { 
+                  detail: { scope: 'property', propertyId: targetPropertyId, reason: 'update' } 
+                }));
+              } else {
+                window.dispatchEvent(new CustomEvent('leases:refresh', { 
+                  detail: { scope: 'global', reason: 'update' } 
+                }));
+              }
+              
+              successMessage = 'Bail résilié avec succès !';
+              newStatus = 'RÉSILIÉ';
+            } catch (error) {
+              console.error('[LeaseEditModal] Erreur lors de la mise à jour locale du statut:', error);
+              throw error;
+            }
+          } else {
+            // Mode normal : appel API
+            const terminateResponse = await fetch(`/api/leases/${formData.id}/terminate`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({}),
+            });
+            
+            if (!terminateResponse.ok) {
+              const errorData = await terminateResponse.json();
+              throw new Error(errorData.error || 'Erreur lors de la résiliation');
+            }
+            
+            result = await terminateResponse.json();
+            successMessage = 'Bail résilié avec succès !';
+            newStatus = 'RÉSILIÉ';
           }
-          
-          result = await terminateResponse.json();
-          successMessage = 'Bail résilié avec succès !';
-          newStatus = 'RÉSILIÉ';
           break;
         case 'cancel-send':
           if (!formData.id) {
             throw new Error('ID du bail manquant');
           }
           
-          const cancelResponse = await fetch(`/api/leases/${formData.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'BROUILLON' })
-          });
-          
-          if (!cancelResponse.ok) {
-            const errorData = await cancelResponse.json();
-            throw new Error(errorData.error || 'Erreur lors de l\'annulation');
+          // ✅ APP-SHELL: Mettre à jour localement via LeaseService (création de pending opération)
+          if (isAppShell && organizationId) {
+            try {
+              const leaseService = createLeaseServiceWithMode('app-shell');
+              await leaseService.updateLease(formData.id, organizationId, {
+                status: 'BROUILLON',
+              });
+              
+              // ✅ Dispatcher un événement de refresh ciblé après la mise à jour IndexedDB
+              // Utiliser propPropertyId en priorité, puis formData.propertyId
+              const targetPropertyId = propPropertyId || formData.propertyId;
+              
+              // ✅ Utiliser requestAnimationFrame pour s'assurer que l'IndexedDB est à jour
+              // et que le dispatch se fait après le cycle de rendu actuel
+              requestAnimationFrame(() => {
+                if (targetPropertyId) {
+                  window.dispatchEvent(new CustomEvent('leases:refresh', {
+                    detail: { scope: 'property', propertyId: targetPropertyId, reason: 'update' }
+                  }));
+                } else {
+                  window.dispatchEvent(new CustomEvent('leases:refresh', {
+                    detail: { scope: 'global', reason: 'update' }
+                  }));
+                }
+              });
+              
+              successMessage = 'Envoi annulé avec succès ! Le bail est revenu en statut BROUILLON.';
+              newStatus = 'BROUILLON';
+            } catch (error) {
+              console.error('[LeaseEditModal] Erreur lors de la mise à jour locale du statut:', error);
+              throw error;
+            }
+          } else {
+            // Mode normal : appel API
+            const cancelResponse = await fetch(`/api/leases/${formData.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'BROUILLON' })
+            });
+            
+            if (!cancelResponse.ok) {
+              const errorData = await cancelResponse.json();
+              throw new Error(errorData.error || 'Erreur lors de l\'annulation');
+            }
+            
+            result = await cancelResponse.json();
+            successMessage = 'Envoi annulé avec succès ! Le bail est revenu en statut BROUILLON.';
+            newStatus = 'BROUILLON';
           }
-          
-          result = await cancelResponse.json();
-          successMessage = 'Envoi annulé avec succès ! Le bail est revenu en statut BROUILLON.';
-          newStatus = 'BROUILLON';
           break;
         case 'mark-unsigned':
-          const unsignedResponse = await fetch(`/api/leases/${formData.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'ENVOYÉ' })
-          });
-          
-          if (!unsignedResponse.ok) {
-            const errorData = await unsignedResponse.json();
-            throw new Error(errorData.error || 'Erreur lors de la modification');
+          // ✅ APP-SHELL: Mettre à jour localement via LeaseService (création de pending opération)
+          if (isAppShell && organizationId && formData.id) {
+            try {
+              const leaseService = createLeaseServiceWithMode('app-shell');
+              await leaseService.updateLease(formData.id, organizationId, {
+                status: 'ENVOYÉ',
+              });
+              
+              // ✅ Dispatcher un événement de refresh ciblé
+              // Utiliser propPropertyId en priorité, puis formData.propertyId
+              const targetPropertyId = propPropertyId || formData.propertyId;
+              if (targetPropertyId) {
+                window.dispatchEvent(new CustomEvent('leases:refresh', { 
+                  detail: { scope: 'property', propertyId: targetPropertyId, reason: 'update' } 
+                }));
+              } else {
+                window.dispatchEvent(new CustomEvent('leases:refresh', { 
+                  detail: { scope: 'global', reason: 'update' } 
+                }));
+              }
+              
+              successMessage = 'Bail marqué comme non signé avec succès ! Le bail est revenu en statut ENVOYÉ.';
+              newStatus = 'ENVOYÉ';
+            } catch (error) {
+              console.error('[LeaseEditModal] Erreur lors de la mise à jour locale du statut:', error);
+              throw error;
+            }
+          } else {
+            // Mode normal : appel API
+            const unsignedResponse = await fetch(`/api/leases/${formData.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'ENVOYÉ' })
+            });
+            
+            if (!unsignedResponse.ok) {
+              const errorData = await unsignedResponse.json();
+              throw new Error(errorData.error || 'Erreur lors de la modification');
+            }
+            
+            successMessage = 'Bail marqué comme non signé avec succès ! Le bail est revenu en statut ENVOYÉ.';
+            newStatus = 'ENVOYÉ';
           }
-          
-          successMessage = 'Bail marqué comme non signé avec succès ! Le bail est revenu en statut ENVOYÉ.';
-          newStatus = 'ENVOYÉ';
           break;
       }
       
@@ -534,9 +1276,19 @@ export default function LeaseEditModal({
         setFormData(prev => ({ ...prev, status: newStatus as any }));
       }
       
-      // Fermer la modal et recharger la page immédiatement pour certaines actions
-      if (action === 'terminate' || action === 'delete' || action === 'mark-active' || action === 'send-for-signature' || action === 'cancel-send' || action === 'mark-unsigned') {
-        // Attendre un peu pour que le toast soit visible avant le rechargement
+      // ✅ APP-SHELL: Pour toutes les actions de workflow, ne PAS recharger la page, utiliser refresh ciblé
+      if (isAppShell && (action === 'send-for-signature' || action === 'cancel-send' || action === 'mark-unsigned' || action === 'mark-active' || action === 'terminate')) {
+        // En app-shell, le refresh ciblé est déjà fait dans le case spécifique
+        // Afficher le toast de succès si disponible
+        if (successMessage) {
+          notify2.success(successMessage);
+        }
+        // Fermer la modal sans recharger
+        setTimeout(() => {
+          onClose();
+        }, 500);
+      } else if (action === 'terminate' || action === 'delete' || action === 'mark-active' || action === 'send-for-signature' || action === 'cancel-send' || action === 'mark-unsigned') {
+        // Mode normal : recharger la page
         setTimeout(() => {
           onClose();
           window.location.reload();
@@ -557,6 +1309,12 @@ export default function LeaseEditModal({
   };
 
   const handleUploadSigned = async (file: File) => {
+    // ✅ APP-SHELL: Désactiver en offline
+    if (isAppShell && !navigator.onLine) {
+      notify2.error('Action indisponible', 'L\'upload du bail signé nécessite une connexion internet.');
+      return;
+    }
+    
     try {
       const uploadFormData = new FormData();
       uploadFormData.append('signedPdf', file);
@@ -585,29 +1343,95 @@ export default function LeaseEditModal({
         // Le bail devrait être automatiquement actif
         newStatus = 'ACTIF';
         alertMessage = 'Bail signé uploadé avec succès ! Le statut a été automatiquement mis à jour à ACTIF (bail en cours).';
-        
-        // Mettre à jour le statut en base de données
+      }
+      
+      // ✅ APP-SHELL: Mettre à jour localement via LeaseService (création de pending opération)
+      if (isAppShell && organizationId && formData.id) {
         try {
-          await fetch(`/api/leases/${formData.id}/mark-active`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+          const leaseService = createLeaseServiceWithMode('app-shell');
+          await leaseService.updateLease(formData.id, organizationId, {
+            status: newStatus,
+            signedPdfUrl: (result as any)?.signedPdfUrl || (result as any)?.lease?.signedPdfUrl || (formData as any).signedPdfUrl,
           });
+          
+          // ✅ ÉTAPE 2: Puller les métadonnées Document + DocumentLink vers IndexedDB
+          // ⚠️ RÈGLE PRODUIT: "Bail signé" = archivé durablement (Supabase Storage + métadonnées + liens)
+          // Après upload, on doit puller les métadonnées Document et DocumentLink créées côté serveur
+          try {
+            const syncService = getGlobalSyncService();
+            
+            // Puller les documents et documentLinks pour cette organisation
+            await Promise.all([
+              syncService.syncEntityFromRemoteByName('document', organizationId),
+              syncService.syncEntityFromRemoteByName('documentLink', organizationId),
+            ]);
+            
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[LeaseEditModal] [UPLOAD-SIGNED] ✅ Métadonnées Document + DocumentLink pullées vers IndexedDB');
+            }
+          } catch (syncError) {
+            console.error('[LeaseEditModal] ⚠️ Erreur lors du pull des métadonnées Document/DocumentLink:', syncError);
+            // Ne pas bloquer, mais avertir l'utilisateur
+            notify2.warning(
+              'Métadonnées non synchronisées', 
+              'Le bail a été uploadé, mais les métadonnées du document ne sont pas encore disponibles localement. Elles seront synchronisées lors de la prochaine sync.'
+            );
+          }
+          
+          // ✅ Dispatcher un événement de refresh ciblé
+          // Utiliser propPropertyId en priorité, puis formData.propertyId
+          const targetPropertyId = propPropertyId || formData.propertyId;
+          if (targetPropertyId) {
+            window.dispatchEvent(new CustomEvent('leases:refresh', { 
+              detail: { scope: 'property', propertyId: targetPropertyId, reason: 'update' } 
+            }));
+            // ✅ Dispatcher aussi un refresh pour les documents (le bail signé est un document)
+            window.dispatchEvent(new CustomEvent('documents:refresh', { 
+              detail: { scope: 'property', propertyId: targetPropertyId, reason: 'create' } 
+            }));
+          } else {
+            window.dispatchEvent(new CustomEvent('leases:refresh', { 
+              detail: { scope: 'global', reason: 'update' } 
+            }));
+            window.dispatchEvent(new CustomEvent('documents:refresh', { 
+              detail: { scope: 'global', reason: 'create' } 
+            }));
+          }
+          
+          // Mettre à jour le formData localement
+          setFormData(prev => ({ ...prev, status: newStatus as any, signedPdfUrl: (result as any)?.signedPdfUrl || (result as any)?.lease?.signedPdfUrl || (prev as any).signedPdfUrl }));
         } catch (error) {
-          console.error('Error marking lease as active:', error);
-          newStatus = 'SIGNÉ';
-          alertMessage = 'Bail signé uploadé avec succès ! Le statut a été mis à jour à SIGNÉ (erreur lors du passage à ACTIF).';
+          console.error('[LeaseEditModal] Erreur lors de la mise à jour locale du statut:', error);
+          // Ne pas bloquer l'opération si la mise à jour locale échoue
+        }
+      } else {
+        // Mode normal : mettre à jour le statut via API si nécessaire
+        if (daysUntilStart <= 30) {
+          try {
+            await fetch(`/api/leases/${formData.id}/mark-active`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            });
+          } catch (error) {
+            console.error('Error marking lease as active:', error);
+            newStatus = 'SIGNÉ';
+            alertMessage = 'Bail signé uploadé avec succès ! Le statut a été mis à jour à SIGNÉ (erreur lors du passage à ACTIF).';
+          }
         }
       }
       
-      alert(alertMessage);
+      notify2.success(alertMessage);
       
       // Mettre à jour le statut localement
       setFormData(prev => ({ ...prev, status: newStatus as any }));
       
-      // Recharger la page pour mettre à jour le tableau
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
+      // ✅ APP-SHELL: Ne PAS recharger la page, le refresh ciblé est déjà fait
+      if (!isAppShell) {
+        // Mode normal : recharger la page
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+      }
     } catch (error) {
       console.error('Error uploading signed PDF:', error);
       alert(`Erreur lors de l'upload du bail signé: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
@@ -694,12 +1518,12 @@ export default function LeaseEditModal({
 
       {/* Header avec indication des champs obligatoires (si éditable) */}
       {!isReadOnly && !isContractLocked && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
           <div className="flex items-center gap-2 mb-2">
-            <AlertCircle className="h-5 w-5 text-blue-600" />
-            <h3 className="font-medium text-blue-900">Informations obligatoires</h3>
+            <AlertCircle className="h-5 w-5 text-gray-600" />
+            <h3 className="font-medium text-gray-900">Informations obligatoires</h3>
           </div>
-          <p className="text-sm text-blue-700">
+          <p className="text-sm text-gray-700">
             Les champs marqués d'un astérisque rouge (*) sont obligatoires pour modifier le bail.
           </p>
         </div>
@@ -722,18 +1546,17 @@ export default function LeaseEditModal({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
             />
           ) : (
-            // Mode création : SearchableSelect
-            <SearchableSelect
+            // Mode création : SmartSelect
+            <SmartSelect
               options={(properties && Array.isArray(properties) ? properties : []).map(p => ({
-                id: p.id,
                 value: p.id,
                 label: `${p.name} - ${p.address}`
               }))}
               value={formData.propertyId}
               onChange={(value) => handleChange('propertyId', value)}
               placeholder="Rechercher un bien..."
-              required
-              className={errors.propertyId ? 'border-red-500' : ''}
+              error={!!errors.propertyId}
+              aria-label="Sélectionner un bien"
             />
           )}
           {errors.propertyId && <p className="text-red-500 text-sm mt-1">{errors.propertyId}</p>}
@@ -756,18 +1579,17 @@ export default function LeaseEditModal({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
             />
           ) : (
-            // Éditable : SearchableSelect
-            <SearchableSelect
+            // Éditable : SmartSelect
+            <SmartSelect
               options={(tenants && Array.isArray(tenants) ? tenants : []).map(t => ({
-                id: t.id,
                 value: t.id,
                 label: `${t.firstName} ${t.lastName}${t.email ? ` - ${t.email}` : ''}`
               }))}
               value={formData.tenantId}
               onChange={(value) => handleChange('tenantId', value)}
               placeholder="Rechercher un locataire..."
-              required
-              className={errors.tenantId ? 'border-red-500' : ''}
+              error={!!errors.tenantId}
+              aria-label="Sélectionner un locataire"
             />
           )}
           {errors.tenantId && <p className="text-red-500 text-sm mt-1">{errors.tenantId}</p>}
@@ -777,80 +1599,82 @@ export default function LeaseEditModal({
       {/* Type de bail */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-edit-type">
             <span className="text-red-500">*</span> Type de bail
           </label>
-          <select
+          <SmartSelect
+            id="lease-edit-type"
             value={formData.type}
-            onChange={(e) => handleChange('type', e.target.value)}
+            onChange={(value) => handleChange('type', value)}
             disabled={isContractualFieldLocked('type')}
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-              errors.type ? 'border-red-500' : 'border-gray-300'
-            } ${isContractualFieldLocked('type') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''}`}
-          >
-            <option value="residential">Résidentiel</option>
-            <option value="commercial">Commercial</option>
-            <option value="garage">Garage</option>
-          </select>
+            options={[
+              { value: 'residential', label: 'Résidentiel' },
+              { value: 'commercial', label: 'Commercial' },
+              { value: 'garage', label: 'Garage' },
+            ]}
+            placeholder="Sélectionner un type"
+            error={!!errors.type}
+            aria-label="Type de bail"
+          />
           {errors.type && <p className="text-red-500 text-sm mt-1">{errors.type}</p>}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-edit-furnishedType">
             Type de meublé
           </label>
-          <select
+          <SmartSelect
+            id="lease-edit-furnishedType"
             value={formData.furnishedType}
-            onChange={(e) => handleChange('furnishedType', e.target.value)}
+            onChange={(value) => handleChange('furnishedType', value)}
             disabled={isContractualFieldLocked('furnishedType')}
-            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-              isContractualFieldLocked('furnishedType') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
-            }`}
-          >
-            <option value="vide">Vide</option>
-            <option value="meuble">Meublé</option>
-            <option value="garage">Garage</option>
-          </select>
+            options={[
+              { value: 'vide', label: 'Vide' },
+              { value: 'meuble', label: 'Meublé' },
+              { value: 'garage', label: 'Garage' },
+            ]}
+            placeholder="Sélectionner un type"
+            aria-label="Type de meublé"
+          />
         </div>
       </div>
 
       {/* Dates */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-edit-startDate">
             <span className="text-red-500">*</span> Date de début
           </label>
-          <input
-            type="date"
+          <SmartDatePicker
+            id="lease-edit-startDate"
             value={formData.startDate}
-            onChange={(e) => handleChange('startDate', e.target.value)}
+            onChange={(value) => handleChange('startDate', value)}
             disabled={isContractualFieldLocked('startDate')}
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-              errors.startDate ? 'border-red-500' : 'border-gray-300'
-            } ${isContractualFieldLocked('startDate') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''}`}
+            placeholder="Sélectionner une date"
+            error={!!errors.startDate}
+            aria-label="Date de début"
           />
           {errors.startDate && <p className="text-red-500 text-sm mt-1">{errors.startDate}</p>}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-edit-endDate">
             Date de fin (optionnel)
           </label>
           <div className="relative">
-            <input
-              type="date"
+            <SmartDatePicker
+              id="lease-edit-endDate"
               value={formData.endDate || ''}
-              onChange={(e) => handleChange('endDate', e.target.value)}
+              onChange={(value) => handleChange('endDate', value || undefined)}
               disabled={isContractualFieldLocked('endDate')}
-              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-                isContractualFieldLocked('endDate') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
-              }`}
+              placeholder="Sélectionner une date"
+              aria-label="Date de fin"
             />
             {formData.endDate && !isContractualFieldLocked('endDate') && (
               <button
                 type="button"
                 onClick={() => handleChange('endDate', undefined)}
-                className="absolute right-10 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 bg-white"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 bg-white z-10"
                 title="Effacer la date"
               >
                 <X className="h-4 w-4" />
@@ -875,7 +1699,7 @@ export default function LeaseEditModal({
               value={formData.rentAmount}
               onChange={(e) => handleChange('rentAmount', parseFloat(e.target.value) || 0)}
               disabled={isContractualFieldLocked('rentAmount')}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.rentAmount ? 'border-red-500' : 'border-gray-300'
               } ${isContractualFieldLocked('rentAmount') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''}`}
             />
@@ -893,7 +1717,7 @@ export default function LeaseEditModal({
               value={formData.deposit}
               onChange={(e) => handleChange('deposit', parseFloat(e.target.value) || 0)}
               disabled={isContractualFieldLocked('deposit')}
-              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 isContractualFieldLocked('deposit') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
               }`}
             />
@@ -902,11 +1726,11 @@ export default function LeaseEditModal({
       </div>
 
       {/* Granularité des charges */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-900 mb-3">
+      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-orange-900 mb-3">
           Granularité des charges (optionnel)
         </h4>
-        <p className="text-xs text-blue-700 mb-4">
+        <p className="text-xs text-orange-700 mb-4">
           Ces montants permettront de préremplir automatiquement les transactions de loyer mensuelles
         </p>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -923,7 +1747,7 @@ export default function LeaseEditModal({
               value={formData.chargesRecupMensuelles || ''}
               onChange={(e) => handleChange('chargesRecupMensuelles', parseFloat(e.target.value) || 0)}
               disabled={isContractualFieldLocked('chargesRecupMensuelles')}
-              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 isContractualFieldLocked('chargesRecupMensuelles') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
               }`}
               placeholder="Ex: 20.00"
@@ -942,7 +1766,7 @@ export default function LeaseEditModal({
               value={formData.chargesNonRecupMensuelles || ''}
               onChange={(e) => handleChange('chargesNonRecupMensuelles', parseFloat(e.target.value) || 0)}
               disabled={isContractualFieldLocked('chargesNonRecupMensuelles')}
-              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 isContractualFieldLocked('chargesNonRecupMensuelles') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
               }`}
               placeholder="Ex: 35.00"
@@ -978,7 +1802,7 @@ export default function LeaseEditModal({
           value={formData.paymentDay}
           onChange={(e) => handleChange('paymentDay', parseInt(e.target.value) || 1)}
           disabled={isContractualFieldLocked('paymentDay')}
-          className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+          className={`w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
             isContractualFieldLocked('paymentDay') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
           }`}
         />
@@ -987,21 +1811,22 @@ export default function LeaseEditModal({
 
       {/* Indexation */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-edit-indexationType">
           Type d'indexation
         </label>
-        <select
+        <SmartSelect
+          id="lease-edit-indexationType"
           value={formData.indexationType}
-          onChange={(e) => handleChange('indexationType', e.target.value)}
+          onChange={(value) => handleChange('indexationType', value)}
           disabled={isContractualFieldLocked('indexationType')}
-          className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-            isContractualFieldLocked('indexationType') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
-          }`}
-        >
-          <option value="none">Aucune indexation</option>
-          <option value="insee">Index INSEE</option>
-          <option value="manual">Indexation manuelle</option>
-        </select>
+          options={[
+            { value: 'none', label: 'Aucune indexation' },
+            { value: 'insee', label: 'Index INSEE' },
+            { value: 'manual', label: 'Indexation manuelle' },
+          ]}
+          placeholder="Sélectionner un type"
+          aria-label="Type d'indexation"
+        />
       </div>
 
       {/* Résumé financier */}
@@ -1014,9 +1839,9 @@ export default function LeaseEditModal({
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="text-center p-4 bg-blue-50 rounded-lg">
-              <p className="text-sm text-blue-600 font-medium">Loyer mensuel</p>
-              <p className="text-2xl font-bold text-blue-900">{formData.rentAmount.toFixed(2)} €</p>
+            <div className="text-center p-4 bg-orange-50 rounded-lg">
+              <p className="text-sm text-orange-600 font-medium">Loyer mensuel</p>
+              <p className="text-2xl font-bold text-orange-900">{formData.rentAmount.toFixed(2)} €</p>
             </div>
             <div className="text-center p-4 bg-green-50 rounded-lg">
               <p className="text-sm text-green-600 font-medium">Charges récup. mensuelles</p>
@@ -1048,7 +1873,7 @@ export default function LeaseEditModal({
           onChange={(e) => handleChange('notes', e.target.value)}
           disabled={isContractualFieldLocked('notes')}
           rows={6}
-          className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+          className={`w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
             isContractualFieldLocked('notes') ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
           }`}
           placeholder="Ajoutez ici toutes les clauses particulières, conditions spéciales, ou notes importantes pour ce bail..."
@@ -1176,7 +2001,7 @@ export default function LeaseEditModal({
               
               if (isActive) {
                 if (isDraft(formData.status)) {
-                  circleClass = 'w-8 h-8 rounded-full flex items-center justify-center bg-blue-500 text-white';
+                  circleClass = 'w-8 h-8 rounded-full flex items-center justify-center bg-orange-500 text-white';
                 } else if (isSent(formData.status)) {
                   circleClass = 'w-8 h-8 rounded-full flex items-center justify-center bg-yellow-500 text-white';
                 } else if (isSigned(formData.status)) {
@@ -1215,7 +2040,7 @@ export default function LeaseEditModal({
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Envoyer pour signature */}
+            {/* Envoyer pour signature - BROUILLON */}
             {isDraft(formData.status) && (
               <Button
                 variant="outline"
@@ -1223,11 +2048,32 @@ export default function LeaseEditModal({
                 onClick={() => handleWorkflowAction('send-for-signature')}
                 disabled={isWorkflowActionLoading || !canSendForSignature()}
               >
-                <Mail className="h-6 w-6 text-blue-500" />
+                <Mail className="h-6 w-6 text-orange-500" />
                 <span className="font-medium">
                   {isWorkflowActionLoading ? 'Envoi en cours...' : 'Envoyer pour signature'}
                 </span>
-                <span className="text-xs text-gray-500">Statut → ENVOYÉ</span>
+                <span className="text-xs text-gray-500">Statut → À ENVOYER puis ENVOYÉ</span>
+                {!canSendForSignature() && (
+                  <span className="text-xs text-red-500 mt-1">
+                    ⚠️ Locataire sans email
+                  </span>
+                )}
+              </Button>
+            )}
+
+            {/* Réessayer l'envoi - À_ENVOYER */}
+            {isToSend(formData.status) && (
+              <Button
+                variant="outline"
+                className="h-auto p-4 flex flex-col items-center gap-2 border-orange-200 text-orange-600 hover:bg-orange-50"
+                onClick={() => handleWorkflowAction('send-for-signature')}
+                disabled={isWorkflowActionLoading || !canSendForSignature()}
+              >
+                <Mail className="h-6 w-6 text-orange-500" />
+                <span className="font-medium">
+                  {isWorkflowActionLoading ? 'Envoi en cours...' : 'Réessayer l\'envoi'}
+                </span>
+                <span className="text-xs text-gray-500">Action manuelle requise (non-idempotente)</span>
                 {!canSendForSignature() && (
                   <span className="text-xs text-red-500 mt-1">
                     ⚠️ Locataire sans email
@@ -1242,28 +2088,132 @@ export default function LeaseEditModal({
                 type="button"
                 variant="outline"
                 className="h-auto p-4 flex flex-col items-center gap-2 w-full cursor-pointer"
+                disabled={isUploadingSigned || (shouldUseLocalData && !navigator.onLine)}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  setIsUploadingSigned(true);
+                  
                   openModalWithDocumentType('BAIL_SIGNE', 'Bail signé', {
                     autoLinkingContext: {
                       leaseId: formData.id,
                       propertyId: formData.propertyId,
                       tenantsIds: formData.tenantId ? [formData.tenantId] : []
                     },
-                    onSuccess: () => {
-                      // Mettre à jour le statut du bail après upload
-                      // Le statut sera déterminé par l'API (ACTIF si dans la période active, sinon SIGNÉ)
-                      const updatedFormData = { ...formData, status: 'ACTIF' };
-                      setFormData(updatedFormData);
-                      onSubmit?.(updatedFormData);
+                    onSuccess: async () => {
+                      try {
+                        console.log('[LeaseEditModal] [UPLOAD-SIGNED] onSuccess callback appelé');
+                        
+                        // ✅ APP-SHELL: Mettre à jour IndexedDB et créer pendingOp
+                        if (isAppShell && organizationId && formData.id) {
+                          try {
+                            console.log('[LeaseEditModal] [UPLOAD-SIGNED] Début sync app-shell...');
+                            
+                            // 1. Puller le bail mis à jour depuis Supabase vers IndexedDB
+                            const syncService = getGlobalSyncService();
+                            
+                            // Puller le bail spécifique (ou tous les baux de l'organisation)
+                            console.log('[LeaseEditModal] [UPLOAD-SIGNED] Pulling lease...');
+                            await syncService.syncEntityFromRemoteByName('lease', organizationId);
+                            
+                            // 2. Puller aussi les documents et documentLinks créés
+                            console.log('[LeaseEditModal] [UPLOAD-SIGNED] Pulling documents and documentLinks...');
+                            await Promise.all([
+                              syncService.syncEntityFromRemoteByName('document', organizationId),
+                              syncService.syncEntityFromRemoteByName('documentLink', organizationId),
+                            ]);
+                            
+                            // 3. Dispatcher un événement de refresh ciblé
+                            const targetPropertyId = propPropertyId || formData.propertyId;
+                            console.log('[LeaseEditModal] [UPLOAD-SIGNED] Dispatching refresh events...', { targetPropertyId });
+                            if (targetPropertyId) {
+                              window.dispatchEvent(new CustomEvent('leases:refresh', { 
+                                detail: { scope: 'property', propertyId: targetPropertyId, reason: 'update' } 
+                              }));
+                              window.dispatchEvent(new CustomEvent('documents:refresh', { 
+                                detail: { scope: 'property', propertyId: targetPropertyId, reason: 'create' } 
+                              }));
+                            } else {
+                              window.dispatchEvent(new CustomEvent('leases:refresh', { 
+                                detail: { scope: 'global', reason: 'update' } 
+                              }));
+                              window.dispatchEvent(new CustomEvent('documents:refresh', { 
+                                detail: { scope: 'global', reason: 'create' } 
+                              }));
+                            }
+                            
+                            // 4. Recharger le bail depuis IndexedDB pour mettre à jour formData
+                            console.log('[LeaseEditModal] [UPLOAD-SIGNED] Reloading lease from IndexedDB...');
+                            const leaseRepo = getLeaseRepositoryOffline();
+                            const updatedLease = await leaseRepo.getById(formData.id, organizationId);
+                            
+                            if (updatedLease) {
+                              console.log('[LeaseEditModal] [UPLOAD-SIGNED] Lease mis à jour:', { 
+                                id: updatedLease.id, 
+                                status: updatedLease.status,
+                                signedPdfUrl: updatedLease.signedPdfUrl 
+                              });
+                              setFormData(prev => ({
+                                ...prev,
+                                status: updatedLease.status as any,
+                                signedPdfUrl: updatedLease.signedPdfUrl || (prev as any).signedPdfUrl
+                              }));
+                            } else {
+                              console.warn('[LeaseEditModal] [UPLOAD-SIGNED] Lease non trouvé dans IndexedDB après sync');
+                            }
+                            
+                            notify2.success('Bail signé uploadé avec succès !', 'Le statut a été mis à jour.');
+                            console.log('[LeaseEditModal] [UPLOAD-SIGNED] ✅ Sync terminée avec succès');
+                          } catch (error) {
+                            console.error('[LeaseEditModal] [UPLOAD-SIGNED] ❌ Erreur lors de la mise à jour après upload:', error);
+                            notify2.error('Erreur', 'Le bail a été uploadé mais la mise à jour locale a échoué. Veuillez rafraîchir la page.');
+                          }
+                        } else {
+                          // Mode normal : mettre à jour le statut localement
+                          // Le statut sera déterminé par l'API (ACTIF si dans la période active, sinon SIGNÉ)
+                          const updatedFormData = { ...formData, status: 'SIGNÉ' as any };
+                          setFormData(updatedFormData);
+                          onSubmit?.(updatedFormData);
+                          notify2.success('Bail signé uploadé avec succès !', 'Le statut a été mis à jour.');
+                        }
+                      } finally {
+                        // Désactiver le loader immédiatement après l'exécution du callback
+                        console.log('[LeaseEditModal] [UPLOAD-SIGNED] ✅ Callback terminé, désactivation du loader');
+                        setIsUploadingSigned(false);
+                      }
+                    },
+                    onError: (error: string) => {
+                      console.error('[LeaseEditModal] Erreur lors de l\'upload:', error);
+                      notify2.error('Erreur', error || 'Erreur lors de l\'upload du bail signé');
+                      setIsUploadingSigned(false);
                     }
                   });
                 }}
               >
-                <Upload className="h-6 w-6 text-green-500" />
-                <span className="font-medium">Upload bail signé</span>
-                <span className="text-xs text-gray-500">Statut → SIGNÉ</span>
+                {isUploadingSigned ? (
+                  <>
+                    <div className="h-6 w-6 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+                    <span className="font-medium">Upload en cours...</span>
+                    <span className="text-xs text-gray-500">Veuillez patienter</span>
+                  </>
+                ) : (shouldUseLocalData && !navigator.onLine) ? (
+                  <>
+                    <Upload className="h-6 w-6 text-gray-400" />
+                    <span className="font-medium text-gray-400">Upload bail signé</span>
+                    <span className="text-xs text-red-500 mt-1">
+                      ⚠️ Action indisponible hors ligne
+                    </span>
+                    <span className="text-xs text-gray-500 mt-1">
+                      Cette action nécessite une connexion internet
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-6 w-6 text-green-500" />
+                    <span className="font-medium">Upload bail signé</span>
+                    <span className="text-xs text-gray-500">Statut → SIGNÉ</span>
+                  </>
+                )}
               </Button>
             )}
 
@@ -1333,10 +2283,20 @@ export default function LeaseEditModal({
               <Button
                 variant="outline"
                 className="h-auto p-4 flex flex-col items-center gap-2"
-                onClick={() => {
-                  if (confirm('Êtes-vous sûr de vouloir résilier ce bail ? Cette action est irréversible.')) {
-                    handleWorkflowAction('terminate');
+                onClick={async (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  
+                  // ✅ Vérification explicite de la confirmation
+                  const confirmed = window.confirm('Êtes-vous sûr de vouloir résilier ce bail ? Cette action est irréversible.');
+                  
+                  if (!confirmed) {
+                    // Si l'utilisateur annule, ne rien faire
+                    return;
                   }
+                  
+                  // Seulement si confirmé, exécuter l'action
+                  await handleWorkflowAction('terminate');
                 }}
               >
                 <Trash2 className="h-6 w-6 text-red-500" />
@@ -1350,7 +2310,7 @@ export default function LeaseEditModal({
               <Button
                 type="button"
                 variant="outline"
-                className="h-auto p-4 flex flex-col items-center gap-2 border-blue-200 text-blue-600 hover:bg-blue-50"
+                className="h-auto p-4 flex flex-col items-center gap-2 border-orange-200 text-orange-600 hover:bg-orange-50"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -1358,7 +2318,7 @@ export default function LeaseEditModal({
                   setShowIndexationModal(true);
                 }}
               >
-                <TrendingUp className="h-6 w-6 text-blue-500" />
+                <TrendingUp className="h-6 w-6 text-orange-500" />
                 <span className="font-medium">Réindexer le loyer</span>
                 <span className="text-xs text-gray-500">Mettre à jour le montant</span>
               </Button>
@@ -1382,7 +2342,7 @@ export default function LeaseEditModal({
                 <div key={indexation.id} className="border border-gray-200 rounded-lg p-4">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4 text-blue-500" />
+                      <TrendingUp className="h-4 w-4 text-orange-500" />
                       <span className="font-medium text-sm">
                         {new Date(indexation.effectiveDate).toLocaleDateString('fr-FR')}
                       </span>
@@ -1430,6 +2390,14 @@ export default function LeaseEditModal({
 
   if (!isOpen) return null;
 
+  // Labels courts pour mobile
+  const tabLabelsMobile: Record<string, string> = {
+    'basic': 'Essentiel',
+    'financial': 'Finances',
+    'terms': 'Clauses',
+    'status': 'Statut',
+  };
+
   return (
     <Modal
       isOpen={isOpen}
@@ -1437,52 +2405,87 @@ export default function LeaseEditModal({
       title={lease ? `Modifier le bail - ${lease.Tenant?.firstName} ${lease.Tenant?.lastName}` : 'Nouveau bail'}
       size="xl"
       footer={
-        <div className="flex gap-3 items-center">
-          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Annuler
-          </Button>
-          
-          <div className="flex-1" />
-          
-          {/* Bouton Créer un avenant (si bail Signé/Actif) */}
-          {isContractLocked && !isReadOnly && (
-            <Button 
-              variant="outline"
-              onClick={() => {
-                notify2.info('🪄 Fonctionnalité à venir : Wizard de création d\'avenant');
-              }}
-              disabled={isSubmitting}
-              className="border-blue-300 text-blue-600 hover:bg-blue-50"
-            >
-              <Edit className="h-4 w-4 mr-2" />
-              🪄 Créer un avenant / renouvellement
-            </Button>
+        <div className="flex flex-col gap-3">
+          {/* Mobile: Accordéon erreurs */}
+          {!areRequiredFieldsFilled() && missingCount > 0 && (
+            <div className="lg:hidden">
+              <button
+                type="button"
+                onClick={() => setShowErrorsAccordion(!showErrorsAccordion)}
+                className="w-full text-left text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center justify-between"
+              >
+                <span className="font-medium">⚠️ Erreurs ({missingCount})</span>
+                <span className={`transform transition-transform ${showErrorsAccordion ? 'rotate-180' : ''}`}>
+                  ▼
+                </span>
+              </button>
+              {showErrorsAccordion && (
+                <div className="mt-2 text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <p className="font-medium mb-2">Champs obligatoires manquants :</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    {missingFields.map((field, idx) => (
+                      <li key={idx}>{field}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           )}
-          
-          <Button 
-            onClick={handleSubmit} 
-            disabled={isSubmitting || !areRequiredFieldsFilled() || isReadOnly || isContractLocked}
-            title={
-              isReadOnly ? 'Bail résilié - lecture seule' :
-              isContractLocked ? 'Bail signé - champs verrouillés. Utilisez "Créer un avenant" pour modifier.' :
-              !areRequiredFieldsFilled() ? 'Veuillez remplir tous les champs obligatoires' : 
-              ''
-            }
-          >
-            {isSubmitting ? 'Enregistrement...' : 'Enregistrer les modifications'}
-          </Button>
-          {!areRequiredFieldsFilled() && (
-            <div className="text-sm text-amber-600 mt-2">
+
+          {/* Desktop: Erreurs inline (comportement existant) */}
+          {!areRequiredFieldsFilled() && missingCount > 0 && (
+            <div className="hidden lg:block text-sm text-amber-600">
               <p>⚠️ Champs obligatoires manquants :</p>
               <ul className="list-disc list-inside mt-1 space-y-1">
-                {!formData.propertyId && <li>Bien</li>}
-                {!formData.tenantId && <li>Locataire</li>}
-                {!formData.type && <li>Type de bail</li>}
-                {!formData.startDate && <li>Date de début</li>}
-                {formData.rentAmount <= 0 && <li>Montant du loyer (onglet "Conditions financières")</li>}
+                {missingFields.map((field, idx) => (
+                  <li key={idx}>{field}</li>
+                ))}
               </ul>
             </div>
           )}
+
+          {/* Actions footer */}
+          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+            <Button 
+              variant="ghost" 
+              onClick={onClose} 
+              disabled={isSubmitting}
+              className="w-full sm:w-auto"
+            >
+              Annuler
+            </Button>
+            
+            <div className="flex-1 hidden sm:block" />
+            
+            {/* Bouton Créer un avenant (si bail Signé/Actif) - Desktop uniquement */}
+            {isContractLocked && !isReadOnly && (
+              <Button 
+                variant="outline"
+                onClick={() => {
+                  notify2.info('🪄 Fonctionnalité à venir : Wizard de création d\'avenant');
+                }}
+                disabled={isSubmitting}
+                className="border-orange-300 text-orange-600 hover:bg-orange-50 hidden lg:flex"
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                🪄 Créer un avenant / renouvellement
+              </Button>
+            )}
+            
+            <Button 
+              onClick={handleSubmit} 
+              disabled={isSubmitting || !areRequiredFieldsFilled() || isReadOnly || isContractLocked}
+              title={
+                isReadOnly ? 'Bail résilié - lecture seule' :
+                isContractLocked ? 'Bail signé - champs verrouillés. Utilisez "Créer un avenant" pour modifier.' :
+                !areRequiredFieldsFilled() ? 'Veuillez remplir tous les champs obligatoires' : 
+                ''
+              }
+              className="w-full sm:w-auto"
+            >
+              {isSubmitting ? 'Enregistrement...' : 'Enregistrer les modifications'}
+            </Button>
+          </div>
         </div>
       }
     >
@@ -1494,10 +2497,10 @@ export default function LeaseEditModal({
           </div>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Tabs Navigation */}
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8">
+        <form onSubmit={handleSubmit} className="flex flex-col h-full">
+          {/* Tabs Navigation - Sticky sur mobile */}
+          <div className="sticky top-0 z-10 bg-white border-b border-gray-200 -mx-4 md:-mx-6 px-4 md:px-6 mb-4">
+            <nav className="overflow-x-auto -mb-px flex space-x-4 md:space-x-8 scrollbar-hide">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const hasMissing = hasMissingRequiredFields(tab.id);
@@ -1506,17 +2509,18 @@ export default function LeaseEditModal({
                     key={tab.id}
                     type="button"
                     onClick={() => setActiveTab(tab.id)}
-                    className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-2 relative ${
+                    className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-1 md:gap-2 relative whitespace-nowrap flex-shrink-0 ${
                       activeTab === tab.id
-                        ? 'border-primary-500 text-primary-600'
+                        ? 'border-orange-500 text-orange-600'
                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                     }`}
                   >
-                    <Icon className="h-4 w-4" />
-                    {tab.label}
+                    <Icon className="h-4 w-4 flex-shrink-0" />
+                    <span className="hidden sm:inline">{tab.label}</span>
+                    <span className="sm:hidden">{tabLabelsMobile[tab.id] || tab.label}</span>
                     {tab.required && <span className="text-red-500 text-xs">*</span>}
                     {hasMissing && (
-                      <div className="w-2 h-2 bg-red-500 rounded-full ml-1"></div>
+                      <div className="w-2 h-2 bg-red-500 rounded-full ml-1 flex-shrink-0"></div>
                     )}
                   </button>
                 );
@@ -1524,9 +2528,18 @@ export default function LeaseEditModal({
             </nav>
           </div>
 
-          {/* Tab Content */}
-          <div className="min-h-[500px]">
-            {renderTabContent()}
+          {/* Tab Content - Scrollable avec padding-bottom pour footer et safe-area */}
+          <div 
+            className="flex-1 overflow-y-auto overscroll-contain min-h-0 min-w-0"
+            style={{
+              paddingBottom: 'max(2rem, calc(2rem + env(safe-area-inset-bottom)))',
+              WebkitOverflowScrolling: 'touch',
+              overscrollBehavior: 'contain',
+            }}
+          >
+            <div className="min-w-0">
+              {renderTabContent()}
+            </div>
           </div>
         </form>
       )}
@@ -1627,6 +2640,14 @@ function RentIndexationModal({ isOpen, onClose, lease, currentRentAmount, onSucc
         return;
       }
 
+      // ✅ APP-SHELL: Désactiver en offline
+      if (isAppShell && !navigator.onLine) {
+        setErrors({ effectiveDate: 'L\'indexation nécessite une connexion internet.' });
+        setIsSubmitting(false);
+        notify2.error('Action indisponible', 'L\'indexation du loyer nécessite une connexion internet.');
+        return;
+      }
+
       const response = await fetch(`/api/leases/${lease.id}/index-rent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1677,9 +2698,9 @@ function RentIndexationModal({ isOpen, onClose, lease, currentRentAmount, onSucc
     >
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Informations actuelles */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h4 className="font-medium text-blue-900 mb-2">Loyer actuel</h4>
-          <p className="text-2xl font-bold text-blue-900">{currentRentAmount.toFixed(2)} €</p>
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+          <h4 className="font-medium text-orange-900 mb-2">Loyer actuel</h4>
+          <p className="text-2xl font-bold text-orange-900">{currentRentAmount.toFixed(2)} €</p>
         </div>
 
         {/* Nouveau loyer */}
@@ -1693,7 +2714,7 @@ function RentIndexationModal({ isOpen, onClose, lease, currentRentAmount, onSucc
             min="0"
             value={formData.newRentAmount}
             onChange={(e) => setFormData(prev => ({ ...prev, newRentAmount: parseFloat(e.target.value) || 0 }))}
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+            className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
               errors.newRentAmount ? 'border-red-500' : 'border-gray-300'
             }`}
             required
@@ -1710,7 +2731,7 @@ function RentIndexationModal({ isOpen, onClose, lease, currentRentAmount, onSucc
             type="date"
             value={formData.effectiveDate}
             onChange={(e) => setFormData(prev => ({ ...prev, effectiveDate: e.target.value }))}
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+            className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
               errors.effectiveDate ? 'border-red-500' : 'border-gray-300'
             }`}
             required
@@ -1720,20 +2741,23 @@ function RentIndexationModal({ isOpen, onClose, lease, currentRentAmount, onSucc
 
         {/* Type d'indice */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-edit-indexType">
             Type d'indice (optionnel)
           </label>
-          <select
-            value={formData.indexType}
-            onChange={(e) => setFormData(prev => ({ ...prev, indexType: e.target.value as any }))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          >
-            <option value="">Aucun indice</option>
-            <option value="IRL">IRL (Indice de Référence des Loyers)</option>
-            <option value="ILAT">ILAT (Indice des Loyers à l'Ancien)</option>
-            <option value="ICC">ICC (Indice du Coût de la Construction)</option>
-            <option value="MANUAL">Manuel</option>
-          </select>
+          <SmartSelect
+            id="lease-edit-indexType"
+            value={formData.indexType || ''}
+            onChange={(value) => setFormData(prev => ({ ...prev, indexType: value as any }))}
+            options={[
+              { value: '', label: 'Aucun indice' },
+              { value: 'IRL', label: 'IRL (Indice de Référence des Loyers)' },
+              { value: 'ILAT', label: 'ILAT (Indice des Loyers à l\'Ancien)' },
+              { value: 'ICC', label: 'ICC (Indice du Coût de la Construction)' },
+              { value: 'MANUAL', label: 'Manuel' },
+            ]}
+            placeholder="Sélectionner un type"
+            aria-label="Type d'indice"
+          />
         </div>
 
         {/* Valeur de l'indice (si indice sélectionné) */}

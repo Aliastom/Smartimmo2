@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { addMonthsYYYYMM, formatMonthlyLabel, extractBaseLabel } from '@/lib/utils/monthUtils';
-import { createManagementCommission } from '@/lib/services/managementCommissionService';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
-import { logDebug } from '@/lib/utils/logger';
+import { createTransactionServicePrisma } from '@/domain/services/transactionServiceFactory';
+import { getGestionSettings, mapTransactionServiceErrorToHttpStatus } from '@/domain/services/transactionServiceHelpers';
+// Logs désactivés pour réduire la verbosité
+// import { logDebug } from '@/lib/utils/logger';
 
 // Fonction pour normaliser une chaîne (enlever les accents, minuscules)
 
@@ -104,11 +105,11 @@ export async function GET(request: NextRequest) {
       where.accounting_month = {};
       if (accountingMonthStart) {
         where.accounting_month.gte = accountingMonthStart;
-        logDebug('[API] Filtre période comptable début:', accountingMonthStart);
+        // Log supprimé
       }
       if (accountingMonthEnd) {
         where.accounting_month.lte = accountingMonthEnd;
-        logDebug('[API] Filtre période comptable fin:', accountingMonthEnd);
+        // Log supprimé
       }
     }
 
@@ -127,7 +128,7 @@ export async function GET(request: NextRequest) {
       },
     });
     const natureMap = new Map(natures.map(n => [n.code, n]));
-    logDebug('[API] Natures chargées:', natures.length, 'natures');
+    // Log supprimé
     
     // Appliquer le filtre flow si spécifié (INCOME ou EXPENSE)
     if (flowFilter) {
@@ -135,9 +136,9 @@ export async function GET(request: NextRequest) {
       const matchingNatures = natures.filter(n => n.flow === flowFilter);
       if (matchingNatures.length > 0) {
         where.nature = { in: matchingNatures.map(n => n.code) };
-        logDebug(`[API] Filtre flow appliqué: ${flowFilter} -> ${matchingNatures.length} natures`);
+        // Log supprimé
       } else {
-        logDebug(`[API] Aucune nature trouvée pour flow: ${flowFilter}`);
+        // Log supprimé
         return NextResponse.json({
           data: [],
           pagination: { page: 1, limit: 50, total: 0, pages: 0 }
@@ -153,9 +154,9 @@ export async function GET(request: NextRequest) {
       );
       if (matchingNature) {
         where.nature = matchingNature.code;
-        logDebug(`[API] Filtre nature appliqué: ${natureId} -> ${matchingNature.code}`);
+        // Log supprimé
       } else {
-        logDebug(`[API] Nature non trouvée pour: ${natureId}`);
+        // Log supprimé
         return NextResponse.json({
           data: [],
           pagination: { page: 1, limit: 50, total: 0, pages: 0 }
@@ -182,6 +183,10 @@ export async function GET(request: NextRequest) {
           accounting_month: true,
           monthsCovered: true,
           nature: true,
+          propertyId: true, // ⚠️ CRITIQUE: Ajouter propertyId pour la sync App Shell
+          leaseId: true, // ⚠️ CRITIQUE: Ajouter leaseId pour la sync App Shell
+          bailId: true, // ⚠️ CRITIQUE: Ajouter bailId pour la sync App Shell
+          categoryId: true, // ⚠️ CRITIQUE: Ajouter categoryId pour la sync App Shell
           // Champs de série pour afficher les badges
           parentTransactionId: true,
           moisIndex: true,
@@ -194,6 +199,15 @@ export async function GET(request: NextRequest) {
           isAuto: true,
           autoSource: true,
           managementCompanyId: true,
+          // Champs supplémentaires pour cohérence complète avec IndexedDB
+          source: true,
+          idempotencyKey: true,
+          externalId: true,
+          externalType: true,
+          montantLoyer: true,
+          chargesRecup: true,
+          chargesNonRecup: true,
+          isAutoAmount: true,
           Property: {
             select: {
               id: true,
@@ -237,7 +251,7 @@ export async function GET(request: NextRequest) {
       // Étape 1: Charger les enfants des transactions initiales
       const parentIds = transactions.map(t => t.id);
       if (parentIds.length > 0) {
-        logDebug(`[API GROUPAGE] Recherche des enfants pour ${parentIds.length} parents...`);
+        // Log supprimé
         const children = await prisma.transaction.findMany({
           where: {
             parentTransactionId: { in: parentIds },
@@ -255,6 +269,10 @@ export async function GET(request: NextRequest) {
             accounting_month: true,
             monthsCovered: true,
             nature: true,
+            propertyId: true, // ⚠️ CRITIQUE: Ajouter propertyId pour la sync App Shell
+            leaseId: true, // ⚠️ CRITIQUE: Ajouter leaseId pour la sync App Shell
+            bailId: true, // ⚠️ CRITIQUE: Ajouter bailId pour la sync App Shell
+            categoryId: true, // ⚠️ CRITIQUE: Ajouter categoryId pour la sync App Shell
             parentTransactionId: true,
             moisIndex: true,
             moisTotal: true,
@@ -294,7 +312,7 @@ export async function GET(request: NextRequest) {
         });
         
         if (children.length > 0) {
-          logDebug(`[API GROUPAGE] ${children.length} enfants trouvés et ajoutés aux résultats`);
+          // Log supprimé
           // Ajouter les enfants sans doublons
           const existingIds = new Set(allTransactions.map(t => t.id));
           const newChildren = children.filter(c => !existingIds.has(c.id));
@@ -310,7 +328,7 @@ export async function GET(request: NextRequest) {
         .filter((id): id is string => id !== null && id !== undefined);
       
       if (childParentIds.length > 0) {
-        logDebug(`[API GROUPAGE] Recherche des parents pour ${childParentIds.length} enfants...`);
+        // Log supprimé
         const parents = await prisma.transaction.findMany({
           where: {
             id: { in: childParentIds },
@@ -328,6 +346,10 @@ export async function GET(request: NextRequest) {
             accounting_month: true,
             monthsCovered: true,
             nature: true,
+            propertyId: true, // ⚠️ CRITIQUE: Ajouter propertyId pour la sync App Shell
+            leaseId: true, // ⚠️ CRITIQUE: Ajouter leaseId pour la sync App Shell
+            bailId: true, // ⚠️ CRITIQUE: Ajouter bailId pour la sync App Shell
+            categoryId: true, // ⚠️ CRITIQUE: Ajouter categoryId pour la sync App Shell
             parentTransactionId: true,
             moisIndex: true,
             moisTotal: true,
@@ -367,7 +389,7 @@ export async function GET(request: NextRequest) {
         });
         
         if (parents.length > 0) {
-          logDebug(`[API GROUPAGE] ${parents.length} parents trouvés et ajoutés aux résultats`);
+          // Log supprimé
           // Ajouter les parents sans doublons
           const existingIds = new Set(allTransactions.map(t => t.id));
           const newParents = parents.filter(p => !existingIds.has(p.id));
@@ -381,7 +403,7 @@ export async function GET(request: NextRequest) {
     let filteredTransactions = allTransactions;
     let filteredTransactionsBeforePagination = allTransactions; // Sauvegarder pour calcul des sommes
     if (groupByParent && (flowFilter || status)) {
-      logDebug(`[API FILTRAGE] Application des filtres en mémoire: flow=${flowFilter}, status=${status}`);
+      // Log supprimé
       
       // Étape 1: Identifier les transactions qui correspondent aux filtres
       const matchingTransactionIds = new Set<string>();
@@ -394,7 +416,7 @@ export async function GET(request: NextRequest) {
         }
       });
       
-      logDebug(`[API FILTRAGE] ${matchingTransactionIds.size} transactions correspondent aux filtres`);
+      // Log supprimé
       
       // Étape 2: Inclure les parents des transactions correspondantes (pour contexte visuel)
       const parentIdsToInclude = new Set<string>();
@@ -404,7 +426,7 @@ export async function GET(request: NextRequest) {
         }
       });
       
-      logDebug(`[API FILTRAGE] ${parentIdsToInclude.size} parents à inclure pour le contexte`);
+      // Log supprimé
       
       // Étape 3: Filtrer pour ne garder que les transactions correspondantes + leurs parents
       filteredTransactions = allTransactions.filter(t => 
@@ -412,16 +434,15 @@ export async function GET(request: NextRequest) {
       );
       filteredTransactionsBeforePagination = filteredTransactions; // Sauvegarder avant pagination
       
-      logDebug(`[API FILTRAGE] ${filteredTransactions.length} transactions après filtrage (avec parents)`);
-      logDebug(`[API FILTRAGE] IDs des transactions filtrées:`, filteredTransactions.map(t => ({ id: t.id, label: t.label, nature: t.nature })));
+      // Logs supprimés
     }
     
     let filteredTotal = groupByParent && (flowFilter || status) ? filteredTransactions.length : (total + childrenCount + parentsCount);
-    logDebug(`[API] filteredTotal calculé: ${filteredTotal}, groupByParent: ${groupByParent}, flowFilter: ${flowFilter}, status: ${status}, childrenCount: ${childrenCount}, parentsCount: ${parentsCount}`);
+    // Log supprimé
     
     if (searchTerm) {
       const normalizedSearch = normalizeString(searchTerm);
-      logDebug('[API SEARCH] Recherche avec:', searchTerm, '(normalisé:', normalizedSearch + ')');
+      // Log supprimé
       
       filteredTransactions = allTransactions.filter(transaction => {
         const normalizedLabel = normalizeString(transaction.label || '');
@@ -440,7 +461,7 @@ export async function GET(request: NextRequest) {
                       normalizedAccountingMonthRaw.includes(normalizedSearch);
         
         if (match) {
-          logDebug('[API SEARCH] Match trouvé:', transaction.label);
+          // Log supprimé
         }
         
         return match;
@@ -455,7 +476,7 @@ export async function GET(request: NextRequest) {
       });
       
       if (parentIds.size > 0) {
-        logDebug(`[API SEARCH] Chargement de ${parentIds.size} parents pour la vue groupée`);
+        // Log supprimé
         const parents = allTransactions.filter(t => parentIds.has(t.id));
         // Ajouter les parents aux résultats (sans doublons)
         const existingIds = new Set(filteredTransactions.map(t => t.id));
@@ -467,16 +488,16 @@ export async function GET(request: NextRequest) {
       }
       
       filteredTotal = filteredTransactions.length; // Total AVANT pagination manuelle
-      logDebug(`[API SEARCH] ${filteredTotal} transactions trouvées après filtrage (avec parents)`);
+      // Log supprimé
       
       // Appliquer la pagination manuellement après le filtrage
       filteredTransactions = filteredTransactions.slice(offset, offset + limit);
-      logDebug(`[API SEARCH] ${filteredTransactions.length} transactions après pagination`);
+      // Log supprimé
     } else if (!searchTerm && (groupByParent && (flowFilter || status))) {
       // Pagination pour vue groupée avec filtres (sans recherche textuelle)
-      logDebug(`[API PAGINATION GROUPÉE] ${filteredTransactions.length} transactions avant pagination`);
+      // Log supprimé
       filteredTransactions = filteredTransactions.slice(offset, offset + limit);
-      logDebug(`[API PAGINATION GROUPÉE] ${filteredTransactions.length} transactions après pagination`);
+      // Log supprimé
     }
     
     // Calculer les sommes totales sur toutes les transactions filtrées (avant pagination)
@@ -645,14 +666,14 @@ export async function GET(request: NextRequest) {
       if (statusFilter === 'rapprochee') {
         filteredTransactions = filteredTransactions.filter(t => t.rapprochementStatus === 'rapprochee');
         filteredTotal = filteredTransactions.length;
-        logDebug('[API] Filtre rapprochée appliqué:', filteredTotal, 'transactions');
+        // Log supprimé
       } else if (statusFilter === 'non_rapprochee') {
         filteredTransactions = filteredTransactions.filter(t => t.rapprochementStatus === 'non_rapprochee');
         filteredTotal = filteredTransactions.length;
-        logDebug('[API] Filtre non rapprochée appliqué:', filteredTotal, 'transactions');
+        // Log supprimé
       }
     } else if (alreadyFilteredInMemory) {
-      logDebug('[API] Filtrage de statut déjà effectué en mémoire, skip');
+      // Log supprimé
     }
     
     // Filtre hasDocument (séparé du statut de rapprochement)
@@ -661,19 +682,18 @@ export async function GET(request: NextRequest) {
       if (hasDocument === 'true') {
         filteredTransactions = filteredTransactions.filter(t => (linksByTransaction.get(t.id) || []).length > 0);
         filteredTotal = filteredTransactions.length;
-        logDebug('[API] Filtre avec documents appliqué:', filteredTotal, 'transactions');
+        // Log supprimé
       } else if (hasDocument === 'false') {
         filteredTransactions = filteredTransactions.filter(t => (linksByTransaction.get(t.id) || []).length === 0);
         filteredTotal = filteredTransactions.length;
-        logDebug('[API] Filtre sans documents appliqué:', filteredTotal, 'transactions');
+        // Log supprimé
       }
     } else if (hasDocument && alreadyFilteredInMemory) {
-      logDebug('[API] Filtrage hasDocument skip en vue groupée (pour préserver les parents pour contexte)');
+      // Log supprimé
     }
 
 
-    logDebug(`[API AVANT TRANSFORMATION] ${filteredTransactions.length} transactions à transformer`);
-    logDebug(`[API AVANT TRANSFORMATION] IDs:`, filteredTransactions.map(t => t.id));
+    // Logs supprimés
     
     // Transformation des données
     // Créer un Map des transactions par ID pour hériter accountingMonth des parents
@@ -687,17 +707,15 @@ export async function GET(request: NextRequest) {
       // Récupérer les documents liés à cette transaction
       const linkedDocuments = linksByTransaction.get(transaction.id) || [];
 
-      logDebug('[API] Transaction nature debug:', {
-        id: transaction.id,
-        natureCode: transaction.nature, // This is the code
-        natureType: natureType,
-        natureLabel: natureLabel,
-        amount: transaction.amount,
-        hasDocument: linkedDocuments.length > 0
-      });
+      // Log supprimé pour réduire la verbosité
 
       return {
         id: transaction.id,
+        organizationId: organizationId, // ⚠️ CRITIQUE: Ajouter organizationId pour la sync App Shell
+        propertyId: transaction.propertyId, // ⚠️ CRITIQUE: Ajouter propertyId pour la sync App Shell
+        leaseId: transaction.leaseId || null, // ⚠️ CRITIQUE: Ajouter leaseId pour la sync App Shell
+        bailId: transaction.bailId || null, // ⚠️ CRITIQUE: Ajouter bailId pour la sync App Shell
+        categoryId: transaction.categoryId || null, // ⚠️ CRITIQUE: Ajouter categoryId pour la sync App Shell
         date: transaction.date.toISOString().split('T')[0],
         label: transaction.label,
         Property: transaction.Property,
@@ -770,29 +788,8 @@ export async function POST(request: NextRequest) {
     const user = await requireAuth();
     const organizationId = user.organizationId;
     const body = await request.json();
-    logDebug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    logDebug('🆕 [API POST] CRÉATION TRANSACTION');
-    logDebug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    logDebug('[API] Données reçues:', {
-      stagedDocumentIds: body.stagedDocumentIds,
-      stagedLinkItemIds: body.stagedLinkItemIds,
-      hasStagedDocuments: !!(body.stagedDocumentIds && body.stagedDocumentIds.length > 0),
-      hasStagedLinks: !!(body.stagedLinkItemIds && body.stagedLinkItemIds.length > 0),
-      nature: body.nature,
-      natureId: body.natureId,
-      categoryId: body.categoryId,
-      propertyId: body.propertyId,
-      amount: body.amount
-    });
-    logDebug('[API] 💰 GESTION DÉLÉGUÉE - Breakdown loyer:', {
-      montantLoyer: body.montantLoyer,
-      chargesRecup: body.chargesRecup,
-      chargesNonRecup: body.chargesNonRecup,
-      isAutoAmount: body.isAutoAmount
-    });
-    logDebug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-    // Validation des données requises
+    // Validation basique du payload (validation métier dans TransactionService)
     if (!body.propertyId) {
       return NextResponse.json({ error: 'PropertyId est requis' }, { status: 400 });
     }
@@ -806,328 +803,82 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Amount est requis' }, { status: 400 });
     }
 
-    // Vérifier que la propriété appartient à l'utilisateur
-    const property = await prisma.property.findFirst({
-      where: { id: body.propertyId, organizationId },
-      select: { id: true }
-    });
-    if (!property) {
-      return NextResponse.json({ error: 'Propriété introuvable' }, { status: 404 });
-    }
-
-    // Vérifier que la catégorie existe
-    const category = await prisma.category.findUnique({
-      where: { id: body.categoryId },
-      select: { id: true, label: true, type: true }
-    });
-    // Vérifier que le bail/le lease appartiennent à l'organisation si fournis
-    if (body.leaseId) {
-      const lease = await prisma.lease.findFirst({
-        where: { id: body.leaseId, organizationId },
-        select: { id: true }
+    // Extraire les documentIds depuis stagedLinkItemIds (UploadStagedItem → Document)
+    let stagedLinkDocumentIds: string[] = [];
+    if (body.stagedLinkItemIds && body.stagedLinkItemIds.length > 0) {
+      const stagedLinks = await prisma.uploadStagedItem.findMany({
+        where: {
+          id: { in: body.stagedLinkItemIds },
+          kind: 'link',
+          organizationId,
+        },
+        include: {
+          Document: {
+            select: {
+              id: true,
+            },
+          },
+        },
       });
-      if (!lease) {
-        return NextResponse.json({ error: 'Bail introuvable pour ce compte' }, { status: 404 });
-      }
+      
+      stagedLinkDocumentIds = stagedLinks
+        .filter(item => item.Document)
+        .map(item => item.Document!.id);
     }
 
-    if (body.bailId) {
-      const bail = await prisma.lease.findFirst({
-        where: { id: body.bailId, organizationId },
-        select: { id: true }
-      });
-      if (!bail) {
-        return NextResponse.json({ error: 'Bail introuvable pour ce compte' }, { status: 404 });
-      }
-    }
+    // Récupérer les settings de gestion déléguée
+    const gestionSettings = await getGestionSettings();
 
-    
-    if (!category) {
-      return NextResponse.json({ error: 'Catégorie introuvable' }, { status: 400 });
-    }
-
-    logDebug('[API] Catégorie validée:', category);
+    // Créer TransactionService avec repos Prisma
+    const transactionService = createTransactionServicePrisma();
 
     // Construire accountingMonth à partir des champs de période
-    let accountingMonth = null;
+    let accountingMonth: string | null = null;
     if (body.accountingMonth) {
       accountingMonth = body.accountingMonth;
     } else if (body.periodStart) {
       accountingMonth = body.periodStart;
     } else if (body.periodMonth && body.periodYear) {
-      // Construire à partir de periodMonth et periodYear
       const month = String(body.periodMonth).padStart(2, '0');
-      const year = body.periodYear;
-      accountingMonth = `${year}-${month}`;
+      accountingMonth = `${body.periodYear}-${month}`;
     }
 
-    logDebug('[API] Champs de période:', {
-      accountingMonth,
-      periodStart: body.periodStart,
-      periodMonth: body.periodMonth,
-      periodYear: body.periodYear,
-      monthsCovered: body.monthsCovered
+    // Appeler TransactionService (logique métier centralisée)
+    const result = await transactionService.createTransaction({
+      organizationId,
+      propertyId: body.propertyId,
+      leaseId: body.leaseId || null,
+      bailId: body.bailId || null,
+      categoryId: body.categoryId,
+      natureId: body.natureId,
+      nature: body.nature,
+      label: body.label || 'Transaction',
+      amount: parseFloat(body.amount),
+      date: body.date,
+      reference: body.reference || null,
+      notes: body.notes || null,
+      paidAt: body.paidAt || body.paymentDate || null,
+      method: body.method || body.paymentMethod || null,
+      accountingMonth: accountingMonth || null,
+      periodStart: body.periodStart || null,
+      periodMonth: body.periodMonth || null,
+      periodYear: body.periodYear || null,
+      monthsCovered: body.monthsCovered || 1,
+      rapprochementStatus: body.rapprochementStatus || 'non_rapprochee',
+      bankRef: body.bankRef || null,
+      montantLoyer: body.montantLoyer ? parseFloat(body.montantLoyer) : null,
+      chargesRecup: body.chargesRecup ? parseFloat(body.chargesRecup) : null,
+      chargesNonRecup: body.chargesNonRecup ? parseFloat(body.chargesNonRecup) : null,
+      isAutoAmount: body.isAutoAmount !== undefined ? body.isAutoAmount : null,
+      stagedDocumentIds: body.stagedDocumentIds || [],
+      stagedLinkItemIds: stagedLinkDocumentIds, // DocumentIds extraits depuis UploadStagedItem
+      factures: body.factures || undefined,
+      ...gestionSettings,
     });
 
-    // Extraire le baseLabel propre (sans les dates/mois qui peuvent déjà être présents)
-    const rawLabel = body.label || 'Transaction';
-    const baseLabel = extractBaseLabel(rawLabel);
-    const startMonth = accountingMonth || `${body.periodYear}-${String(body.periodMonth).padStart(2, '0')}`;
-    
-    logDebug('[API] Label processing:', {
-      rawLabel,
-      baseLabel,
-      startMonth
-    });
-    
-    // Utiliser une transaction Prisma pour garantir la cohérence (timeout augmenté)
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Créer les transactions (1 ou N selon monthsCovered)
-      const monthsCovered = body.monthsCovered ? parseInt(body.monthsCovered) : 1;
-      const transactions = [];
-
-      for (let i = 0; i < monthsCovered; i++) {
-        // Calculer la période pour ce mois (YYYY-MM)
-        const currentMonth = addMonthsYYYYMM(startMonth, i);
-        
-        // Générer le libellé avec le mois/année correspondant
-        const label = formatMonthlyLabel(baseLabel, currentMonth);
-
-        const transaction = await tx.transaction.create({
-          data: {
-            organizationId,
-            propertyId: body.propertyId,
-            leaseId: body.leaseId || null,
-            bailId: body.bailId || null,
-            date: new Date(body.date),
-            nature: body.natureId || body.nature, // Support both formats for compatibility
-            categoryId: body.categoryId,
-            label: label,
-            amount: parseFloat(body.amount),
-            reference: body.reference || null,
-            notes: body.notes || null,
-            // Champs de paiement
-            paidAt: body.paidAt ? new Date(body.paidAt) : (body.paymentDate ? new Date(body.paymentDate) : null),
-            method: body.method || body.paymentMethod || null,
-            // Champs de période - utiliser la période calculée
-            accounting_month: currentMonth,
-            monthsCovered: body.monthsCovered ? String(body.monthsCovered) : '1',
-            // Champs de série : AUCUN lien entre les loyers récurrents
-            // Chaque loyer est un parent indépendant, seules les commissions auront un parentTransactionId
-            parentTransactionId: null,
-            moisIndex: monthsCovered > 1 ? i + 1 : null,
-            moisTotal: monthsCovered > 1 ? monthsCovered : null,
-            // Champs de rapprochement
-            rapprochementStatus: body.rapprochementStatus || 'non_rapprochee',
-            dateRapprochement: body.rapprochementStatus === 'rapprochee' ? new Date() : null,
-            bankRef: body.bankRef || null,
-            // Gestion déléguée - Breakdown loyer
-            montantLoyer: body.montantLoyer ? parseFloat(body.montantLoyer) : null,
-            chargesRecup: body.chargesRecup ? parseFloat(body.chargesRecup) : null,
-            chargesNonRecup: body.chargesNonRecup ? parseFloat(body.chargesNonRecup) : null,
-            isAutoAmount: body.isAutoAmount !== undefined ? body.isAutoAmount : null
-          },
-          include: {
-            Property: {
-              select: {
-                id: true,
-                name: true,
-                address: true
-              }
-            },
-            Lease_Transaction_leaseIdToLease: {
-              select: {
-                id: true,
-                status: true,
-                Tenant: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true
-                  }
-                }
-              }
-            },
-            Category: {
-              select: {
-                id: true,
-                label: true
-              }
-            }
-          }
-        });
-        
-        logDebug('[API] ✅ Transaction créée:', {
-          id: transaction.id,
-          isAutoAmount: transaction.isAutoAmount,
-          montantLoyer: transaction.montantLoyer,
-          chargesRecup: transaction.chargesRecup
-        });
-        
-        transactions.push(transaction);
-
-        // ⚙️ GESTION DÉLÉGUÉE: Créer la commission si applicable
-        // Note: Utilise maintenant les settings configurables au lieu de .env
-        const { isGestionDelegueEnabled, getGestionCodes } = await import('@/lib/settings/appSettings');
-        const gestionEnabled = await isGestionDelegueEnabled();
-        
-        if (gestionEnabled) {
-          const codes = await getGestionCodes();
-          const isRentNature = 
-            transaction.nature === codes.rentNature ||
-            transaction.nature?.includes('LOYER') || 
-            transaction.nature?.includes('RECETTE_LOYER');
-          
-          if (isRentNature && body.montantLoyer) {
-            try {
-              // S'assurer que accountingMonth est défini
-              const accountingMonth = transaction.accounting_month || currentMonth;
-              
-              const commissionResult = await createManagementCommission({
-                transactionId: transaction.id,
-                propertyId: transaction.propertyId,
-                montantLoyer: body.montantLoyer,
-                chargesRecup: body.chargesRecup || 0,
-                date: transaction.date,
-                accountingMonth: accountingMonth,
-                leaseId: transaction.leaseId || undefined,
-                bailId: transaction.bailId || undefined,
-                organizationId,
-                // Copier les champs de paiement de la transaction parent
-                reference: body.reference || undefined,
-                paidAt: body.paidAt ? new Date(body.paidAt) : (body.paymentDate ? new Date(body.paymentDate) : undefined),
-                method: body.method || body.paymentMethod || undefined,
-                notes: body.notes || undefined,
-                rapprochementStatus: body.rapprochementStatus || 'non_rapprochee',
-                bankRef: body.bankRef || undefined,
-                // Factures de la section DÉPENSES ET AUTRES RECETTES
-                factures: body.factures || undefined,
-              }, tx);
-              
-              if (commissionResult.commissionTransaction) {
-                transactions.push(commissionResult.commissionTransaction);
-                logDebug(`[Commission] Créée automatiquement pour transaction ${transaction.id}`);
-              }
-            } catch (error) {
-              console.error('[Commission] Erreur lors de la création automatique:', error);
-              // Ne pas bloquer la création de la transaction en cas d'erreur de commission
-            }
-          }
-        }
-      }
-
-      // La première transaction est celle qui recevra les documents
-      const primaryTransaction = transactions[0];
-
-      // 2. Finaliser les documents en staging si présents
-      if (body.stagedDocumentIds && body.stagedDocumentIds.length > 0) {
-        logDebug('[API] Finalisation des documents en staging:', body.stagedDocumentIds);
-        
-        // Vérifier que les documents existent
-        const existingDocs = await tx.Document.findMany({
-          where: { 
-            id: { in: body.stagedDocumentIds },
-            status: 'draft',
-            organizationId
-          },
-          select: { id: true, fileName: true, status: true, fileSha256: true, textSha256: true }
-        });
-        logDebug('[API] Documents draft trouvés:', existingDocs);
-
-        // Re-vérifier les doublons avant finalisation
-        const { DocumentsService } = await import('@/lib/services/documents');
-        for (const doc of existingDocs) {
-          if (doc.fileSha256) {
-            const duplicateCheck = await DocumentsService.checkDuplicates({ 
-              fileSha256: doc.fileSha256, 
-              textSha256: doc.textSha256 || undefined,
-              organizationId,
-            });
-            if (duplicateCheck.hasExactDuplicate && duplicateCheck.exactDuplicate) {
-              // Récupérer les liens du document existant pour la modal
-              const existingDocLinks = await tx.DocumentLink.findMany({
-                where: {
-                  documentId: duplicateCheck.exactDuplicate.id
-                },
-                select: {
-                  linkedType: true,
-                  linkedId: true
-                }
-              });
-              
-              return NextResponse.json({
-                success: false,
-                error: `Document "${doc.fileName}" est maintenant un doublon exact`,
-                duplicate: {
-                  ...duplicateCheck.exactDuplicate,
-                  links: existingDocLinks.map(link => ({
-                    type: link.linkedType,
-                    id: link.linkedId
-                  }))
-                }
-              }, { status: 409 });
-            }
-          }
-        }
-
-        // Mettre à jour le statut des documents de 'draft' à 'active'
-        // La finalisation (migration tmp/ → documents/) sera faite APRÈS la transaction
-        await tx.Document.updateMany({
-          where: { 
-            id: { in: body.stagedDocumentIds },
-            status: 'draft',
-            organizationId
-          },
-          data: {
-            status: 'active',
-            uploadSessionId: null,
-            intendedContextType: null,
-            intendedContextTempKey: null
-          }
-        });
-
-        logDebug('Documents marqués comme actifs (finalisation après transaction):', primaryTransaction.id);
-      }
-
-      // 3. Traiter les liens vers documents existants si présents
-      if (body.stagedLinkItemIds && body.stagedLinkItemIds.length > 0) {
-        logDebug('[API] Traitement des liens vers documents existants:', body.stagedLinkItemIds);
-        
-        // Récupérer les staged items de type 'link'
-        const stagedLinks = await tx.UploadStagedItem.findMany({
-          where: {
-            id: { in: body.stagedLinkItemIds },
-            kind: 'link',
-            organizationId
-          },
-          include: {
-            Document: {
-              select: {
-                id: true,
-                filenameOriginal: true
-              }
-            }
-          }
-        });
-
-        logDebug('[API] Staged links trouvés:', stagedLinks.length);
-        // Note : Les liens seront créés APRÈS la transaction via createDocumentLinks()
-      }
-
-      // Retourner la première transaction et le nombre total créé
-      return {
-        transaction: transactions[0],
-        totalCreated: transactions.length,
-        allTransactions: transactions
-      };
-    }, {
-      maxWait: 10000, // 10 secondes max d'attente
-      timeout: 15000, // 15 secondes timeout
-    });
-
-    // Finaliser les documents et créer les liens APRÈS la transaction pour éviter le timeout
+    // Gestion spécifique API : Migration des fichiers (tmp/ → documents/)
+    // TransactionService a déjà créé les liens DocumentLink, on migre juste les fichiers
     if (body.stagedDocumentIds && body.stagedDocumentIds.length > 0) {
-      logDebug('[API] Finalisation des documents (migration tmp/ → documents/)...');
       const { getStorageService } = await import('@/services/storage.service');
       const storageService = getStorageService();
       
@@ -1145,13 +896,11 @@ export async function POST(request: NextRequest) {
         });
         
         if (!doc || !doc.bucketKey) {
-          logDebug(`[API] Document ${docId} introuvable ou sans bucketKey, ignoré`);
           continue;
         }
         
         // Si le bucketKey est déjà dans documents/, pas besoin de migrer
         if (doc.bucketKey.startsWith('documents/')) {
-          logDebug(`[API] Document ${docId} déjà dans documents/, pas de migration nécessaire`);
           continue;
         }
         
@@ -1159,10 +908,9 @@ export async function POST(request: NextRequest) {
         let fileBuffer: Buffer;
         try {
           fileBuffer = await storageService.downloadDocument(doc.bucketKey);
-          logDebug(`[API] Fichier temporaire lu pour ${docId}: ${doc.bucketKey}`);
         } catch (error: any) {
           console.error(`[API] Erreur lecture fichier temporaire pour ${docId}:`, error);
-          continue; // Passer au suivant
+          continue;
         }
         
         // Générer le nom de fichier final
@@ -1178,15 +926,11 @@ export async function POST(request: NextRequest) {
             doc.mime || 'application/octet-stream'
           );
           
-          logDebug(`[API] Document ${docId} uploadé vers stockage permanent: ${uploadResult.key}`);
-          
           // Supprimer l'ancien fichier temporaire
           try {
             await storageService.deleteDocument(doc.bucketKey);
-            logDebug(`[API] Ancien fichier temporaire supprimé: ${doc.bucketKey}`);
           } catch (deleteError) {
             console.warn(`[API] Impossible de supprimer l'ancien fichier ${doc.bucketKey}:`, deleteError);
-            // Ne pas faire échouer l'opération pour ça
           }
           
           // Mettre à jour le document avec le nouveau bucketKey
@@ -1197,77 +941,31 @@ export async function POST(request: NextRequest) {
               url: `/api/documents/${doc.id}/file`
             }
           });
-          
-          logDebug(`[API] ✅ Document ${docId} finalisé: ${doc.bucketKey} → ${uploadResult.key}`);
         } catch (uploadError: any) {
           console.error(`[API] ❌ Erreur upload document final pour ${docId}:`, uploadError);
-          // Ne pas faire échouer la création de transaction, mais logger l'erreur
         }
       }
-      
-      logDebug('[API] Création des liens pour les documents finalisés...');
-      const { createDocumentLinks } = await import('@/lib/services/documentLinkService');
-      
-      // Lier les documents à TOUTES les transactions créées
-      for (const transaction of result.allTransactions) {
-        await Promise.all(body.stagedDocumentIds.map(async (docId: string) => {
-          await createDocumentLinks(docId, transaction);
-        }));
-      }
-      logDebug(`Documents finalisés et liés à ${result.allTransactions.length} transactions`);
     }
 
+    // Supprimer les UploadStagedItem après traitement (TransactionService a déjà créé les liens)
     if (body.stagedLinkItemIds && body.stagedLinkItemIds.length > 0) {
-      logDebug('[API] Création des liens pour les documents existants...');
-      
-      // Récupérer les staged items de type 'link'
-      const stagedLinks = await prisma.uploadStagedItem.findMany({
-        where: {
-          id: { in: body.stagedLinkItemIds },
-          kind: 'link'
-        },
-        include: {
-          Document: {
-            select: {
-              id: true,
-              filenameOriginal: true
-            }
-          }
-        }
-      });
-
-      const { createDocumentLinks } = await import('@/lib/services/documentLinkService');
-      
-      // Lier les documents existants à TOUTES les transactions créées
-      for (const transaction of result.allTransactions) {
-        for (const stagedLink of stagedLinks) {
-          if (!stagedLink.Document) continue;
-          const docId = stagedLink.Document.id;
-          await createDocumentLinks(docId, transaction);
-          logDebug(`[API] Liens créés pour document existant: ${stagedLink.Document.filenameOriginal} → ${transaction.id}`);
-        }
-      }
-
-      // Supprimer les staged items après traitement
       await prisma.uploadStagedItem.deleteMany({
         where: { id: { in: body.stagedLinkItemIds } }
       });
-
-      logDebug(`Liens vers documents existants créés pour ${result.allTransactions.length} transactions`);
     }
 
     // Construire le message de succès avec les mois créés
     let successMessage = 'Transaction créée avec succès';
     if (result.totalCreated > 1) {
       const months = result.allTransactions
-        .filter(tx => tx.accountingMonth) // Filtrer les transactions sans mois comptable
+        .filter(tx => tx.accounting_month) // Filtrer les transactions sans mois comptable
         .map(tx => {
-          const [year, month] = tx.accountingMonth.split('-');
+          const [year, month] = (tx.accounting_month || '').split('-');
           const monthNames = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
           const monthName = monthNames[parseInt(month) - 1];
           return monthName ? `${monthName.charAt(0).toUpperCase()}${monthName.slice(1)} ${year}` : '';
         })
-        .filter(Boolean); // Retirer les chaînes vides
+        .filter(Boolean);
       
       if (months.length > 0) {
         successMessage = `${result.totalCreated} transactions créées (${months.join(', ')})`;
@@ -1277,15 +975,22 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      ...result,
+      transaction: result.transaction,
+      totalCreated: result.totalCreated,
+      allTransactions: result.allTransactions,
       successMessage
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erreur lors de la création de la transaction:', error);
+    
+    // Mapper l'erreur TransactionService vers le bon status HTTP
+    const status = mapTransactionServiceErrorToHttpStatus(error);
+    const errorMessage = error.message || 'Erreur lors de la création de la transaction';
+    
     return NextResponse.json(
-      { error: 'Erreur lors de la création de la transaction' },
-      { status: 500 }
+      { error: errorMessage },
+      { status }
     );
   }
 }

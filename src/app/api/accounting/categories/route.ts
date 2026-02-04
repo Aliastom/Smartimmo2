@@ -29,6 +29,9 @@ export async function GET(request: NextRequest) {
         slug: true,
         label: true,
         type: true,
+        deductible: true,
+        capitalizable: true,
+        system: true,
         actif: true
       },
       orderBy: {

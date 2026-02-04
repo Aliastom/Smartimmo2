@@ -300,6 +300,58 @@ export async function POST(request: NextRequest) {
 
     // === AGENT DEDUP - DÃ©tection intelligente de doublons ===
     let dedupResult = null;
+
+    // 0) Doublon exact par SHA256 (dÃ©tection rapide, indÃ©pendante des candidats)
+    const exactDuplicate = await prisma.document.findFirst({
+      where: {
+        organizationId,
+        fileSha256: sha256,
+        deletedAt: null,
+        status: { not: 'draft' },
+        uploadSessionId: null,
+      },
+      select: {
+        id: true,
+        filenameOriginal: true,
+        createdAt: true,
+        mime: true,
+        size: true,
+        DocumentType: {
+          select: {
+            code: true,
+            label: true,
+          },
+        },
+      },
+    });
+
+    if (exactDuplicate) {
+      dedupResult = {
+        duplicateType: 'exact_duplicate',
+        suggestedAction: 'replace',
+        matchedDocument: {
+          id: exactDuplicate.id,
+          name: exactDuplicate.filenameOriginal,
+          uploadedAt: exactDuplicate.createdAt.toISOString(),
+          size: exactDuplicate.size,
+          mime: exactDuplicate.mime,
+          type: exactDuplicate.DocumentType?.label || null,
+        },
+        signals: {
+          checksum_match: true,
+        },
+        ui: {
+          title: 'Doublon exact détecté',
+          subtitle: `Ce document est identique à "${exactDuplicate.filenameOriginal}".`,
+          badges: ['SHA256 identique'],
+          recommendation: 'Choisissez une action sur le doublon',
+        },
+      };
+      console.log('[Upload] Doublon exact détecté (SHA256):', {
+        matchedId: exactDuplicate.id,
+        name: exactDuplicate.filenameOriginal,
+      });
+    }
     console.log('[Upload] DÃ©but de l\'analyse DedupAI...');
     console.log('[Upload] SHA256 calculÃ©:', sha256);
     console.log('[Upload] Texte OCR extrait:', rawText.length, 'caractÃ¨res');
@@ -334,7 +386,7 @@ export async function POST(request: NextRequest) {
           // RÃ©cupÃ©rer le texte OCR pour comparaison
           extractedText: true
         },
-        take: 50, // Limiter Ã  50 candidats pour une meilleure dÃ©tection
+        take: 20, // ✅ OPTIMISATION: Limiter à 20 candidats pour éviter les calculs trop longs (réduit de 50 à 20)
         orderBy: {
           createdAt: 'desc'
         }
@@ -415,7 +467,10 @@ export async function POST(request: NextRequest) {
         }))
       });
 
-      dedupResult = dedupAI.analyze(tempFile, existingCandidates);
+      // Ne lancer DedupAI que si un doublon exact n'a pas déjà été trouvé
+      if (!dedupResult) {
+        dedupResult = dedupAI.analyze(tempFile, existingCandidates);
+      }
 
       console.log('[Upload] DedupAI result:', {
         duplicateType: dedupResult.duplicateType,

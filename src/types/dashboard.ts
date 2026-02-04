@@ -48,6 +48,9 @@ export interface PatrimoineResponse {
     cashflow: MonthlySeriesItem[];
   };
   repartitionParBien: RepartitionParBienItem[];
+  repartitionParBienLoyers?: RepartitionParBienItem[]; // Répartition pour les loyers
+  repartitionParBienCharges?: RepartitionParBienItem[]; // Répartition pour les charges
+  repartitionParBienCashflow?: RepartitionParBienItem[]; // Répartition pour le cashflow
   agenda: AgendaItem[];
   insights?: string; // Synthèse IA contextuelle (optionnel)
 }

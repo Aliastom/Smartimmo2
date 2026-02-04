@@ -3,7 +3,9 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import './globals-pwa.css';
 import '@/styles/toasts.css';
+import '@/styles/ui2.css';
 import { AppShell } from '@/components/layout/AppShell';
+import AppShellWrapper from '@/components/layout/AppShellWrapper';
 import QueryProvider from '@/ui/providers/QueryProvider';
 import { ThemeProvider } from '@/providers/ThemeProvider';
 import { TooltipProvider } from '@/components/providers/TooltipProvider';
@@ -12,16 +14,15 @@ import { UnifiedUploadReviewModal } from '@/components/documents/UnifiedUploadRe
 import { UploadReviewModalProvider } from '@/contexts/UploadReviewModalContext';
 import { RouteProgressProvider } from '@/components/RouteProgressProvider';
 import { AlertProvider } from '@/hooks/useAlert';
-import { CompanionProvider } from '@/ui/companion/CompanionProvider';
-import { CompanionDock } from '@/ui/companion/CompanionDock';
+// TODO: Companion IA temporairement désactivé
+// import { CompanionProvider } from '@/ui/companion/CompanionProvider';
+// import { CompanionDock } from '@/ui/companion/CompanionDock';
 import { LoadingProvider } from '@/contexts/LoadingContext';
 import { SmartTopLoader } from '@/components/SmartTopLoader';
 import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister';
 import { UpdateBanner } from '@/components/pwa/UpdateBanner';
 // Import du helper de test en développement uniquement
-if (process.env.NODE_ENV === 'development') {
-  import('@/lib/toast-test-helper');
-}
+// Note: Import dynamique déplacé dans un composant client pour éviter les problèmes de build
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -82,13 +83,14 @@ export default function RootLayout({
                   className="z-[9999]"
                 >
                   <UploadReviewModalProvider>
-                    {/* Compagnon IA Provider */}
-                    <CompanionProvider>
-                      <AppShell>{children}</AppShell>
+                    {/* TODO: Compagnon IA temporairement désactivé */}
+                    {/* <CompanionProvider>
+                      <AppShellWrapper>{children}</AppShellWrapper>
                       <UnifiedUploadReviewModal />
-                      {/* Compagnon IA - Bouton flottant + panneau */}
                       <CompanionDock />
-                    </CompanionProvider>
+                    </CompanionProvider> */}
+                    <AppShellWrapper>{children}</AppShellWrapper>
+                    <UnifiedUploadReviewModal />
                   </UploadReviewModalProvider>
                 </RouteProgressProvider>
               </TooltipProvider>

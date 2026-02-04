@@ -23,16 +23,21 @@ export async function GET(request: NextRequest) {
     const loans = await prisma.loan.findMany({
       where,
       select: {
-        remainingCapital: true,
-        interestRate: true,
-        monthlyPayment: true,
+        id: true,
+        principal: true,
+        annualRatePct: true,
         startDate: true,
         durationMonths: true,
+        isActive: true,
       },
     });
 
     const totalLoans = loans.length;
-    const totalRemainingCapital = loans.reduce((sum, loan) => sum + (loan.remainingCapital || 0), 0);
+    // Calculer le capital restant approximatif (simplifié : on suppose que c'est le principal pour les prêts actifs)
+    // En réalité, il faudrait calculer en fonction des paiements effectués
+    const totalRemainingCapital = loans
+      .filter(loan => loan.isActive)
+      .reduce((sum, loan) => sum + Number(loan.principal), 0);
 
     // Intérêts payés dans la période (estimation)
     // TODO: Calculer précisément à partir d'un historique de paiements
@@ -49,6 +54,7 @@ export async function GET(request: NextRequest) {
     }).length;
 
     return NextResponse.json({
+      total: totalLoans,
       totalLoans,
       totalRemainingCapital,
       interestPaid,

@@ -1,32 +1,51 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useState, useEffect, useMemo } from 'react';
+import { Controller, useForm } from 'react-hook-form';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
-import { X, Save, Building2 } from 'lucide-react';
+import { Save, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { SmartSelect, type SmartSelectOption } from '@/components/ui/SmartSelect';
 import { toast } from 'sonner';
 import type { ManagementCompany, CreateManagementCompanyDto } from '@/lib/gestion/types';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { usePropertiesData } from '@/features/properties/hooks/usePropertiesData';
+import { createManagementCompanyServiceWithMode } from '@/domain/services/managementCompanyServiceFactory';
 
 interface ManagementCompanyModalProps {
   isOpen: boolean;
   onClose: () => void;
   societe: ManagementCompany | null;
+  mode?: 'normal' | 'app-shell';
 }
 
 export function ManagementCompanyModal({
   isOpen,
   onClose,
   societe,
+  mode = 'normal',
 }: ManagementCompanyModalProps) {
   const queryClient = useQueryClient();
+  const { organizationId } = useCurrentOrganization();
   const isEdit = !!societe;
+  const isAppShell = mode === 'app-shell';
+  const managementCompanyService = useMemo(
+    () => createManagementCompanyServiceWithMode(mode),
+    [mode]
+  );
+
+  // Charger les propriétés depuis IndexedDB en mode app-shell
+  const { properties: appShellProperties } = usePropertiesData({
+    mode: isAppShell ? 'app-shell' : 'normal',
+  });
 
   const {
     register,
     handleSubmit,
     watch,
     reset,
+    control,
     formState: { errors },
   } = useForm<CreateManagementCompanyDto>({
     defaultValues: societe
@@ -85,8 +104,8 @@ export function ManagementCompanyModal({
     }
   }, [societe, isOpen, reset]);
 
-  // Récupérer les propriétés pour l'affectation
-  const { data: properties = [] } = useQuery({
+  // Récupérer les propriétés pour l'affectation (mode normal uniquement)
+  const { data: normalProperties = [] } = useQuery({
     queryKey: ['properties'],
     queryFn: async () => {
       const res = await fetch('/api/properties');
@@ -94,64 +113,75 @@ export function ManagementCompanyModal({
       const data = await res.json();
       return data.data || [];
     },
-    enabled: isOpen,
+    enabled: isOpen && !isAppShell,
   });
 
+  // Utiliser les propriétés selon le mode
+  const properties = isAppShell ? appShellProperties : normalProperties;
+
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([]);
+  const [initialPropertyIds, setInitialPropertyIds] = useState<string[]>([]);
+  const modeCalculOptions: SmartSelectOption[] = useMemo(() => ([
+    { value: 'LOYERS_UNIQUEMENT', label: 'Loyers uniquement' },
+    { value: 'REVENUS_TOTAUX', label: 'Revenus totaux (loyer + charges récup)' },
+  ]), []);
 
   // Charger les biens affectés si en mode édition
   useEffect(() => {
     if (societe && isOpen) {
-      const fetchSociete = async () => {
-        const res = await fetch(`/api/gestion/societes/${societe.id}`);
-        if (res.ok) {
-          const data = await res.json();
-          setSelectedPropertyIds(data.Property?.map((p: any) => p.id) || []);
-        }
-      };
-      fetchSociete();
+      if (isAppShell) {
+        // Mode app-shell : charger depuis IndexedDB
+        const loadProperties = async () => {
+          if (!organizationId) return;
+          const linkedProperties = properties.filter((p: any) => 
+            p.managementCompanyId === societe.id
+          );
+          const ids = linkedProperties.map((p: any) => p.id);
+          setSelectedPropertyIds(ids);
+          setInitialPropertyIds(ids);
+        };
+        loadProperties();
+      } else {
+        // Mode normal : utiliser l'API
+        const fetchSociete = async () => {
+          const res = await fetch(`/api/gestion/societes/${societe.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            const ids = data.Property?.map((p: any) => p.id) || [];
+            setSelectedPropertyIds(ids);
+            setInitialPropertyIds(ids);
+          }
+        };
+        fetchSociete();
+      }
     } else if (!societe && isOpen) {
       setSelectedPropertyIds([]);
+      setInitialPropertyIds([]);
     }
-  }, [societe, isOpen]);
+  }, [societe, isOpen, isAppShell, organizationId, properties]);
 
   const createMutation = useMutation({
     mutationFn: async (data: CreateManagementCompanyDto) => {
-      // Convertir les pourcentages en décimaux pour l'API
-      const payload = {
-        ...data,
-        taux: data.taux / 100, // 6 -> 0.06
-        tauxTva: data.tauxTva ? data.tauxTva : undefined, // TVA reste en pourcentage (20 = 20%)
-      };
-      
-      const res = await fetch('/api/gestion/societes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      if (!organizationId) {
+        throw new Error('OrganizationId requis');
+      }
+      return managementCompanyService.createCompany({
+        organizationId,
+        data,
+        selectedPropertyIds,
       });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Erreur lors de la création');
-      }
-      return res.json();
     },
-    onSuccess: async (newSociete) => {
-      // Affecter les biens si nécessaire
-      if (selectedPropertyIds.length > 0) {
-        const affectationRes = await fetch(`/api/gestion/societes/${newSociete.id}/affecter-biens`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ propertyIds: selectedPropertyIds }),
-        });
-        
-        if (!affectationRes.ok) {
-          const error = await affectationRes.json();
-          toast.error(error.error || 'Erreur lors de l\'affectation des biens');
-          return;
-        }
+    onSuccess: async () => {
+      if (!isAppShell) {
+        queryClient.invalidateQueries({ queryKey: ['management-companies'] });
+      } else {
+        window.dispatchEvent(new CustomEvent('managementCompany:refresh', {
+          detail: { reason: 'create' },
+        }));
+        window.dispatchEvent(new CustomEvent('properties:refresh', {
+          detail: { reason: 'management-company-create' },
+        }));
       }
-
-      queryClient.invalidateQueries({ queryKey: ['management-companies'] });
       toast.success('Société créée avec succès');
       onClose();
       reset();
@@ -163,39 +193,28 @@ export function ManagementCompanyModal({
 
   const updateMutation = useMutation({
     mutationFn: async (data: CreateManagementCompanyDto) => {
-      // Convertir les pourcentages en décimaux pour l'API
-      const payload = {
-        ...data,
-        taux: data.taux / 100, // 6 -> 0.06
-        tauxTva: data.tauxTva ? data.tauxTva : undefined, // TVA reste en pourcentage (20 = 20%)
-      };
-      
-      const res = await fetch(`/api/gestion/societes/${societe!.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Erreur lors de la mise à jour');
+      if (!organizationId || !societe) {
+        throw new Error('OrganizationId requis');
       }
-      return res.json();
+      return managementCompanyService.updateCompany({
+        organizationId,
+        id: societe.id,
+        data,
+        selectedPropertyIds,
+        previousPropertyIds: initialPropertyIds,
+      });
     },
     onSuccess: async () => {
-      // Mettre à jour les affectations de biens
-      const affectationRes = await fetch(`/api/gestion/societes/${societe!.id}/affecter-biens`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ propertyIds: selectedPropertyIds }),
-      });
-
-      if (!affectationRes.ok) {
-        const error = await affectationRes.json();
-        toast.error(error.error || 'Erreur lors de l\'affectation des biens');
-        return;
+      if (!isAppShell) {
+        queryClient.invalidateQueries({ queryKey: ['management-companies'] });
+      } else {
+        window.dispatchEvent(new CustomEvent('managementCompany:refresh', {
+          detail: { reason: 'update' },
+        }));
+        window.dispatchEvent(new CustomEvent('properties:refresh', {
+          detail: { reason: 'management-company-update' },
+        }));
       }
-
-      queryClient.invalidateQueries({ queryKey: ['management-companies'] });
       toast.success('Société mise à jour avec succès');
       onClose();
     },
@@ -203,6 +222,8 @@ export function ManagementCompanyModal({
       toast.error(error.message);
     },
   });
+
+  const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
   const onSubmit = (data: CreateManagementCompanyDto) => {
     if (isEdit) {
@@ -214,24 +235,28 @@ export function ManagementCompanyModal({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        {/* En-tête */}
-        <div className="flex items-center justify-between p-6 border-b">
-          <h2 className="text-2xl font-semibold">
-            {isEdit ? 'Modifier la société' : 'Nouvelle société de gestion'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition"
-          >
-            <X className="h-6 w-6" />
-          </button>
-        </div>
+  const modalFooter = (
+    <div className="flex gap-3 w-full">
+      <Button type="button" variant="outline" onClick={onClose} className="flex-1 sm:flex-initial">
+        Annuler
+      </Button>
+      <Button type="submit" form="management-company-form" disabled={isSubmitting} className="flex-1 sm:flex-initial">
+        <Save className="h-4 w-4 mr-2" />
+        {isEdit ? 'Mettre à jour' : 'Créer'}
+      </Button>
+    </div>
+  );
 
-        {/* Formulaire */}
-        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-6">
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={isEdit ? 'Modifier la société' : 'Nouvelle société de gestion'}
+      size="lg"
+      className="md:max-w-2xl"
+      footer={modalFooter}
+    >
+        <form id="management-company-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           {/* Informations générales */}
           <div>
             <h3 className="text-lg font-medium mb-4">Informations générales</h3>
@@ -243,7 +268,7 @@ export function ManagementCompanyModal({
                 <input
                   type="text"
                   {...register('nom', { required: 'Le nom est requis' })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
                   placeholder="Ex: ImmoGest"
                 />
                 {errors.nom && (
@@ -256,7 +281,7 @@ export function ManagementCompanyModal({
                 <input
                   type="text"
                   {...register('contact')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
                   placeholder="Nom du contact"
                 />
               </div>
@@ -266,7 +291,7 @@ export function ManagementCompanyModal({
                 <input
                   type="text"
                   {...register('telephone')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
                   placeholder="01 23 45 67 89"
                 />
               </div>
@@ -276,7 +301,7 @@ export function ManagementCompanyModal({
                 <input
                   type="email"
                   {...register('email')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
                   placeholder="contact@societe.fr"
                 />
               </div>
@@ -291,13 +316,19 @@ export function ManagementCompanyModal({
                 <label className="block text-sm font-medium mb-1">
                   Mode de calcul <span className="text-red-500">*</span>
                 </label>
-                <select
-                  {...register('modeCalcul')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="LOYERS_UNIQUEMENT">Loyers uniquement</option>
-                  <option value="REVENUS_TOTAUX">Revenus totaux (loyer + charges récup)</option>
-                </select>
+                <Controller
+                  name="modeCalcul"
+                  control={control}
+                  render={({ field }) => (
+                    <SmartSelect
+                      value={field.value || ''}
+                      onChange={field.onChange}
+                      options={modeCalculOptions}
+                      placeholder="Sélectionner un mode"
+                      aria-label="Mode de calcul"
+                    />
+                  )}
+                />
               </div>
 
               <div>
@@ -313,7 +344,7 @@ export function ManagementCompanyModal({
                     max: { value: 100, message: 'Le taux doit être entre 0 et 100' },
                     valueAsNumber: true,
                   })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
                   placeholder="Ex: 6 pour 6%"
                 />
                 {errors.taux && (
@@ -329,7 +360,7 @@ export function ManagementCompanyModal({
                   type="number"
                   step="0.01"
                   {...register('fraisMin', { valueAsNumber: true })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
                   placeholder="Ex: 30"
                 />
               </div>
@@ -339,7 +370,7 @@ export function ManagementCompanyModal({
                   <input
                     type="checkbox"
                     {...register('baseSurEncaissement')}
-                    className="rounded border-gray-300"
+                    className="rounded border-gray-300 accent-orange-500 focus:ring-orange-500 focus:ring-offset-2"
                   />
                   <span className="text-sm">Base sur encaissement</span>
                 </label>
@@ -356,7 +387,7 @@ export function ManagementCompanyModal({
                   <input
                     type="checkbox"
                     {...register('tvaApplicable')}
-                    className="rounded border-gray-300"
+                    className="rounded border-gray-300 accent-orange-500 focus:ring-orange-500 focus:ring-offset-2"
                   />
                   <span className="text-sm font-medium">TVA applicable</span>
                 </label>
@@ -371,7 +402,7 @@ export function ManagementCompanyModal({
                     type="number"
                     step="0.01"
                     {...register('tauxTva', { valueAsNumber: true })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
                     placeholder="Ex: 20"
                   />
                 </div>
@@ -404,7 +435,7 @@ export function ManagementCompanyModal({
                             );
                           }
                         }}
-                        className="rounded border-gray-300"
+                        className="rounded border-gray-300 accent-orange-500 focus:ring-orange-500 focus:ring-offset-2"
                       />
                       <Building2 className="h-4 w-4 text-gray-400" />
                       <span className="text-sm">
@@ -423,28 +454,14 @@ export function ManagementCompanyModal({
               <input
                 type="checkbox"
                 {...register('actif')}
-                className="rounded border-gray-300"
+                className="rounded border-gray-300 accent-orange-500 focus:ring-orange-500 focus:ring-offset-2"
               />
               <span className="text-sm font-medium">Société active</span>
             </label>
           </div>
 
-          {/* Actions */}
-          <div className="flex justify-end space-x-3 pt-4 border-t">
-            <Button type="button" variant="outline" onClick={onClose}>
-              Annuler
-            </Button>
-            <Button
-              type="submit"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              <Save className="h-4 w-4 mr-2" />
-              {isEdit ? 'Mettre à jour' : 'Créer'}
-            </Button>
-          </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

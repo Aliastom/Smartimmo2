@@ -124,7 +124,7 @@ export default function TransactionForm({
               type="text"
               value={formData.label}
               onChange={(e) => handleChange('label', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.label ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: Loyer janvier 2024"
@@ -139,7 +139,7 @@ export default function TransactionForm({
             <select
               value={formData.nature}
               onChange={(e) => handleChange('nature', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.nature ? 'border-red-500' : 'border-gray-300'
               }`}
             >
@@ -163,7 +163,7 @@ export default function TransactionForm({
               step="0.01"
               value={formData.amount}
               onChange={(e) => handleChange('amount', parseFloat(e.target.value) || 0)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.amount ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: 850.00"
@@ -179,7 +179,7 @@ export default function TransactionForm({
               type="date"
               value={formData.date}
               onChange={(e) => handleChange('date', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.date ? 'border-red-500' : 'border-gray-300'
               }`}
             />

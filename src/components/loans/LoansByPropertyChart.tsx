@@ -74,8 +74,8 @@ export function LoansByPropertyChart({
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="min-w-0">
+      <CardHeader className="min-w-0">
         <CardTitle>Répartition par Bien</CardTitle>
         <p className="text-sm text-gray-600 mt-1">
           CRD Total: {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(total)}
@@ -89,7 +89,8 @@ export function LoansByPropertyChart({
           </div>
         ) : (
           <>
-            <ResponsiveContainer width="100%" height={200}>
+            <div className="min-w-0">
+              <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie
                   data={data}
@@ -107,6 +108,7 @@ export function LoansByPropertyChart({
                 <Tooltip content={<CustomTooltip />} />
               </PieChart>
             </ResponsiveContainer>
+            </div>
             <div className="mt-4 space-y-2">
               {data.map((item, index) => (
                 <div key={item.propertyId} className="flex items-center justify-between text-sm">

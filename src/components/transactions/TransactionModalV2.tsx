@@ -14,10 +14,18 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { transactionFormSchema, TransactionFormData } from '@/lib/validations/transaction';
 import { useAutoFillTransaction } from '@/hooks/useAutoFillTransaction';
 import { useNatureLabels } from '@/hooks/useNatureLabels';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/PropertyRepositoryOffline';
+import { getLeaseRepositoryOffline } from '@/lib/offline/repositories/LeaseRepositoryOffline';
+import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
+import { getLocalDB } from '@/lib/offline/db';
+import { useTransactionDocuments } from '@/hooks/offline/useTransactionDocuments';
+import { createDocumentServiceWithMode } from '@/domain/services/documentServiceFactory';
 import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
 import { useUploadStaging } from '@/hooks/useUploadStaging';
 import { useGestionDelegueStatus } from '@/hooks/useGestionDelegueStatus';
 import { useGestionCodes } from '@/hooks/useGestionCodes';
+import { logToServer } from '@/lib/utils/logger';
 import { StagedUploadModal } from '@/components/documents/StagedUploadModal';
 import { UploadReviewModal } from '@/components/documents/UploadReviewModal';
 import { DuplicateDetectedModal } from '@/components/documents/DuplicateDetectedModal';
@@ -26,6 +34,11 @@ import { UnclassifiedDocumentsModal } from './UnclassifiedDocumentsModal';
 import { TransactionSuggestionConfirmModal } from './TransactionSuggestionConfirmModal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 import { SearchableSelect } from '@/components/forms/SearchableSelect';
+import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
+import { SmartDatePicker } from '@/components/ui/SmartDatePicker';
+import { SmartSelectAdvanced } from '@/components/ui/SmartSelectAdvanced';
+import { Switch } from '@/components/ui/Switch';
+import { Accordion } from '@/components/ui/Accordion';
 
 // Configuration des natures avec libellés clairs et groupes
 const getNatureOptions = (getNatureLabel: (key: string) => string) => [
@@ -112,6 +125,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [activeTab, setActiveTab] = useState('essentielles');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // ⚠️ PROBLÈME 1: État pour suivre les fichiers en cours d'upload
+  const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(new Set());
   
   // États pour les données
   const [properties, setProperties] = useState<any[]>([]);
@@ -122,9 +137,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   // État local pour gérer le mode auto du montant
   const [isAutoAmount, setIsAutoAmount] = useState(true);
   
-  // États pour la combobox Nature
-  const [isNatureOpen, setIsNatureOpen] = useState(false);
-  const [natureSearch, setNatureSearch] = useState('');
+  // État pour la nature (simplifié avec SmartSelectAdvanced)
   const [selectedNature, setSelectedNature] = useState<string>('');
   
   // États pour la combobox Catégorie
@@ -151,9 +164,43 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   
   // État pour la modal d'avertissement du bien manquant
   const [showMissingPropertyModal, setShowMissingPropertyModal] = useState(false);
+  
+  // État pour la modal de sélection de document existant
+  const [showDocumentSelectorModal, setShowDocumentSelectorModal] = useState(false);
+  const [availableDocuments, setAvailableDocuments] = useState<any[]>([]);
+  const [documentSearchTerm, setDocumentSearchTerm] = useState('');
 
   // Hook pour récupérer les libellés personnalisés des natures
   const { getNatureLabel, loading: natureLabelsLoading } = useNatureLabels();
+  
+  // Hook pour récupérer l'organisation (nécessaire pour mode app-shell)
+  const { organizationId } = useCurrentOrganization();
+  
+  // ✅ Détecter si on est en mode app-shell : soit via context.type === 'property', soit via l'URL
+  // (UploadReviewModal passe context.type='global' mais on est bien en app-shell)
+  const isAppShellMode = context.type === 'property' || 
+    (typeof window !== 'undefined' && window.location.pathname.startsWith('/app'));
+  
+  // ✅ OFFLINE-FIRST: Détecter explicitement offline
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  const shouldDisableUpload = isAppShellMode && isOffline;
+  
+  // 🔍 Diagnostic : logger pour vérifier la détection du mode
+  useEffect(() => {
+    if (isOpen) {
+      logToServer(`[TransactionModal] 🔍 Mode detection: isAppShellMode=${isAppShellMode}, contextType=${context.type}, mode=${mode}`).catch(console.error);
+    }
+  }, [isOpen, isAppShellMode, context.type, context.propertyId, organizationId, mode, transactionId]);
+  
+  // En mode app-shell, utiliser le hook pour charger les documents depuis IndexedDB
+  const { 
+    documents: hookLinkedDocuments, 
+    loading: documentsLoading,
+    hasMissingDocuments 
+  } = useTransactionDocuments(
+    isAppShellMode && mode === 'edit' ? transactionId : null,
+    isAppShellMode && mode === 'edit' && isOpen
+  );
   
   // Hook pour l'upload de documents
   const { openModalWithFileSelection } = useUploadReviewModal();
@@ -171,15 +218,37 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     removeStagedDocument,
     clearStaging
   } = useUploadStaging();
+
+  // ⚠️ IMPORTANT: État pour les documents liés à la transaction (en mode édition)
+  // Doit être déclaré AVANT le useMemo qui l'utilise
+  const [linkedDocuments, setLinkedDocuments] = useState<any[]>([]);
   
   // Hook pour vérifier le statut de la gestion déléguée (depuis settings)
   const { isEnabled: isGestionEnabled, isLoading: isGestionLoading } = useGestionDelegueStatus();
   
   // Hook pour récupérer les codes système de la gestion déléguée
   const { codes: gestionCodes, isLoading: isGestionCodesLoading } = useGestionCodes();
-  
-  // État pour les documents liés à la transaction (en mode édition)
-  const [linkedDocuments, setLinkedDocuments] = useState<any[]>([]);
+
+  // ⚠️ CORRECTION: Filtrer les stagedDocuments pour exclure ceux qui sont déjà finalisés ou liés à la transaction
+  // Cela évite d'afficher les brouillons des documents déjà validés lors de la réouverture de la modal
+  // ⚠️ IMPORTANT: Ce useMemo doit être APRÈS la déclaration de stagedDocuments ET linkedDocuments
+  const filteredStagedDocuments = React.useMemo(() => {
+    if (!stagedDocuments || stagedDocuments.length === 0) {
+      return [];
+    }
+
+    // Filtrer les stagedDocuments
+    // ⚠️ CORRECTION: Afficher TOUS les brouillons (status === 'draft'), même s'ils sont déjà liés
+    // Les brouillons doivent être visibles pour permettre leur modification/suppression
+    return stagedDocuments.filter(doc => {
+      // Exclure UNIQUEMENT les documents qui ne sont plus en brouillon (déjà finalisés)
+      // Ne PAS exclure les brouillons même s'ils sont liés à la transaction
+      if (doc.status && doc.status !== 'draft') {
+        return false;
+      }
+      return true;
+    });
+  }, [stagedDocuments]);
   
   // État pour les liens vers documents existants
   const [stagedLinks, setStagedLinks] = useState<any[]>([]);
@@ -201,6 +270,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   // États pour la modal de suppression de document
   const [showDeleteDocModal, setShowDeleteDocModal] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<any>(null);
+  const [isDeletingDocument, setIsDeletingDocument] = useState(false);
   
   // États pour la modale de suggestion de transaction depuis document
   const [showSuggestionModal, setShowSuggestionModal] = useState(false);
@@ -224,22 +294,38 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   
   // Fonction pour gérer l'upload avec détection de doublons
   const handleFileUpload = async (files: File[]) => {
-    console.log('[TransactionModal] handleFileUpload appelé avec:', files.length, 'fichiers');
+    await logToServer(`[TransactionModal] handleFileUpload appelé avec: ${files.length} fichier(s)`);
     
     if (!uploadSessionId) {
       notify2.error('Session d\'upload non disponible');
       return;
     }
-    
-    console.log('[TransactionModal] Session ID:', uploadSessionId);
+
+    // ⚠️ PROBLÈME 1: Marquer tous les fichiers comme en cours d'upload
+    const fileIds = files.map(f => `${f.name}-${f.size}-${f.lastModified}`);
+    setUploadingFiles(prev => new Set([...prev, ...fileIds]));
 
     for (const file of files) {
+      const fileId = `${file.name}-${file.size}-${file.lastModified}`;
       try {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('uploadSessionId', uploadSessionId);
         formData.append('intendedContextType', 'transaction');
         formData.append('intendedContextTempKey', mode === 'create' ? 'transaction:new' : 'transaction:edit');
+
+        // ⚠️ GARDE-FOU 2 : Upload de documents = ONLINE-ONLY (pas de placeholder offline)
+        // Si offline : bloquer l'upload pour éviter de créer des données non syncables
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          await logToServer('[TransactionModal] ⚠️ GARDE-FOU 2: Hors ligne : upload de documents bloqué (ONLINE-ONLY)');
+          notify2.info('Upload de documents disponible uniquement en mode connecté');
+          setUploadingFiles(prev => {
+            const next = new Set(prev);
+            fileIds.forEach(id => next.delete(id));
+            return next;
+          });
+          return;
+        }
 
         const response = await fetch('/api/upload-staged', {
           method: 'POST',
@@ -249,6 +335,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         if (response.status === 409) {
           // Doublon détecté
           const duplicateInfo = await response.json();
+          // ⚠️ CORRECTION: Retirer le fichier de uploadingFiles car il n'y a pas d'upload réellement en cours (doublon détecté)
+          setUploadingFiles(prev => {
+            const next = new Set(prev);
+            next.delete(fileId);
+            return next;
+          });
           setDuplicateData(duplicateInfo);
           setShowDuplicateModal(true);
           return; // Arrêter l'upload des autres fichiers
@@ -256,28 +348,99 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           // Upload réussi
           const result = await response.json();
           if (result.success) {
-            // Recharger la liste des documents et liens
-            console.log('[TransactionModal] Rechargement des documents...');
-            await loadStagedDocuments(uploadSessionId);
+            // ⚠️ PROBLÈME 1: Retirer le fichier de la liste des fichiers en upload
+            setUploadingFiles(prev => {
+              const next = new Set(prev);
+              next.delete(fileId);
+              return next;
+            });
             
-            // Recharger aussi les liens vers documents existants
-            try {
-              const sessionResponse = await fetch(`/api/upload-session/${uploadSessionId}`);
-              if (sessionResponse.ok) {
-                const sessionData = await sessionResponse.json();
-                if (sessionData.success) {
-                  setStagedLinks(sessionData.DocumentLink || []);
-                  console.log('[TransactionModal] Liens rechargés:', sessionData.DocumentLink?.length || 0);
-                }
+            // ⚠️ IMPORTANT: En mode app-shell, ajouter le document dans IndexedDB pour qu'il soit disponible lors de la création de la transaction
+            if (isAppShellMode && result.document && organizationId) {
+              try {
+                const db = await getLocalDB();
+                const docData = result.document;
+                
+                // Créer le document local dans IndexedDB au format LocalDocument
+                // ⚠️ GARDE-FOU 1: Marquer _remoteReady=true car le document existe déjà côté serveur
+                // Ce flag empêche la purge involontaire comme brouillon orphelin
+                // ⚠️ PROBLÈME 4: S'assurer que le nom du document est défini (peut être manquant si upload trop rapide)
+                const fileName = docData.fileName || docData.filenameOriginal || docData.name || `document_${docData.id}`;
+                const filenameOriginal = docData.filenameOriginal || docData.fileName || docData.name || fileName;
+                const localDoc: any = {
+                  id: docData.id,
+                  organizationId: organizationId,
+                  ownerId: docData.ownerId || 'default',
+                  bucketKey: docData.bucketKey || docData.id,
+                  filenameOriginal: filenameOriginal,
+                  fileName: fileName,
+                  mime: docData.mime || 'application/pdf',
+                  size: docData.size || 0,
+                  url: docData.url || `/api/documents/${docData.id}/file`,
+                  fileSha256: docData.fileSha256 || null,
+                  textSha256: docData.textSha256 || null,
+                  // ⚠️ CRITIQUE: Utiliser les champs retournés par l'API (documentTypeId peut être auto-assigné)
+                  documentTypeId: docData.documentTypeId || null,
+                  detectedTypeId: docData.detectedTypeId || null,
+                  // ⚠️ CRITIQUE: Utiliser ocrStatus de l'API (peut être 'success' si OCR traité, pas toujours 'pending')
+                  ocrStatus: docData.ocrStatus || 'pending',
+                  ocrError: docData.ocrError || null,
+                  ocrVendor: docData.ocrVendor || null,
+                  ocrConfidence: docData.ocrConfidence || null,
+                  extractedText: docData.extractedText || null,
+                  indexed: docData.indexed || false,
+                  status: docData.status || 'draft',
+                  source: docData.source || 'staged-upload',
+                  uploadedBy: docData.uploadedBy || null,
+                  uploadedAt: docData.uploadedAt || new Date().toISOString(),
+                  uploadSessionId: docData.uploadSessionId || uploadSessionId,
+                  intendedContextType: docData.intendedContextType || null,
+                  intendedContextTempKey: docData.intendedContextTempKey || null,
+                  createdAt: docData.createdAt || new Date().toISOString(),
+                  updatedAt: docData.updatedAt || new Date().toISOString(),
+                  version: docData.version || 1,
+                  // ⚠️ GARDE-FOU 1: Document existe côté serveur → ne pas purger comme orphelin
+                  _remoteReady: true,
+                };
+                
+                await db.Document.put(localDoc);
+                await logToServer(`[TransactionModal] ✅ Document ajouté dans IndexedDB: docId=${docData.id}, status=${localDoc.status}, documentTypeId=${localDoc.documentTypeId || 'null'}, ocrStatus=${localDoc.ocrStatus}, _remoteReady=true`);
+              } catch (dbError) {
+                await logToServer(`[TransactionModal] ❌ Erreur lors de l'ajout du document dans IndexedDB: ${dbError}`, 'error');
+                // Ne pas bloquer, le document existe côté serveur et sera récupéré lors du pull
               }
-            } catch (error) {
-              console.error('[TransactionModal] Erreur lors du rechargement des liens:', error);
             }
             
-            console.log('[TransactionModal] Upload terminé avec succès');
+            // Recharger la liste des documents et liens
+            const reloadedDocs = await loadStagedDocuments(uploadSessionId);
+            await logToServer(`[TransactionModal] ✅ Document uploadé avec succès, result.document.id: ${result.document?.id || 'N/A'}`);
+            await logToServer(`[TransactionModal] 📎 loadStagedDocuments retourné: ${reloadedDocs?.length || 0} document(s) - IDs: ${reloadedDocs?.map(d => d.id).join(', ') || 'aucun'}`);
+            
+            // Recharger aussi les liens vers documents existants (mode normal uniquement)
+            if (!isAppShellMode) {
+              try {
+                const sessionResponse = await fetch(`/api/upload-session/${uploadSessionId}`);
+                if (sessionResponse.ok) {
+                  const sessionData = await sessionResponse.json();
+                  if (sessionData.success) {
+                    setStagedLinks(sessionData.DocumentLink || []);
+                    await logToServer(`[TransactionModal] Liens rechargés: ${sessionData.DocumentLink?.length || 0}`);
+                  }
+                }
+              } catch (error) {
+                await logToServer(`[TransactionModal] Erreur lors du rechargement des liens: ${error}`, 'error');
+              }
+            }
             notify2.success(`Document "${file.name}" ajouté en brouillon`);
           }
         } else {
+          // ⚠️ PROBLÈME 1: Retirer le fichier en cas d'erreur
+          setUploadingFiles(prev => {
+            const next = new Set(prev);
+            next.delete(fileId);
+            return next;
+          });
+          
           let errorMessage = `Erreur lors de l'upload de "${file.name}"`;
           try {
             const errorData = await response.json();
@@ -293,20 +456,43 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               errorMessage = errorData.error;
             }
           } catch (err) {
-            console.warn('[TransactionModal] Impossible de parser la réponse d\'erreur', err);
+            await logToServer(`[TransactionModal] Impossible de parser la réponse d'erreur: ${err}`, 'warn');
           }
           notify2.error(errorMessage);
         }
       } catch (error) {
-        console.error('Erreur lors de l\'upload:', error);
+        // ⚠️ PROBLÈME 1: Retirer le fichier en cas d'exception
+        setUploadingFiles(prev => {
+          const next = new Set(prev);
+          next.delete(fileId);
+          return next;
+        });
+        
+        await logToServer(`Erreur lors de l'upload: ${error}`, 'error');
         notify2.error(`Erreur lors de l'upload de "${file.name}"`);
       }
     }
+    
+    // ⚠️ PROBLÈME 1: Nettoyer les fichiers restants (sécurité)
+    setTimeout(() => {
+      setUploadingFiles(prev => {
+        const next = new Set(prev);
+        fileIds.forEach(id => next.delete(id));
+        return next;
+      });
+    }, 1000);
   };
   
   // Fonction pour lier un document existant
   const handleLinkExisting = async () => {
     if (!duplicateData || !uploadSessionId) return;
+
+    // ⚠️ Bloquer la liaison uniquement si hors ligne (pas seulement en mode app-shell)
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      await logToServer('[TransactionModal] Hors ligne : liaison de document non disponible');
+      notify2.info('Liaison de documents disponible uniquement en mode connecté');
+      return;
+    }
 
     try {
       const response = await fetch('/api/upload-staged/link-existing', {
@@ -338,81 +524,125 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         notify2.error('Erreur lors de la liaison du document');
       }
     } catch (error) {
-      console.error('Erreur lors de la liaison:', error);
+      await logToServer(`Erreur lors de la liaison: ${error}`, 'error');
       notify2.error('Erreur lors de la liaison du document');
     }
   };
   
-  // Fonction pour charger les documents liés à la transaction
-  const loadLinkedDocuments = async () => {
-    if (!transactionId) return;
-    
-    console.log('[TransactionModal] 🔍 loadLinkedDocuments appelé pour transactionId:', transactionId);
-    console.log('[TransactionModal] 🔍 État linkedDocuments AVANT chargement:', linkedDocuments);
+  // Fonction pour charger les documents liés à la transaction (mode normal uniquement)
+  const loadLinkedDocuments = React.useCallback(async () => {
+    if (!transactionId || isAppShellMode) return; // En app-shell, on utilise le hook
     
     try {
+      // Mode normal : charger depuis l'API
       const response = await fetch(`/api/transactions/${transactionId}/documents`);
       if (response.ok) {
         const data = await response.json();
-        console.log('[TransactionModal] 📄 Données reçues de l\'API documents:', data);
-        console.log('[TransactionModal] 📄 Nombre de documents:', data.documents?.length || 0);
-        console.log('[TransactionModal] 📄 Premier document reçu:', data.documents?.[0]);
+        await logToServer(`[TransactionModal] 📄 Documents chargés depuis API: ${data.documents?.length || 0}`);
         
         const documentsToSet = data.documents || [];
-        console.log('[TransactionModal] 📄 Documents à définir:', documentsToSet);
-        
-        console.log('[TransactionModal] 📄 Appel de setLinkedDocuments avec:', documentsToSet);
         setLinkedDocuments(documentsToSet);
-        
-        // Vérifier l'état après un délai - utiliser la valeur locale au lieu de la closure
-        setTimeout(() => {
-          console.log('[TransactionModal] 📄 État linkedDocuments après setState (délai):', documentsToSet);
-        }, 100);
-        
       } else {
-        console.error('[TransactionModal] ❌ Erreur API documents:', response.status, response.statusText);
+        await logToServer(`[TransactionModal] ❌ Erreur API documents: ${response.status} ${response.statusText}`, 'error');
       }
     } catch (error) {
-      console.error('[TransactionModal] ❌ Erreur lors du chargement des documents:', error);
+      await logToServer(`[TransactionModal] ❌ Erreur lors du chargement des documents: ${error}`, 'error');
     }
-  };
+  }, [transactionId, isAppShellMode]);
 
-  // Surveiller les changements de linkedDocuments
+  // ✅ Synchroniser les documents du hook avec l'état local en mode app-shell
   useEffect(() => {
-    console.log('[TransactionModal] 🔄 useEffect linkedDocuments - Nouvelle valeur:', linkedDocuments);
-    console.log('[TransactionModal] 🔄 useEffect linkedDocuments - Longueur:', linkedDocuments.length);
-  }, [linkedDocuments]);
+    if (isAppShellMode && mode === 'edit' && hookLinkedDocuments) {
+      // Convertir le format du hook (LinkedDocument[]) au format attendu par la modal
+      const formattedDocuments = hookLinkedDocuments.map(doc => ({
+        id: doc.id,
+        fileName: doc.fileName || doc.filenameOriginal,
+        filenameOriginal: doc.filenameOriginal,
+        DocumentType: doc.documentTypeLabel ? { label: doc.documentTypeLabel } : null,
+        documentTypeLabel: doc.documentTypeLabel,
+        uploadedAt: doc.uploadedAt,
+        createdAt: doc.createdAt,
+        status: doc.status,
+        url: doc.url,
+        mime: doc.mime,
+        size: doc.size,
+      }));
+      setLinkedDocuments(formattedDocuments);
+    }
+  }, [isAppShellMode, mode, hookLinkedDocuments]);
+
+  // État pour stocker les DocumentLink de chaque document (en mode app-shell)
+  const [documentLinksMap, setDocumentLinksMap] = useState<Map<string, any[]>>(new Map());
+
+  // Charger les DocumentLink pour tous les documents liés (en mode app-shell)
+  useEffect(() => {
+    if (!isAppShellMode || !organizationId || !isOpen) return;
+    
+    const loadDocumentLinks = async () => {
+      try {
+        const db = await getLocalDB();
+        const allDocuments = isAppShellMode ? hookLinkedDocuments : linkedDocuments;
+        
+        if (allDocuments.length === 0) {
+          setDocumentLinksMap(new Map());
+          return;
+        }
+        
+        // Charger tous les DocumentLink pour ces documents
+        const documentIds = allDocuments.map(doc => doc.id);
+        const allLinks = await db.DocumentLink.toArray();
+        
+        // Filtrer les liens pour ces documents
+        const linksMap = new Map<string, any[]>();
+        for (const docId of documentIds) {
+          const docLinks = allLinks.filter(link => link.documentId === docId);
+          if (docLinks.length > 0) {
+            linksMap.set(docId, docLinks);
+          }
+        }
+        
+        setDocumentLinksMap(linksMap);
+      } catch (error) {
+        console.error('Erreur lors du chargement des DocumentLink:', error);
+      }
+    };
+    
+    loadDocumentLinks();
+  }, [isAppShellMode, organizationId, isOpen, hookLinkedDocuments, linkedDocuments]);
 
   // Fonction pour formater les liaisons d'un document de manière compacte
   const formatDocumentLinks = (doc: any) => {
-    console.log('[formatDocumentLinks] Document reçu:', doc);
-    console.log('[formatDocumentLinks] Document links:', doc.DocumentLink);
+    let links: any[] = [];
     
-    if (!doc.DocumentLink || doc.DocumentLink.length === 0) {
-      console.log('[formatDocumentLinks] Aucune liaison trouvée');
+    if (isAppShellMode) {
+      // En mode app-shell, utiliser documentLinksMap
+      links = documentLinksMap.get(doc.id) || [];
+    } else {
+      // En mode normal, utiliser doc.DocumentLink
+      links = doc.DocumentLink || [];
+    }
+    
+    if (links.length === 0) {
       return null;
     }
     
     // Filtrer la liaison vers la transaction courante pour ne pas l'afficher
-    const otherLinks = doc.DocumentLink.filter((link: any) => 
-      !(link.linkedType === 'transaction' && link.linkedId === transactionId)
-    );
-    
-    console.log('[formatDocumentLinks] Autres liaisons après filtrage:', otherLinks);
+    const otherLinks = links.filter((link: any) => {
+      const linkedType = (link.linkedType || '').toLowerCase();
+      const linkedId = link.linkedId || '';
+      return !(linkedType === 'transaction' && linkedId === transactionId);
+    });
     
     if (otherLinks.length === 0) {
-      console.log('[formatDocumentLinks] Aucune autre liaison après filtrage');
       return null;
     }
     
     // Utiliser entityInfo si disponible, sinon utiliser les types bruts
     const linkLabels = otherLinks.map((link: any) => {
-      console.log('[formatDocumentLinks] Traitement de la liaison:', link);
       if (link.entityInfo) {
         const label = link.entityInfo.type === 'Transaction' || link.entityInfo.type === 'Bien' || link.entityInfo.type === 'Bail' 
           ? link.entityInfo.name 
           : link.entityInfo.type;
-        console.log('[formatDocumentLinks] Label généré (entityInfo):', label);
         return label;
       } else {
         const typeMap: Record<string, string> = {
@@ -423,83 +653,48 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           'global': 'Global'
         };
         
-        const label = typeMap[link.linkedType] || link.linkedType;
-        console.log('[formatDocumentLinks] Label généré (typeMap):', label);
+        const linkedType = (link.linkedType || '').toLowerCase();
+        const label = typeMap[linkedType] || link.linkedType || 'Inconnu';
         return label;
       }
     });
 
     const result = linkLabels.join(', ');
-    console.log('[formatDocumentLinks] Résultat final:', result);
     return result;
   };
   
-  // Charger les documents au montage du composant si en mode édition
-  useEffect(() => {
-    if (mode === 'edit' && transactionId) {
-      loadLinkedDocuments();
-    }
-  }, [mode, transactionId]);
+  // ❌ SUPPRIMÉ : Les documents sont chargés dans loadData() pour éviter les doubles appels
 
-  // Fonctions utilitaires pour la combobox Nature
-  const getSelectedNatureLabel = () => {
-    const selectedValue = selectedNature || watch('nature');
-    if (!selectedValue) return 'Sélectionner une nature';
-    
-    // Chercher la nature dans les données chargées de la base
-    const nature = natures.find(n => n.key === selectedValue);
-    return nature ? nature.label : selectedValue;
-  };
-
-
-
-  const getFilteredNatureOptions = () => {
-    // Utiliser directement les natures de la base de données
-    // Inférer le flow à partir du code de la nature
+  // Préparer les groupes de natures pour SmartSelectAdvanced
+  const natureGroups = React.useMemo(() => {
     const incomeNatures = natures.filter(nature => nature.key.startsWith('RECETTE_'));
     const expenseNatures = natures.filter(nature => nature.key.startsWith('DEPENSE_'));
     
-    console.log('[Debug] Natures for combobox:', natures.length, 'Income:', incomeNatures.length, 'Expense:', expenseNatures.length);
-    
-    const natureOptions = [
+    return [
       {
         group: 'Recettes',
         icon: '⬆️',
         options: incomeNatures.map(nature => ({
-          value: nature.key, // Utiliser directement le code de la base
-          label: nature.label, // Utiliser directement le label de la base
+          value: nature.key,
+          label: nature.label,
           description: `Code: ${nature.key}`
         }))
       },
       {
-        group: 'Dépenses', 
+        group: 'Dépenses',
         icon: '⬇️',
         options: expenseNatures.map(nature => ({
-          value: nature.key, // Utiliser directement le code de la base
-          label: nature.label, // Utiliser directement le label de la base
+          value: nature.key,
+          label: nature.label,
           description: `Code: ${nature.key}`
         }))
       }
     ];
-    
-    console.log('[Debug] Nature options:', natureOptions);
-    
-    if (!natureSearch) return natureOptions;
-    
-    return natureOptions.map(group => ({
-      ...group,
-      options: group.options.filter(option => 
-        option.label.toLowerCase().includes(natureSearch.toLowerCase()) ||
-        option.description.toLowerCase().includes(natureSearch.toLowerCase())
-      )
-    })).filter(group => group.options.length > 0);
-  };
+  }, [natures]);
 
   const handleNatureSelect = (value: string) => {
     setValue('nature', value);
     setSelectedNature(value);
-    setIsNatureOpen(false);
-    setNatureSearch('');
     // Note: La sélection auto de la catégorie par défaut est gérée par useAutoFillTransaction
   };
 
@@ -601,12 +796,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     const categoryValue = watch('categoryId');
     
     if (natureValue && natureValue !== selectedNature) {
-      console.log('[TransactionModal] Synchronisation nature:', natureValue);
       setSelectedNature(natureValue);
     }
     
     if (categoryValue && categoryValue !== selectedCategory) {
-      console.log('[TransactionModal] Synchronisation catégorie:', categoryValue);
       setSelectedCategory(categoryValue);
     }
   }, [watch('nature'), watch('categoryId'), selectedNature, selectedCategory]);
@@ -626,6 +819,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     properties: properties || [],
     leases: leases || [],
     categories: categories || [],
+    natures: isAppShellMode && natures && natures.length > 0 ? natures : undefined, // Passer les natures UNIQUEMENT en mode app-shell si disponibles
     mode: mode, // Passer le mode pour désactiver les automatismes en édition
     selectedNature: selectedNature // Passer la nature sélectionnée pour le filtrage
   });
@@ -645,7 +839,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   useEffect(() => {
     // ⚠️ Ne pas écraser les valeurs si on applique une suggestion OCR
     if (isApplyingOcrSuggestion.current) {
-      console.log('[TransactionModal] ⏭️ Application suggestion OCR en cours, skip pré-remplissage bail');
       return;
     }
     
@@ -675,12 +868,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           if (selectedLease.chargesNonRecupMensuelles) {
             setValue('chargesNonRecup', selectedLease.chargesNonRecupMensuelles);
           }
-          
-          console.log('[TransactionModal] Pré-remplissage breakdown (changement bail):', {
-            montantLoyer: selectedLease.rentAmount,
-            chargesRecup: selectedLease.chargesRecupMensuelles,
-            chargesNonRecup: selectedLease.chargesNonRecupMensuelles
-          });
         }
       }
     }
@@ -703,20 +890,15 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       const matchesCodes = selectedNature === gestionCodes.rentNature &&
                            selectedCategorySlug === gestionCodes.rentCategory;
       
-      console.log('[TransactionModal] 🔄 useEffect isAutoAmount (création):', {
-        matchesCodes,
-        selectedNature,
-        selectedCategorySlug,
-        gestionCodes
-      });
+      // useEffect isAutoAmount (création) - log supprimé
       
       // En création : Auto ON par défaut si codes loyer correspondent
       if (matchesCodes) {
         setIsAutoAmount(true);
-        console.log('[TransactionModal] ✅ isAutoAmount défini: true (codes loyer)');
+        // isAutoAmount défini: true - log supprimé
       } else {
         setIsAutoAmount(false);
-        console.log('[TransactionModal] ⚠️ isAutoAmount défini: false (pas codes loyer)');
+        // isAutoAmount défini: false - log supprimé
       }
     }
   }, [mode, isGestionEnabled, gestionCodes, selectedNature, selectedCategory, categories]);
@@ -770,18 +952,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
   }, [propertyId, mode]);
 
-  // Fermer la combobox Nature quand on clique ailleurs
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (isNatureOpen && !(event.target as Element).closest('.nature-combobox')) {
-        setIsNatureOpen(false);
-        setNatureSearch('');
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isNatureOpen]);
+  // Note: SmartSelectAdvanced gère son propre état d'ouverture/fermeture
 
   // 🐛 FIX : Gestion intelligente du breakdown (pré-remplissage OU nettoyage)
   useEffect(() => {
@@ -803,7 +974,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         setValue('montantLoyer', 0);
         setValue('chargesRecup', 0);
         setValue('chargesNonRecup', 0);
-        console.log('[TransactionModal] Nettoyage des champs breakdown (codes ne correspondent plus)');
+        // Nettoyage des champs breakdown
       }
     }
     // Si les codes correspondent ET qu'on a un bail, pré-remplir si les champs sont vides
@@ -826,11 +997,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           setValue('chargesNonRecup', selectedLease.chargesNonRecupMensuelles);
         }
         
-        console.log('[TransactionModal] Pré-remplissage breakdown (retour à loyer):', {
-          montantLoyer: selectedLease.rentAmount,
-          chargesRecup: selectedLease.chargesRecupMensuelles,
-          chargesNonRecup: selectedLease.chargesNonRecupMensuelles
-        });
+        // Pré-remplissage breakdown (retour à loyer)
       }
     }
   }, [selectedNature, selectedCategory, isGestionEnabled, gestionCodes, categories, watch, setValue, selectedLease, isAutoAmount]);
@@ -838,114 +1005,242 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   // Chargement des données initiales
   useEffect(() => {
     if (!isOpen) return;
+    
+    // ⚠️ En mode app-shell, attendre que organizationId soit chargé
+    if (isAppShellMode && !organizationId) {
+      return;
+    }
 
     const loadData = async () => {
       // TOUJOURS nettoyer l'état au début, peu importe le mode
       await clearStaging();
       
       // VIDER COMPLÈTEMENT l'état local du composant
-      setLinkedDocuments([]);
+      // ⚠️ En mode app-shell, ne pas vider linkedDocuments car ils sont gérés par le hook
+      if (!isAppShellMode) {
+        setLinkedDocuments([]);
+      }
       setShowStagedUploadModal(false);
       
       setIsLoading(true);
       try {
-        // Charger les propriétés avec une limite élevée pour récupérer tous les biens
-        const propertiesResponse = await fetch('/api/properties?limit=10000');
-        const propertiesData = await propertiesResponse.json();
-        // L'API retourne { data: [...], pagination: {...} }
-        const propertiesList = propertiesData.data || propertiesData.properties || propertiesData.items || (Array.isArray(propertiesData) ? propertiesData : []);
-        const finalList = Array.isArray(propertiesList) ? propertiesList : [];
-        console.log('[TransactionModal] Propriétés chargées:', finalList.length, 'sur', propertiesData?.pagination?.total || '?');
-        setProperties(finalList);
+        // ✅ Mode app-shell : charger depuis IndexedDB (offline-first)
+        if (isAppShellMode && organizationId) {
+          const db = await getLocalDB();
+          const propRepo = getPropertyRepositoryOffline();
+          const leaseRepo = getLeaseRepositoryOffline();
+          
+          // ⚡ OPTIMISATION : Si on a un propertyId, charger uniquement les baux de ce bien
+          // (on charge quand même toutes les propriétés pour le dropdown si nécessaire)
+          const leasesPromise = context.propertyId
+            ? leaseRepo.getAll(organizationId, { propertyId: context.propertyId })
+            : leaseRepo.getAll(organizationId, {});
+          
+          // ⚡ OPTIMISATION : Charger les propriétés en parallèle avec les autres données
+          // Si on a un propertyId dans le contexte (depuis property page), on peut charger uniquement cette propriété
+          // mais on garde toutes les propriétés pour le dropdown (sauf si vraiment besoin d'optimiser)
+          const propertiesPromise = propRepo.getAll(organizationId, { includeArchived: false });
+          
+          // Charger en parallèle depuis IndexedDB
+          const [propertiesData, leasesData, categoriesData, naturesData] = await Promise.all([
+            propertiesPromise,
+            leasesPromise,
+            db.Category.toArray(),
+            db.NatureEntity.toArray(),
+          ]);
+          
+          // Données chargées depuis IndexedDB
+          
+          setProperties(propertiesData);
+          setLeases(leasesData);
+          setCategories(categoriesData || []);
+          setNatures(naturesData || []);
+        } else {
+          // Mode normal : charger depuis l'API
+          // Charger les propriétés avec une limite élevée pour récupérer tous les biens
+          const propertiesResponse = await fetch('/api/properties?limit=10000');
+          const propertiesData = await propertiesResponse.json();
+          // L'API retourne { data: [...], pagination: {...} }
+          const propertiesList = propertiesData.data || propertiesData.properties || propertiesData.items || (Array.isArray(propertiesData) ? propertiesData : []);
+          const finalList = Array.isArray(propertiesList) ? propertiesList : [];
+          // Propriétés chargées - log supprimé
+          setProperties(finalList);
 
-        // Charger les baux
-        const leasesResponse = await fetch('/api/leases');
-        const leasesData = await leasesResponse.json();
-        const leasesArray = leasesData.items || leasesData.data || leasesData || [];
-        // console.log('[Debug] Leases API response:', leasesData);
-        // console.log('[Debug] Leases array:', leasesArray);
-        setLeases(leasesArray);
+          // Charger les baux
+          const leasesResponse = await fetch('/api/leases');
+          const leasesData = await leasesResponse.json();
+          const leasesArray = leasesData.items || leasesData.data || leasesData || [];
+          setLeases(leasesArray);
 
-        // Charger les catégories
-        const categoriesResponse = await fetch('/api/accounting/categories');
-        const categoriesData = await categoriesResponse.json();
-        setCategories(categoriesData || []);
+          // Charger les catégories
+          const categoriesResponse = await fetch('/api/accounting/categories');
+          const categoriesData = await categoriesResponse.json();
+          setCategories(categoriesData || []);
 
-        // Charger les natures depuis l'API admin
-        const naturesResponse = await fetch('/api/admin/natures');
-        const naturesData = await naturesResponse.json();
-        const naturesArray = naturesData.data || [];
-        console.log('[Debug] Natures loaded:', naturesArray);
-        console.log('[Debug] First nature structure:', naturesArray[0]);
-        setNatures(naturesArray);
+          // Charger les natures depuis l'API admin
+          const naturesResponse = await fetch('/api/admin/natures');
+          const naturesData = await naturesResponse.json();
+          const naturesArray = naturesData.data || [];
+          // Natures loaded (log supprimé)
+          setNatures(naturesArray);
+        }
 
         // Si mode édition, charger la transaction + initialiser session + charger drafts
         if (mode === 'edit' && transactionId) {
-          // Charger en parallèle : transaction + session + drafts
-          const [transactionResponse, sessionId] = await Promise.all([
-            fetch(`/api/transactions/${transactionId}`),
-            createUploadSession({ scope: 'transaction:edit', transactionId })
-          ]);
+          let transactionData: any;
+          let sessionId: string | null = null; // Déclarer sessionId dans la portée correcte
           
-          const transactionData = await transactionResponse.json();
-          console.log('[TransactionModal] Données chargées:', transactionData);
-          console.log('[TransactionModal] Nature:', transactionData.nature);
-          console.log('[TransactionModal] CategoryId:', transactionData.categoryId);
-          console.log('[TransactionModal] Amount:', transactionData.amount);
+          // ✅ Mode app-shell : charger depuis IndexedDB
+          if (isAppShellMode && organizationId) {
+            const transRepo = getTransactionRepositoryOffline();
+            transactionData = await transRepo.getById(transactionId, organizationId);
+            if (!transactionData) {
+              throw new Error('Transaction non trouvée');
+            }
+            
+            await logToServer(`[TransactionModal] 📦 Transaction chargée depuis IndexedDB: id=${transactionData.id}, method="${transactionData.method}", paidAt="${transactionData.paidAt}", paidAt type=${typeof transactionData.paidAt}, keys disponibles: ${JSON.stringify(Object.keys(transactionData).slice(0, 20))}`);
+            
+            // ⚠️ CORRECTION: En mode app-shell, créer aussi une session d'upload pour pouvoir uploader des documents
+            // La session est nécessaire même en mode app-shell pour gérer les uploads de documents
+            try {
+              sessionId = await createUploadSession({ scope: 'transaction:edit', transactionId });
+              await logToServer(`[TransactionModal] ✅ Session d'upload créée en mode app-shell: ${sessionId}`);
+            } catch (error) {
+              await logToServer(`[TransactionModal] ⚠️ Erreur lors de la création de la session d'upload en mode app-shell: ${error}`, 'error');
+              // Ne pas bloquer si la création de session échoue, mais l'utilisateur ne pourra pas uploader de documents
+            }
+          } else {
+            // Mode normal : charger depuis l'API
+            const [transactionResponse, sessionIdFromApi] = await Promise.all([
+              fetch(`/api/transactions/${transactionId}`),
+              createUploadSession({ scope: 'transaction:edit', transactionId })
+            ]);
+            
+            transactionData = await transactionResponse.json();
+            sessionId = sessionIdFromApi;
+          }
+          await logToServer(`[TransactionModal] Données chargées: nature=${transactionData.nature}, categoryId=${transactionData.categoryId}, amount=${transactionData.amount}`);
           
           // ⚙️ CORRECTION: Convertir les montants négatifs (dépenses) en positifs pour l'affichage
           // Dans le formulaire, on saisit toujours en positif, le signe est déterminé par la nature
           const displayAmount = Math.abs(transactionData.amount || 0);
-          console.log('[TransactionModal] Display Amount (abs):', displayAmount);
+          // Display Amount - log supprimé
           
           // Charger le bail lié si bailId existe - AVANT de pré-remplir le formulaire
-          if (transactionData.bailId) {
+          // ⚠️ En mode app-shell, on n'a pas accès à transactionData.bail (objet complet)
+          // Mais on peut charger le bail depuis IndexedDB si on a le leaseId
+          const leaseIdForBail = transactionData.leaseId || transactionData.bailId;
+          if (leaseIdForBail && !isAppShellMode && transactionData.bail) {
             setLinkedBail(transactionData.bail);
+          } else if (leaseIdForBail && isAppShellMode && organizationId) {
+            // En mode app-shell, charger le bail depuis IndexedDB
+            try {
+              const leaseRepo = getLeaseRepositoryOffline();
+              const lease = await leaseRepo.getById(leaseIdForBail, organizationId);
+              if (lease) {
+                setLinkedBail(lease);
+                // Bail chargé depuis IndexedDB - log supprimé
+              }
+            } catch (err) {
+              // Impossible de charger le bail depuis IndexedDB - log supprimé
+            }
+          }
+          
+          // ⚠️ IMPORTANT: Vérifier à la fois leaseId et bailId (certaines transactions peuvent avoir l'un ou l'autre)
+          const leaseIdValue = transactionData.leaseId || transactionData.bailId || null;
+          
+          // Charger le bail lié si bailId/leaseId existe - AVANT de pré-remplir le formulaire
+          // ⚠️ En mode app-shell, on n'a pas accès à transactionData.bail (objet complet)
+          // Mais on peut charger le bail depuis IndexedDB si on a le leaseId
+          if (leaseIdValue) {
+            if (!isAppShellMode && transactionData.bail) {
+              setLinkedBail(transactionData.bail);
+            } else if (isAppShellMode && organizationId) {
+              // En mode app-shell, charger le bail depuis IndexedDB
+              try {
+                const leaseRepo = getLeaseRepositoryOffline();
+                const lease = await leaseRepo.getById(leaseIdValue, organizationId);
+                if (lease) {
+                  setLinkedBail(lease);
+                  // Bail chargé depuis IndexedDB - log supprimé
+                }
+              } catch (err) {
+                // Impossible de charger le bail depuis IndexedDB - log supprimé
+              }
+            }
           }
           
           // Pré-remplir le formulaire avec TOUS les champs
-          console.log('[TransactionModal] Pré-remplissage des champs:', {
-            propertyId: transactionData.propertyId,
-            leaseId: transactionData.leaseId,
-            date: transactionData.date,
-            nature: transactionData.nature,
-            categoryId: transactionData.categoryId,
-            amount: displayAmount,
-            label: transactionData.label,
-            reference: transactionData.reference
-          });
+          // Pré-remplissage des champs - log supprimé
 
           if (transactionData.propertyId) setValue('propertyId', transactionData.propertyId);
-          if (transactionData.leaseId) setValue('leaseId', transactionData.leaseId);
-          if (transactionData.date) setValue('date', transactionData.date);
+          if (leaseIdValue) {
+            // Pré-remplissage du bail - log supprimé
+            setValue('leaseId', leaseIdValue);
+          }
+          // ⚠️ CRITIQUE: Le formulaire <Input type="date"> attend un format "YYYY-MM-DD"
+          // mais date dans IndexedDB est au format ISO "2025-12-22T00:00:00.000Z"
+          // Il faut convertir : "2025-12-22T00:00:00.000Z" → "2025-12-22"
+          if (transactionData.date) {
+            let dateForForm = transactionData.date;
+            // Si c'est un format ISO avec 'T', extraire juste la date
+            if (typeof dateForForm === 'string' && dateForForm.includes('T')) {
+              dateForForm = dateForForm.split('T')[0]; // "2025-12-22T00:00:00.000Z" → "2025-12-22"
+            }
+            setValue('date', dateForForm);
+            await logToServer(`[TransactionModal] ✅ date rempli depuis transactionData.date: "${transactionData.date}" → "${dateForForm}"`);
+          }
           if (transactionData.nature) {
-            console.log('[TransactionModal] Définition de la nature:', transactionData.nature);
-            setSelectedNature(transactionData.nature);
-            setValue('nature', transactionData.nature);
+            // Extraire la nature (peut être un objet en mode normal, string en mode app-shell)
+            const natureValue = typeof transactionData.nature === 'object' 
+              ? transactionData.nature.id || transactionData.nature.key
+              : transactionData.nature;
+            // Définition de la nature - log supprimé
+            setSelectedNature(natureValue);
+            setValue('nature', natureValue);
             // Forcer la mise à jour de la combobox nature
             setTimeout(() => {
               const currentNature = getValues('nature');
-              console.log('[TransactionModal] Nature après setValue:', currentNature);
+              // Nature après setValue - log supprimé
             }, 50);
           }
           if (transactionData.categoryId) {
-            console.log('[TransactionModal] Définition de la catégorie:', transactionData.categoryId);
+            // Définition de la catégorie - log supprimé
             setSelectedCategory(transactionData.categoryId);
             setValue('categoryId', transactionData.categoryId);
             // Forcer la mise à jour de la combobox catégorie
             setTimeout(() => {
               const currentCategory = getValues('categoryId');
-              console.log('[TransactionModal] Catégorie après setValue:', currentCategory);
+              // Catégorie après setValue - log supprimé
             }, 50);
           }
           if (displayAmount) setValue('amount', displayAmount);
           if (transactionData.label) setValue('label', transactionData.label);
           if (transactionData.reference) setValue('reference', transactionData.reference);
           // Champs de paiement
-          if (transactionData.paymentDate) setValue('paymentDate', transactionData.paymentDate);
-          if (transactionData.paymentMethod) setValue('paymentMethod', transactionData.paymentMethod);
-          if (transactionData.paidAt) setValue('paidAt', transactionData.paidAt);
-          if (transactionData.method) setValue('method', transactionData.method);
+          // ⚙️ NORMALISATION: Dans IndexedDB/Supabase:
+          // - Le champ s'appelle "paidAt" (pas "paymentDate")
+          // - Le champ s'appelle "method" (pas "paymentMethod")
+          // Le formulaire utilise "paymentDate" et "paymentMethod", donc on mappe:
+          // - paidAt → paymentDate
+          // - method → paymentMethod
+          // ⚠️ CRITIQUE: Le formulaire <Input type="date"> attend un format "YYYY-MM-DD"
+          // mais paidAt dans IndexedDB est au format ISO "2025-12-22T00:00:00.000Z"
+          // Il faut convertir : "2025-12-22T00:00:00.000Z" → "2025-12-22"
+          if (transactionData.paidAt) {
+            let dateForForm = transactionData.paidAt;
+            // Si c'est un format ISO avec 'T', extraire juste la date
+            if (typeof dateForForm === 'string' && dateForForm.includes('T')) {
+              dateForForm = dateForForm.split('T')[0]; // "2025-12-22T00:00:00.000Z" → "2025-12-22"
+            }
+            setValue('paymentDate', dateForForm);
+            await logToServer(`[TransactionModal] ✅ paymentDate rempli depuis transactionData.paidAt: "${transactionData.paidAt}" → "${dateForForm}"`);
+          }
+          // ⚠️ IMPORTANT: transactionData.method (depuis IndexedDB) → paymentMethod (champ formulaire)
+          if (transactionData.method) {
+            setValue('paymentMethod', transactionData.method);
+            await logToServer(`[TransactionModal] ✅ paymentMethod rempli depuis transactionData.method: "${transactionData.method}"`);
+          }
           // Champs de rapprochement
           if (transactionData.rapprochementStatus) setValue('rapprochementStatus', transactionData.rapprochementStatus);
           if (transactionData.bankRef) setValue('bankRef', transactionData.bankRef);
@@ -969,38 +1264,64 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           if (transactionData.chargesNonRecup) setValue('chargesNonRecup', transactionData.chargesNonRecup);
           
           // Restaurer l'état du toggle Auto en édition
-          console.log('[TransactionModal] 🔄 Restauration isAutoAmount:', transactionData.isAutoAmount);
+          // Restauration isAutoAmount - log supprimé
           
           // Fallback intelligent selon le type de transaction
           const isCommission = transactionData.parentTransactionId && transactionData.autoSource === 'gestion';
           
           if (transactionData.isAutoAmount !== undefined && transactionData.isAutoAmount !== null) {
             setIsAutoAmount(transactionData.isAutoAmount);
-            console.log('[TransactionModal] ✅ isAutoAmount restauré:', transactionData.isAutoAmount);
+            // isAutoAmount restauré - log supprimé
           } else if (isCommission) {
             // Commission legacy (données anciennes) : forcer à false
             setIsAutoAmount(false);
-            console.log('[TransactionModal] ⚠️ Commission legacy, isAutoAmount forcé: false');
+            // Commission legacy, isAutoAmount forcé: false - log supprimé
           } else {
             // Transaction normale sans isAutoAmount défini : true par défaut
             setIsAutoAmount(true);
-            console.log('[TransactionModal] ⚠️ isAutoAmount non défini, fallback: true');
+            // isAutoAmount non défini, fallback: true - log supprimé
           }
 
           // Forcer la mise à jour du formulaire avec reset
+          // ⚠️ IMPORTANT: Utiliser leaseId ou bailId selon ce qui est disponible
+          const leaseIdForForm = transactionData.leaseId || transactionData.bailId || '';
+          
+          // ⚙️ NORMALISATION: Dans IndexedDB/Supabase:
+          // - Le champ s'appelle "paidAt" (pas "paymentDate")
+          // - Le champ s'appelle "method" (pas "paymentMethod")
+          // Le formulaire utilise "paymentDate" et "paymentMethod", donc on mappe:
+          // - paidAt → paymentDate
+          // - method → paymentMethod
+          // ⚠️ CRITIQUE: Le formulaire <Input type="date"> attend un format "YYYY-MM-DD"
+          // mais paidAt dans IndexedDB est au format ISO "2025-12-22T00:00:00.000Z"
+          // Il faut convertir : "2025-12-22T00:00:00.000Z" → "2025-12-22"
+          const normalizedPaymentMethod = transactionData.method || ''; // IndexedDB stocke dans "method"
+          let normalizedPaymentDate = transactionData.paidAt || ''; // IndexedDB stocke dans "paidAt"
+          if (normalizedPaymentDate && typeof normalizedPaymentDate === 'string' && normalizedPaymentDate.includes('T')) {
+            normalizedPaymentDate = normalizedPaymentDate.split('T')[0]; // Extraire juste la date "YYYY-MM-DD"
+          }
+          
+          // ⚠️ CRITIQUE: Le formulaire <Input type="date"> attend un format "YYYY-MM-DD"
+          // mais date dans IndexedDB est au format ISO "2025-12-22T00:00:00.000Z"
+          // Il faut convertir : "2025-12-22T00:00:00.000Z" → "2025-12-22"
+          let normalizedDate = transactionData.date || '';
+          if (normalizedDate && typeof normalizedDate === 'string' && normalizedDate.includes('T')) {
+            normalizedDate = normalizedDate.split('T')[0]; // Extraire juste la date "YYYY-MM-DD"
+          }
+          
           const formData = {
             propertyId: transactionData.propertyId || '',
-            leaseId: transactionData.leaseId || '',
-            date: transactionData.date || '',
+            leaseId: leaseIdForForm,
+            date: normalizedDate,
             nature: typeof transactionData.nature === 'object' ? transactionData.nature.id : (transactionData.nature || ''),
             categoryId: transactionData.categoryId || '',
             amount: displayAmount || 0,
             label: transactionData.label || '',
             reference: transactionData.reference || '',
-            paymentDate: transactionData.paymentDate || '',
-            paymentMethod: transactionData.paymentMethod || '',
+            paymentDate: normalizedPaymentDate, // Mapper "paidAt" → "paymentDate" pour le formulaire
+            paymentMethod: normalizedPaymentMethod, // Mapper "method" → "paymentMethod" pour le formulaire
             paidAt: transactionData.paidAt || '',
-            method: transactionData.method || '',
+            method: transactionData.method || '', // Garder aussi "method" pour compatibilité
             notes: transactionData.notes || '',
             periodStart: transactionData.periodStart || '',
             accountingMonth: transactionData.accountingMonth || '',
@@ -1012,13 +1333,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             bankRef: transactionData.bankRef || ''
           };
           
-          console.log('[TransactionModal] Reset du formulaire avec:', formData);
+          // Reset du formulaire - log supprimé
           
           // Utiliser setValue pour chaque champ au lieu de reset
           Object.entries(formData).forEach(([key, value]) => {
             if (value !== undefined && value !== null && value !== '') {
               setValue(key as any, value);
-              console.log(`[TransactionModal] setValue(${key}, ${value})`);
+              // setValue - log supprimé
             }
           });
           
@@ -1037,91 +1358,161 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             periodMonth: transactionData.periodMonth || '',
             periodYear: transactionData.periodYear || new Date().getFullYear()
           });
-          console.log('[TransactionModal] États locaux mis à jour immédiatement:', {
-            nature: natureValue,
-            categoryId: transactionData.categoryId,
-            label: transactionData.label,
-            periodMonth: transactionData.periodMonth,
-            periodYear: transactionData.periodYear
-          });
           
-          // Vérifier les valeurs après reset
-          setTimeout(() => {
-            const currentValues = getValues();
-            console.log('[TransactionModal] Valeurs du formulaire après reset:', {
-              nature: currentValues.nature,
-              categoryId: currentValues.categoryId,
-              propertyId: currentValues.propertyId,
-              leaseId: currentValues.leaseId
-            });
-            console.log('[TransactionModal] États locaux:', {
-              selectedNature,
-              selectedCategory
-            });
-          }, 100);
+          // Vérifier les valeurs après reset - log supprimé
           
           // ✅ isAutoAmount est déjà restauré depuis transactionData.isAutoAmount (ligne 787-793)
           // Pas besoin de l'écraser ici !
           
-          // Charger les documents liés actifs (avec liaisons détaillées)
-          // Note: Ne pas écraser linkedDocuments car ils viennent de loadLinkedDocuments() 
-          // qui contient les liaisons détaillées via /api/transactions/[id]/documents
-          if (transactionData.Document) {
-            console.log('[TransactionModal] Documents de la transaction (sans liaisons):', transactionData.Document);
-            console.log('[TransactionModal] Premier document de la transaction:', transactionData.Document[0]);
-            console.log('[TransactionModal] Premier document links de la transaction:', transactionData.Document[0]?.DocumentLink);
-            // Ne pas faire setLinkedDocuments(transactionData.Document) car cela écrase les liaisons
-            console.log('[TransactionModal] Documents avec liaisons déjà chargés via loadLinkedDocuments()');
-          }
-          
           // Charger les documents liés avec leurs liaisons détaillées
-          await loadLinkedDocuments();
+          // (uniquement après avoir chargé toutes les autres données pour éviter les conflits)
+          // En mode app-shell, les documents sont chargés via le hook useTransactionDocuments
+          if (!isAppShellMode) {
+            await loadLinkedDocuments();
+          }
 
           // Charger les drafts et liens de la session
+          // ⚠️ CORRECTION: En mode app-shell, charger aussi les stagedDocuments (brouillons) de la session
           if (sessionId) {
-            await loadStagedDocuments(sessionId);
-            
-            // Charger aussi les liens vers documents existants
             try {
-              const sessionResponse = await fetch(`/api/upload-session/${sessionId}`);
-              if (sessionResponse.ok) {
-                const sessionData = await sessionResponse.json();
-                if (sessionData.success) {
-                  setStagedLinks(sessionData.DocumentLink || []);
-                  console.log('[TransactionModal] Liens vers documents existants chargés:', sessionData.DocumentLink?.length || 0);
+              const allStagedDocs = await loadStagedDocuments(sessionId);
+              
+              // ⚠️ CORRECTION: Filtrer les stagedDocuments pour exclure ceux qui sont déjà finalisés (status !== 'draft')
+              // ou qui sont déjà liés à la transaction (pour éviter d'afficher les brouillons des documents déjà validés)
+              const linkedDocumentIds = new Set(
+                (isAppShellMode ? hookLinkedDocuments : linkedDocuments).map(doc => doc.id)
+              );
+              
+              const filteredStagedDocs = allStagedDocs.filter(doc => {
+                // Exclure les documents qui ne sont plus en brouillon (déjà finalisés)
+                if (doc.status && doc.status !== 'draft') {
+                  return false;
                 }
+                // Exclure les documents qui sont déjà liés à la transaction
+                if (linkedDocumentIds.has(doc.id)) {
+                  return false;
+                }
+                return true;
+              });
+              
+              // Mettre à jour uniquement avec les documents filtrés
+              if (filteredStagedDocs.length !== allStagedDocs.length) {
+                // Utiliser setStagedDocuments directement si disponible, sinon le hook le gère
+                if (setStagedDocuments) {
+                  setStagedDocuments(filteredStagedDocs);
+                }
+                await logToServer(`[TransactionModal] ✅ StagedDocuments filtrés: ${filteredStagedDocs.length}/${allStagedDocs.length} (exclus les finalisés/déjà liés)`);
+              } else {
+                await logToServer(`[TransactionModal] ✅ StagedDocuments chargés pour session ${sessionId}: ${allStagedDocs.length} document(s)`);
               }
             } catch (error) {
-              console.error('[TransactionModal] Erreur lors du chargement des liens:', error);
+              await logToServer(`[TransactionModal] ⚠️ Erreur lors du chargement des stagedDocuments: ${error}`, 'error');
             }
             
-            console.log('[TransactionModal] Session chargée et drafts récupérés');
+            // Charger aussi les liens vers documents existants (mode normal uniquement)
+            // En mode app-shell, les documents liés sont déjà chargés via useTransactionDocuments
+            if (!isAppShellMode) {
+              try {
+                const sessionResponse = await fetch(`/api/upload-session/${sessionId}`);
+                if (sessionResponse.ok) {
+                  const sessionData = await sessionResponse.json();
+                  if (sessionData.success) {
+                    setStagedLinks(sessionData.DocumentLink || []);
+                    // Liens vers documents existants chargés - log supprimé
+                  }
+                }
+              } catch (error) {
+                // Erreur lors du chargement des liens - log supprimé
+              }
+            }
+            
+            // Session chargée et drafts récupérés - log supprimé
           }
         } 
         // Si mode création, initialiser session pour nouveau
         else if (mode === 'create') {
           // Empêcher la double initialisation (React Strict Mode déclenche 2x le useEffect en dev)
           if (sessionInitializedRef.current) {
-            console.log('[TransactionModal] ⏭️ Session déjà initialisée, skip');
+            // Session déjà initialisée, skip - log supprimé
             return;
           }
           
           sessionInitializedRef.current = true;
           
-          let sessionIdToUse: string | null = null;
+              let sessionIdToUse: string | null = null;
+
+              // DEBUG - suggestionMeta reçu - log supprimé
           
-          // Si on a un document suggéré, récupérer sa session d'upload ou le document finalisé
-          if (suggestionMeta?.documentId) {
-            try {
-              console.log('[TransactionModal] 📄 Récupération de la session du document uploadé:', suggestionMeta.documentId);
-              
-              // D'abord, essayer de récupérer le document en staging
-              const docResponse = await fetch(`/api/upload-staged/${suggestionMeta.documentId}`);
-              if (docResponse.ok) {
+          // Si pas de session existante, créer une nouvelle
+          if (!sessionIdToUse) {
+            // FORCER le nettoyage complet pour une nouvelle transaction AVANT de charger le document suggéré
+            await clearStaging();
+            // ⚠️ En mode app-shell, ne pas vider linkedDocuments car ils sont gérés par le hook
+            if (!isAppShellMode) {
+              setLinkedDocuments([]);
+            }
+            setStagedDocuments([]);
+            // ⚠️ IMPORTANT : Ne pas vider stagedLinks ici, on va le charger juste après
+            // setStagedLinks([]); // ← Retiré pour éviter de supprimer le document suggéré
+            
+            sessionIdToUse = await createUploadSession({ scope: 'transaction:new' });
+            
+            // ⚠️ MAINTENANT charger le document suggéré APRÈS clearStaging et création session
+            // Variable pour stocker le document suggéré à charger après clearStaging
+            let suggestedDocumentLinkItem: any = null;
+            
+            if (suggestionMeta?.documentId) {
+              if (isAppShellMode) {
+                // En mode app-shell, charger le document depuis IndexedDB
+                try {
+                  // Mode app-shell : Chargement du document suggéré - log supprimé
+                  const db = await getLocalDB();
+                  const doc = await db.Document.get(suggestionMeta.documentId);
+                  
+                  if (doc && doc.organizationId === organizationId) {
+                    // Récupérer le type de document pour afficher le label
+                    let typeLabel = 'Non classé';
+                    if (doc.documentTypeId) {
+                      const docType = await db.DocumentType.get(doc.documentTypeId);
+                      if (docType) {
+                        typeLabel = docType.label;
+                      }
+                    }
+                    
+                    // Construire le format attendu par stagedLinks (comme le format de l'API)
+                    suggestedDocumentLinkItem = {
+                      id: doc.id, // Utiliser l'ID du document comme ID du lien (pour compatibilité avec le code existant)
+                      existingDocument: {
+                        id: doc.id,
+                        fileName: doc.fileName || doc.filenameOriginal || 'Document',
+                        filenameOriginal: doc.filenameOriginal,
+                        mime: doc.mime,
+                        size: doc.size,
+                        status: doc.status,
+                        uploadedAt: doc.uploadedAt || doc.createdAt || new Date().toISOString(),
+                        typeLabel: typeLabel,
+                      },
+                    };
+                    
+                    // Document suggéré préparé pour stagedLinks - log supprimé
+                  } else {
+                    // Document suggéré non trouvé dans IndexedDB - log supprimé
+                  }
+                } catch (error) {
+                  // Erreur lors du chargement du document suggéré - log supprimé
+                }
+              } else {
+                // Mode normal : logique existante
+              try {
+                // Récupération de la session du document uploadé - log supprimé
+                
+                // D'abord, essayer de récupérer le document en staging
+                const docResponse = await fetch(`/api/upload-staged/${suggestionMeta.documentId}`);
+                if (docResponse.ok) {
                 const docData = await docResponse.json();
                 if (docData.uploadSessionId) {
                   sessionIdToUse = docData.uploadSessionId;
-                  console.log('[TransactionModal] ✅ Session du document récupérée:', sessionIdToUse);
+                  // Session du document récupérée - log supprimé
                   
                   // Charger les documents de la session existante
                   await loadStagedDocuments(sessionIdToUse);
@@ -1133,17 +1524,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       const sessionData = await sessionResponse.json();
                       if (sessionData.success) {
                         setStagedLinks(sessionData.links || []);
-                        console.log('[TransactionModal] Liens vers documents existants chargés:', sessionData.links?.length || 0);
+                        // Liens vers documents existants chargés - log supprimé
                       }
                     }
                   } catch (error) {
-                    console.error('[TransactionModal] Erreur lors du chargement des liens:', error);
+                    // Erreur lors du chargement des liens - log supprimé
                   }
                 }
               } else if (docResponse.status === 404) {
                 // Le document n'est pas en staging, c'est un document finalisé
                 // Créer une nouvelle session et lier le document finalisé
-                console.log('[TransactionModal] 📄 Document finalisé détecté, création d\'un lien dans la session');
+                // Document finalisé détecté, création d'un lien - log supprimé
                 
                 // Créer une nouvelle session d'abord
                 if (!sessionIdToUse) {
@@ -1167,7 +1558,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   
                   if (linkResponse.ok) {
                     const linkData = await linkResponse.json();
-                    console.log('[TransactionModal] ✅ Lien vers document finalisé créé:', linkData.itemId);
+                    // Lien vers document finalisé créé - log supprimé
                     
                     // Charger les liens de la session
                     const sessionResponse = await fetch(`/api/upload-session/${sessionIdToUse}`);
@@ -1175,29 +1566,38 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       const sessionData = await sessionResponse.json();
                       if (sessionData.success) {
                         setStagedLinks(sessionData.links || []);
-                        console.log('[TransactionModal] Liens vers documents existants chargés:', sessionData.links?.length || 0);
+                        // Liens vers documents existants chargés - log supprimé
                       }
                     }
                   } else {
-                    console.warn('[TransactionModal] ⚠️ Erreur lors de la création du lien:', await linkResponse.text());
+                    // Erreur lors de la création du lien - log supprimé
                   }
                 } catch (error) {
-                  console.error('[TransactionModal] ⚠️ Erreur lors de la création du lien vers document finalisé:', error);
+                  // Erreur lors de la création du lien vers document finalisé - log supprimé
                 }
               }
             } catch (error) {
-              console.warn('[TransactionModal] ⚠️ Erreur lors de la récupération de la session du document:', error);
+              // Erreur lors de la récupération de la session du document - log supprimé
             }
-          }
-          
-          // Si pas de session existante, créer une nouvelle
-          if (!sessionIdToUse) {
-            // FORCER le nettoyage complet pour une nouvelle transaction
-            await clearStaging();
-            setLinkedDocuments([]);
-            setStagedDocuments([]);
-            setStagedLinks([]); // Clear staged links
-            sessionIdToUse = await createUploadSession({ scope: 'transaction:new' });
+            }
+            }
+            
+            // ⚠️ Si on a un document suggéré préparé en mode app-shell, l'ajouter APRÈS la création de la session
+            if (suggestedDocumentLinkItem) {
+              await logToServer(`[TransactionModal] 🔄 Ajout du document suggéré à stagedLinks: docId=${suggestedDocumentLinkItem.existingDocument?.id || 'N/A'}`);
+              // ⚠️ IMPORTANT : S'assurer que stagedLinks est bien vidé avant d'ajouter le document suggéré
+              setStagedLinks([]); // D'abord vider pour éviter les doublons
+              // Utiliser une fonction de callback pour garantir que le state est bien mis à jour
+              setStagedLinks(prev => {
+                const newLinks = [suggestedDocumentLinkItem];
+                logToServer(`[TransactionModal] ✅ Document suggéré ajouté à stagedLinks - total: ${newLinks.length}`).catch(console.error);
+                return newLinks;
+              });
+            } else {
+              // Si pas de document suggéré, vider stagedLinks maintenant
+              setStagedLinks([]);
+              await logToServer(`[TransactionModal] ⚠️ Aucun document suggéré à ajouter - suggestionMeta.documentId: ${suggestionMeta?.documentId || 'undefined'}`);
+            }
           }
           
           // Stocker l'ID pour la liaison du document
@@ -1205,7 +1605,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           
           // En mode création, le montant est en mode auto par défaut
           setIsAutoAmount(true);
-          console.log('[TransactionModal] 🆕 Mode création - isAutoAmount initialisé: true');
+          // Mode création - isAutoAmount initialisé - log supprimé
         }
 
         // Initialiser la période
@@ -1222,11 +1622,41 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             periodMonth: String(currentDate.getMonth() + 1).padStart(2, '0'),
             periodYear: currentDate.getFullYear()
           });
+          
+          // ⚠️ IMPORTANT : Pré-remplir le propertyId depuis le context si disponible
+          if (context.type === 'property' && context.propertyId) {
+            // Pré-remplissage propertyId depuis context - log supprimé
+            setValue('propertyId', context.propertyId);
+            
+            // Charger les baux du bien
+            try {
+              // ✅ Charger les baux depuis IndexedDB si app-shell, sinon API
+              let leasesArray: any[] = [];
+              if (isAppShellMode && organizationId) {
+                const leaseRepo = getLeaseRepositoryOffline();
+                leasesArray = await leaseRepo.getAll(organizationId, { propertyId: context.propertyId });
+                setLeases(leasesArray);
+              } else {
+                const leasesResponse = await fetch(`/api/leases?propertyId=${context.propertyId}`);
+                const leasesData = await leasesResponse.json();
+                leasesArray = leasesData.items || leasesData.data || leasesData || [];
+                setLeases(leasesArray);
+              }
+              
+              // Auto-sélectionner le bail si un seul bail actif
+              if (leasesArray.length === 1 && leasesArray[0].status === 'ACTIF') {
+                setValue('leaseId', leasesArray[0].id);
+                // Auto-sélection du bail unique - log supprimé
+              }
+            } catch (error) {
+              // Erreur chargement baux - log supprimé
+            }
+          }
         }
 
         // ✨ Appliquer le pré-remplissage OCR si disponible (mode création uniquement)
         if (mode === 'create' && prefill) {
-          console.log('[TransactionModal] 🤖 Application du pré-remplissage OCR:', prefill);
+          // Application du pré-remplissage OCR - log supprimé
           
           if (prefill.propertyId) setValue('propertyId', prefill.propertyId);
           if (prefill.leaseId) setValue('leaseId', prefill.leaseId);
@@ -1253,7 +1683,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           
           // Date de paiement
           if (prefill.paymentDate) {
-            console.log('[TransactionModal] 🤖 Applique paymentDate depuis prefill:', prefill.paymentDate);
+            // Applique paymentDate depuis prefill - log supprimé
             setValue('paymentDate', prefill.paymentDate);
           }
           // Activer le calcul auto si breakdown présent
@@ -1268,21 +1698,21 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             periodYear: prefill.periodYear || currentDate.getFullYear()
           });
           
-          console.log('[TransactionModal] ✅ Pré-remplissage OCR appliqué avec confiance:', suggestionMeta?.confidence);
+          // Pré-remplissage OCR appliqué - log supprimé
           
           // Lier automatiquement le document suggéré
-          if (suggestionMeta?.documentId) {
+          if (suggestionMeta?.documentId && !isAppShellMode) {
             // Vérifier si ce document n'est pas déjà lié
             if (linkedDocumentIds.current.has(suggestionMeta.documentId)) {
-              console.log('[TransactionModal] ⏭️ Document déjà lié, skip:', suggestionMeta.documentId);
+              // Document déjà lié, skip - log supprimé
             } else {
               // Récupérer l'ID de session (depuis window ou uploadSessionId)
               const sessionId = (window as any).__currentUploadSessionId || uploadSessionId;
               
               if (!sessionId) {
-                console.warn('[TransactionModal] ⚠️ Pas de session ID disponible pour lier le document');
+                // Pas de session ID disponible pour lier le document - log supprimé
               } else {
-                console.log('[TransactionModal] 📄 Liaison automatique du document:', suggestionMeta.documentId, 'session:', sessionId);
+                // Liaison automatique du document - log supprimé
                 try {
                   // Créer un lien vers le document suggéré
                   const linkResponse = await fetch('/api/upload-staged/link-existing', {
@@ -1305,11 +1735,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       setStagedLinks(prev => [...prev, linkData.item]);
                       // Marquer comme lié pour éviter les doublons
                       linkedDocumentIds.current.add(suggestionMeta.documentId);
-                      console.log('[TransactionModal] ✅ Document suggéré lié automatiquement');
+                      // Document suggéré lié automatiquement - log supprimé
                     }
                   }
                 } catch (linkError) {
-                  console.warn('[TransactionModal] ⚠️ Erreur liaison document suggéré:', linkError);
+                  // Erreur liaison document suggéré - log supprimé
                   // Non-bloquant : continuer même si la liaison échoue
                 }
               }
@@ -1317,16 +1747,21 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           }
         }
 
-      } catch (error) {
-        console.error('Erreur lors du chargement des données:', error);
-        notify2.error('Erreur lors du chargement des données');
+      } catch (error: any) {
+        // Erreur lors du chargement des données - log supprimé
+        // Ne pas afficher l'erreur si c'est juste un problème de données manquantes en mode app-shell
+        // (le hook useTransactionDocuments gère son propre état de chargement)
+        if (!isAppShellMode || !organizationId) {
+          notify2.error('Erreur lors du chargement des données');
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     loadData();
-  }, [isOpen, mode, transactionId, setValue]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, mode, transactionId, context.type, context.propertyId, organizationId, isAppShellMode]);
 
   // Réinitialiser le tracking des documents liés et de session quand la modale se ferme
   useEffect(() => {
@@ -1335,138 +1770,37 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       sessionInitializedRef.current = false;
       processedDocIds.current.clear();
       isApplyingOcrSuggestion.current = false; // Réinitialiser le flag OCR
-      console.log('[TransactionModal] 🧹 Reset tracking documents liés et session');
+      // Reset tracking documents liés et session - log supprimé
     }
   }, [isOpen]);
 
   // 🤖 Surveiller les nouveaux documents uploadés pour détecter les types avec openTransaction
-  useEffect(() => {
-    const checkNewDocuments = async () => {
-      // Ne vérifier que si la modale est ouverte et qu'il y a des documents
-      if (!isOpen || stagedDocuments.length === 0) return;
-      
-      // Récupérer le dernier document ajouté
-      const lastDoc = stagedDocuments[stagedDocuments.length - 1];
-      
-      // Éviter de traiter plusieurs fois le même document
-      if (processedDocIds.current.has(lastDoc.id)) {
-        return;
-      }
-      
-      console.log('[TransactionModal] 🤖 Nouveau document détecté:', {
-        id: lastDoc.id,
-        name: lastDoc.name || lastDoc.fileName,
-        detectedTypeId: lastDoc.detectedTypeId,
-        documentTypeId: lastDoc.documentTypeId,
-        type: lastDoc.type,
-        ocrStatus: lastDoc.ocrStatus
-      });
-      
-      // Récupérer le type de document ASSIGNÉ (pas les prédictions)
-      // On ne vérifie openTransaction que si le document a un type réellement assigné
-      let typeId = lastDoc.documentTypeId || lastDoc.typeId; // Utiliser documentTypeId (type assigné)
-      let finalDoc = lastDoc as any;
-      
-      // Si pas de type assigné immédiatement, attendre et recharger plusieurs fois
-      // MAIS on ne prend PAS les prédictions, seulement le type assigné
-      if (!typeId) {
-        const maxAttempts = 5;
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          console.log(`[TransactionModal] 🤖 Pas de type assigné immédiatement, tentative ${attempt}/${maxAttempts} dans 1s...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          try {
-            const docResponse = await fetch(`/api/upload-staged/${lastDoc.id}`);
-            if (docResponse.ok) {
-              const updatedDoc = await docResponse.json();
-              finalDoc = updatedDoc;
-              console.log('[TransactionModal] 🤖 Document rechargé:', {
-                id: updatedDoc.id,
-                typeId: updatedDoc.typeId, // C'est le documentTypeId assigné
-                type: updatedDoc.type,
-                hasPredictions: !!updatedDoc.predictions?.length
-              });
-              // IMPORTANT: On ne prend QUE le typeId assigné, PAS les prédictions
-              typeId = updatedDoc.typeId; // typeId correspond à documentTypeId dans l'API
-              if (typeId) {
-                console.log('[TransactionModal] ✅ Type assigné trouvé:', typeId);
-                break;
-              }
-            } else {
-              console.warn('[TransactionModal] ⚠️ Impossible de recharger le document, statut:', docResponse.status);
-            }
-          } catch (error) {
-            console.error('[TransactionModal] ❌ Erreur rechargement document:', error);
-          }
-        }
-
-        // Recharger la liste des documents pour mettre à jour l'affichage si on a récupéré le type
-        if (typeId && uploadSessionId) {
-          try {
-            await loadStagedDocuments(uploadSessionId);
-          } catch (error) {
-            console.warn('[TransactionModal] ⚠️ Impossible de rafraîchir les documents après détection du type:', error);
-          }
-        }
-      }
-      
-      // Si toujours pas de type ASSIGNÉ après toutes les tentatives, abandonner
-      // On ne vérifie pas openTransaction si le document n'a pas de type assigné
-      if (!typeId) {
-        console.log('[TransactionModal] 🤖 Aucun type assigné après plusieurs tentatives pour:', lastDoc.name, '- Pas de vérification openTransaction');
-        processedDocIds.current.add(lastDoc.id); // Marquer comme traité pour éviter de réessayer
-        return;
-      }
-      
-      // Marquer ce document comme traité
-      processedDocIds.current.add(lastDoc.id);
-      
-      try {
-        // Récupérer les infos du DocumentType pour vérifier openTransaction
-        // MAIS seulement si le document a un type réellement assigné
-        console.log('[TransactionModal] 🤖 Vérification du type assigné:', typeId);
-        const response = await fetch(`/api/admin/document-types/${typeId}`);
-        
-        if (!response.ok) {
-          console.warn('[TransactionModal] ⚠️ Erreur récupération type de document');
-          return;
-        }
-        
-        const responseData = await response.json();
-        const docType = responseData.data || responseData; // Support les deux formats
-        console.log('[TransactionModal] 🤖 Type récupéré:', docType.label, 'openTransaction:', docType.openTransaction);
-        
-        // Si le type a openTransaction = true, proposer la suggestion
-        // MAIS seulement si le document a ce type réellement assigné (pas juste une prédiction)
-        if (docType.openTransaction) {
-          console.log('[TransactionModal] 🎯 Document avec type assigné et openTransaction=true, affichage modale suggestion');
-          setPendingSuggestion({
-            documentId: lastDoc.id,
-            documentTypeName: docType.label
-          });
-          setShowSuggestionModal(true);
-        } else {
-          console.log('[TransactionModal] ℹ️ Type assigné mais openTransaction=false, pas de suggestion');
-        }
-      } catch (error) {
-        console.error('[TransactionModal] ❌ Erreur lors de la vérification du type:', error);
-      }
-    };
-    
-    checkNewDocuments();
-  }, [stagedDocuments, isOpen, uploadSessionId, loadStagedDocuments]);
+  // ⚠️ PROBLÈME 1: DÉSACTIVÉ dans TransactionModal - on est dans une transaction, pas dans un upload standalone
+  // Le message "transaction IA sera ouverte" et l'ouverture automatique ne doivent PAS se produire ici
+  // Quand on ajoute un document dans une modal de transaction, on ne doit ni afficher le message d'avertissement
+  // ni ouvrir automatiquement une modal de transaction IA, car on est déjà dans le contexte d'une transaction.
+  // useEffect(() => {
+  //   ... (code désactivé)
+  // }, [stagedDocuments, isOpen, uploadSessionId, loadStagedDocuments]);
 
   // 🤖 Fonction pour appliquer les suggestions de transaction depuis un document
   const handleConfirmSuggestion = async () => {
     if (!pendingSuggestion) return;
     
     setShowSuggestionModal(false);
-    console.log('[TransactionModal] 🤖 Début extraction données depuis document:', pendingSuggestion.documentId);
+    // Début extraction données depuis document - log supprimé
     
     // ⚠️ Activer le flag pour éviter l'écrasement par le pré-remplissage du bail
     isApplyingOcrSuggestion.current = true;
     
     try {
       // Appeler l'API de suggestion
+      // ⚠️ En mode app-shell, ne pas faire de fetch
+      if (isAppShellMode) {
+        // Mode app-shell : suggestion de transaction non disponible - log supprimé
+        return;
+      }
+
       const response = await fetch(
         `/api/documents/${pendingSuggestion.documentId}/suggest-transaction`
       );
@@ -1476,62 +1810,61 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       }
       
       const responseData = await response.json();
-      console.log('[TransactionModal] 🤖 Réponse complète:', responseData);
+      // Réponse complète - log supprimé
       
       // L'API retourne { success: true, data: { confidence, suggestions: {...}, meta } }
       const suggestionPayload = responseData.data || responseData;
       
       if (!suggestionPayload || !suggestionPayload.suggestions) {
-        console.warn('[TransactionModal] ⚠️ Pas de suggestions dans la réponse:', responseData);
+        // Pas de suggestions dans la réponse - log supprimé
         notify2.warning('Aucune donnée exploitable trouvée dans le document');
         isApplyingOcrSuggestion.current = false; // Réinitialiser le flag
         return;
       }
       
       const suggestion = suggestionPayload.suggestions;
-      console.log('[TransactionModal] 🤖 Suggestions extraites:', suggestion);
-      console.log('[TransactionModal] 🤖 paymentDate dans suggestions:', (suggestion as any).paymentDate);
+      // Suggestions extraites - log supprimé
       
       // Appliquer les suggestions au formulaire
       // ⚠️ IMPORTANT: Appliquer propertyId et leaseId EN DERNIER pour éviter que le useEffect du bail ne s'exécute avant
       if (suggestion.date) {
-        console.log('[TransactionModal] 🤖 Applique date:', suggestion.date);
+        // Applique date - log supprimé
         setValue('date', suggestion.date);
       }
       if (suggestion.nature) {
-        console.log('[TransactionModal] 🤖 Applique nature:', suggestion.nature);
+        // Applique nature - log supprimé
         setSelectedNature(suggestion.nature);
         setValue('nature', suggestion.nature);
       }
       if (suggestion.categoryId) {
-        console.log('[TransactionModal] 🤖 Applique categoryId:', suggestion.categoryId);
+        // Applique categoryId - log supprimé
         setSelectedCategory(suggestion.categoryId);
         setValue('categoryId', suggestion.categoryId);
       }
       if (suggestion.montantLoyer) {
-        console.log('[TransactionModal] 🤖 Applique montantLoyer:', suggestion.montantLoyer);
+        // Applique montantLoyer - log supprimé
         setValue('montantLoyer', suggestion.montantLoyer);
       }
       if (suggestion.chargesRecup) {
-        console.log('[TransactionModal] 🤖 Applique chargesRecup:', suggestion.chargesRecup);
+        // Applique chargesRecup - log supprimé
         setValue('chargesRecup', suggestion.chargesRecup);
       }
       if (suggestion.chargesNonRecup) {
-        console.log('[TransactionModal] 🤖 Applique chargesNonRecup:', suggestion.chargesNonRecup);
+        // Applique chargesNonRecup - log supprimé
         setValue('chargesNonRecup', suggestion.chargesNonRecup);
       }
       if (suggestion.periodMonth) {
-        console.log('[TransactionModal] 🤖 Applique periodMonth:', suggestion.periodMonth);
+        // Applique periodMonth - log supprimé
         setValue('periodMonth', suggestion.periodMonth);
         setLocalFormData(prev => ({ ...prev, periodMonth: suggestion.periodMonth }));
       }
       if (suggestion.periodYear) {
-        console.log('[TransactionModal] 🤖 Applique periodYear:', suggestion.periodYear);
+        // Applique periodYear - log supprimé
         setValue('periodYear', suggestion.periodYear);
         setLocalFormData(prev => ({ ...prev, periodYear: suggestion.periodYear }));
       }
       if (suggestion.accountingMonth) {
-        console.log('[TransactionModal] 🤖 Applique accountingMonth:', suggestion.accountingMonth);
+        // Applique accountingMonth - log supprimé
         setValue('accountingMonth', suggestion.accountingMonth);
         // Extraire mois et année
         const [year, month] = suggestion.accountingMonth.split('-');
@@ -1540,57 +1873,52 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         setLocalFormData(prev => ({ ...prev, periodMonth: month, periodYear: parseInt(year, 10) }));
       }
       if (suggestion.label) {
-        console.log('[TransactionModal] 🤖 Applique label:', suggestion.label);
+        // Applique label - log supprimé
         setValue('label', suggestion.label);
         setLocalFormData(prev => ({ ...prev, label: suggestion.label }));
-      }
-      console.log('[TransactionModal] 🤖 Vérification paymentDate:', {
-        hasPaymentDate: !!(suggestion as any).paymentDate,
-        paymentDate: (suggestion as any).paymentDate,
-        allKeys: Object.keys(suggestion)
-      });
-      if ((suggestion as any).paymentDate) {
-        console.log('[TransactionModal] 🤖 Applique paymentDate:', (suggestion as any).paymentDate);
+          }
+          // Vérification paymentDate - log supprimé
+          if ((suggestion as any).paymentDate) {
         setValue('paymentDate', (suggestion as any).paymentDate);
-        console.log('[TransactionModal] 🤖 paymentDate appliqué avec setValue');
+        // paymentDate appliqué - log supprimé
       } else {
-        console.log('[TransactionModal] ⚠️ paymentDate non trouvé dans les suggestions');
+        // paymentDate non trouvé dans les suggestions - log supprimé
       }
       
       // Activer le mode auto-calcul si montants détaillés présents
       if (suggestion.montantLoyer || suggestion.chargesRecup) {
-        console.log('[TransactionModal] 🤖 Active isAutoAmount');
+        // Active isAutoAmount - log supprimé
         setIsAutoAmount(true);
       }
       
       // Appliquer propertyId et leaseId EN DERNIER (déclenche le useEffect du bail)
       if (suggestion.propertyId) {
-        console.log('[TransactionModal] 🤖 Applique propertyId:', suggestion.propertyId);
+        // Applique propertyId - log supprimé
         setValue('propertyId', suggestion.propertyId);
       }
       if (suggestion.leaseId) {
-        console.log('[TransactionModal] 🤖 Applique leaseId:', suggestion.leaseId);
+        // Applique leaseId - log supprimé
         setValue('leaseId', suggestion.leaseId);
       }
       if (suggestion.amount) {
-        console.log('[TransactionModal] 🤖 Applique amount:', suggestion.amount);
+        // Applique amount - log supprimé
         setValue('amount', suggestion.amount);
       }
       
       // Attendre un peu pour que tous les useEffect se déclenchent, puis désactiver le flag
       setTimeout(() => {
         isApplyingOcrSuggestion.current = false;
-        console.log('[TransactionModal] ✅ Flag OCR suggestion désactivé');
+        // Flag OCR suggestion désactivé - log supprimé
       }, 500);
       
       // Basculer sur l'onglet "Information essentielle"
       setActiveTab('essentielles');
       
       notify2.success('Transaction pré-remplie avec succès !');
-      console.log('[TransactionModal] ✅ Suggestion appliquée avec succès');
+      // Suggestion appliquée avec succès - log supprimé
       
     } catch (error) {
-      console.error('[TransactionModal] ❌ Erreur lors de l\'extraction:', error);
+      // Erreur lors de l'extraction - log supprimé
       notify2.error('Erreur lors de l\'extraction des données du document');
       isApplyingOcrSuggestion.current = false; // Réinitialiser le flag en cas d'erreur
     } finally {
@@ -1612,19 +1940,24 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   // Soumission directe sans vérification des documents non classés
   const submitFormDirectly = async (data: TransactionFormData) => {
-    console.log('[TransactionModalV2] submitFormDirectly appelé avec:', data);
+    // submitFormDirectly appelé - log supprimé
     setIsSubmitting(true);
     try {
       // Ajouter les documents en staging et les liens (création ET édition)
-      const stagedDocumentIds = stagedDocuments.map(doc => doc.id);
-      const stagedLinkItemIds = stagedLinks.map(link => link.id);
+      // ⚠️ CORRECTION: Utiliser filteredStagedDocuments pour éviter d'envoyer les documents déjà finalisés
+      const stagedDocumentIds = filteredStagedDocuments.map(doc => doc.id);
+      // ⚠️ IMPORTANT: Utiliser existingDocument.id (ID du document) et non link.id (ID du lien)
+      const stagedLinkItemIds = stagedLinks.map(link => link.existingDocument?.id || link.id);
       
-      // S'assurer que les valeurs des états locaux sont incluses
-      console.log('[TransactionModalV2] États locaux:', {
-        selectedNature,
-        selectedCategory,
-        localFormData
-      });
+      // Logs côté serveur pour diagnostic COMPLET
+      await logToServer(`[TransactionModalV2] 📎 onSubmitForm - filteredStagedDocuments: ${filteredStagedDocuments.length}, stagedDocumentIds: ${stagedDocumentIds.length} - IDs: ${stagedDocumentIds.join(', ') || 'aucun'}`);
+      await logToServer(`[TransactionModalV2] 📎 onSubmitForm - stagedLinks: ${stagedLinks.length}, stagedLinkItemIds: ${stagedLinkItemIds.length} - IDs: ${stagedLinkItemIds.join(', ') || 'aucun'}`);
+      if (filteredStagedDocuments.length > 0) {
+        await logToServer(`[TransactionModalV2] 📎 filteredStagedDocuments détail: ${JSON.stringify(filteredStagedDocuments.map(d => ({ id: d.id, name: d.name || d.fileName, status: d.status })))}`);
+      }
+      if (stagedLinks.length > 0) {
+        await logToServer(`[TransactionModalV2] 📎 stagedLinks détail: ${JSON.stringify(stagedLinks.map(l => ({ id: l.id, existingDocId: l.existingDocument?.id })))}`);
+      }
       
       // Construire accountingMonth à partir de periodMonth et periodYear pour la modification
       const periodMonth = localFormData.periodMonth || data.periodMonth;
@@ -1632,21 +1965,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       const accountingMonth = periodMonth && periodYear ? `${periodYear}-${periodMonth.padStart(2, '0')}` : data.accountingMonth;
       
       // Normaliser les champs de paiement pour l'API
-      console.log('[TransactionModalV2] Champs de paiement dans data:', {
-        paidAt: (data as any).paidAt,
-        paymentDate: (data as any).paymentDate,
-        method: (data as any).method,
-        paymentMethod: (data as any).paymentMethod
-      });
-      
       // FIX: Prioriser les valeurs du formulaire (paymentDate, paymentMethod)
-      const normalizedPaidAt = (data as any).paymentDate || (data as any).paidAt || undefined;
-      const normalizedMethod = (data as any).paymentMethod || (data as any).method || undefined;
+      // ⚠️ CRITIQUE: Utiliser !== undefined pour détecter la présence du champ, même si la valeur est vide
+      // Si paymentDate/paymentMethod sont présents (même vide ""), les convertir en null ou la valeur
+      const normalizedPaidAt = (data as any).paymentDate !== undefined ? ((data as any).paymentDate || null) : ((data as any).paidAt !== undefined ? (data as any).paidAt : undefined);
+      const normalizedMethod = (data as any).paymentMethod !== undefined ? ((data as any).paymentMethod || null) : ((data as any).method !== undefined ? (data as any).method : undefined);
       
-      console.log('[TransactionModalV2] Valeurs normalisées:', {
-        normalizedPaidAt,
-        normalizedMethod
-      });
+      await logToServer(`[TransactionModalV2] 🔍 DEBUG payment fields dans submitFormDirectly: data.paymentDate="${(data as any).paymentDate}", data.paidAt="${(data as any).paidAt}", normalizedPaidAt="${normalizedPaidAt}"`);
+      await logToServer(`[TransactionModalV2] 🔍 DEBUG method dans submitFormDirectly: data.paymentMethod="${(data as any).paymentMethod}", data.method="${(data as any).method}", normalizedMethod="${normalizedMethod}"`);
 
       const dataWithLocalStates = {
         ...data,
@@ -1676,15 +2002,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         factures: (prefill as any)?.factures || undefined
       };
       
-      console.log('[TransactionModalV2] Mode:', mode);
-      console.log('[TransactionModalV2] isAutoAmount actuel:', isAutoAmount);
-      console.log('[TransactionModalV2] Données envoyées à onSubmit:', dataWithStagedDocuments);
-      console.log('🔍 [DEBUG] Breakdown loyer FRONTEND:', {
-        montantLoyer: dataWithStagedDocuments.montantLoyer,
-        chargesRecup: dataWithStagedDocuments.chargesRecup,
-        chargesNonRecup: dataWithStagedDocuments.chargesNonRecup,
-        isAutoAmount: dataWithStagedDocuments.isAutoAmount
-      });
+      await logToServer(`[TransactionModalV2] 📎 Données envoyées à onSubmit - stagedDocumentIds: ${dataWithStagedDocuments.stagedDocumentIds?.length || 0} - IDs: ${dataWithStagedDocuments.stagedDocumentIds?.join(', ') || 'aucun'}`);
+      await logToServer(`[TransactionModalV2] 📎 Données envoyées à onSubmit - stagedLinkItemIds: ${dataWithStagedDocuments.stagedLinkItemIds?.length || 0} - IDs: ${dataWithStagedDocuments.stagedLinkItemIds?.join(', ') || 'aucun'}`);
       const result = await onSubmit(dataWithStagedDocuments);
       
       // Gérer la réponse avec les transactions multiples
@@ -1707,16 +2026,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       onClose();
       reset();
       
-      // En mode édition, recharger les documents liés après la sauvegarde
-      if (mode === 'edit' && transactionId) {
-        console.log('[TransactionModalV2] Rechargement des documents après sauvegarde...');
+      // En mode édition, recharger les documents liés après la sauvegarde (mode normal uniquement)
+      if (mode === 'edit' && transactionId && !isAppShellMode) {
+        // Rechargement des documents après sauvegarde - log supprimé
         // Délai pour éviter les conflits avec reset()
         setTimeout(async () => {
           await loadLinkedDocuments();
         }, 100);
       }
+      // En mode app-shell, le hook se rafraîchira automatiquement via les événements
     } catch (error) {
-      console.error('Erreur lors de la soumission:', error);
+      // Erreur lors de la soumission - log supprimé
       notify2.error('Erreur lors de la sauvegarde');
     } finally {
       setIsSubmitting(false);
@@ -1725,7 +2045,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   // Gestion de la soumission
   const onSubmitForm = async (data: TransactionFormData) => {
-    console.log('[TransactionModalV2] onSubmitForm appelé avec:', data);
+    // onSubmitForm appelé - log supprimé (déjà loggé via logToServer)
     
     // Vérifier que le bien est sélectionné (sauf en mode property où il est pré-rempli)
     if (context.type === 'global' && (!data.propertyId || data.propertyId.trim() === '')) {
@@ -1734,7 +2054,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
     
     // Vérifier les documents non classés avant la soumission
-    const unclassifiedDocs = stagedDocuments.filter(doc => 
+    const unclassifiedDocs = filteredStagedDocuments.filter(doc => 
       !doc.type || doc.type === 'Non classé' || doc.type === 'Type inconnu'
     );
     
@@ -1775,11 +2095,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-4xl mx-4 my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 overflow-y-auto">
+      {/* Overlay - fixed inset-0 pour couvrir 100% du viewport */}
+      <div 
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={handleClose}
+      />
+      {/* Modal - Mobile: quasi plein écran avec cadre (marges + radius + ombre), Desktop: centré avec max-width */}
+      <div className="relative bg-white rounded-2xl shadow-2xl border border-gray-200 md:border-base-200 w-[calc(100vw-24px)] h-[calc(100dvh-24px)] max-w-[560px] md:max-w-4xl md:h-auto md:max-h-[85vh] flex flex-col md:shadow-xl md:ring-1 md:ring-black/5 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
-          <h2 className="text-xl font-semibold text-gray-900">
+        <div className="flex items-center justify-between p-4 border-b flex-shrink-0 sticky top-0 bg-white z-20 rounded-t-2xl overflow-hidden">
+          <h2 className="text-lg lg:text-xl font-semibold text-gray-900">
             {title || (mode === 'create' ? 'Nouvelle transaction' : 'Modifier la transaction')}
           </h2>
           <button
@@ -1790,44 +2116,44 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="border-b">
+        {/* Tabs - Mobile: scrollable horizontalement, Desktop: normal */}
+        <div className="border-b flex-shrink-0 sticky top-[73px] lg:relative lg:top-auto bg-white z-10">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <div className="flex">
+            <div className="flex overflow-x-auto scrollbar-hide lg:overflow-x-visible">
               <button
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-3 lg:px-4 py-2 text-xs lg:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
                   activeTab === 'essentielles'
-                    ? 'border-blue-500 text-blue-600'
+                    ? 'border-orange-600 text-orange-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
                 onClick={() => setActiveTab('essentielles')}
               >
-                Informations essentielles
+                Essentiel
               </button>
               <button
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-3 lg:px-4 py-2 text-xs lg:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                  activeTab === 'calcul'
+                    ? 'border-orange-600 text-orange-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setActiveTab('calcul')}
+              >
+                Calcul
+              </button>
+              <button
+                className={`px-3 lg:px-4 py-2 text-xs lg:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
                   activeTab === 'paiement'
-                    ? 'border-blue-500 text-blue-600'
+                    ? 'border-orange-600 text-orange-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
                 onClick={() => setActiveTab('paiement')}
               >
-                € Paiement
+                Paiement
               </button>
               <button
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'periode'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-                onClick={() => setActiveTab('periode')}
-              >
-                Période
-              </button>
-              <button
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-3 lg:px-4 py-2 text-xs lg:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
                   activeTab === 'documents'
-                    ? 'border-blue-500 text-blue-600'
+                    ? 'border-orange-600 text-orange-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
                 onClick={() => setActiveTab('documents')}
@@ -1838,24 +2164,23 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           </Tabs>
         </div>
 
-        {/* Contenu du formulaire */}
+        {/* Contenu du formulaire - Scrollable avec safe areas iOS */}
         <form onSubmit={handleSubmit((data) => {
-          console.log('[TransactionModalV2] handleSubmit appelé avec:', data);
-          console.log('[TransactionModalV2] Erreurs de validation:', errors);
+          // handleSubmit appelé - log supprimé
           onSubmitForm(data);
-        })} className="p-6 relative">
+        })} className="p-4 md:p-4 relative overflow-y-auto flex-1 min-h-0 pb-24 md:pb-4 bg-white">
           {/* Overlay de chargement */}
           {isLoading && (
             <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50">
               <div className="text-center">
-                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mb-4"></div>
                 <p className="text-gray-600 font-medium">Chargement en cours...</p>
               </div>
             </div>
           )}
 
           {activeTab === 'essentielles' && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               {/* Bien */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1868,7 +2193,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       <div className="relative">
                         <input
                           type="text"
-                          value={properties.find(p => p.id === watch('propertyId'))?.name + ' - ' + properties.find(p => p.id === watch('propertyId'))?.address || 'Bien sélectionné'}
+                          value={(() => {
+                            const propertyIdValue = watch('propertyId');
+                            const property = propertyIdValue ? properties.find(p => p.id === propertyIdValue) : null;
+                            if (property) {
+                              return `${property.name}${property.address ? ' - ' + property.address : ''}`;
+                            }
+                            return propertyIdValue ? 'Bien sélectionné' : 'Chargement...';
+                          })()}
                           disabled
                           className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-600 cursor-not-allowed"
                         />
@@ -1921,7 +2253,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       <span className="text-gray-700">
                         {linkedBail.Tenant?.firstName} {linkedBail.Tenant?.lastName} - {linkedBail.status}
                       </span>
-                      <span className="text-xs text-gray-500 bg-blue-100 px-2 py-1 rounded">
+                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
                         🔒 Lié
                       </span>
                     </div>
@@ -1933,7 +2265,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         <button
                           type="button"
                           onClick={() => setShowLinkBailModal(true)}
-                          className="text-xs text-blue-600 hover:text-blue-800 underline"
+                          className="text-xs text-gray-600 hover:text-gray-800 underline"
                         >
                           Lier un bail
                         </button>
@@ -1941,17 +2273,18 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     </div>
                   ) : (
                     // Mode création - sélecteur normal
-                    <select
-                      {...register('leaseId')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                    <option value="">Aucun bail</option>
-                    {(filteredLeases || []).map((lease) => (
-                      <option key={lease.id} value={lease.id}>
-                        {lease.Tenant?.firstName} {lease.Tenant?.lastName} - {lease.rentAmount || lease.rent || 0}€
-                      </option>
-                    ))}
-                  </select>
+                    <SmartSelect
+                      value={watch('leaseId') || ''}
+                      onChange={(value) => setValue('leaseId', value)}
+                      options={[
+                        { value: '', label: 'Aucun bail' },
+                        ...(filteredLeases || []).map((lease): SmartSelectOption => ({
+                          value: lease.id,
+                          label: `${lease.Tenant?.firstName || ''} ${lease.Tenant?.lastName || ''} - ${lease.rentAmount || lease.rent || 0}€`,
+                        })),
+                      ]}
+                      placeholder="Aucun bail"
+                    />
                   )}
                 </div>
               </div>
@@ -1962,10 +2295,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   <Label htmlFor="date" className="text-sm font-medium text-gray-700">
                     Date *
                   </Label>
-                  <Input
-                    type="date"
-                    {...register('date')}
-                    className={errors.date ? 'border-red-500' : ''}
+                  <SmartDatePicker
+                    value={watch('date') || ''}
+                    onChange={(value) => setValue('date', value)}
+                    placeholder="Sélectionner une date"
+                    error={!!errors.date}
+                    id="date"
+                    name="date"
                   />
                   {errors.date && (
                     <p className="text-red-500 text-sm mt-1">{errors.date.message}</p>
@@ -1976,75 +2312,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   <Label htmlFor="nature" className="text-sm font-medium text-gray-700">
                     Nature *
                   </Label>
-                  <div className="relative nature-combobox">
-                    <button
-                      type="button"
-                      onClick={() => setIsNatureOpen(!isNatureOpen)}
-                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-left flex items-center justify-between ${
-                        errors.nature ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                    >
-                      <span className={(selectedNature || watch('nature')) ? 'text-gray-900' : 'text-gray-500'}>
-                        {getSelectedNatureLabel()}
-                      </span>
-                      <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${isNatureOpen ? 'rotate-180' : ''}`} />
-                    </button>
-                    
-                    {isNatureOpen && (
-                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-80 overflow-hidden">
-                        {/* Barre de recherche */}
-                        <div className="p-2 border-b border-gray-200">
-                          <div className="relative">
-                            <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
-                            <input
-                              type="text"
-                              placeholder="Rechercher une nature..."
-                              value={natureSearch}
-                              onChange={(e) => setNatureSearch(e.target.value)}
-                              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              autoFocus
-                            />
-                          </div>
-                        </div>
-                        
-                        {/* Liste des options */}
-                        <div className="max-h-64 overflow-y-auto">
-                          {getFilteredNatureOptions().map((group) => (
-                            <div key={group.group}>
-                              {/* En-tête de groupe */}
-                              <div className="px-3 py-2 text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
-                                <span>{group.icon}</span>
-                                {group.group}
-                              </div>
-                              
-                              {/* Options du groupe */}
-                              {group.options.map((option) => (
-                                <button
-                                  key={option.value}
-                                  type="button"
-                                  onClick={() => handleNatureSelect(option.value)}
-                                  className={`w-full px-3 py-2 text-left hover:bg-blue-50 transition-colors ${
-                                    watch('nature') === option.value ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
-                                  }`}
-                                >
-                                  <div className="flex flex-col">
-                                    <span className="font-medium">{option.label}</span>
-                                    <span className="text-xs text-gray-500">{option.description}</span>
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          ))}
-                          
-                          {getFilteredNatureOptions().length === 0 && (
-                            <div className="px-3 py-4 text-center text-gray-500 text-sm">
-                              Aucune nature trouvée
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <SmartSelectAdvanced
+                    value={watch('nature') || ''}
+                    onChange={handleNatureSelect}
+                    groups={natureGroups}
+                    placeholder="Sélectionner une nature"
+                    searchPlaceholder="Rechercher une nature..."
+                    error={!!errors.nature}
+                    id="nature"
+                    name="nature"
+                  />
                   {errors.nature && (
                     <p className="text-red-500 text-sm mt-1">{errors.nature.message}</p>
                   )}
@@ -2057,23 +2334,23 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   Catégorie *
                 </Label>
                 <div className="relative">
-                  <select
+                  <SmartSelect
                     value={selectedCategory || watch('categoryId') || ''}
-                    onChange={(e) => {
-                      setValue('categoryId', e.target.value);
-                      setSelectedCategory(e.target.value);
+                    onChange={(value) => {
+                      setValue('categoryId', value);
+                      setSelectedCategory(value);
                     }}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                      errors.categoryId ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                  >
-                    <option value="">Sélectionner une catégorie</option>
-                    {(filteredCategories || []).map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {String(category.label || 'Catégorie sans nom')}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: '', label: 'Sélectionner une catégorie' },
+                      ...(filteredCategories || []).map((category): SmartSelectOption => ({
+                        value: category.id,
+                        label: String(category.label || 'Catégorie sans nom'),
+                      })),
+                    ]}
+                    placeholder="Sélectionner une catégorie"
+                    error={!!errors.categoryId}
+                    disabled={filteredCategories.length === 0 && (selectedNature || watch('nature'))}
+                  />
                   {filteredCategories.length === 0 && (selectedNature || watch('nature')) && (
                     <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-md">
                       <p className="text-amber-800 text-sm mb-2">
@@ -2083,7 +2360,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         <a 
                           href="/admin/nature-mapping" 
                           target="_blank"
-                          className="text-xs text-blue-600 hover:text-blue-800 underline"
+                          className="text-xs text-gray-600 hover:text-gray-800 underline"
                         >
                           🔧 Configurer le mapping
                         </a>
@@ -2091,21 +2368,18 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         <button
                           type="button"
                           onClick={() => window.location.reload()}
-                          className="text-xs text-blue-600 hover:text-blue-800 underline"
+                          className="text-xs text-gray-600 hover:text-gray-800 underline"
                         >
                           🔄 Recharger les catégories
                         </button>
                       </div>
                     </div>
                   )}
-                  <div className="absolute right-2 top-2 flex items-center gap-1">
-                    {mappingLoading && (
-                      <div className="loading loading-spinner loading-xs text-blue-500"></div>
-                    )}
-                    <Tooltip content="La liste est filtrée selon la nature">
-                      <Info className="h-4 w-4 text-gray-400" />
-                    </Tooltip>
-                  </div>
+                  {mappingLoading && (
+                    <div className="absolute right-2 top-2 flex items-center gap-1">
+                      <div className="loading loading-spinner loading-xs text-orange-500"></div>
+                    </div>
+                  )}
                 </div>
                 {errors.categoryId && (
                   <p className="text-red-500 text-sm mt-1">{errors.categoryId.message}</p>
@@ -2190,6 +2464,85 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 )}
               </div>
 
+
+              {/* Info-bulle si bien a société mais feature OFF */}
+              {(() => {
+                if (!gestionCodes || !watch('propertyId') || isGestionEnabled) return null;
+                
+                // Convertir selectedCategory (ID) en slug pour la comparaison
+                const selectedCategoryObj = categories.find(c => c.id === selectedCategory);
+                const selectedCategorySlug = selectedCategoryObj?.slug || '';
+                
+                if (selectedNature !== gestionCodes.rentNature || 
+                    selectedCategorySlug !== gestionCodes.rentCategory) {
+                  return null;
+                }
+                
+                const selectedProperty = properties.find(p => p.id === watch('propertyId'));
+                if (!selectedProperty?.ManagementCompany || !selectedProperty.ManagementCompany.actif) return null;
+                
+                return (
+                  <div className="bg-gray-100 border border-gray-300 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Info className="h-5 w-5 text-gray-500" />
+                      <h4 className="text-sm font-medium text-gray-700">
+                        Gestion déléguée désactivée
+                      </h4>
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      La gestion déléguée est désactivée dans les paramètres. Aucune commission ne sera calculée pour ce loyer, même si le bien est lié à une société de gestion ({selectedProperty.ManagementCompany.nom}).
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* Libellé */}
+              <div>
+                <Label htmlFor="label" className="text-sm font-medium text-gray-700">
+                  Libellé
+                </Label>
+                <div className="relative">
+                  <Input
+                    value={localFormData.label || watch('label') || ''}
+                    placeholder="Libellé de la transaction"
+                    onChange={(e) => {
+                      setValue('label', e.target.value);
+                      setLocalFormData(prev => ({ ...prev, label: e.target.value }));
+                      markAsManual('label');
+                    }}
+                  />
+                  {!autoFillState.isManual.label && autoFillState.autoSuggestions.label && (
+                    <div className="absolute right-2 top-2 flex items-center gap-1">
+                      <Badge variant="secondary" className="text-xs">auto</Badge>
+                    </div>
+                  )}
+                  {autoFillState.isManual.label && (
+                    <button
+                      type="button"
+                      onClick={() => resetToAuto('label')}
+                      className="absolute right-2 top-2 text-gray-500 hover:text-gray-700"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Référence */}
+              <div>
+                <Label htmlFor="reference" className="text-sm font-medium text-gray-700">
+                  Référence
+                </Label>
+                <Input
+                  {...register('reference')}
+                  placeholder="Référence (optionnel)"
+                />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'calcul' && (
+            <div className="space-y-4">
               {/* Granularité loyers (Gestion déléguée) - affichage conditionnel selon codes système */}
               {(() => {
                 // Convertir selectedCategory (ID) en slug pour la comparaison
@@ -2211,37 +2564,42 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 // - JAMAIS pour les transactions enfant (commission)
                 const shouldShow = !isChildTransaction && matchesCodes;
                 
-                return shouldShow && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-4">
+                if (!shouldShow) {
+                  // Message informatif si les conditions ne sont pas remplies
+                  return (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center">
+                      <Info className="h-8 w-8 text-gray-400 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-gray-900 mb-2">
+                        Détail du loyer non disponible
+                      </p>
+                      <p className="text-xs text-gray-600">
+                        Le détail du loyer (loyer hors charges, charges récupérables, etc.) est disponible uniquement pour les transactions de type loyer avec gestion déléguée activée.
+                      </p>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Sélectionnez une nature "Loyer" et une catégorie correspondante dans l'onglet "Essentiel" pour activer cette section.
+                      </p>
+                    </div>
+                  );
+                }
+                
+                return (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-3">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-medium text-blue-900">
+                      <h4 className="text-sm font-medium text-gray-900">
                         Détail du loyer (optionnel)
                       </h4>
                       
                       {/* Toggle Auto pour calcul automatique du Montant */}
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-600">Calcul auto du montant</span>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={isAutoAmount}
-                          onClick={() => setIsAutoAmount(!isAutoAmount)}
-                          className={`
-                            relative inline-flex h-6 w-11 items-center rounded-full transition-colors
-                            ${isAutoAmount ? 'bg-blue-600' : 'bg-gray-300'}
-                          `}
-                        >
-                          <span
-                            className={`
-                              inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                              ${isAutoAmount ? 'translate-x-6' : 'translate-x-1'}
-                            `}
-                          />
-                        </button>
+                        <Switch
+                          checked={isAutoAmount}
+                          onCheckedChange={setIsAutoAmount}
+                        />
                       </div>
                     </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
                       <Label htmlFor="montantLoyer" className="text-sm font-medium text-gray-700">
                         Loyer hors charges (€)
@@ -2325,12 +2683,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   </div>
                   
                   {/* Total payé par le locataire (hors charges non récup) */}
-                  <div className="bg-white rounded p-3 border border-blue-200">
+                  <div className="bg-white rounded p-2 border border-gray-200">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-gray-700">
                         Total payé par le locataire:
                       </span>
-                      <span className="text-lg font-bold text-blue-900">
+                      <span className="text-lg font-bold text-gray-900">
                         {((watch('montantLoyer') || 0) + (watch('chargesRecup') || 0)).toFixed(2)} €
                       </span>
                     </div>
@@ -2388,376 +2746,419 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 const commissionTTC = commissionBaseTTC + montantFactures;
                 
                 return (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="text-green-700">⚙️</span>
-                      <h4 className="text-sm font-medium text-green-900">
-                        Commission de gestion estimée
-                      </h4>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                      <span className="text-gray-600">Base de calcul:</span>
-                      <span className="font-medium text-right">{base.toFixed(2)} €</span>
-                      
-                      <span className="text-gray-600">Taux:</span>
-                      <span className="font-medium text-right">{(company.taux * 100).toFixed(2)}%</span>
-                      
-                      {company.fraisMin && (
-                        <>
-                          <span className="text-gray-600">Minimum:</span>
-                          <span className="font-medium text-right">{company.fraisMin.toFixed(2)} €</span>
-                        </>
-                      )}
-                      
-                      {company.tvaApplicable && (
-                        <>
-                          <span className="text-gray-600">TVA ({company.tauxTva}%):</span>
+                  <Accordion title="Commission de gestion estimée" defaultOpen={false}>
+                    <div className="p-3">
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                          <span className="text-gray-600">Base de calcul:</span>
+                          <span className="font-medium text-right">{base.toFixed(2)} €</span>
+                          
+                          <span className="text-gray-600">Taux:</span>
+                          <span className="font-medium text-right">{(company.taux * 100).toFixed(2)}%</span>
+                          
+                          {company.fraisMin && (
+                            <>
+                              <span className="text-gray-600">Minimum:</span>
+                              <span className="font-medium text-right">{company.fraisMin.toFixed(2)} €</span>
+                            </>
+                          )}
+                          
+                          {company.tvaApplicable && (
+                            <>
+                              <span className="text-gray-600">TVA ({company.tauxTva}%):</span>
+                              <span className="font-medium text-right">
+                                {(commissionTTC - commission).toFixed(2)} €
+                              </span>
+                            </>
+                          )}
+                          
+                          <span className="text-gray-700 font-medium">Commission {company.tvaApplicable ? 'TTC' : 'HT'}:</span>
                           <span className="font-medium text-right">
-                            {(commissionTTC - commission).toFixed(2)} €
+                            {commissionBaseTTC.toFixed(2)} €
                           </span>
-                        </>
-                      )}
-                      
-                      <span className="text-gray-700 font-medium">Commission {company.tvaApplicable ? 'TTC' : 'HT'}:</span>
-                      <span className="font-medium text-right">
-                        {commissionBaseTTC.toFixed(2)} €
-                      </span>
-                      
-                      {montantFactures > 0 && (
-                        <>
-                          <span className="text-gray-600">+ Factures:</span>
-                          <span className="font-medium text-right">
-                            {montantFactures.toFixed(2)} €
+                          
+                          {montantFactures > 0 && (
+                            <>
+                              <span className="text-gray-600">+ Factures:</span>
+                              <span className="font-medium text-right">
+                                {montantFactures.toFixed(2)} €
+                              </span>
+                            </>
+                          )}
+                          
+                          <span className="text-gray-700 font-medium">Total commission:</span>
+                          <span className="font-bold text-orange-700 text-right text-lg">
+                            {commissionTTC.toFixed(2)} €
                           </span>
-                        </>
-                      )}
-                      
-                      <span className="text-gray-700 font-medium">Total commission:</span>
-                      <span className="font-bold text-green-900 text-right text-lg">
-                        {commissionTTC.toFixed(2)} €
-                      </span>
-                    </div>
-                    
-                    {montantFactures > 0 && factures.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-green-200">
-                        <p className="text-xs text-gray-600 mb-1">Factures incluses:</p>
-                        <ul className="text-xs text-gray-500 space-y-1">
-                          {factures.map((f: any, idx: number) => (
-                            <li key={idx}>
-                              • {f.numero ? `Facture ${f.numero}` : 'Facture'} 
-                              {f.fournisseur ? ` - ${f.fournisseur}` : ''}
-                              {f.description ? ` - ${f.description}` : ''}
-                              : <span className="font-medium">{f.montant.toFixed(2)} €</span>
-                            </li>
-                          ))}
-                        </ul>
+                        </div>
+                        
+                        {montantFactures > 0 && factures.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-green-200">
+                            <p className="text-xs text-gray-600 mb-1">Factures incluses:</p>
+                            <ul className="text-xs text-gray-500 space-y-1">
+                              {factures.map((f: any, idx: number) => (
+                                <li key={idx}>
+                                  • {f.numero ? `Facture ${f.numero}` : 'Facture'} 
+                                  {f.fournisseur ? ` - ${f.fournisseur}` : ''}
+                                  {f.description ? ` - ${f.description}` : ''}
+                                  : <span className="font-medium">{f.montant.toFixed(2)} €</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        
+                        <p className="text-xs text-gray-500 mt-3 flex items-center gap-1">
+                          <span>💡</span>
+                          La commission sera créée automatiquement lors de l'enregistrement
+                        </p>
                       </div>
-                    )}
-                    
-                    <p className="text-xs text-gray-500 mt-3 flex items-center gap-1">
-                      <span>💡</span>
-                      La commission sera créée automatiquement lors de l'enregistrement
-                    </p>
-                  </div>
+                    </div>
+                  </Accordion>
                 );
               })()}
-
-              {/* Info-bulle si bien a société mais feature OFF */}
-              {(() => {
-                if (!gestionCodes || !watch('propertyId') || isGestionEnabled) return null;
-                
-                // Convertir selectedCategory (ID) en slug pour la comparaison
-                const selectedCategoryObj = categories.find(c => c.id === selectedCategory);
-                const selectedCategorySlug = selectedCategoryObj?.slug || '';
-                
-                if (selectedNature !== gestionCodes.rentNature || 
-                    selectedCategorySlug !== gestionCodes.rentCategory) {
-                  return null;
-                }
-                
-                const selectedProperty = properties.find(p => p.id === watch('propertyId'));
-                if (!selectedProperty?.ManagementCompany || !selectedProperty.ManagementCompany.actif) return null;
-                
-                return (
-                  <div className="bg-gray-100 border border-gray-300 rounded-lg p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Info className="h-5 w-5 text-gray-500" />
-                      <h4 className="text-sm font-medium text-gray-700">
-                        Gestion déléguée désactivée
-                      </h4>
-                    </div>
-                    <p className="text-sm text-gray-600">
-                      La gestion déléguée est désactivée dans les paramètres. Aucune commission ne sera calculée pour ce loyer, même si le bien est lié à une société de gestion ({selectedProperty.ManagementCompany.nom}).
-                    </p>
-                  </div>
-                );
-              })()}
-
-              {/* Libellé */}
-              <div>
-                <Label htmlFor="label" className="text-sm font-medium text-gray-700">
-                  Libellé
-                </Label>
-                <div className="relative">
-                  <Input
-                    value={localFormData.label || watch('label') || ''}
-                    placeholder="Libellé de la transaction"
-                    onChange={(e) => {
-                      setValue('label', e.target.value);
-                      setLocalFormData(prev => ({ ...prev, label: e.target.value }));
-                      markAsManual('label');
-                    }}
-                  />
-                  {!autoFillState.isManual.label && autoFillState.autoSuggestions.label && (
-                    <div className="absolute right-2 top-2 flex items-center gap-1">
-                      <Badge variant="secondary" className="text-xs">auto</Badge>
-                    </div>
-                  )}
-                  {autoFillState.isManual.label && (
-                    <button
-                      type="button"
-                      onClick={() => resetToAuto('label')}
-                      className="absolute right-2 top-2 text-blue-500 hover:text-blue-700"
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Référence */}
-              <div>
-                <Label htmlFor="reference" className="text-sm font-medium text-gray-700">
-                  Référence
-                </Label>
-                <Input
-                  {...register('reference')}
-                  placeholder="Référence (optionnel)"
-                />
-              </div>
             </div>
           )}
 
           {activeTab === 'paiement' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="paymentDate" className="text-sm font-medium text-gray-700">
-                    Date de paiement
-                  </Label>
-                  <Input type="date" {...register('paymentDate')} />
-                </div>
-                <div>
-                  <Label htmlFor="paymentMethod" className="text-sm font-medium text-gray-700">
-                    Mode de paiement
-                  </Label>
-                  <select
-                    {...register('paymentMethod')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Sélectionner un mode</option>
-                    <option value="VIREMENT">Virement</option>
-                    <option value="CHEQUE">Chèque</option>
-                    <option value="ESPECES">Espèces</option>
-                    <option value="CARTE">Carte bancaire</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="notes" className="text-sm font-medium text-gray-700">
-                  Notes
-                </Label>
-                <textarea
-                  {...register('notes')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={3}
-                  placeholder="Notes additionnelles..."
-                />
-              </div>
-
-              {/* Rapprochement bancaire */}
-              <div className="border-t pt-4">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="w-5 h-5 text-green-600 border-gray-300 rounded focus:ring-2 focus:ring-green-500"
-                    checked={watch('rapprochementStatus') === 'rapprochee'}
-                    onChange={(e) => {
-                      setValue('rapprochementStatus', e.target.checked ? 'rapprochee' : 'non_rapprochee');
-                    }}
-                  />
-                  <span className="text-sm font-medium text-gray-700">
-                    Marquer comme rapprochée
-                  </span>
-                </label>
-                {watch('rapprochementStatus') === 'rapprochee' && (
-                  <div className="mt-3">
-                    <Input
-                      {...register('bankRef')}
-                      placeholder="Référence bancaire (optionnel)"
-                      className="w-full"
+            <div className="space-y-4">
+              {/* Section Période */}
+              <div className="border-b pb-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Période</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="periodMonth" className="text-sm font-medium text-gray-700">
+                      Mois
+                    </Label>
+                    <SmartSelect
+                      value={localFormData.periodMonth || watch('periodMonth') || ''}
+                      onChange={(value) => {
+                        setValue('periodMonth', value);
+                        setLocalFormData(prev => ({ ...prev, periodMonth: value }));
+                      }}
+                      options={[
+                        { value: '', label: 'Sélectionner un mois' },
+                        { value: '01', label: 'Janvier' },
+                        { value: '02', label: 'Février' },
+                        { value: '03', label: 'Mars' },
+                        { value: '04', label: 'Avril' },
+                        { value: '05', label: 'Mai' },
+                        { value: '06', label: 'Juin' },
+                        { value: '07', label: 'Juillet' },
+                        { value: '08', label: 'Août' },
+                        { value: '09', label: 'Septembre' },
+                        { value: '10', label: 'Octobre' },
+                        { value: '11', label: 'Novembre' },
+                        { value: '12', label: 'Décembre' },
+                      ]}
+                      placeholder="Sélectionner un mois"
                     />
                   </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'periode' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="periodMonth" className="text-sm font-medium text-gray-700">
-                    Mois
-                  </Label>
-                  <select
-                    value={localFormData.periodMonth || watch('periodMonth') || ''}
-                    onChange={(e) => {
-                      setValue('periodMonth', e.target.value);
-                      setLocalFormData(prev => ({ ...prev, periodMonth: e.target.value }));
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Sélectionner un mois</option>
-                    <option value="01">Janvier</option>
-                    <option value="02">Février</option>
-                    <option value="03">Mars</option>
-                    <option value="04">Avril</option>
-                    <option value="05">Mai</option>
-                    <option value="06">Juin</option>
-                    <option value="07">Juillet</option>
-                    <option value="08">Août</option>
-                    <option value="09">Septembre</option>
-                    <option value="10">Octobre</option>
-                    <option value="11">Novembre</option>
-                    <option value="12">Décembre</option>
-                  </select>
+                  <div>
+                    <Label htmlFor="periodYear" className="text-sm font-medium text-gray-700">
+                      Année
+                    </Label>
+                    <Input
+                      type="number"
+                      min="2020"
+                      max="2030"
+                      value={localFormData.periodYear || watch('periodYear') || ''}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value) || new Date().getFullYear();
+                        setValue('periodYear', value);
+                        setLocalFormData(prev => ({ ...prev, periodYear: value }));
+                      }}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="periodYear" className="text-sm font-medium text-gray-700">
-                    Année
-                  </Label>
-                  <Input
-                    type="number"
-                    min="2020"
-                    max="2030"
-                    value={localFormData.periodYear || watch('periodYear') || ''}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value) || new Date().getFullYear();
-                      setValue('periodYear', value);
-                      setLocalFormData(prev => ({ ...prev, periodYear: value }));
-                    }}
-                  />
-                </div>
-              </div>
-              
-              {/* Nombre de mois couverts - Visible UNIQUEMENT en mode création */}
-              {mode === 'create' && (
-                <div>
-                  <Label htmlFor="monthsCovered" className="text-sm font-medium text-gray-700">
-                    Nombre de mois couverts
-                  </Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    max="12"
-                    {...register('monthsCovered')}
-                    placeholder="1"
-                    className={errors.monthsCovered ? 'border-red-500' : ''}
-                  />
-                  {errors.monthsCovered && (
-                    <p className="text-red-500 text-sm mt-1">{errors.monthsCovered.message}</p>
-                  )}
-                  <p className="text-xs text-gray-500 mt-1">
-                    Si supérieur à 1, plusieurs transactions mensuelles seront créées automatiquement
-                  </p>
-                </div>
-              )}
-              
-              {/* Badge de série - Visible UNIQUEMENT en mode édition si transaction fait partie d'une série */}
-              {(() => {
-                const moisTotal = watch('moisTotal' as any);
-                const moisIndex = watch('moisIndex' as any);
-                console.log('[Badge Série] Mode:', mode, 'moisTotal:', moisTotal, 'moisIndex:', moisIndex);
                 
-                if (mode === 'edit' && moisTotal && moisIndex) {
-                  return (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
-                        <Info className="h-5 w-5 text-blue-600 mt-0.5" />
-                        <div>
-                          <p className="text-sm text-blue-900 font-medium flex items-center gap-2">
-                            Transaction multi-mois
-                            <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                              Série ({moisTotal}) — {moisIndex}/{moisTotal}
-                            </Badge>
-                          </p>
-                          <p className="text-xs text-blue-700 mt-1">
-                            Cette transaction fait partie d'une série de {moisTotal} mois. 
-                            Le nombre de mois couverts n'est modifiable qu'à la création.
-                          </p>
+                {/* Nombre de mois couverts - Visible UNIQUEMENT en mode création */}
+                {mode === 'create' && (
+                  <div className="mt-4">
+                    <Label htmlFor="monthsCovered" className="text-sm font-medium text-gray-700">
+                      Nombre de mois couverts
+                    </Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="12"
+                      {...register('monthsCovered')}
+                      placeholder="1"
+                      className={errors.monthsCovered ? 'border-red-500' : ''}
+                    />
+                    {errors.monthsCovered && (
+                      <p className="text-red-500 text-sm mt-1">{errors.monthsCovered.message}</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">
+                      Si supérieur à 1, plusieurs transactions mensuelles seront créées automatiquement
+                    </p>
+                  </div>
+                )}
+                
+                {/* Badge de série - Visible UNIQUEMENT en mode édition si transaction fait partie d'une série */}
+                {(() => {
+                  const moisTotal = watch('moisTotal' as any);
+                  const moisIndex = watch('moisIndex' as any);
+                  
+                  if (mode === 'edit' && moisTotal && moisIndex) {
+                    return (
+                      <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                        <div className="flex items-start gap-3">
+                          <Info className="h-5 w-5 text-gray-600 mt-0.5" />
+                          <div>
+                            <p className="text-sm text-gray-900 font-medium flex items-center gap-2">
+                              Transaction multi-mois
+                              <Badge variant="secondary" className="bg-gray-100 text-gray-700">
+                                Série ({moisTotal}) — {moisIndex}/{moisTotal}
+                              </Badge>
+                            </p>
+                            <p className="text-xs text-gray-700 mt-1">
+                              Cette transaction fait partie d'une série de {moisTotal} mois. 
+                              Le nombre de mois couverts n'est modifiable qu'à la création.
+                            </p>
+                          </div>
                         </div>
                       </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+
+              {/* Section Paiement */}
+              <div className="pt-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Paiement</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="paymentDate" className="text-sm font-medium text-gray-700">
+                      Date de paiement
+                    </Label>
+                    <SmartDatePicker
+                      value={watch('paymentDate') || ''}
+                      onChange={(value) => setValue('paymentDate', value)}
+                      placeholder="Sélectionner une date"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="paymentMethod" className="text-sm font-medium text-gray-700">
+                      Mode de paiement
+                    </Label>
+                    <SmartSelect
+                      value={watch('paymentMethod') || ''}
+                      onChange={(value) => setValue('paymentMethod', value)}
+                      options={[
+                        { value: '', label: 'Sélectionner un mode' },
+                        { value: 'VIREMENT', label: 'Virement' },
+                        { value: 'CHEQUE', label: 'Chèque' },
+                        { value: 'ESPECES', label: 'Espèces' },
+                        { value: 'CARTE', label: 'Carte bancaire' },
+                      ]}
+                      placeholder="Sélectionner un mode"
+                    />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <Label htmlFor="notes" className="text-sm font-medium text-gray-700">
+                    Notes
+                  </Label>
+                  <textarea
+                    {...register('notes')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
+                    rows={3}
+                    placeholder="Notes additionnelles..."
+                  />
+                </div>
+
+                {/* Rapprochement bancaire */}
+                <div className="mt-4 border-t pt-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-gray-700">
+                      Rapprochée
+                    </span>
+                    <Switch
+                      checked={watch('rapprochementStatus') === 'rapprochee'}
+                      onCheckedChange={(checked) => {
+                        setValue('rapprochementStatus', checked ? 'rapprochee' : 'non_rapprochee');
+                      }}
+                    />
+                  </div>
+                  {watch('rapprochementStatus') === 'rapprochee' && (
+                    <div className="mt-3">
+                      <Input
+                        {...register('bankRef')}
+                        placeholder="Référence bancaire (optionnel)"
+                        className="w-full"
+                      />
                     </div>
-                  );
-                }
-                return null;
-              })()}
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
           {activeTab === 'documents' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-medium text-gray-900">Documents liés</h3>
                   <p className="text-sm text-gray-600 mt-1">
                     Ajoutez des documents justificatifs à cette transaction
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    // Utiliser notre fonction d'upload avec détection de doublons
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx';
-                    input.multiple = true;
-                    
-                    input.onchange = (e) => {
-                      const files = Array.from((e.target as HTMLInputElement).files || []);
-                      if (files.length > 0) {
-                        handleFileUpload(files);
+                {/* Boutons - Mobile: empilés verticalement, Desktop: en ligne */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                  {/* Bouton secondaire - Lier un document existant */}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      // Sélectionner un document existant
+                      if (!organizationId) {
+                        notify2.error('Organisation non disponible');
+                        return;
                       }
-                    };
-                    
-                    input.click();
-                  }}
-                  className="flex items-center gap-2"
-                  disabled={stagingLoading}
-                >
-                  <Upload className="h-4 w-4" />
-                  {stagingLoading ? 'Chargement...' : 'Ajouter des documents'}
-                </Button>
+                      
+                      try {
+                        const db = await getLocalDB();
+                        // Charger tous les documents de l'organisation (non supprimés)
+                        const allDocs = await db.Document.where('organizationId').equals(organizationId).and(doc => !doc.deletedAt).toArray();
+                        
+                        if (allDocs.length === 0) {
+                          notify2.info('Aucun document disponible');
+                          return;
+                        }
+                        
+                        // Charger les types de documents pour afficher les labels
+                        const docTypes = await db.DocumentType.toArray();
+                        const docTypeMap = new Map(docTypes.map(dt => [dt.id, dt]));
+                        
+                        // Créer une liste simple pour sélection
+                        const docList = allDocs.map((doc, idx) => {
+                          const docType = doc.documentTypeId ? docTypeMap.get(doc.documentTypeId) : null;
+                          return `${idx + 1}. ${doc.fileName || doc.filenameOriginal} (${docType?.label || 'Non classé'})`;
+                        }).join('\n');
+                        
+                        const selected = prompt(`Sélectionnez un document (entre 1 et ${allDocs.length}):\n\n${docList}\n\nEntrez le numéro:`);
+                        
+                        if (!selected) return;
+                        
+                        const index = parseInt(selected) - 1;
+                        if (index < 0 || index >= allDocs.length) {
+                          notify2.error('Numéro invalide');
+                          return;
+                        }
+                        
+                        const selectedDoc = allDocs[index];
+                        
+                        // Vérifier si le document n'est pas déjà lié
+                        if (stagedLinks.some(link => link.existingDocument?.id === selectedDoc.id)) {
+                          notify2.warning('Ce document est déjà lié');
+                          return;
+                        }
+                        
+                        const docType = selectedDoc.documentTypeId ? docTypeMap.get(selectedDoc.documentTypeId) : null;
+                        
+                        // Ajouter aux stagedLinks au format attendu
+                        const newLink = {
+                          id: selectedDoc.id, // Utiliser l'ID du document comme ID du lien
+                          existingDocument: {
+                            id: selectedDoc.id,
+                            fileName: selectedDoc.fileName || selectedDoc.filenameOriginal,
+                            filenameOriginal: selectedDoc.filenameOriginal,
+                            typeLabel: docType?.label || 'Non classé',
+                            uploadedAt: selectedDoc.uploadedAt,
+                            type: docType?.label || 'Non classé',
+                          }
+                        };
+                        
+                        setStagedLinks(prev => [...prev, newLink]);
+                        await logToServer(`[TransactionModal] ✅ Document existant ajouté à stagedLinks: docId=${selectedDoc.id}, fileName=${selectedDoc.fileName || selectedDoc.filenameOriginal}`);
+                        notify2.success('Document ajouté');
+                      } catch (error) {
+                        await logToServer(`[TransactionModal] ❌ Erreur lors de la sélection du document: ${error}`, 'error');
+                        notify2.error('Erreur lors de la sélection du document');
+                      }
+                    }}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 h-10 text-xs sm:text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none w-full sm:w-auto"
+                    disabled={stagingLoading || !organizationId}
+                  >
+                    <Link className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span className="font-medium">Lier</span>
+                    <span className="hidden sm:inline">un document existant</span>
+                  </button>
+                  
+                  {/* Bouton principal - Ajouter des documents */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // ✅ OFFLINE-FIRST: Vérifier si on est offline avant d'ouvrir le sélecteur de fichiers
+                      if (shouldDisableUpload) {
+                        notify2.error('Action indisponible', 'L\'ajout de documents nécessite une connexion internet.');
+                        return;
+                      }
+                      
+                      // Utiliser notre fonction d'upload avec détection de doublons
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx';
+                      input.multiple = true;
+                      
+                      input.onchange = (e) => {
+                        const files = Array.from((e.target as HTMLInputElement).files || []);
+                        if (files.length > 0) {
+                          handleFileUpload(files);
+                        }
+                      };
+                      
+                      input.click();
+                    }}
+                    className="relative flex items-center justify-center gap-1.5 px-3 py-2 h-10 text-xs sm:text-sm bg-orange-600 text-white rounded-lg transition-all duration-300 ease-out disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none overflow-hidden group w-full sm:w-auto"
+                    disabled={stagingLoading || shouldDisableUpload}
+                    title={shouldDisableUpload ? 'L\'ajout de documents nécessite une connexion internet' : undefined}
+                  >
+                    <span className="absolute inset-0 bg-gradient-to-r from-orange-500 to-red-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ease-out"></span>
+                    <Upload className={`h-3.5 w-3.5 relative z-10 flex-shrink-0 ${shouldDisableUpload ? 'opacity-50' : ''}`} />
+                    <span className="relative z-10 font-medium">
+                      {stagingLoading ? 'Chargement...' : shouldDisableUpload ? (
+                        <>
+                          <span className="text-gray-300">Ajouter</span>
+                          <span className="hidden sm:inline text-gray-300"> des documents</span>
+                          <span className="text-xs text-red-200 ml-1">(hors ligne)</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Ajouter</span>
+                          <span className="hidden sm:inline"> des documents</span>
+                        </>
+                      )}
+                    </span>
+                  </button>
+                </div>
               </div>
 
+              {/* ⚠️ PROBLÈME 1: Indicateur de chargement pendant l'upload */}
+              {uploadingFiles.size > 0 && (
+                <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg flex items-center gap-3">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-orange-600"></div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      Analyse du document en cours...
+                    </p>
+                    <p className="text-xs text-gray-700">
+                      OCR et classification en cours, veuillez patienter
+                    </p>
+                  </div>
+                </div>
+              )}
+              
               {/* Liste des documents */}
               {(() => {
-                console.log('[TransactionModal] 📋 Affichage documents - stagedDocuments:', stagedDocuments.length, 'stagedLinks:', stagedLinks.length, 'linkedDocuments:', linkedDocuments.length);
-                console.log('[TransactionModal] 📋 linkedDocuments détail:', linkedDocuments);
-                console.log('[TransactionModal] 📋 linkedDocuments JSON:', JSON.stringify(linkedDocuments, null, 2));
-                console.log('[TransactionModal] 📋 Condition de rendu - stagedDocuments.length > 0:', stagedDocuments.length > 0);
-                console.log('[TransactionModal] 📋 Condition de rendu - stagedLinks.length > 0:', stagedLinks.length > 0);
-                console.log('[TransactionModal] 📋 Condition de rendu - linkedDocuments.length > 0:', linkedDocuments.length > 0);
-                console.log('[TransactionModal] 📋 Condition de rendu - TOTAL:', (stagedDocuments.length > 0 || stagedLinks.length > 0 || linkedDocuments.length > 0));
+                // Affichage documents - logs supprimés
                 return null;
               })()}
-              {(stagedDocuments.length > 0 || stagedLinks.length > 0 || linkedDocuments.length > 0) ? (
+              {(filteredStagedDocuments.length > 0 || stagedLinks.length > 0 || (isAppShellMode ? hookLinkedDocuments : linkedDocuments).length > 0) ? (
                 <div className="space-y-3">
                   {/* Documents en staging (brouillon) */}
-                  {stagedDocuments.map((doc) => (
+                  {filteredStagedDocuments.map((doc) => (
                     <div key={doc.id} className="flex items-center justify-between p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                       <div className="flex items-center gap-3">
                         <FileText className="h-5 w-5 text-yellow-600" />
@@ -2813,9 +3214,36 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                           variant="ghost"
                           size="sm"
                           onClick={async () => {
+                            // ⚠️ CRITIQUE: En mode app-shell, supprimer aussi le document de IndexedDB et créer une pendingOp
+                            if (isAppShellMode && organizationId) {
+                              try {
+                                const { IndexedDBDocumentRepository } = await import('@/domain/repositories/adapters/IndexedDBDocumentRepository');
+                                const documentRepo = new IndexedDBDocumentRepository();
+                                
+                                // Vérifier si le document existe dans IndexedDB
+                                const db = await getLocalDB();
+                                const existingDoc = await db.Document.get(doc.id);
+                                
+                                if (existingDoc) {
+                                  // Supprimer de IndexedDB (créera automatiquement une pendingOp)
+                                  await documentRepo.delete(doc.id, organizationId);
+                                  await logToServer(`[TransactionModal] ✅ Document supprimé de IndexedDB: docId=${doc.id}, pendingOp créée`);
+                                  
+                                  // Déclencher un refresh de la page Documents si elle est ouverte
+                                  if (typeof window !== 'undefined') {
+                                    window.dispatchEvent(new CustomEvent('documents:refresh'));
+                                  }
+                                }
+                              } catch (dbError) {
+                                await logToServer(`[TransactionModal] ❌ Erreur lors de la suppression du document dans IndexedDB: ${dbError}`, 'error');
+                                // Continuer quand même avec la suppression du staging
+                              }
+                            }
+                            
+                            // Supprimer du staging (état React + API si online)
                             const success = await removeStagedDocument(doc.id);
                             if (success) {
-                              console.log('Document en staging supprimé:', doc.id);
+                              await logToServer(`[TransactionModal] ✅ Document supprimé du staging: docId=${doc.id}`);
                             }
                           }}
                         >
@@ -2827,13 +3255,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   
                   {/* Liens vers documents existants */}
                   {stagedLinks.map((link) => (
-                    <div key={link.id} className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div key={link.id} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
                       <div className="flex items-center gap-3">
-                        <Link className="h-5 w-5 text-blue-600" />
+                        <Link className="h-5 w-5 text-gray-600" />
                         <div>
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-medium text-gray-900">{link.existingDocument.fileName}</p>
-                            <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                            <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-700">
                               Lien existant
                             </Badge>
                           </div>
@@ -2858,8 +3286,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                           type="button"
                           variant="ghost"
                           size="sm"
-                          onClick={async () => {
+                            onClick={async () => {
                             if (confirm('Êtes-vous sûr de vouloir supprimer ce lien ?')) {
+                              // ⚠️ En mode app-shell, supprimer uniquement localement
+                              if (isAppShellMode) {
+                                setStagedLinks(prev => prev.filter(l => l.id !== link.id));
+                                notify2.success('Lien supprimé');
+                                return;
+                              }
                               try {
                                 const response = await fetch(`/api/upload-staged-item/${link.id}`, {
                                   method: 'DELETE'
@@ -2873,7 +3307,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                                   notify2.error('Erreur lors de la suppression du lien');
                                 }
                               } catch (error) {
-                                console.error('Erreur lors de la suppression du lien:', error);
+                                // Erreur lors de la suppression du lien - log supprimé
                                 notify2.error('Erreur lors de la suppression du lien');
                               }
                             }
@@ -2887,23 +3321,25 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   
                   {/* Documents liés (en mode édition) */}
                   {(() => {
-                    console.log('[TransactionModal] 🔄 Rendu linkedDocuments - Nombre:', linkedDocuments.length);
-                    console.log('[TransactionModal] 🔄 linkedDocuments pour map:', linkedDocuments);
-                    console.log('[TransactionModal] 🔄 linkedDocuments.length > 0:', linkedDocuments.length > 0);
-                    console.log('[TransactionModal] 🔄 linkedDocuments.map va s\'exécuter:', linkedDocuments.length);
+                    // Rendu linkedDocuments - logs supprimés
                     return null;
                   })()}
                   {linkedDocuments.map((doc) => {
-                    console.log('[TransactionModal] 🔄 Rendu document individuel:', doc);
+                    // Rendu document individuel - log supprimé
                     return (
                     <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center gap-3">
                         <FileText className="h-5 w-5 text-gray-500" />
                         <div className="flex-1">
-                          <p className="text-sm font-medium text-gray-900">{doc.fileName || doc.filename}</p>
+                          <p className="text-sm font-medium text-gray-900">{doc.fileName || doc.filename || doc.filenameOriginal}</p>
                           <div className="flex items-center gap-2 text-xs text-gray-500">
                             {(() => {
-                              const documentType = String(doc.DocumentType?.label || 'Type inconnu');
+                              // Support des deux formats : API (DocumentType.label) et App Shell (documentTypeLabel)
+                              const documentType = String(
+                                doc.DocumentType?.label || 
+                                doc.documentTypeLabel || 
+                                'Type inconnu'
+                              );
                               const isUnclassified = documentType === 'Non classé' || documentType === 'Type inconnu';
                               const isDraft = doc.status === 'draft';
                               
@@ -2931,16 +3367,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                           </div>
                           {/* Affichage des liaisons */}
                           {(() => {
-                            console.log('[TransactionModal] Document pour affichage des liaisons:', doc);
-                            console.log('[TransactionModal] Document links détaillés:', doc.DocumentLink);
-                            console.log('[TransactionModal] Document links JSON:', JSON.stringify(doc.DocumentLink, null, 2));
-                            console.log('[TransactionModal] Transaction ID actuel:', transactionId);
                             const links = formatDocumentLinks(doc);
-                            console.log('[TransactionModal] Liaisons formatées:', links);
+                            // Document pour affichage des liaisons - logs supprimés
                             return links ? (
                               <div className="mt-1 flex items-center gap-1">
-                                <Link className="h-3 w-3 text-blue-500" />
-                                <span className="text-xs text-blue-600 font-medium">
+                                <Link className="h-3 w-3 text-gray-500" />
+                                <span className="text-xs text-gray-600 font-medium">
                                   Lié à: {links}
                                 </span>
                               </div>
@@ -2986,19 +3418,25 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 <div className="text-center py-8 text-gray-500">
                   <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
                   <p className="text-sm">Aucun document lié à cette transaction</p>
+                  {hasMissingDocuments && (
+                    <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800 flex items-center justify-center gap-2">
+                      <AlertCircle className="h-4 w-4" />
+                      <span>Certains documents liés ne sont pas encore synchronisés</span>
+                    </div>
+                  )}
                   <p className="text-xs mt-1">Cliquez sur "Ajouter des documents" pour en associer</p>
                 </div>
               )}
 
               {/* Information sur le contexte */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                 <div className="flex items-start gap-3">
-                  <Info className="h-5 w-5 text-blue-600 mt-0.5" />
+                  <Info className="h-5 w-5 text-gray-600 mt-0.5" />
                   <div>
-                    <p className="text-sm text-blue-900 font-medium">
+                    <p className="text-sm text-gray-900 font-medium">
                       Contexte de liaison automatique
                     </p>
-                    <p className="text-xs text-blue-700 mt-1">
+                    <p className="text-xs text-gray-700 mt-1">
                       Les documents uploadés seront automatiquement liés à cette transaction.
                       {context.type === 'property' && ' Ils seront également associés au bien sélectionné.'}
                     </p>
@@ -3008,13 +3446,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             </div>
           )}
 
-          {/* Boutons d'action */}
-          <div className="flex justify-end gap-3 mt-8 pt-6 border-t">
+          {/* Boutons d'action - Mobile: sticky en bas avec safe areas, Desktop: normal */}
+          <div className="flex flex-col sm:flex-row justify-end gap-3 mt-4 pt-4 border-t flex-shrink-0 fixed bottom-0 left-0 right-0 md:relative md:bottom-auto md:left-auto md:right-auto bg-white md:bg-transparent p-4 md:p-0 border-t md:border-t shadow-lg md:shadow-none z-20 md:rounded-b-2xl md:overflow-hidden" style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}>
             <Button
               type="button"
               variant="outline"
               onClick={handleClose}
               disabled={isSubmitting}
+              className="w-full sm:w-auto"
             >
               Annuler
             </Button>
@@ -3022,12 +3461,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               type="submit"
               disabled={isSubmitting || isLoading}
               onClick={(e) => {
-                console.log('[TransactionModalV2] Bouton cliqué!', { isSubmitting, isLoading });
+                // Bouton cliqué - log supprimé
                 e.preventDefault();
                 const formData = getValues();
-                console.log('[TransactionModalV2] Données du formulaire:', formData);
+                // Données du formulaire - log supprimé
                 onSubmitForm(formData);
               }}
+              className="w-full sm:w-auto"
             >
               {isSubmitting ? 'Enregistrement...' : (mode === 'create' ? 'Créer' : 'Modifier')}
             </Button>
@@ -3045,40 +3485,47 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Sélectionner un bail
                 </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  onChange={(e) => {
-                    if (e.target.value) {
+                <SmartSelect
+                  value=""
+                  onChange={(value) => {
+                    if (value) {
                       // Lier le bail via l'API
-                      fetch(`/api/transactions/${transactionId}/link-bail`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ bailId: e.target.value })
-                      })
-                      .then(response => response.json())
-                      .then(data => {
-                        if (data.success) {
-                          setLinkedBail(data.data.bail);
-                          setShowLinkBailModal(false);
-                          notify2.success('Bail lié avec succès');
-                        } else {
-                          notify2.error(data.error || 'Erreur lors de la liaison');
-                        }
-                      })
-                      .catch(error => {
-                        console.error('Erreur:', error);
-                        notify2.error('Erreur lors de la liaison');
-                      });
+                      // ⚠️ En mode app-shell, cette opération sera gérée via pendingOps
+                      if (isAppShellMode) {
+                        // Mode app-shell : liaison bail sera synchronisée plus tard - log supprimé
+                        // TODO: Créer une pendingOp pour la mise à jour
+                      } else {
+                        fetch(`/api/transactions/${transactionId}/link-bail`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ bailId: value })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                          if (data.success) {
+                            setLinkedBail(data.data.bail);
+                            setShowLinkBailModal(false);
+                            notify2.success('Bail lié avec succès');
+                          } else {
+                            notify2.error(data.error || 'Erreur lors de la liaison');
+                          }
+                        })
+                        .catch(error => {
+                          // Erreur - log supprimé
+                          notify2.error('Erreur lors de la liaison');
+                        });
+                      }
                     }
                   }}
-                >
-                  <option value="">Sélectionner un bail</option>
-                  {(leases || []).map((lease) => (
-                    <option key={lease.id} value={lease.id}>
-                      {lease.Tenant?.firstName} {lease.Tenant?.lastName} - {lease.rentAmount || lease.rent || 0}€
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: 'Sélectionner un bail' },
+                    ...(leases || []).map((lease): SmartSelectOption => ({
+                      value: lease.id,
+                      label: `${lease.Tenant?.firstName || ''} ${lease.Tenant?.lastName || ''} - ${lease.rentAmount || lease.rent || 0}€`,
+                    })),
+                  ]}
+                  placeholder="Sélectionner un bail"
+                />
               </div>
               <div className="flex justify-end space-x-2">
                 <button
@@ -3102,7 +3549,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         }}
         files={uploadFiles}
         onStagedDocuments={(documents) => {
-          console.log('Documents ajoutés en staging:', documents);
+          // Documents ajoutés en staging - log supprimé
           documents.forEach(doc => addStagedDocument(doc));
         }}
         context={{
@@ -3120,15 +3567,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         }}
         files={[]} // Pas de fichiers pour le mode review-draft
         scope="global"
+        hideOpenTransactionWarning={true} // ⚠️ PROBLÈME 1: Désactiver le message car on est dans le contexte d'une transaction
         strategy={{
           mode: 'review-draft',
           draftId: selectedDraftId || undefined,
           onStagedUpdate: async () => {
             // Recharger la liste des documents en staging
-            console.log('Document brouillon modifié, rechargement...');
+            // Document brouillon modifié, rechargement - log supprimé
             if (uploadSessionId) {
               await loadStagedDocuments(uploadSessionId);
-              console.log('Documents de la session rechargés après modification du brouillon');
+              // Documents de la session rechargés - log supprimé
             }
           }
         }}
@@ -3140,11 +3588,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         onClose={() => {
           setShowDuplicateModal(false);
           setDuplicateData(null);
+          // ⚠️ CORRECTION: S'assurer que uploadingFiles est vide quand on ferme la modal
+          // (le fichier devrait déjà avoir été retiré lors de la détection du doublon, mais sécurité)
+          setUploadingFiles(prev => new Set());
         }}
         onLinkExisting={handleLinkExisting}
         onCancel={() => {
           setShowDuplicateModal(false);
           setDuplicateData(null);
+          // ⚠️ CORRECTION: S'assurer que uploadingFiles est vide quand on annule
+          setUploadingFiles(prev => new Set());
         }}
         duplicateData={duplicateData}
       />
@@ -3154,15 +3607,238 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         <ConfirmDeleteDocumentModal
           isOpen={showDeleteDocModal}
           onClose={() => {
-            setShowDeleteDocModal(false);
-            setDocumentToDelete(null);
+            if (!isDeletingDocument) {
+              setShowDeleteDocModal(false);
+              setDocumentToDelete(null);
+            }
           }}
-          onConfirm={() => {
-            loadLinkedDocuments();
-            setDocumentToDelete(null);
+          onConfirm={async (deleteMode: 'all' | 'transaction-links-only') => {
+            if (!documentToDelete || !organizationId) return;
+            
+            setIsDeletingDocument(true);
+            
+            try {
+              // Vérifier si c'est un document en staging (brouillon) ou un document lié
+              const isStagedDocument = filteredStagedDocuments.some(doc => doc.id === documentToDelete.id);
+              const isLinkedDocument = (isAppShellMode ? hookLinkedDocuments : linkedDocuments).some(doc => doc.id === documentToDelete.id);
+              
+              if (isStagedDocument) {
+                // Supprimer un document en staging
+                // ⚠️ CRITIQUE: En mode app-shell, supprimer aussi le document de IndexedDB et créer une pendingOp
+                if (isAppShellMode && organizationId) {
+                  try {
+                    const { IndexedDBDocumentRepository } = await import('@/domain/repositories/adapters/IndexedDBDocumentRepository');
+                    const documentRepo = new IndexedDBDocumentRepository();
+                    
+                    // Vérifier si le document existe dans IndexedDB
+                    const db = await getLocalDB();
+                    const existingDoc = await db.Document.get(documentToDelete.id);
+                    
+                    if (existingDoc) {
+                      // Supprimer de IndexedDB (créera automatiquement une pendingOp)
+                      await documentRepo.delete(documentToDelete.id, organizationId);
+                      await logToServer(`[TransactionModal] ✅ Document supprimé de IndexedDB: docId=${documentToDelete.id}, pendingOp créée`);
+                      
+                      // Déclencher un refresh de la page Documents si elle est ouverte
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('documents:refresh'));
+                      }
+                    }
+                  } catch (dbError) {
+                    await logToServer(`[TransactionModal] ❌ Erreur lors de la suppression du document dans IndexedDB: ${dbError}`, 'error');
+                    // Continuer quand même avec la suppression du staging
+                  }
+                }
+                
+                // Supprimer du staging (état React + API si online)
+                const success = await removeStagedDocument(documentToDelete.id);
+                if (success) {
+                  await logToServer(`[TransactionModal] ✅ Document supprimé du staging: docId=${documentToDelete.id}`);
+                  
+                  // Rafraîchir les stagedDocuments
+                  if (uploadSessionId) {
+                    try {
+                      await loadStagedDocuments(uploadSessionId);
+                    } catch (error) {
+                      // Erreur silencieuse lors du rechargement
+                    }
+                  }
+                  
+                  notify2.success('Document supprimé');
+                } else {
+                  notify2.error('Erreur lors de la suppression du document');
+                }
+              } else if (isLinkedDocument) {
+                // Supprimer un document lié (déjà finalisé)
+                if (deleteMode === 'transaction-links-only' && transactionId) {
+                  // Supprimer uniquement les liaisons avec cette transaction
+                  if (isAppShellMode && organizationId) {
+                    // Mode app-shell : supprimer les DocumentLink depuis IndexedDB
+                    const db = await getLocalDB();
+                    const linksToDelete = await db.DocumentLink
+                      .where('documentId')
+                      .equals(documentToDelete.id)
+                      .filter(link => {
+                        const linkedType = (link.linkedType || '').toLowerCase();
+                        return linkedType === 'transaction' && link.linkedId === transactionId;
+                      })
+                      .toArray();
+                    
+                    // Supprimer chaque lien
+                    for (const link of linksToDelete) {
+                      await db.DocumentLink.delete([link.documentId, link.linkedType, link.linkedId]);
+                    }
+                    
+                    // Créer une pendingOp pour chaque lien supprimé
+                    for (const link of linksToDelete) {
+                      await db.pendingOperations.add({
+                        id: `pending-${Date.now()}-${Math.random()}`,
+                        organizationId,
+                        entity: 'documentLink',
+                        entityId: `${link.documentId}-${link.linkedType}-${link.linkedId}`,
+                        operation: 'delete',
+                        payload: {
+                          documentId: link.documentId,
+                          linkedType: link.linkedType,
+                          linkedId: link.linkedId,
+                        },
+                        status: 'pending',
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                      });
+                    }
+                    
+                    // Rafraîchir les documents liés
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('documents:refresh'));
+                      window.dispatchEvent(new CustomEvent('transactions:refresh'));
+                    }
+                    
+                    notify2.success('Liaisons avec cette transaction supprimées. La suppression sera synchronisée avec le serveur lors de la prochaine synchronisation.');
+                  } else {
+                    // Mode normal : utiliser l'API pour supprimer chaque lien
+                    // L'API utilise le format /api/documents/{documentId}/links/{linkedType}:{linkedId}
+                    const linkId = `transaction:${transactionId}`;
+                    const response = await fetch(`/api/documents/${documentToDelete.id}/links/${linkId}`, {
+                      method: 'DELETE'
+                    });
+                    
+                    if (!response.ok) {
+                      const errorData = await response.json().catch(() => ({}));
+                      throw new Error(errorData.error || 'Erreur lors de la suppression des liaisons');
+                    }
+                    
+                    // Recharger les documents liés
+                    await loadLinkedDocuments();
+                    
+                    notify2.success('Liaisons avec cette transaction supprimées avec succès');
+                  }
+                } else {
+                  // Supprimer le document et toutes ses liaisons
+                  if (isAppShellMode && organizationId) {
+                    // Mode app-shell : utiliser DocumentService
+                    const documentService = createDocumentServiceWithMode('app-shell');
+                    
+                    // ⚠️ CRITIQUE: Supprimer d'abord tous les DocumentLink associés au document
+                    const db = await getLocalDB();
+                    const allLinks = await db.DocumentLink
+                      .where('documentId')
+                      .equals(documentToDelete.id)
+                      .toArray();
+                    
+                    // Supprimer chaque lien de IndexedDB et créer une pendingOp
+                    for (const link of allLinks) {
+                      await db.DocumentLink.delete([link.documentId, link.linkedType, link.linkedId]);
+                      
+                      // Créer une pendingOp pour chaque lien supprimé
+                      const now = new Date().toISOString();
+                      const pendingOp = {
+                        id: `pending-${Date.now()}-${Math.random()}`,
+                        organizationId,
+                        entity: 'documentLink',
+                        entityId: `${link.documentId}-${link.linkedType}-${link.linkedId}`,
+                        operation: 'delete',
+                        payload: {
+                          documentId: link.documentId,
+                          linkedType: link.linkedType,
+                          linkedId: link.linkedId,
+                        },
+                        status: 'pending',
+                        createdAt: now,
+                        updatedAt: now,
+                      };
+                      await db.pendingOperations.add(pendingOp);
+                    }
+                    
+                    // Supprimer le document (créera automatiquement une pendingOp)
+                    await documentService.deleteDocument(documentToDelete.id, organizationId);
+                    
+                    // ⚠️ En mode app-shell online : push → pull → refresh (comme DocumentsPageCore)
+                    const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+                    if (isOnline) {
+                      try {
+                        const { getGlobalSyncService } = await import('@/lib/offline/syncGlobal');
+                        const syncService = getGlobalSyncService();
+                        await syncService.syncAllPendingToRemote(organizationId);
+                        // Pull immédiat pour mettre à jour IndexedDB
+                        await syncService.syncEntityFromRemoteByName('document', organizationId);
+                        await syncService.syncEntityFromRemoteByName('documentLink', organizationId);
+                        window.dispatchEvent(new CustomEvent('sync:refresh'));
+                      } catch (syncError) {
+                        console.warn('[TransactionModal] Erreur lors du sync après suppression:', syncError);
+                        // Ne pas bloquer l'opération si la sync échoue
+                      }
+                    }
+                    
+                    // Rafraîchir les documents liés
+                    // En mode app-shell, le hook useTransactionDocuments se rafraîchira automatiquement via les événements
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('documents:refresh'));
+                      window.dispatchEvent(new CustomEvent('transactions:refresh'));
+                    }
+                    
+                    notify2.success(
+                      isOnline 
+                        ? 'Document supprimé avec succès'
+                        : 'Document supprimé localement. La suppression sera synchronisée avec le serveur lors de la prochaine synchronisation.'
+                    );
+                  } else {
+                    // Mode normal : utiliser l'API
+                    const response = await fetch(`/api/documents/${documentToDelete.id}`, {
+                      method: 'DELETE'
+                    });
+                    
+                    if (!response.ok) {
+                      throw new Error('Erreur lors de la suppression du document');
+                    }
+                    
+                    // Recharger les documents liés
+                    await loadLinkedDocuments();
+                    
+                    notify2.success('Document supprimé avec succès');
+                  }
+                }
+              } else {
+                // Document non trouvé dans stagedDocuments ni linkedDocuments
+                notify2.error('Document non trouvé');
+              }
+              
+              // Fermer la modal après la suppression
+              setShowDeleteDocModal(false);
+              setDocumentToDelete(null);
+            } catch (error: any) {
+              console.error('Erreur lors de la suppression du document:', error);
+              notify2.error(error.message || 'Erreur lors de la suppression du document');
+            } finally {
+              setIsDeletingDocument(false);
+            }
           }}
           documentId={documentToDelete.id}
-          documentName={documentToDelete.fileName || documentToDelete.filenameOriginal}
+          documentName={documentToDelete.fileName || documentToDelete.filenameOriginal || documentToDelete.name}
+          mode={isAppShellMode ? 'app-shell' : 'normal'}
+          organizationId={organizationId}
+          isDeleting={isDeletingDocument}
+          transactionId={transactionId}
         />
       )}
 
@@ -3279,6 +3955,133 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Modal de sélection de document existant */}
+      <Dialog open={showDocumentSelectorModal} onOpenChange={setShowDocumentSelectorModal}>
+        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Sélectionner un document existant</DialogTitle>
+            <DialogDescription>
+              Choisissez un document à lier à cette transaction
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-hidden flex flex-col gap-4">
+            {/* Barre de recherche */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                type="text"
+                placeholder="Rechercher un document..."
+                value={documentSearchTerm}
+                onChange={(e) => setDocumentSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            
+            {/* Liste des documents */}
+            <div className="flex-1 overflow-y-auto border rounded-lg">
+              {availableDocuments
+                .filter(doc => {
+                  const searchLower = documentSearchTerm.toLowerCase();
+                  const fileName = (doc.fileName || doc.filenameOriginal || '').toLowerCase();
+                  const typeLabel = (doc.DocumentType?.label || 'Non classé').toLowerCase();
+                  return fileName.includes(searchLower) || typeLabel.includes(searchLower);
+                })
+                .filter(doc => !stagedLinks.some(link => link.existingDocument?.id === doc.id))
+                .map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between p-4 border-b hover:bg-gray-50 cursor-pointer"
+                    onClick={async () => {
+                      // Ajouter aux stagedLinks au format attendu
+                      const newLink = {
+                        id: doc.id,
+                        existingDocument: {
+                          id: doc.id,
+                          fileName: doc.fileName || doc.filenameOriginal,
+                          filenameOriginal: doc.filenameOriginal,
+                          typeLabel: doc.DocumentType?.label || 'Non classé',
+                          uploadedAt: doc.uploadedAt,
+                          type: doc.DocumentType?.label || 'Non classé',
+                        }
+                      };
+                      
+                      setStagedLinks(prev => [...prev, newLink]);
+                      await logToServer(`[TransactionModal] ✅ Document existant ajouté à stagedLinks: docId=${doc.id}, fileName=${doc.fileName || doc.filenameOriginal}`);
+                      notify2.success('Document ajouté');
+                      setShowDocumentSelectorModal(false);
+                    }}
+                  >
+                    <div className="flex items-center gap-3 flex-1">
+                      <FileText className="h-5 w-5 text-gray-400" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {doc.fileName || doc.filenameOriginal}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="secondary" className="text-xs">
+                            {doc.DocumentType?.label || 'Non classé'}
+                          </Badge>
+                          <span className="text-xs text-gray-500">
+                            {new Date(doc.uploadedAt).toLocaleDateString('fr-FR')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        // Ajouter aux stagedLinks au format attendu
+                        const newLink = {
+                          id: doc.id,
+                          existingDocument: {
+                            id: doc.id,
+                            fileName: doc.fileName || doc.filenameOriginal,
+                            filenameOriginal: doc.filenameOriginal,
+                            typeLabel: doc.DocumentType?.label || 'Non classé',
+                            uploadedAt: doc.uploadedAt,
+                            type: doc.DocumentType?.label || 'Non classé',
+                          }
+                        };
+                        
+                        setStagedLinks(prev => [...prev, newLink]);
+                        await logToServer(`[TransactionModal] ✅ Document existant ajouté à stagedLinks: docId=${doc.id}, fileName=${doc.fileName || doc.filenameOriginal}`);
+                        notify2.success('Document ajouté');
+                        setShowDocumentSelectorModal(false);
+                      }}
+                    >
+                      Ajouter
+                    </Button>
+                  </div>
+                ))}
+              
+              {availableDocuments.filter(doc => {
+                const searchLower = documentSearchTerm.toLowerCase();
+                const fileName = (doc.fileName || doc.filenameOriginal || '').toLowerCase();
+                const typeLabel = (doc.DocumentType?.label || 'Non classé').toLowerCase();
+                return fileName.includes(searchLower) || typeLabel.includes(searchLower);
+              }).filter(doc => !stagedLinks.some(link => link.existingDocument?.id === doc.id)).length === 0 && (
+                <div className="p-8 text-center text-gray-500">
+                  {documentSearchTerm ? 'Aucun document trouvé' : 'Aucun document disponible'}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => setShowDocumentSelectorModal(false)}
+            >
+              Fermer
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

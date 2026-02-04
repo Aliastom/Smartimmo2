@@ -103,8 +103,8 @@ export function TransactionsByCategoryChart({
   }
 
   return (
-    <Card className="w-full">
-      <CardHeader className="pb-3">
+    <Card className="w-full min-w-0">
+      <CardHeader className="pb-3 min-w-0">
         <CardTitle className="text-base font-semibold">Répartition par catégorie</CardTitle>
         <p className="text-sm text-gray-600">
           Total: {new Intl.NumberFormat('fr-FR', { 
@@ -114,7 +114,7 @@ export function TransactionsByCategoryChart({
           }).format(total)}
         </p>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 min-w-0">
         {data.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
             <Tag className="h-12 w-12 mb-2 opacity-30" />
@@ -123,8 +123,9 @@ export function TransactionsByCategoryChart({
         ) : (
           <div className="flex items-center gap-4">
             {/* Donut à gauche */}
-            <div className="flex-shrink-0 w-2/5">
-              <ResponsiveContainer width="100%" height={180}>
+            <div className="flex-shrink-0 w-2/5 min-w-0">
+              <div className="min-w-0">
+                <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
                   <Pie
                     data={chartData}
@@ -142,6 +143,7 @@ export function TransactionsByCategoryChart({
                   <Tooltip content={<CustomTooltip />} />
                 </PieChart>
               </ResponsiveContainer>
+              </div>
             </div>
 
             {/* Légende à droite */}

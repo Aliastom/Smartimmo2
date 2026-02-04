@@ -7,8 +7,10 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shared/select';
+import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
+import { SmartDatePicker } from '@/components/ui/SmartDatePicker';
 import { Switch } from '@/components/ui/Switch';
+import { Accordion } from '@/components/ui/Accordion';
 import { echeanceFormSchema, type EcheanceFormSchema } from '@/lib/validations/echeance';
 import {
   EcheanceRecurrente,
@@ -17,7 +19,7 @@ import {
   SENS_LABELS,
 } from '@/types/echeance';
 import { EcheanceType, Periodicite, SensEcheance } from '@prisma/client';
-import { Calendar, X } from 'lucide-react';
+import { X } from 'lucide-react';
 
 interface EcheanceModalProps {
   isOpen: boolean;
@@ -25,7 +27,7 @@ interface EcheanceModalProps {
   onSubmit: (data: EcheanceFormSchema) => Promise<void>;
   echeance?: EcheanceRecurrente | null;
   properties?: Array<{ id: string; name: string }>;
-  leases?: Array<{ id: string; propertyId: string; type: string; status: string }>;
+  leases?: Array<{ id: string; propertyId: string; type: string; status: string; tenantName?: string }>;
   mode?: 'create' | 'edit' | 'duplicate';
   defaultPropertyId?: string | null;
 }
@@ -165,7 +167,10 @@ export function EcheanceModal({
         </>
       }
     >
-      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4 max-h-[60vh] overflow-y-auto px-1">
+      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6 md:space-y-4">
+        {/* Section Essentiel */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 md:hidden">Essentiel</h3>
         {/* Libellé */}
         <div>
           <Label htmlFor="label">Libellé *</Label>
@@ -186,18 +191,18 @@ export function EcheanceModal({
               name="type"
               control={control}
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className={errors.type ? 'border-red-500' : ''}>
-                    <SelectValue placeholder="Sélectionner un type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(ECHEANCE_TYPE_LABELS).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                    <SmartSelect
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={Object.entries(ECHEANCE_TYPE_LABELS).map(([key, label]) => ({
+                        value: key,
+                        label,
+                      }))}
+                      placeholder="Sélectionner un type"
+                      error={!!errors.type}
+                      id="type"
+                      aria-label="Type d'échéance"
+                    />
               )}
             />
             {errors.type && <p className="text-sm text-red-500 mt-1">{errors.type.message}</p>}
@@ -209,51 +214,25 @@ export function EcheanceModal({
               name="sens"
               control={control}
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className={errors.sens ? 'border-red-500' : ''}>
-                    <SelectValue placeholder="Sélectionner" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(SENS_LABELS).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                    <SmartSelect
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={Object.entries(SENS_LABELS).map(([key, label]) => ({
+                        value: key,
+                        label,
+                      }))}
+                      placeholder="Sélectionner"
+                      error={!!errors.sens}
+                      id="sens"
+                      aria-label="Sens de l'échéance"
+                    />
               )}
             />
             {errors.sens && <p className="text-sm text-red-500 mt-1">{errors.sens.message}</p>}
           </div>
         </div>
 
-        {/* Périodicité et Montant */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="periodicite">Périodicité *</Label>
-            <Controller
-              name="periodicite"
-              control={control}
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className={errors.periodicite ? 'border-red-500' : ''}>
-                    <SelectValue>
-                      {field.value ? PERIODICITE_LABELS[field.value as Periodicite] : 'Sélectionner'}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(PERIODICITE_LABELS).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-            {errors.periodicite && <p className="text-sm text-red-500 mt-1">{errors.periodicite.message}</p>}
-          </div>
-
+            {/* Montant */}
           <div>
             <Label htmlFor="montant">Montant (€) *</Label>
             <Input
@@ -268,6 +247,96 @@ export function EcheanceModal({
           </div>
         </div>
 
+        {/* Section Période */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 md:hidden">Période</h3>
+            {/* Périodicité */}
+            <div>
+              <Label htmlFor="periodicite">Périodicité *</Label>
+              <Controller
+                name="periodicite"
+                control={control}
+                render={({ field }) => (
+                  <SmartSelect
+                    value={field.value}
+                    onChange={field.onChange}
+                    options={Object.entries(PERIODICITE_LABELS).map(([key, label]) => ({
+                      value: key,
+                      label,
+                    }))}
+                    placeholder="Sélectionner"
+                    error={!!errors.periodicite}
+                    id="periodicite"
+                    aria-label="Périodicité"
+                  />
+                )}
+              />
+              {errors.periodicite && <p className="text-sm text-red-500 mt-1">{errors.periodicite.message}</p>}
+            </div>
+
+            {/* Dates */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="startAt">Date de début *</Label>
+                <Controller
+                  name="startAt"
+                  control={control}
+                  render={({ field }) => (
+                    <SmartDatePicker
+                      value={field.value || ''}
+                      onChange={(value) => field.onChange(value)}
+                      placeholder="Sélectionner une date"
+                      error={!!errors.startAt}
+                      id="startAt"
+                      aria-label="Date de début"
+                    />
+                  )}
+                />
+                {errors.startAt && <p className="text-sm text-red-500 mt-1">{errors.startAt.message}</p>}
+              </div>
+
+              <div>
+                <Label htmlFor="endAt">Date de fin</Label>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Controller
+                      name="endAt"
+                      control={control}
+                      render={({ field }) => (
+                        <SmartDatePicker
+                          value={field.value || ''}
+                          onChange={(value) => field.onChange(value || null)}
+                          placeholder="Pas de date de fin"
+                          id="endAt"
+                          aria-label="Date de fin"
+                        />
+                      )}
+                    />
+                  </div>
+                  {endAt && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setValue('endAt', null)}
+                      title="Aucune fin"
+                      className="flex-shrink-0"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                {errors.endAt && <p className="text-sm text-red-500 mt-1">{errors.endAt.message}</p>}
+                {!endAt && <p className="text-xs text-gray-500 mt-1">Pas de date de fin (récurrence infinie)</p>}
+              </div>
+            </div>
+        </div>
+
+        {/* Section Options (Accordion) */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 md:hidden">Options</h3>
+          <Accordion title="Options" defaultOpen={false} className="md:border md:border-gray-200 md:rounded-lg">
+            <div className="p-3 space-y-4">
         {/* Bien et Bail */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -275,26 +344,33 @@ export function EcheanceModal({
             <Controller
               name="propertyId"
               control={control}
-              render={({ field }) => (
-                <Select value={field.value || ''} onValueChange={(value) => field.onChange(value || null)}>
-                  <SelectTrigger>
-                    <SelectValue>
-                      {field.value 
-                        ? properties.find(p => p.id === field.value)?.name || 'Bien sélectionné'
-                        : 'Aucun bien'}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">Aucun bien</SelectItem>
-                    {properties.map((property) => (
-                      <SelectItem key={property.id} value={property.id}>
-                        {property.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+              render={({ field }) => {
+                // ✅ CORRECTION: Ne pas afficher "Chargement..." comme option, attendre que le nom soit chargé
+                const validProperties = properties.filter(p => p.name && p.name !== 'Chargement...');
+                const isLoading = properties.length > 0 && properties.some(p => !p.name || p.name === 'Chargement...');
+                
+                return (
+                  <SmartSelect
+                    value={field.value || ''} 
+                    onChange={(value) => field.onChange(value || null)}
+                    options={[
+                      { value: '', label: 'Aucun bien' },
+                      ...validProperties.map((property) => ({
+                        value: property.id,
+                        label: property.name,
+                      })),
+                    ]}
+                    placeholder={isLoading ? 'Chargement...' : 'Aucun bien'}
+                    disabled={!!defaultPropertyId || isLoading}
+                    id="propertyId"
+                    aria-label="Bien"
+                  />
+                );
+              }}
             />
+            {defaultPropertyId && (
+              <p className="text-xs text-gray-500 mt-1">Le bien est verrouillé car vous êtes dans un contexte de bien</p>
+            )}
           </div>
 
           <div>
@@ -302,85 +378,28 @@ export function EcheanceModal({
             <Controller
               name="leaseId"
               control={control}
-              render={({ field }) => {
-                const selectedLease = filteredLeases.find(l => l.id === field.value);
-                return (
-                  <Select value={field.value || ''} onValueChange={(value) => field.onChange(value || null)}>
-                    <SelectTrigger>
-                      <SelectValue>
-                        {field.value && selectedLease
-                          ? `${selectedLease.type} - ${selectedLease.status}`
-                          : 'Aucun bail'}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">Aucun bail</SelectItem>
-                      {filteredLeases.map((lease) => (
-                        <SelectItem key={lease.id} value={lease.id}>
-                          {lease.type} - {lease.status}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                );
-              }}
+                      render={({ field }) => (
+                    <SmartSelect
+                      value={field.value || ''}
+                      onChange={(value) => field.onChange(value || null)}
+                      options={[
+                        { value: '', label: 'Aucun bail' },
+                        ...filteredLeases.map((lease) => ({
+                          value: lease.id,
+                          label: lease.tenantName || `${lease.type} - ${lease.status}`,
+                        })),
+                      ]}
+                      placeholder="Aucun bail"
+                      id="leaseId"
+                      aria-label="Bail"
+                    />
+                      )}
             />
-          </div>
-        </div>
-
-        {/* Dates */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="startAt">Date de début *</Label>
-            <Input
-              id="startAt"
-              type="date"
-              {...register('startAt')}
-              className={errors.startAt ? 'border-red-500' : ''}
-            />
-            {errors.startAt && <p className="text-sm text-red-500 mt-1">{errors.startAt.message}</p>}
-          </div>
-
-          <div>
-            <Label htmlFor="endAt">Date de fin</Label>
-            <div className="flex gap-2">
-              <Input
-                id="endAt"
-                type="date"
-                {...register('endAt')}
-                className={errors.endAt ? 'border-red-500' : ''}
-                disabled={!endAt}
-              />
-              {endAt && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setValue('endAt', null)}
-                  title="Aucune fin"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-              {!endAt && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setValue('endAt', new Date().toISOString().split('T')[0])}
-                  title="Définir une fin"
-                >
-                  <Calendar className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-            {errors.endAt && <p className="text-sm text-red-500 mt-1">{errors.endAt.message}</p>}
-            {!endAt && <p className="text-xs text-gray-500 mt-1">Pas de date de fin (récurrence infinie)</p>}
           </div>
         </div>
 
         {/* Récupérable et Actif */}
-        <div className="flex items-center justify-between gap-4 pt-2">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pt-2">
           <div className="flex items-center gap-3">
             <Controller
               name="recuperable"
@@ -414,6 +433,9 @@ export function EcheanceModal({
               Actif
             </Label>
           </div>
+                </div>
+            </div>
+          </Accordion>
         </div>
       </form>
     </Modal>

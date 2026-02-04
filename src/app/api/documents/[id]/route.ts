@@ -75,6 +75,11 @@ export async function PATCH(
       await DocumentsService.updateDocumentType(id, chosenTypeId, organizationId);
     }
 
+    // ⚠️ CRITIQUE: Mise à jour du statut (draft → active notamment)
+    if (status !== undefined) {
+      await DocumentsService.updateStatus(id, status, organizationId);
+    }
+
     // Reliaison
     if (linkedTo !== undefined) {
       await DocumentsService.relink(id, {
@@ -138,6 +143,15 @@ export async function DELETE(
       message: 'Document deleted',
     });
   } catch (error: any) {
+    // ⚠️ Gérer gracieusement le cas où le document n'existe pas (404 au lieu de 500)
+    // Cela peut arriver si le document n'a jamais été synchronisé côté serveur (document local uniquement)
+    if (error.message === 'Document not found') {
+      return NextResponse.json(
+        { success: true, message: 'Document not found (may not have been synced yet)' },
+        { status: 404 }
+      );
+    }
+    
     console.error('Error deleting document:', error);
     return NextResponse.json(
       { error: 'Failed to delete document', details: error.message },

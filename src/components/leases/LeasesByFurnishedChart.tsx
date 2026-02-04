@@ -106,17 +106,18 @@ export function LeasesByFurnishedChart({
           Total: {total} baux actifs
         </p>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 min-w-0">
         {data.length === 0 || total === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
             <Sofa className="h-12 w-12 mb-2 opacity-30" />
             <p className="text-sm">Aucun bail actif</p>
           </div>
         ) : (
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 min-w-0">
             {/* Donut à gauche */}
-            <div className="flex-shrink-0 w-2/5">
-              <ResponsiveContainer width="100%" height={180}>
+            <div className="flex-shrink-0 w-2/5 min-w-0">
+              <div className="min-w-0">
+                <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
                   <Pie
                     data={chartData}
@@ -133,11 +134,12 @@ export function LeasesByFurnishedChart({
                   </Pie>
                   <Tooltip content={<CustomTooltip />} />
                 </PieChart>
-              </ResponsiveContainer>
+                </ResponsiveContainer>
+              </div>
             </div>
 
             {/* Légende à droite */}
-            <div className="flex-1 max-h-[180px] overflow-y-auto space-y-2 text-sm">
+            <div className="flex-1 max-h-[180px] overflow-y-auto space-y-2 text-sm min-w-0">
               {chartData.map((entry, index) => (
                 <div key={index} className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 flex-1 min-w-0">

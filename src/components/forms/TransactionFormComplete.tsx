@@ -277,7 +277,7 @@ export default function TransactionFormComplete({
                   <select
                     value={formData.propertyId}
                     onChange={(e) => handleChange('propertyId', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                    className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                       errors.propertyId ? 'border-red-500' : 'border-gray-300'
                     }`}
                   >
@@ -298,7 +298,7 @@ export default function TransactionFormComplete({
                   <select
                     value={formData.leaseId}
                     onChange={(e) => handleChange('leaseId', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                   >
                     <option value="">Aucun bail</option>
                     {leases && Array.isArray(leases) && leases.map((lease) => (
@@ -328,7 +328,7 @@ export default function TransactionFormComplete({
                     type="text"
                     value={formData.label}
                     onChange={(e) => handleChange('label', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                    className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                       errors.label ? 'border-red-500' : 'border-gray-300'
                     }`}
                     placeholder="Ex: Loyer janvier 2024"
@@ -344,7 +344,7 @@ export default function TransactionFormComplete({
                     <select
                       value={formData.nature}
                       onChange={(e) => handleChange('nature', e.target.value)}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                      className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                         errors.nature ? 'border-red-500' : 'border-gray-300'
                       }`}
                     >
@@ -366,7 +366,7 @@ export default function TransactionFormComplete({
                       step="0.01"
                       value={formData.amount}
                       onChange={(e) => handleChange('amount', parseFloat(e.target.value) || 0)}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                      className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                         errors.amount ? 'border-red-500' : 'border-gray-300'
                       }`}
                       placeholder="Ex: 850.00"
@@ -384,7 +384,7 @@ export default function TransactionFormComplete({
                       type="date"
                       value={formData.date}
                       onChange={(e) => handleChange('date', e.target.value)}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                      className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                         errors.date ? 'border-red-500' : 'border-gray-300'
                       }`}
                     />
@@ -399,7 +399,7 @@ export default function TransactionFormComplete({
                       type="date"
                       value={formData.paidAt}
                       onChange={(e) => handleChange('paidAt', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                     />
                   </div>
                 </div>
@@ -412,7 +412,7 @@ export default function TransactionFormComplete({
                     <select
                       value={formData.method}
                       onChange={(e) => handleChange('method', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                     >
                       {METHODS.map((method) => (
                         <option key={method.value} value={method.value}>
@@ -430,7 +430,7 @@ export default function TransactionFormComplete({
                       type="text"
                       value={formData.reference}
                       onChange={(e) => handleChange('reference', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                       placeholder="Ex: VIREMENT-2024-001"
                     />
                   </div>
@@ -456,7 +456,7 @@ export default function TransactionFormComplete({
                       type="month"
                       value={formData.periodStart}
                       onChange={(e) => handleChange('periodStart', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                     />
                   </div>
 
@@ -469,7 +469,7 @@ export default function TransactionFormComplete({
                       min="1"
                       value={formData.periodCount}
                       onChange={(e) => handleChange('periodCount', parseInt(e.target.value) || 1)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                     />
                   </div>
                 </div>

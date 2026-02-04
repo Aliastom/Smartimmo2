@@ -17,22 +17,89 @@ export interface Category {
   actif: boolean;
 }
 
+interface UseNatureMappingOptions {
+  // Permet de passer des données pré-chargées (ex: depuis IndexedDB en mode app-shell)
+  natures?: any[];
+  categories?: Category[];
+  mode?: 'normal' | 'app-shell';
+}
+
 // Hook pour gérer le mapping Nature ↔ Catégorie
-export function useNatureMapping() {
+export function useNatureMapping(options: UseNatureMappingOptions = {}) {
+  const { natures: providedNatures, categories: providedCategories, mode = 'normal' } = options;
   const [mapping, setMapping] = useState<NatureMappingRules>({});
   const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!providedNatures || !providedCategories);
   const [error, setError] = useState<string | null>(null);
 
-  // Charger le mapping et les catégories
-  useEffect(() => {
-    loadMapping();
-  }, []);
-
-  const loadMapping = async () => {
+  // Charger depuis IndexedDB en mode app-shell
+  const loadMappingFromIndexedDB = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
+
+      const { getLocalDB } = await import('@/lib/offline/db');
+      const db = await getLocalDB();
+
+      // Charger depuis IndexedDB
+      const [naturesData, categoriesData] = await Promise.all([
+        db.NatureEntity.toArray(),
+        db.Category.toArray(),
+      ]);
+
+      // Transformer les natures en mapping
+      const mappingRules: NatureMappingRules = {};
+      naturesData.forEach((nature: any) => {
+        mappingRules[nature.key] = {
+          allowedTypes: nature.compatibleTypes || [],
+          defaultCategoryId: nature.defaultCategory
+        };
+      });
+
+      setMapping(mappingRules);
+      setCategories(categoriesData);
+      setLoading(false);
+    } catch (err) {
+      console.error('Erreur lors du chargement du mapping depuis IndexedDB:', err);
+      setError(err instanceof Error ? err.message : 'Erreur inconnue');
+      setLoading(false);
+    }
+  }, []);
+
+  // Charger depuis l'API (mode normal uniquement)
+  const loadMapping = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Vérifier si on est en ligne avant de faire des appels API
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        // Si offline, essayer de charger depuis IndexedDB
+        console.log('[useNatureMapping] ⚠️ Offline détecté, chargement depuis IndexedDB');
+        try {
+          const { getLocalDB } = await import('@/lib/offline/db');
+          const db = await getLocalDB();
+          const [naturesData, categoriesData] = await Promise.all([
+            db.NatureEntity.toArray(),
+            db.Category.toArray(),
+          ]);
+          const mappingRules: NatureMappingRules = {};
+          naturesData.forEach((nature: any) => {
+            mappingRules[nature.key] = {
+              allowedTypes: nature.compatibleTypes || [],
+              defaultCategoryId: nature.defaultCategory
+            };
+          });
+          setMapping(mappingRules);
+          setCategories(categoriesData);
+          setLoading(false);
+        } catch (err) {
+          console.error('Erreur lors du chargement depuis IndexedDB (offline):', err);
+          setError('Données non disponibles en mode offline');
+          setLoading(false);
+        }
+        return;
+      }
 
       // Charger les natures et les catégories directement depuis la BDD
       const [naturesResponse, categoriesResponse] = await Promise.all([
@@ -68,7 +135,49 @@ export function useNatureMapping() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Charger le mapping et les catégories
+  useEffect(() => {
+    if (providedNatures && providedNatures.length > 0 && providedCategories && providedCategories.length > 0) {
+      // Utiliser les données fournies (mode app-shell)
+      try {
+        setLoading(true);
+        console.log('[useNatureMapping] 📦 Mode app-shell - Natures fournies:', providedNatures.length);
+        console.log('[useNatureMapping] 📦 Mode app-shell - Catégories fournies:', providedCategories.length);
+        
+        // Transformer les natures en mapping
+        const mappingRules: NatureMappingRules = {};
+        providedNatures.forEach((nature: any) => {
+          console.log('[useNatureMapping] 🔍 Nature:', nature.key, {
+            compatibleTypes: nature.compatibleTypes,
+            defaultCategory: nature.defaultCategory,
+            hasCompatibleTypes: !!nature.compatibleTypes,
+            hasDefaultCategory: !!nature.defaultCategory
+          });
+          mappingRules[nature.key] = {
+            allowedTypes: nature.compatibleTypes || [],
+            defaultCategoryId: nature.defaultCategory
+          };
+        });
+
+        console.log('[useNatureMapping] ✅ Mapping construit:', Object.keys(mappingRules).length, 'natures mappées');
+        setMapping(mappingRules);
+        setCategories(providedCategories);
+        setLoading(false);
+      } catch (err) {
+        console.error('Erreur lors du traitement du mapping Nature ↔ Catégorie:', err);
+        setError(err instanceof Error ? err.message : 'Erreur inconnue');
+        setLoading(false);
+      }
+    } else if (mode === 'app-shell') {
+      // Mode app-shell mais données non fournies : charger depuis IndexedDB
+      loadMappingFromIndexedDB();
+    } else {
+      // Charger depuis l'API (mode normal)
+      loadMapping();
+    }
+  }, [providedNatures, providedCategories, mode, loadMappingFromIndexedDB, loadMapping]);
 
   // Obtenir les catégories compatibles pour une nature
   const getCompatibleCategories = useCallback((natureKey: string): Category[] => {

@@ -11,10 +11,11 @@ type DeleteMode = 'delete_docs' | 'keep_docs_globalize';
 interface ConfirmDeleteTransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: (mode: DeleteMode) => void; // ✅ Modifié pour passer le mode
   transactionId: string;
   transactionLabel?: string;
   hasDocuments: boolean;
+  isLoading?: boolean; // ⚠️ UX: Afficher un loader pendant la vérification des documents
 }
 
 /**
@@ -29,7 +30,8 @@ export function ConfirmDeleteTransactionModal({
   onConfirm,
   transactionId,
   transactionLabel,
-  hasDocuments
+  hasDocuments,
+  isLoading = false
 }: ConfirmDeleteTransactionModalProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedMode, setSelectedMode] = useState<DeleteMode>('keep_docs_globalize');
@@ -37,24 +39,9 @@ export function ConfirmDeleteTransactionModal({
   const handleConfirm = async () => {
     setIsDeleting(true);
     try {
-      const url = `/api/transactions/${transactionId}?mode=${selectedMode}`;
-      const response = await fetch(url, {
-        method: 'DELETE'
-      });
-
-      if (!response.ok) {
-        throw new Error('Erreur lors de la suppression');
-      }
-
-      const data = await response.json();
-      
-      if (selectedMode === 'delete_docs') {
-        notify2.success('Transaction et documents supprimés');
-      } else {
-        notify2.success('Transaction supprimée, documents conservés');
-      }
-
-      onConfirm();
+      // ✅ Appeler le callback avec le mode choisi - le parent gère la suppression via TransactionService
+      await onConfirm(selectedMode);
+      // Le parent gère la notification de succès et la fermeture
       onClose();
     } catch (error) {
       console.error('Erreur lors de la suppression:', error);
@@ -65,7 +52,7 @@ export function ConfirmDeleteTransactionModal({
   };
 
   const handleCancel = () => {
-    if (!isDeleting) {
+    if (!isDeleting && !isLoading) {
       onClose();
     }
   };
@@ -76,8 +63,8 @@ export function ConfirmDeleteTransactionModal({
       onClose={handleCancel}
       title="Supprimer cette transaction ?"
       size="md"
-      closeOnBackdropClick={!isDeleting}
-      closeOnEscape={!isDeleting}
+      closeOnBackdropClick={!isDeleting && !isLoading}
+      closeOnEscape={!isDeleting && !isLoading}
     >
       <div className="space-y-4">
         {/* Icon d'alerte */}
@@ -94,6 +81,14 @@ export function ConfirmDeleteTransactionModal({
           </div>
         )}
 
+        {/* Loader pendant la vérification des documents */}
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
+            <p className="text-sm text-gray-600">Vérification des documents liés...</p>
+          </div>
+        ) : (
+          <>
         {/* Message et choix si la transaction a des documents */}
         {hasDocuments ? (
           <div className="space-y-4">
@@ -153,21 +148,21 @@ export function ConfirmDeleteTransactionModal({
           </p>
         )}
 
-        {/* Actions */}
-        <div className="flex gap-3 pt-2">
+        {/* Actions - Mobile: empilées, Desktop: en ligne */}
+        <div className="flex flex-col sm:flex-row gap-3 pt-2">
           <Button
             variant="outline"
             onClick={handleCancel}
-            disabled={isDeleting}
-            className="flex-1"
+                disabled={isDeleting || isLoading}
+            className="flex-1 w-full sm:w-auto"
           >
             Annuler
           </Button>
           <Button
             variant="destructive"
             onClick={handleConfirm}
-            disabled={isDeleting}
-            className="flex-1"
+                disabled={isDeleting || isLoading}
+            className="flex-1 w-full sm:w-auto"
           >
             {isDeleting ? (
               <>
@@ -179,6 +174,8 @@ export function ConfirmDeleteTransactionModal({
             )}
           </Button>
         </div>
+          </>
+        )}
       </div>
     </Modal>
   );

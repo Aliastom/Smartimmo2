@@ -70,9 +70,6 @@ export async function deletePropertySmart(options: DeletePropertyOptions): Promi
       break;
 
     case 'cascade':
-      if (hasLinkedData) {
-        throw new Error('Impossible de supprimer : des éléments sont liés à ce bien');
-      }
       await cascadeDeleteProperty(propertyId, organizationId);
       break;
 
@@ -177,17 +174,58 @@ async function reassignProperty(sourcePropertyId: string, targetPropertyId: stri
  * Seulement si aucune donnée liée
  */
 async function cascadeDeleteProperty(propertyId: string, organizationId: string): Promise<void> {
-  // Double vérification
-  const stats = await getPropertyStats(propertyId, organizationId);
-  const hasLinkedData = stats.leases > 0 || stats.transactions > 0 || stats.documents > 0 || stats.echeances > 0 || stats.loans > 0;
+  await prisma.$transaction(async (tx) => {
+    const [leases, transactions, loans] = await Promise.all([
+      tx.lease.findMany({ where: { propertyId }, select: { id: true } }),
+      tx.transaction.findMany({ where: { propertyId }, select: { id: true } }),
+      tx.loan.findMany({ where: { propertyId }, select: { id: true } }),
+    ]);
+    
+    const leaseIds = leases.map(l => l.id);
+    const transactionIds = transactions.map(t => t.id);
+    const loanIds = loans.map(l => l.id);
 
-  if (hasLinkedData) {
-    throw new Error('Impossible de supprimer : des éléments sont liés à ce bien');
-  }
+    if (leaseIds.length > 0 || transactionIds.length > 0 || loanIds.length > 0) {
+      await tx.documentLink.deleteMany({
+        where: {
+          OR: [
+            leaseIds.length > 0 ? { linkedType: 'lease', linkedId: { in: leaseIds } } : undefined,
+            transactionIds.length > 0 ? { linkedType: 'transaction', linkedId: { in: transactionIds } } : undefined,
+            loanIds.length > 0 ? { linkedType: 'loan', linkedId: { in: loanIds } } : undefined,
+          ].filter(Boolean) as any,
+        },
+      });
+    }
 
-  // Supprimer le bien (Prisma cascade delete pour les photos et autres)
-  await prisma.property.delete({
-    where: { id: propertyId },
+    await tx.documentLink.deleteMany({
+      where: { linkedType: 'property', linkedId: propertyId },
+    });
+
+    await tx.document.deleteMany({
+      where: {
+        OR: [
+          { propertyId },
+          leaseIds.length > 0 ? { leaseId: { in: leaseIds } } : undefined,
+          transactionIds.length > 0 ? { transactionId: { in: transactionIds } } : undefined,
+          loanIds.length > 0 ? { loanId: { in: loanIds } } : undefined,
+        ].filter(Boolean) as any,
+      },
+    });
+
+    await tx.echeanceRecurrente.deleteMany({ where: { propertyId } });
+    await tx.payment.deleteMany({ where: { propertyId } });
+    await tx.occupancyHistory.deleteMany({ where: { propertyId } });
+    await tx.photo.deleteMany({ where: { propertyId } });
+
+    if (loanIds.length > 0) {
+      await tx.loanBorrower.deleteMany({ where: { loanId: { in: loanIds } } });
+    }
+
+    await tx.loan.deleteMany({ where: { propertyId } });
+    await tx.transaction.deleteMany({ where: { propertyId } });
+    await tx.lease.deleteMany({ where: { propertyId } });
+
+    await tx.property.delete({ where: { id: propertyId } });
   });
 
   console.log(`[CASCADE] Bien ${propertyId} supprimé définitivement`);

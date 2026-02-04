@@ -46,6 +46,7 @@ export interface TasksPanelProps {
   documentsAValider: DocumentAValider[];
   layout?: 'vertical' | 'horizontal';
   currentMonth?: string; // Format YYYY-MM (ex: "2025-11")
+  mode?: 'normal' | 'app-shell'; // Mode pour générer les bons liens
 }
 
 export function TasksPanel({
@@ -59,7 +60,26 @@ export function TasksPanel({
   documentsAValider,
   layout = 'vertical',
   currentMonth,
+  mode = 'normal',
 }: TasksPanelProps) {
+  // Fonction utilitaire pour générer les liens selon le mode
+  const getTransactionsLink = (propertyId: string) => {
+    if (mode === 'app-shell') {
+      return `/app?view=transactions&propertyId=${propertyId}`;
+    }
+    return `/biens/${propertyId}/transactions`;
+  };
+
+  // Gestionnaire de clic pour la navigation en mode app-shell
+  const handleAppShellNavigation = (e: React.MouseEvent<HTMLAnchorElement>, propertyId: string) => {
+    if (mode === 'app-shell') {
+      e.preventDefault();
+      const url = `/app?view=transactions&propertyId=${propertyId}`;
+      window.history.pushState({}, '', url);
+      // Déclencher un événement personnalisé pour notifier AppShellClient du changement
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+  };
   // État pour la case à cocher "mois sélectionné" (loyers en retard)
   const [filterByCurrentMonth, setFilterByCurrentMonth] = useState(true);
   
@@ -76,7 +96,7 @@ export function TasksPanel({
   const [transactionsEnCoursRapprochement, setTransactionsEnCoursRapprochement] = useState<Set<string>>(new Set());
   
   const queryClient = useQueryClient();
-  const toggleRapprochement = useToggleRapprochement();
+  const toggleRapprochement = useToggleRapprochement(mode);
   
   // Filtrer les relances par mois sélectionné si la case est cochée
   const filteredRelances = filterByCurrentMonth && currentMonth
@@ -94,27 +114,92 @@ export function TasksPanel({
     setTransactionsEnCoursRapprochement(prev => new Set(prev).add(transactionId));
     
     try {
-      await toggleRapprochement.mutateAsync({
+      const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+      console.log('[TasksPanel] handleRapprocher - Début rapprochement transaction:', transactionId, 'mode:', mode, 'isOnline:', isOnline);
+      
+      // ⚠️ CRITIQUE: Vérifier que toggleRapprochement est bien initialisé
+      if (!toggleRapprochement) {
+        console.error('[TasksPanel] handleRapprocher - ❌ toggleRapprochement est undefined/null');
+        throw new Error('toggleRapprochement hook non initialisé');
+      }
+      
+      if (!toggleRapprochement.mutateAsync) {
+        console.error('[TasksPanel] handleRapprocher - ❌ toggleRapprochement.mutateAsync est undefined/null');
+        throw new Error('toggleRapprochement.mutateAsync non disponible');
+      }
+      
+      console.log('[TasksPanel] handleRapprocher - ✅ toggleRapprochement.mutateAsync disponible, appel de la mutation...');
+      console.log('[TasksPanel] handleRapprocher - Paramètres de la mutation:', {
         id: transactionId,
         status: 'rapprochee',
+        mode,
       });
-      // Invalider toutes les queries du dashboard pour rafraîchir les données
+      
+      // ⚠️ CRITIQUE: Appeler la mutation même en offline (offline-first)
+      // Le hook useToggleRapprochement gère lui-même le mode offline
+      const result = await toggleRapprochement.mutateAsync({
+        id: transactionId,
+        status: 'rapprochee',
+        mode, // Passer le mode pour que useToggleRapprochement sache comment gérer
+      });
+      
+      console.log('[TasksPanel] handleRapprocher - ✅ Rapprochement réussi, mode:', mode, 'result:', result);
+      
+      // En mode app-shell, émettre des événements pour rafraîchir le dashboard ET la vue sync
+      if (mode === 'app-shell') {
+        console.log('[TasksPanel] handleRapprocher - Mode app-shell, émission des événements de refresh');
+        // Émettre dashboard:refresh pour rafraîchir le dashboard
+        window.dispatchEvent(new CustomEvent('dashboard:refresh'));
+        // Émettre sync:refresh pour rafraîchir la vue sync immédiatement
+        window.dispatchEvent(new CustomEvent('sync:refresh'));
+        // Petite pause pour laisser le temps à la pendingOp d'être créée et aux événements de se propager
+        await new Promise(resolve => setTimeout(resolve, 200));
+        console.log('[TasksPanel] handleRapprocher - Événements émis, attente terminée');
+      } else {
+        // Mode normal : invalider les queries React Query
       queryClient.invalidateQueries({ 
         queryKey: ['dashboard-monthly'],
         exact: false 
       });
+      }
       
-      // Attendre que les données soient rafraîchies avant de retirer de la liste
-      // On garde la transaction dans l'état jusqu'à ce qu'elle disparaisse de la liste
-      // (elle disparaîtra automatiquement quand les données seront rafraîchies)
-    } catch (error) {
-      console.error('Erreur lors du rapprochement:', error);
-      // En cas d'erreur, retirer de la liste des transactions en cours
+      // Retirer de la liste des transactions en cours immédiatement pour que le bouton redevienne cliquable
+      // (ne pas attendre 500ms car la mutation est déjà terminée)
       setTransactionsEnCoursRapprochement(prev => {
         const newSet = new Set(prev);
         newSet.delete(transactionId);
+        console.log('[TasksPanel] handleRapprocher - Transaction retirée de transactionsEnCoursRapprochement');
         return newSet;
       });
+    } catch (error) {
+      // ⚠️ CRITIQUE: Ne pas masquer l'erreur, la logger complètement
+      console.error('[TasksPanel] handleRapprocher - ❌ ERREUR lors du rapprochement:', error);
+      console.error('[TasksPanel] handleRapprocher - ❌ Détails de l\'erreur:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : undefined,
+        errorType: typeof error,
+        errorString: String(error),
+      });
+      
+      // ⚠️ CRITIQUE: Afficher un toast d'erreur pour informer l'utilisateur
+      // (notify2 est déjà importé via useToggleRapprochement)
+      if (error instanceof Error) {
+        console.error('[TasksPanel] handleRapprocher - ❌ Message d\'erreur:', error.message);
+      }
+      
+      // En cas d'erreur, retirer immédiatement de la liste des transactions en cours
+      // pour que le bouton redevienne cliquable
+      setTransactionsEnCoursRapprochement(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(transactionId);
+        console.log('[TasksPanel] handleRapprocher - Transaction retirée de transactionsEnCoursRapprochement après erreur');
+        return newSet;
+      });
+      
+      // ⚠️ CRITIQUE: Re-throw l'erreur pour que l'appelant puisse la gérer si nécessaire
+      // (mais on ne bloque pas l'UI car on a déjà retiré la transaction de la liste)
+      // Ne pas re-throw pour éviter de casser l'UI, mais logger l'erreur complètement
     }
   };
 
@@ -453,11 +538,23 @@ export function TasksPanel({
                                 <Send className="h-3 w-3 mr-1" />
                                 Relancer
                               </Button>
-                              <Link href={`/biens/${loyer.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                              {mode === 'app-shell' ? (
+                                <a 
+                                  href={getTransactionsLink(loyer.propertyId)}
+                                  onClick={(e) => handleAppShellNavigation(e, loyer.propertyId)}
+                                  className="inline-block"
+                                >
+                                  <Button size="sm" variant="ghost">
+                                    <ArrowRight className="h-3 w-3" />
+                                  </Button>
+                                </a>
+                              ) : (
+                                <Link href={getTransactionsLink(loyer.propertyId)} target="_blank" rel="noopener noreferrer">
                                 <Button size="sm" variant="ghost">
                                   <ArrowRight className="h-3 w-3" />
                                 </Button>
                               </Link>
+                              )}
                             </div>
                           }
                         />
@@ -546,11 +643,23 @@ export function TasksPanel({
                           >
                             Rapprocher
                           </Button>
-                          <Link href={`/biens/${transaction.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                          {mode === 'app-shell' ? (
+                            <a 
+                              href={getTransactionsLink(transaction.propertyId)}
+                              onClick={(e) => handleAppShellNavigation(e, transaction.propertyId)}
+                              className="inline-block"
+                            >
+                              <Button size="sm" variant="ghost">
+                                <ArrowRight className="h-3 w-3" />
+                              </Button>
+                            </a>
+                          ) : (
+                            <Link href={getTransactionsLink(transaction.propertyId)} target="_blank" rel="noopener noreferrer">
                             <Button size="sm" variant="ghost">
                               <ArrowRight className="h-3 w-3" />
                             </Button>
                           </Link>
+                          )}
                         </div>
                       }
                     />
@@ -833,11 +942,23 @@ export function TasksPanel({
                             <Send className="h-3 w-3 mr-1" />
                             Relancer
                           </Button>
-                          <Link href={`/biens/${loyer.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                          {mode === 'app-shell' ? (
+                            <a 
+                              href={getTransactionsLink(loyer.propertyId)}
+                              onClick={(e) => handleAppShellNavigation(e, loyer.propertyId)}
+                              className="inline-block"
+                            >
+                              <Button size="sm" variant="ghost">
+                                <ArrowRight className="h-3 w-3" />
+                              </Button>
+                            </a>
+                          ) : (
+                            <Link href={getTransactionsLink(loyer.propertyId)} target="_blank" rel="noopener noreferrer">
                             <Button size="sm" variant="ghost">
                               <ArrowRight className="h-3 w-3" />
                             </Button>
                           </Link>
+                          )}
                         </div>
                       }
                     />
@@ -911,11 +1032,23 @@ export function TasksPanel({
                           >
                             Rapprocher
                           </Button>
-                          <Link href={`/biens/${transaction.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                          {mode === 'app-shell' ? (
+                            <a 
+                              href={getTransactionsLink(transaction.propertyId)}
+                              onClick={(e) => handleAppShellNavigation(e, transaction.propertyId)}
+                              className="inline-block"
+                            >
+                              <Button size="sm" variant="ghost">
+                                <ArrowRight className="h-3 w-3" />
+                              </Button>
+                            </a>
+                          ) : (
+                            <Link href={getTransactionsLink(transaction.propertyId)} target="_blank" rel="noopener noreferrer">
                             <Button size="sm" variant="ghost">
                               <ArrowRight className="h-3 w-3" />
                             </Button>
                           </Link>
+                          )}
                         </div>
                       }
                     />
@@ -1155,11 +1288,23 @@ export function TasksPanel({
                         <Send className="h-3 w-3 mr-1" />
                         Relancer
                       </Button>
-                      <Link href={`/biens/${loyer.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                      {mode === 'app-shell' ? (
+                        <a 
+                          href={getTransactionsLink(loyer.propertyId)}
+                          onClick={(e) => handleAppShellNavigation(e, loyer.propertyId)}
+                          className="inline-block"
+                        >
+                          <Button size="sm" variant="ghost">
+                            <ArrowRight className="h-3 w-3" />
+                          </Button>
+                        </a>
+                      ) : (
+                        <Link href={getTransactionsLink(loyer.propertyId)} target="_blank" rel="noopener noreferrer">
                         <Button size="sm" variant="ghost">
                           <ArrowRight className="h-3 w-3" />
                         </Button>
                       </Link>
+                      )}
                     </div>
                   }
                 />
@@ -1235,11 +1380,23 @@ export function TasksPanel({
                       >
                         Rapprocher
                       </Button>
-                      <Link href={`/biens/${transaction.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                          {mode === 'app-shell' ? (
+                            <a 
+                              href={getTransactionsLink(transaction.propertyId)}
+                              onClick={(e) => handleAppShellNavigation(e, transaction.propertyId)}
+                              className="inline-block"
+                            >
+                              <Button size="sm" variant="ghost">
+                                <ArrowRight className="h-3 w-3" />
+                              </Button>
+                            </a>
+                          ) : (
+                            <Link href={getTransactionsLink(transaction.propertyId)} target="_blank" rel="noopener noreferrer">
                         <Button size="sm" variant="ghost">
                           <ArrowRight className="h-3 w-3" />
                         </Button>
                       </Link>
+                          )}
                     </div>
                   }
                 />
@@ -1539,11 +1696,23 @@ export function TasksPanel({
                           <Send className="h-3 w-3 mr-1" />
                           Relancer
                         </Button>
-                        <Link href={`/biens/${loyer.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                        {mode === 'app-shell' ? (
+                          <a 
+                            href={getTransactionsLink(loyer.propertyId)}
+                            onClick={(e) => handleAppShellNavigation(e, loyer.propertyId)}
+                            className="inline-block"
+                          >
+                            <Button size="sm" variant="ghost">
+                              <ArrowRight className="h-3 w-3" />
+                            </Button>
+                          </a>
+                        ) : (
+                          <Link href={getTransactionsLink(loyer.propertyId)} target="_blank" rel="noopener noreferrer">
                           <Button size="sm" variant="ghost">
                             <ArrowRight className="h-3 w-3" />
                           </Button>
                         </Link>
+                        )}
                       </div>
                     }
                   />
@@ -1617,11 +1786,23 @@ export function TasksPanel({
                         >
                           Rapprocher
                         </Button>
-                        <Link href={`/biens/${transaction.propertyId}/transactions`} target="_blank" rel="noopener noreferrer">
+                          {mode === 'app-shell' ? (
+                            <a 
+                              href={getTransactionsLink(transaction.propertyId)}
+                              onClick={(e) => handleAppShellNavigation(e, transaction.propertyId)}
+                              className="inline-block"
+                            >
+                              <Button size="sm" variant="ghost">
+                                <ArrowRight className="h-3 w-3" />
+                              </Button>
+                            </a>
+                          ) : (
+                            <Link href={getTransactionsLink(transaction.propertyId)} target="_blank" rel="noopener noreferrer">
                           <Button size="sm" variant="ghost">
                             <ArrowRight className="h-3 w-3" />
                           </Button>
                         </Link>
+                          )}
                       </div>
                     }
                   />

@@ -76,14 +76,14 @@ export function EcheancesRecuperablesChart({
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="min-w-0">
+      <CardHeader className="min-w-0">
         <CardTitle>Charges récupérables</CardTitle>
         <p className="text-sm text-gray-600 mt-1">
           {percentRecuperables}% récupérables
         </p>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0">
         {total === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center text-gray-400">
             <DollarSign className="h-12 w-12 mb-2" />
@@ -91,7 +91,8 @@ export function EcheancesRecuperablesChart({
           </div>
         ) : (
           <>
-            <ResponsiveContainer width="100%" height={200}>
+            <div className="min-w-0">
+              <ResponsiveContainer width="100%" height={200}>
               <BarChart data={chartData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis
@@ -106,6 +107,7 @@ export function EcheancesRecuperablesChart({
                 <Bar dataKey="Non récupérables" stackId="a" fill="#6b7280" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
+            </div>
             <div className="mt-4 space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">

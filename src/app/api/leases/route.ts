@@ -6,6 +6,8 @@ import { LeasesService, LeaseFilters } from '@/lib/services/leasesService';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { z } from 'zod';
 import { getLeaseRuntimeStatus } from '../../../domain/leases/status';
+import { createLeaseServicePrisma } from '@/domain/services/leaseServiceFactory';
+import { mapLeaseServiceErrorToHttpStatus } from '@/domain/services/leaseServiceHelpers';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -101,89 +103,30 @@ export async function POST(request: NextRequest) {
     const organizationId = user.organizationId;
     const body = await request.json();
     
-    // Validation avec Zod
+    // Validation minimale (shape)
     const validatedData = leaseSchema.parse(body);
     
-    // Vérifier l'unicité des baux actifs pour cette propriété
-    const existingLeases = await leaseRepository.findByPropertyId(validatedData.propertyId, organizationId);
-    const newStartDate = new Date(validatedData.startDate);
-    const newEndDate = validatedData.endDate ? new Date(validatedData.endDate) : null;
-    
-    // Vérifier s'il y a des baux actifs qui se chevauchent
-    const overlappingLeases = existingLeases.filter(lease => {
-      if (lease.status !== 'ACTIF') return false;
-      
-      const existingStartDate = new Date(lease.startDate);
-      const existingEndDate = lease.endDate ? new Date(lease.endDate) : null;
-      
-      // Vérifier le chevauchement
-      if (newEndDate && existingEndDate) {
-        // Les deux ont une date de fin
-        return (newStartDate < existingEndDate && newEndDate > existingStartDate);
-      } else if (newEndDate && !existingEndDate) {
-        // Le nouveau bail a une fin, l'existant n'en a pas
-        return newEndDate > existingStartDate;
-      } else if (!newEndDate && existingEndDate) {
-        // Le nouveau bail n'a pas de fin, l'existant en a une
-        return newStartDate < existingEndDate;
-      } else {
-        // Aucun n'a de date de fin
-        return true;
-      }
-    });
-    
-    if (overlappingLeases.length > 0) {
-      return NextResponse.json({ 
-        error: 'Un autre bail actif existe sur cette période pour ce bien.' 
-      }, { status: 400 });
-    }
-    
-    // Convert string dates to Date objects
-    const startDate = new Date(validatedData.startDate);
-    const now = new Date();
-    
-    // Déterminer le statut initial
-    let status = validatedData.status || 'BROUILLON';
-    if (status === 'SIGNÉ' && startDate <= now) {
-      status = 'ACTIF';
-    }
-    
-    // Gérer endDate : si chaîne vide ou non fournie, calculer selon le type (meublé = 1 an, vide = 3 ans)
-    let endDate: Date | null = null;
-    if (validatedData.endDate && validatedData.endDate.trim() !== '') {
-      endDate = new Date(validatedData.endDate);
-    } else if (status === 'SIGNÉ' || status === 'ACTIF') {
-      // Calculer automatiquement selon le type de bail
-      // Meublé = 1 an, Vide = 3 ans (durée légale minimale)
-      const duration = (validatedData.furnishedType === 'meuble' || validatedData.furnishedType === 'MEUBLE') ? 1 : 3;
-      endDate = new Date(startDate);
-      endDate.setFullYear(endDate.getFullYear() + duration);
-      console.log(`🗓️ Date de fin calculée automatiquement : ${endDate.toISOString()} (${duration} an${duration > 1 ? 's' : ''} après le début - Type: ${validatedData.furnishedType})`);
-    }
-    
-    const processedData = {
+    // Appel du service (toute la logique métier est dans LeaseService)
+    const leaseService = createLeaseServicePrisma();
+    const result = await leaseService.createLease({
+      organizationId,
       propertyId: validatedData.propertyId,
       tenantId: validatedData.tenantId,
       type: validatedData.type,
-      furnishedType: validatedData.furnishedType || 'vide',
-      startDate,
-      endDate,
+      furnishedType: validatedData.furnishedType,
+      startDate: validatedData.startDate,
+      endDate: validatedData.endDate,
       rentAmount: validatedData.rentAmount,
-      deposit: validatedData.deposit || 0,
-      paymentDay: validatedData.paymentDay || null,
-      indexationType: validatedData.indexationType || 'none',
-      notes: validatedData.notes || '',
-      status,
-      // Gestion déléguée - Granularité des charges
-      chargesRecupMensuelles: validatedData.chargesRecupMensuelles || null,
-      chargesNonRecupMensuelles: validatedData.chargesNonRecupMensuelles || null,
-    };
-    
-    const lease = await leaseRepository.create({
-      ...processedData,
-      organizationId,
+      deposit: validatedData.deposit,
+      paymentDay: validatedData.paymentDay,
+      indexationType: validatedData.indexationType,
+      notes: validatedData.notes,
+      status: validatedData.status,
+      chargesRecupMensuelles: validatedData.chargesRecupMensuelles,
+      chargesNonRecupMensuelles: validatedData.chargesNonRecupMensuelles,
     });
-    return NextResponse.json(lease, { status: 201 });
+    
+    return NextResponse.json(result.lease, { status: 201 });
   } catch (error) {
     console.error('Error creating lease:', error);
     
@@ -198,9 +141,17 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     
+    if (error instanceof Error) {
+      const status = mapLeaseServiceErrorToHttpStatus(error);
+      return NextResponse.json({ 
+        error: error.message,
+        details: error.message
+      }, { status });
+    }
+    
     return NextResponse.json({ 
       error: 'Erreur lors de la création du bail', 
-      details: error instanceof Error ? error.message : 'Erreur inconnue' 
+      details: 'Erreur inconnue' 
     }, { status: 500 });
   }
 }

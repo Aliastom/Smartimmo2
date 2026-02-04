@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PropertyRepo } from '@/lib/db/PropertyRepo';
 import { z } from 'zod';
-import { deletePropertySmart, getPropertyStats } from '@/services/deletePropertySmart';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { createPropertyServicePrisma } from '@/domain/services/propertyServiceFactory';
+import { mapPropertyServiceErrorToHttpStatus } from '@/domain/services/propertyServiceHelpers';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -63,31 +64,34 @@ export async function PUT(
     const user = await requireAuth();
     const body = await request.json();
     
+    // Validation minimale (shape)
     const validatedData = updatePropertySchema.parse(body);
     
-    // Convertir la date si elle est fournie
-    if (validatedData.acquisitionDate) {
-      validatedData.acquisitionDate = new Date(validatedData.acquisitionDate);
-    }
+    // Appel du service (toute la logique métier est dans PropertyService)
+    const propertyService = createPropertyServicePrisma();
+    const result = await propertyService.updateProperty(params.id, user.organizationId, {
+      name: validatedData.name,
+      type: validatedData.type,
+      address: validatedData.address,
+      postalCode: validatedData.postalCode,
+      city: validatedData.city,
+      surface: validatedData.surface,
+      rooms: validatedData.rooms,
+      acquisitionDate: validatedData.acquisitionDate,
+      acquisitionPrice: validatedData.acquisitionPrice,
+      notaryFees: validatedData.notaryFees,
+      currentValue: validatedData.currentValue,
+      status: validatedData.status,
+      occupation: validatedData.occupation,
+      notes: validatedData.notes,
+      managementCompanyId: validatedData.managementCompanyId,
+      fiscalTypeId: validatedData.fiscalTypeId,
+      fiscalRegimeId: validatedData.fiscalRegimeId,
+      rentalMode: validatedData.rentalMode,
+      airbnbListingId: validatedData.airbnbListingId,
+    });
     
-    // Convertir les chaînes vides en null pour les foreign keys optionnelles
-    const sanitizedData: any = { ...validatedData };
-    if ('managementCompanyId' in sanitizedData) {
-      sanitizedData.managementCompanyId = sanitizedData.managementCompanyId || null;
-    }
-    if ('fiscalTypeId' in sanitizedData) {
-      sanitizedData.fiscalTypeId = sanitizedData.fiscalTypeId || null;
-    }
-    if ('fiscalRegimeId' in sanitizedData) {
-      sanitizedData.fiscalRegimeId = sanitizedData.fiscalRegimeId || null;
-    }
-    if ('airbnbListingId' in sanitizedData) {
-      sanitizedData.airbnbListingId = sanitizedData.airbnbListingId || null;
-    }
-    
-    const property = await PropertyRepo.update(params.id, user.organizationId, sanitizedData);
-    
-    return NextResponse.json(property);
+    return NextResponse.json(result.property);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
@@ -97,6 +101,15 @@ export async function PUT(
     }
     
     console.error('Error updating property:', error);
+    
+    if (error instanceof Error) {
+      const status = mapPropertyServiceErrorToHttpStatus(error);
+      return NextResponse.json(
+        { error: error.message },
+        { status }
+      );
+    }
+    
     return NextResponse.json(
       { error: 'Erreur lors de la mise à jour du bien' },
       { status: 500 }
@@ -114,7 +127,7 @@ export async function DELETE(
     const mode = body.mode || 'archive'; // Par défaut : archiver
     const targetPropertyId = body.targetPropertyId;
 
-    // Validation du mode
+    // Validation minimale du mode
     if (!['archive', 'reassign', 'cascade'].includes(mode)) {
       return NextResponse.json(
         { error: 'Mode de suppression invalide' },
@@ -122,23 +135,11 @@ export async function DELETE(
       );
     }
 
-    // Validation du bien cible pour le mode reassign
-    if (mode === 'reassign' && !targetPropertyId) {
-      return NextResponse.json(
-        { error: 'Bien cible requis pour le mode transfert' },
-        { status: 400 }
-      );
-    }
-
-    // Récupérer les stats avant suppression (pour le retour)
-    const stats = await getPropertyStats(params.id, user.organizationId);
-
-    // Exécuter la suppression intelligente
-    await deletePropertySmart({
-      propertyId: params.id,
-      mode,
+    // Appel du service (toute la logique métier est dans PropertyService)
+    const propertyService = createPropertyServicePrisma();
+    const result = await propertyService.deleteProperty(params.id, user.organizationId, {
+      mode: mode as 'archive' | 'reassign' | 'cascade',
       targetPropertyId,
-      organizationId: user.organizationId,
     });
 
     return NextResponse.json({ 
@@ -147,35 +148,20 @@ export async function DELETE(
         : mode === 'reassign'
         ? 'Bien transféré et supprimé avec succès'
         : 'Bien supprimé définitivement',
-      mode,
-      stats,
+      mode: result.mode,
+      stats: result.stats,
     });
   } catch (error: any) {
     console.error('Error deleting property:', error);
 
-    // Gestion des erreurs spécifiques
-    if (error.message.includes('Bien non trouvé')) {
-      return NextResponse.json(
-        { error: 'Bien non trouvé' },
-        { status: 404 }
-      );
-    }
-
-    if (error.message.includes('des éléments sont liés')) {
+    if (error instanceof Error) {
+      const status = mapPropertyServiceErrorToHttpStatus(error);
       return NextResponse.json(
         { 
-          error: 'Impossible de supprimer',
-          message: error.message,
-          code: 'DEPENDENCY_EXISTS'
+          error: error.message,
+          code: error.message.includes('des éléments sont liés') ? 'DEPENDENCY_EXISTS' : undefined
         },
-        { status: 409 }
-      );
-    }
-
-    if (error.message.includes('Bien cible')) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 400 }
+        { status }
       );
     }
     

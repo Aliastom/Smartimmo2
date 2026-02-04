@@ -28,10 +28,10 @@ const createActionsMap = (t: ReturnType<typeof useGuardTranslations>): Record<En
   property: (entityId, payload) => {
     const actions: ActionItem[] = [];
     if (payload.hardBlockers.some(b => b.type === 'leases')) {
-      actions.push({ label: t.actions.seeLeases, href: `/biens/${entityId}/leases`, icon: 'Home' });
+      actions.push({ label: t.actions.seeLeases, href: `/app?view=property&propertyId=${entityId}&tab=lease`, icon: 'Home' });
     }
     if (payload.hardBlockers.some(b => b.type === 'loans')) {
-      actions.push({ label: t.actions.seeLoans, href: `/biens/${entityId}/loans`, icon: 'Landmark' });
+      actions.push({ label: t.actions.seeLoans, href: `/app?view=property&propertyId=${entityId}&tab=loans`, icon: 'Landmark' });
     }
     return actions;
   },

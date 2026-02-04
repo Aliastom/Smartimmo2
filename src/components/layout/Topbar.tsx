@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
 import { LogoutButton } from '@/components/auth/LogoutButton';
 import { useAuth } from '@/hooks/useAuth';
+import { LogoWithSyncStatus } from '@/components/offline/LogoWithSyncStatus';
 
 interface TopbarProps {
   onMenuClick?: () => void;
@@ -51,9 +52,7 @@ export function Topbar({
 
         {/* Logo */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-8 h-8 bg-primary-500 rounded-xl">
-            <span className="text-white font-bold text-sm">S</span>
-          </div>
+          <LogoWithSyncStatus size="md" bgColor="bg-primary-500" className="rounded-xl" />
           <span className="font-bold text-lg text-gray-900 hidden sm:block">
             SmartImmo
           </span>

@@ -81,14 +81,14 @@ export function DocumentsLinksDistributionChart({
           Total: {total} document{total > 1 ? 's' : ''}
         </p>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 min-w-0">
         {total === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
             <LinkIcon className="h-12 w-12 mb-2 opacity-30" />
             <p className="text-sm">Aucun document</p>
           </div>
         ) : (
-          <div className="space-y-2.5 max-h-[180px] flex flex-col justify-center">
+          <div className="space-y-2.5 max-h-[180px] flex flex-col justify-center min-w-0">
             {bars.map((bar, index) => (
               <div key={index} className="space-y-0.5">
                 {/* Label et pourcentage sur UNE ligne compacte */}

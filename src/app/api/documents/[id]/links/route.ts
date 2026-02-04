@@ -122,6 +122,15 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const documentId = params.id;
     const { entityType, entityId } = await request.json();
 
+    // ⚠️ INSTRUMENTATION : Log détaillé pour diagnostic
+    console.log(`[DocumentLinks API] POST /api/documents/${documentId}/links`, {
+      documentId,
+      entityType,
+      entityId,
+      sessionOrgId: organizationId,
+      timestamp: new Date().toISOString(),
+    });
+
     if (!entityType) {
       return NextResponse.json({ success: false, error: 'entityType manquant' }, { status: 400 });
     }
@@ -132,8 +141,38 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     });
 
     if (!document) {
-      return NextResponse.json({ success: false, error: 'Document non trouvé' }, { status: 404 });
+      // ⚠️ INSTRUMENTATION : Log détaillé si document non trouvé
+      const docCheck = await prisma.document.findFirst({
+        where: { id: documentId },
+        select: { id: true, organizationId: true },
+      });
+      
+      console.warn(`[DocumentLinks API] ❌ Document non trouvé`, {
+        documentId,
+        sessionOrgId: organizationId,
+        entityType,
+        entityId,
+        // Vérifier si le document existe avec un autre orgId (scope mismatch)
+        checkResult: docCheck ? { 
+          exists: true, 
+          docOrgId: docCheck.organizationId, 
+          mismatch: docCheck.organizationId !== organizationId 
+        } : { exists: false },
+      });
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Document non trouvé',
+        details: docCheck ? `Document existe mais appartient à une autre organisation (docOrgId: ${docCheck.organizationId}, sessionOrgId: ${organizationId})` : 'Document inexistant',
+      }, { status: 404 });
     }
+
+    // ⚠️ INSTRUMENTATION : Log si document trouvé avec vérification orgId
+    console.log(`[DocumentLinks API] ✅ Document trouvé`, {
+      documentId,
+      docOrgId: document.organizationId,
+      sessionOrgId: organizationId,
+      orgIdMatch: document.organizationId === organizationId,
+    });
 
     // Vérifier que l'entité existe (si entityId est fourni)
     if (entityId) {
@@ -151,24 +190,134 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         case 'transaction':
           entityExists = !!(await prisma.transaction.findFirst({ where: { id: entityId, organizationId } }));
           break;
+        case 'loan':
+          entityExists = !!(await prisma.loan.findFirst({ where: { id: entityId, organizationId } }));
+          break;
         case 'global':
           entityExists = true; // Global n'a pas besoin de validation
           break;
       }
 
       if (!entityExists) {
-        return NextResponse.json({ success: false, error: 'Entité non trouvée' }, { status: 404 });
+        console.warn(`[DocumentLinks API] ❌ Entité liée non trouvée`, {
+          documentId,
+          entityType,
+          entityId,
+          sessionOrgId: organizationId,
+          docOrgId: document.organizationId,
+        });
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Entité non trouvée',
+          details: `L'entité ${entityType} avec l'ID ${entityId} n'existe pas ou n'appartient pas à l'organisation ${organizationId}`,
+        }, { status: 404 });
       }
     }
 
-    // Créer le lien
+    // Créer le lien (ou le récupérer s'il existe déjà)
+    const linkedType = entityType.toLowerCase();
+    const linkedId = entityId || entityType.toLowerCase();
+    
+    // Vérifier si le lien existe déjà
+    const existingLink = await prisma.documentLink.findFirst({
+      where: {
+        documentId: documentId,
+        linkedType: linkedType,
+        linkedId: linkedId,
+      },
+    });
+
+    if (existingLink) {
+      // Le lien existe déjà, retourner un succès (idempotence)
+      return NextResponse.json({
+        success: true,
+        data: existingLink,
+        message: 'Lien déjà existant',
+      });
+    }
+
+    // Créer le nouveau lien vers la transaction mère
     const link = await prisma.documentLink.create({
       data: {
         documentId: documentId,
-        linkedType: entityType.toLowerCase(),
-        linkedId: entityId || entityType.toLowerCase(),
+        linkedType: linkedType,
+        linkedId: linkedId,
       },
     });
+
+    // ⚠️ POINT 2 : LIAISON AUTOMATIQUE : Si on crée un lien vers une transaction, créer aussi les liens vers ses commissions
+    // SÉCURISATION : La commission est créée dans le même appel que la transaction mère (TransactionService),
+    // mais pour éviter un timing fragile, on fait une retry si aucune commission n'est trouvée la première fois
+    if (entityType.toLowerCase() === 'transaction' && entityId) {
+      const maxRetries = 2;
+      let retryCount = 0;
+      let commissionTransactions: Array<{ id: string }> = [];
+      
+      while (retryCount < maxRetries) {
+        try {
+          // Chercher les transactions dérivées (commissions) : where parentTransactionId = transactionId
+          commissionTransactions = await prisma.transaction.findMany({
+            where: {
+              parentTransactionId: entityId,
+              organizationId: organizationId,
+            },
+            select: {
+              id: true,
+            },
+          });
+
+          if (commissionTransactions.length > 0) {
+            console.log(`[DocumentLinks API] 🔗 Création automatique de ${commissionTransactions.length} lien(s) vers commission(s) pour transaction ${entityId} (tentative ${retryCount + 1})`);
+            break; // Commission trouvée, sortir de la boucle
+          } else if (retryCount === 0) {
+            // Première tentative : commission pas encore créée, attendre un peu et réessayer
+            console.log(`[DocumentLinks API] ⏳ Commission non trouvée pour transaction ${entityId}, retry dans 100ms...`);
+            await new Promise(resolve => setTimeout(resolve, 100));
+            retryCount++;
+          } else {
+            // Deuxième tentative : toujours pas de commission, log et sortir
+            console.log(`[DocumentLinks API] ℹ️ Aucune commission trouvée pour transaction ${entityId} après ${retryCount + 1} tentative(s)`);
+            break;
+          }
+        } catch (commissionError: any) {
+          // Ne pas bloquer si la recherche des commissions échoue (log uniquement)
+          console.warn(`[DocumentLinks API] ⚠️ Erreur lors de la recherche des commissions pour transaction ${entityId} (tentative ${retryCount + 1}):`, commissionError);
+          break;
+        }
+      }
+      
+      // Créer les liens vers les commissions trouvées (idempotent)
+      if (commissionTransactions.length > 0) {
+        for (const commissionTx of commissionTransactions) {
+          try {
+            // Vérifier si le lien existe déjà (idempotence)
+            const existingCommissionLink = await prisma.documentLink.findFirst({
+              where: {
+                documentId: documentId,
+                linkedType: 'transaction',
+                linkedId: commissionTx.id,
+              },
+            });
+
+            if (!existingCommissionLink) {
+              await prisma.documentLink.create({
+                data: {
+                  documentId: documentId,
+                  linkedType: 'transaction',
+                  linkedId: commissionTx.id,
+                },
+              });
+              console.log(`[DocumentLinks API] ✅ Lien créé automatiquement vers commission ${commissionTx.id}`);
+            } else {
+              console.log(`[DocumentLinks API] ℹ️ Lien vers commission ${commissionTx.id} déjà existant (idempotent)`);
+            }
+          } catch (commissionLinkError: any) {
+            // Ne pas bloquer si la création d'un lien commission échoue (log uniquement)
+            console.warn(`[DocumentLinks API] ⚠️ Erreur lors de la création du lien vers commission ${commissionTx.id}:`, commissionLinkError);
+          }
+        }
+      }
+    }
 
     return NextResponse.json({
       success: true,

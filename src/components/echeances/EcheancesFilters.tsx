@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Search, Filter, X, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
 import { ECHEANCE_TYPE_LABELS, PERIODICITE_LABELS, SENS_LABELS } from '@/types/echeance';
 
 interface EcheancesFiltersProps {
@@ -16,6 +16,7 @@ interface EcheancesFiltersProps {
     propertyId: string;
     leaseId: string;
     recuperable: string;
+    isActive: string; // ✅ Ajouter le filtre actif/inactif
   };
   onFiltersChange: (filters: any) => void;
   onResetFilters: () => void;
@@ -161,7 +162,7 @@ export default function EcheancesFilters({
         <div className="flex items-center gap-2">
           <h3 className="text-lg font-bold text-gray-900">Filtres</h3>
           {hasActiveFilters && (
-            <span className="bg-blue-100 text-blue-600 text-xs font-medium px-2 py-1 rounded-full">
+            <span className="bg-orange-100 text-orange-600 text-xs font-medium px-2 py-1 rounded-full">
               {activeFiltersCount} actif{activeFiltersCount > 1 ? 's' : ''}
             </span>
           )}
@@ -190,7 +191,7 @@ export default function EcheancesFilters({
               onClick={() => handleQuickPeriod('current-month')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activePeriod === 'current-month'
-                  ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                  ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                   : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
               }`}
             >
@@ -200,7 +201,7 @@ export default function EcheancesFilters({
               onClick={() => handleQuickPeriod('3-months')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activePeriod === '3-months'
-                  ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                  ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                   : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
               }`}
             >
@@ -210,7 +211,7 @@ export default function EcheancesFilters({
               onClick={() => handleQuickPeriod('12-months')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activePeriod === '12-months'
-                  ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                  ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                   : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
               }`}
             >
@@ -220,7 +221,7 @@ export default function EcheancesFilters({
               onClick={() => handleQuickPeriod('current-year')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activePeriod === 'current-year'
-                  ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                  ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                   : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
               }`}
             >
@@ -230,7 +231,7 @@ export default function EcheancesFilters({
               onClick={() => handleQuickPeriod('3-years')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activePeriod === '3-years'
-                  ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                  ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                   : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
               }`}
             >
@@ -240,7 +241,7 @@ export default function EcheancesFilters({
               onClick={() => handleQuickPeriod('5-years')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activePeriod === '5-years'
-                  ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                  ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                   : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
               }`}
             >
@@ -250,7 +251,7 @@ export default function EcheancesFilters({
               onClick={() => handleQuickPeriod('10-years')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activePeriod === '10-years'
-                  ? 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                  ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
                   : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
               }`}
             >
@@ -261,31 +262,30 @@ export default function EcheancesFilters({
           {/* Sélecteur d'année pour afficher une année spécifique */}
           <div className="mt-3 flex items-center gap-2">
             <label className="text-sm font-medium text-gray-700">Afficher l'année:</label>
-            <Select
+            <SmartSelect
               value={(() => {
                 // Extraire l'année de periodStart
                 const year = periodStart.split('-')[0];
                 return year;
               })()}
-              onChange={(e) => {
-                const selectedYear = parseInt(e.target.value);
+              onChange={(value) => {
+                const selectedYear = parseInt(value);
                 onPeriodChange(`${selectedYear}-01`, `${selectedYear}-12`);
                 // S'assurer qu'on est en mode mensuel
                 if (viewMode !== 'monthly') {
                   onViewModeChange('monthly');
                 }
               }}
-              className="w-32"
-            >
-              {Array.from({ length: 15 }, (_, i) => {
+              options={Array.from({ length: 15 }, (_, i) => {
                 const year = new Date().getFullYear() - 5 + i;
-                return (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                );
+                return {
+                  value: year.toString(),
+                  label: year.toString(),
+                };
               })}
-            </Select>
+              className="w-32"
+              aria-label="Sélectionner une année"
+            />
           </div>
         </div>
 
@@ -317,77 +317,107 @@ export default function EcheancesFilters({
             {/* Type */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>
-              <Select
-                value={filters.type}
-                onChange={(e) => handleFilterChange('type', e.target.value)}
-                className="w-full"
-              >
-                <option value="">Tous les types</option>
-                {Object.entries(ECHEANCE_TYPE_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </Select>
+              <SmartSelect
+                value={filters.type || ''}
+                onChange={(value) => handleFilterChange('type', value)}
+                options={[
+                  { value: '', label: 'Tous les types' },
+                  ...Object.entries(ECHEANCE_TYPE_LABELS).map(([key, label]) => ({
+                    value: key,
+                    label,
+                  })),
+                ]}
+                placeholder="Tous les types"
+                aria-label="Filtrer par type"
+              />
             </div>
 
             {/* Sens */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Sens</label>
-              <Select
-                value={filters.sens}
-                onChange={(e) => handleFilterChange('sens', e.target.value)}
-                className="w-full"
-              >
-                <option value="">Tous</option>
-                {Object.entries(SENS_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </Select>
+              <SmartSelect
+                value={filters.sens || ''}
+                onChange={(value) => handleFilterChange('sens', value)}
+                options={[
+                  { value: '', label: 'Tous' },
+                  ...Object.entries(SENS_LABELS).map(([key, label]) => ({
+                    value: key,
+                    label,
+                  })),
+                ]}
+                placeholder="Tous"
+                aria-label="Filtrer par sens"
+              />
             </div>
 
             {/* Périodicité */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Périodicité</label>
-              <Select
-                value={filters.periodicite}
-                onChange={(e) => handleFilterChange('periodicite', e.target.value)}
-                className="w-full"
-              >
-                <option value="">Toutes</option>
-                {Object.entries(PERIODICITE_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </Select>
+              <SmartSelect
+                value={filters.periodicite || ''}
+                onChange={(value) => handleFilterChange('periodicite', value)}
+                options={[
+                  { value: '', label: 'Toutes' },
+                  ...Object.entries(PERIODICITE_LABELS).map(([key, label]) => ({
+                    value: key,
+                    label,
+                  })),
+                ]}
+                placeholder="Toutes"
+                aria-label="Filtrer par périodicité"
+              />
             </div>
 
             {/* Bien (masqué si hidePropertyFilter) */}
             {!hidePropertyFilter && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Bien</label>
-                <Select
-                  value={filters.propertyId}
-                  onChange={(e) => handleFilterChange('propertyId', e.target.value)}
-                  className="w-full"
-                >
-                  <option value="">Tous les biens</option>
-                  {properties.map((property) => (
-                    <option key={property.id} value={property.id}>{property.name}</option>
-                  ))}
-                </Select>
+                <SmartSelect
+                  value={filters.propertyId || ''}
+                  onChange={(value) => handleFilterChange('propertyId', value)}
+                  options={[
+                    { value: '', label: 'Tous les biens' },
+                    ...properties.map((property) => ({
+                      value: property.id,
+                      label: property.name,
+                    })),
+                  ]}
+                  placeholder="Tous les biens"
+                  aria-label="Filtrer par bien"
+                />
               </div>
             )}
 
             {/* Récupérable */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Récupérable</label>
-              <Select
-                value={filters.recuperable}
-                onChange={(e) => handleFilterChange('recuperable', e.target.value)}
-                className="w-full"
-              >
-                <option value="">Toutes</option>
-                <option value="true">Récupérables uniquement</option>
-                <option value="false">Non récupérables uniquement</option>
-              </Select>
+              <SmartSelect
+                value={filters.recuperable || ''}
+                onChange={(value) => handleFilterChange('recuperable', value)}
+                options={[
+                  { value: '', label: 'Toutes' },
+                  { value: 'true', label: 'Récupérables uniquement' },
+                  { value: 'false', label: 'Non récupérables uniquement' },
+                ]}
+                placeholder="Toutes"
+                aria-label="Filtrer par récupérable"
+              />
+            </div>
+
+            {/* ✅ Actif/Inactif */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Statut</label>
+              <SmartSelect
+                value={filters.isActive || ''}
+                onChange={(value) => handleFilterChange('isActive', value)}
+                options={[
+                  { value: '', label: 'Toutes' },
+                  { value: 'active', label: 'Actives uniquement' },
+                  { value: 'inactive', label: 'Inactives uniquement' },
+                ]}
+                placeholder="Toutes"
+                aria-label="Filtrer par statut"
+              />
             </div>
           </div>
         </div>

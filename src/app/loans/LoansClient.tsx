@@ -468,7 +468,7 @@ export default function LoansClient() {
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">{loan.label}</td>
                       <td className="px-4 py-3 text-sm">
                         <Link
-                          href={`/biens/${loan.propertyId}/loans`}
+                          href={`/app?view=property&propertyId=${loan.propertyId}&tab=loans`}
                           className="text-primary-600 hover:underline"
                           onClick={(e) => e.stopPropagation()}
                         >

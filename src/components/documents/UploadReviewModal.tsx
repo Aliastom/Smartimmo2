@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useId, useRef } from 'react';
+import React, { useState, useEffect, useId, useRef, useCallback, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -18,6 +18,13 @@ import { TransactionSuggestionPayload } from '@/services/TransactionSuggestionSe
 import { TransactionModal as TransactionModalV2 } from '@/components/transactions/TransactionModalV2';
 import { SearchableSelect } from '@/components/forms/SearchableSelect';
 import { DocumentUploadLoadingOverlay } from '@/components/documents/DocumentUploadLoadingOverlay';
+import { createTransactionServiceWithMode } from '@/domain/services/transactionServiceFactory';
+import { createDocumentServiceWithMode } from '@/domain/services/documentServiceFactory';
+import { getGlobalSyncService } from '@/lib/offline/syncGlobal';
+import { useAppShellContextOptional } from '@/contexts/AppShellContextResolver';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { useGestionDelegueStatus } from '@/hooks/useGestionDelegueStatus';
+import { useGestionCodes } from '@/hooks/useGestionCodes';
 // Note: Les descriptions de liaison sont maintenant générées côté client
 
 type UploadSaveMode = 'immediate' | 'staged' | 'review-draft';
@@ -61,6 +68,8 @@ interface UploadReviewModalProps {
   draftDocument?: any; // Document brouillon à modifier
   // Callback pour ouvrir la modale de transaction
   onOpenTransactionModal?: (suggestion: TransactionSuggestionPayload, documentId: string) => void;
+  // ⚠️ PROBLÈME 1: Désactiver le message d'avertissement "transaction IA sera ouverte" quand on est dans le contexte d'une transaction
+  hideOpenTransactionWarning?: boolean;
 }
 
 interface UploadPreview {
@@ -122,7 +131,8 @@ export function UploadReviewModal({
   documentTypeEditable = true,
   strategy,
   draftDocument,
-  onOpenTransactionModal
+  onOpenTransactionModal,
+  hideOpenTransactionWarning = false
 }: UploadReviewModalProps) {
   const [previews, setPreviews] = useState<UploadPreview[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -135,6 +145,10 @@ export function UploadReviewModal({
   const [openTransactionModal, setOpenTransactionModal] = useState(true);
   const progressIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   const [linkingDescription, setLinkingDescription] = useState<string[]>([]);
+  
+  // ✅ OPTIMISATION: Ref pour éviter les initialisations multiples et les boucles
+  const hasInitializedRef = React.useRef<{ filesSignature: string; isOpen: boolean } | null>(null);
+  const lastFilesSignatureRef = React.useRef<string>('');
   
   // États pour le mode review-draft
   const [isReviewDraftMode, setIsReviewDraftMode] = useState(false);
@@ -156,30 +170,130 @@ export function UploadReviewModal({
   const [transactionSuggestion, setTransactionSuggestion] = useState<TransactionSuggestionPayload | null>(null);
   const [suggestedDocumentId, setSuggestedDocumentId] = useState<string | null>(null);
 
+  // Détecter le mode app-shell
+  const isAppShell = typeof window !== 'undefined' && window.location.pathname.startsWith('/app');
+  
+  // ✅ OFFLINE-FIRST: Détecter explicitement offline
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  const shouldDisableUpload = isAppShell && isOffline;
+  
+  // Hooks pour le mode app-shell (organisation, gestion déléguée)
+  const appShellContext = useAppShellContextOptional();
+  const { organizationId: orgIdFromHook } = useCurrentOrganization();
+  const organizationId = appShellContext?.organizationId || orgIdFromHook;
+  const { isEnabled: gestionEnabled } = useGestionDelegueStatus();
+  const { codes: gestionCodes } = useGestionCodes();
+
   const currentPreview = previews[currentIndex];
 
   // Charger les types de documents
   useEffect(() => {
-    fetch('/api/document-types?isActive=true')
-      .then(res => res.json())
-      .then(data => {
-        if (data.documentTypes) {
-          const types = data.documentTypes.map((t: any) => ({
+    const isAppShell = typeof window !== 'undefined' && window.location.pathname.startsWith('/app');
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
+    const loadFromApi = async (persistToIdb: boolean) => {
+      try {
+        const res = await fetch('/api/document-types?isActive=true');
+        const data = await res.json();
+        if (!data.documentTypes) return;
+        const types = data.documentTypes.map((t: any) => ({
+          code: t.code,
+          label: t.label,
+          openTransaction: t.openTransaction || false
+        }));
+        console.log('[UploadReview] Types de documents chargés (API):', types);
+        setDocumentTypes(types);
+
+        if (persistToIdb) {
+          try {
+            const { getLocalDB } = await import('@/lib/offline/db');
+            const db = await getLocalDB();
+            await db.DocumentType.bulkPut(
+              data.documentTypes.map((t: any) => ({
+                id: t.id,
+                code: t.code,
+                label: t.label,
+                category: t.category ?? null,
+                isActive: t.isActive !== false,
+                openTransaction: t.openTransaction || false,
+                cachedAt: new Date().toISOString()
+              }))
+            );
+          } catch (persistError) {
+            console.warn('[UploadReview] Impossible de persister les types en IndexedDB:', persistError);
+          }
+        }
+      } catch (error) {
+        console.error('[UploadReview] Erreur chargement types depuis API:', error);
+      }
+    };
+    
+    if (isAppShell || isOffline) {
+      // Mode app-shell : charger depuis IndexedDB
+      const loadFromIndexedDB = async () => {
+        try {
+          const { getLocalDB } = await import('@/lib/offline/db');
+          const { handleDbUnavailableError, ensureDbAvailable } = await import('@/lib/offline/dbErrorHandler');
+          const db = await getLocalDB();
+          
+          // ⚠️ CRITIQUE: Si la DB est indisponible, émettre un événement pour que l'app affiche l'écran de recovery
+          try {
+            await ensureDbAvailable(db);
+          } catch (error: any) {
+            handleDbUnavailableError(error, 'UploadReviewModal');
+            setDocumentTypes([]);
+            return;
+          }
+          
+          const documentTypes = await db.DocumentType.toArray();
+          const activeTypes = documentTypes.filter(dt => dt.isActive !== false);
+          const types = activeTypes.map((t: any) => ({
             code: t.code,
             label: t.label,
             openTransaction: t.openTransaction || false
           }));
-          console.log('[UploadReview] Types de documents chargés:', types);
+          console.log('[UploadReview] Types de documents chargés depuis IndexedDB:', types.length);
           // Log pour déboguer openTransaction
           const typesWithOpenTransaction = types.filter((t: any) => t.openTransaction);
           if (typesWithOpenTransaction.length > 0) {
-            console.log('[UploadReview] Types avec openTransaction=true:', typesWithOpenTransaction.map((t: any) => t.code));
+            console.log('[UploadReview] Types avec openTransaction=true (IndexedDB):', typesWithOpenTransaction.map((t: any) => ({ code: t.code, label: t.label, openTransaction: t.openTransaction })));
+          } else {
+            console.log('[UploadReview] ⚠️ Aucun type avec openTransaction=true trouvé dans IndexedDB');
           }
+          // Log tous les types pour debug
+          console.log('[UploadReview] Tous les types chargés (IndexedDB):', types.map((t: any) => ({ code: t.code, label: t.label, openTransaction: t.openTransaction })));
           setDocumentTypes(types);
+
+          // ✅ Fallback PWA: si vide mais online, recharger depuis l'API et hydrater l'IDB
+          if (!isOffline && types.length === 0) {
+            await loadFromApi(true);
+          }
+        } catch (err: any) {
+          // ⚠️ CRITIQUE: Si DB_UNAVAILABLE, émettre un événement pour que l'app affiche l'écran de recovery
+          const { isDbUnavailableError } = await import('@/lib/offline/dbErrors');
+          const { handleDbUnavailableError } = await import('@/lib/offline/dbErrorHandler');
+          if (isDbUnavailableError(err)) {
+            handleDbUnavailableError(err, 'UploadReviewModal');
+          } else {
+            console.error('[UploadReview] Erreur chargement types depuis IndexedDB:', err);
+          }
+          setDocumentTypes([]);
         }
-      })
-      .catch(console.error);
+      };
+      loadFromIndexedDB();
+    } else {
+      // Mode normal : charger depuis l'API
+      loadFromApi(false);
+    }
   }, []);
+
+  // Initialiser le type de document si autoLinkingDocumentType est fourni
+  useEffect(() => {
+    if (autoLinkingDocumentType && !selectedType) {
+      console.log('[UploadReview] Initialisation du type de document depuis autoLinkingDocumentType:', autoLinkingDocumentType);
+      setSelectedType(autoLinkingDocumentType);
+    }
+  }, [autoLinkingDocumentType, selectedType]);
 
   // Détecter le mode review-draft et charger les données
   useEffect(() => {
@@ -248,6 +362,40 @@ export function UploadReviewModal({
         }
         
         // Option 2 : Gérer localement (fallback)
+        // ⚠️ CRITIQUE: Si online et mode app-shell, pull d'abord les documents pour qu'ils soient dans IndexedDB
+        // (le document a été créé côté serveur lors de l'upload, mais peut ne pas être dans IndexedDB)
+        const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+        if (isAppShell && isOnline && organizationId && documentId) {
+          try {
+            console.log('[UploadReview] 🔄 Pull des documents depuis le serveur avant d\'ouvrir la modal transaction...');
+            const syncService = getGlobalSyncService();
+            await syncService.syncEntityFromRemoteByName('document', organizationId);
+            console.log('[UploadReview] ✅ Documents pullés depuis le serveur avant ouverture modal transaction');
+            
+            // ✅ Vérifier que le document suggéré est maintenant dans IndexedDB
+            const { getLocalDB } = await import('@/lib/offline/db');
+            const db = await getLocalDB();
+            const doc = await db.Document.get(documentId);
+            if (doc && doc.organizationId === organizationId) {
+              console.log('[UploadReview] ✅ Document suggéré trouvé dans IndexedDB avant ouverture modal:', {
+                documentId: documentId,
+                organizationId: doc.organizationId,
+                status: doc.status,
+              });
+            } else {
+              console.warn('[UploadReview] ⚠️ Document suggéré non trouvé dans IndexedDB avant ouverture modal:', {
+                documentId: documentId,
+                found: !!doc,
+                organizationId: doc?.organizationId,
+                expectedOrganizationId: organizationId,
+              });
+            }
+          } catch (docPullError) {
+            console.warn('[UploadReview] Erreur lors du pull des documents avant ouverture modal transaction:', docPullError);
+            // Continuer quand même, le document peut déjà être dans IndexedDB
+          }
+        }
+        
         setTransactionSuggestion(suggestion);
         setSuggestedDocumentId(documentId);
         setShowTransactionModal(true);
@@ -279,6 +427,21 @@ export function UploadReviewModal({
 
       console.log('[UploadReview] Envoi de la requête PATCH:', requestData);
 
+      // 🔍 DIAGNOSTIC: Log AVANT PATCH dans IndexedDB
+      if (isAppShell && organizationId) {
+        try {
+          const { getLocalDB } = await import('@/lib/offline/db');
+          const { logToServer } = await import('@/lib/utils/logger');
+          const db = await getLocalDB();
+          const docBefore = await db.Document.get(strategy.draftId);
+          if (docBefore) {
+            await logToServer(`[UploadReview] 🔍 AVANT PATCH - docId=${strategy.draftId}, status=${docBefore.status}, documentTypeId=${docBefore.documentTypeId}, fileName=${docBefore.fileName}`);
+          }
+        } catch (e) {
+          // Ignorer si logToServer n'est pas disponible
+        }
+      }
+
       const response = await fetch(`/api/upload-staged/${strategy.draftId}`, {
         method: 'PATCH',
         headers: {
@@ -305,6 +468,54 @@ export function UploadReviewModal({
         }
         
         console.log('[UploadReview] Brouillon sauvegardé avec succès:', data.document);
+        
+        // ⚠️ BUG FIX 1: Mettre à jour IndexedDB localement en mode app-shell
+        if (isAppShell && organizationId && data.document) {
+          try {
+            const { getLocalDB } = await import('@/lib/offline/db');
+            const { logToServer } = await import('@/lib/utils/logger');
+            const db = await getLocalDB();
+            
+            // Récupérer le document existant dans IndexedDB
+            const existingDoc = await db.Document.get(strategy.draftId);
+            if (existingDoc) {
+              // L'API retourne typeId (documentTypeId) directement, utiliser celui-ci
+              // Sinon, chercher par code si type.id n'est pas disponible
+              let documentTypeId = data.document.typeId || data.document.type?.id || null;
+              if (!documentTypeId && data.document.type?.code) {
+                const docType = await db.DocumentType.where('code').equals(data.document.type.code).first();
+                if (docType) {
+                  documentTypeId = docType.id;
+                }
+              }
+              
+              // Mettre à jour le document dans IndexedDB avec merge complet (put() au lieu de update())
+              const updatedDoc = {
+                ...existingDoc,
+                fileName: data.document.name || existingDoc.fileName,
+                filenameOriginal: data.document.name || existingDoc.filenameOriginal,
+                documentTypeId: documentTypeId !== undefined ? documentTypeId : existingDoc.documentTypeId,
+                updatedAt: data.document.updatedAt || new Date().toISOString(),
+              };
+              
+              await db.Document.put(updatedDoc);
+              
+              // 🔍 DIAGNOSTIC: Log APRÈS PATCH dans IndexedDB
+              const docAfter = await db.Document.get(strategy.draftId);
+              await logToServer(`[UploadReview] 🔍 APRÈS PATCH (put) - docId=${strategy.draftId}, status=${docAfter?.status}, documentTypeId=${docAfter?.documentTypeId}, fileName=${docAfter?.fileName}`);
+              
+              console.log('[UploadReview] ✅ Document mis à jour dans IndexedDB:', updatedDoc.id, 'documentTypeId:', updatedDoc.documentTypeId);
+              
+              // Émettre un event pour rafraîchir la page Documents si elle est ouverte
+              window.dispatchEvent(new CustomEvent('documents:refresh'));
+            } else {
+              console.warn('[UploadReview] ⚠️ Document non trouvé dans IndexedDB pour mise à jour:', strategy.draftId);
+            }
+          } catch (dbError) {
+            console.error('[UploadReview] ❌ Erreur lors de la mise à jour IndexedDB:', dbError);
+            // Ne pas bloquer, le document est mis à jour côté serveur
+          }
+        }
         
         // Appeler le callback de mise à jour
         if (strategy.onStagedUpdate) {
@@ -442,55 +653,15 @@ export function UploadReviewModal({
     setLinkingDescription(descriptions);
   }, [autoLinkingContext, autoLinkingDocumentType, selectedType, scope, propertyId, leaseId]);
 
-  // 1) Réinitialiser et uploader les fichiers quand la modale s'ouvre
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[UploadReviewModal] useEffect triggered:', { isOpen, filesCount: files.length, filesNames: files.map(f => f.name) });
-    }
-    if (isOpen && files.length > 0) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[UploadReviewModal] Opening modal with files, starting upload...');
-      }
-      // Vider les anciens previews et relancer l'analyse
-      setPreviews([]);
-      setCurrentIndex(0);
-      setSelectedType('');
-      setCustomName('');
-      uploadFiles();
-    }
-  }, [isOpen, files]);
+  // ⚙️ OPTIMISATION: Créer une signature stable des fichiers pour éviter les re-renders en boucle
+  // Comparer les fichiers par leur nom et taille plutôt que par référence
+  const filesSignature = React.useMemo(() => {
+    return files.map(f => `${f.name}:${f.size}:${f.lastModified}`).join('|');
+  }, [files]);
 
-  // Réinitialiser l'état quand la modal se ferme
-  useEffect(() => {
-    if (!isOpen) {
-      setPreviews([]);
-      setCurrentIndex(0);
-      setSelectedType('');
-      setCustomName('');
-      setKeepDuplicate(false);
-      setIsConfirming(false);
-      setOpenTransactionModal(true);
-      setShowDedupFlowModal(false);
-      resetDedupFlow();
-    }
-  }, [isOpen, resetDedupFlow]);
-
-  // Mettre à jour le type sélectionné quand on change de fichier
-  useEffect(() => {
-    if (currentPreview) {
-      // Si on est dans un contexte de bail signé, forcer le type BAIL_SIGNE
-      if (autoLinkingDocumentType === 'BAIL_SIGNE') {
-        console.log('[UploadReview] Forçage du type BAIL_SIGNE lors du changement de fichier');
-        setSelectedType('BAIL_SIGNE');
-      } else {
-        setSelectedType(currentPreview.assignedTypeCode || '');
-      }
-      setCustomName(currentPreview.filename);
-      setOpenTransactionModal(true); // Réinitialiser la checkbox à chaque changement de fichier
-    }
-  }, [currentIndex, currentPreview?.assignedTypeCode, autoLinkingDocumentType]);
-
-  const uploadFiles = async () => {
+  // ⚙️ OPTIMISATION: Mémoriser uploadFiles avec useCallback pour éviter les re-créations
+  // ⚠️ CRITIQUE: Déclarer uploadFiles AVANT le useEffect qui l'utilise
+  const uploadFiles = useCallback(async () => {
     console.log('[UploadReviewModal] uploadFiles called with', files.length, 'files:', files.map(f => ({ name: f.name, type: f.type, size: f.size })));
     
     const initialPreviews: UploadPreview[] = files.map(file => ({
@@ -511,6 +682,7 @@ export function UploadReviewModal({
       status: 'uploading' as const
     }));
 
+    console.log('[UploadReviewModal] ✅ Création de', initialPreviews.length, 'preview(s)');
     setPreviews(initialPreviews);
 
     // Upload et analyse de chaque fichier
@@ -540,52 +712,19 @@ export function UploadReviewModal({
         });
 
         if (result.success && result.data) {
-          // Validation robuste des données reçues
           const data = result.data;
-          
-          // 3) Les prédictions proviennent du service de classification
-          const predictions = Array.isArray(data.predictions) ? data.predictions : [];
-          
-          // 4) Si la meilleure prédiction >= seuil configuré, pré-sélectionner
-          let preselectedType = '';
-          
-          // Forcer le type BAIL_SIGNE si on est dans ce contexte
-          if (autoLinkingDocumentType === 'BAIL_SIGNE') {
-            preselectedType = 'BAIL_SIGNE';
-            console.log('[Upload] Forçage du type BAIL_SIGNE dans le contexte bail signé');
-          } else if (predictions.length > 0) {
-            const bestPrediction = predictions[0];
-            const threshold = bestPrediction.threshold; // Seuil depuis la BDD (DocumentType.autoAssignThreshold)
-            
-            if (bestPrediction.score >= threshold) {
-              preselectedType = bestPrediction.typeCode;
-              console.log(`[Upload] Auto-suggest type: ${bestPrediction.label} (score: ${(bestPrediction.score * 100).toFixed(0)}% >= seuil ${(threshold * 100).toFixed(0)}%)`);
-            } else {
-              console.log(`[Upload] Pas de pré-sélection: score ${(bestPrediction.score * 100).toFixed(0)}% < seuil configuré ${(threshold * 100).toFixed(0)}% pour ${bestPrediction.label}`);
-            }
-          }
-          
+          const preselectedType = data.predictions && data.predictions.length > 0 && data.predictions[0].score >= (data.predictions[0].threshold || 0.7)
+            ? data.predictions[0].typeCode
+            : null;
+
+          // Mettre à jour le preview avec les résultats
           setPreviews(prev => prev.map((p, idx) => idx === i ? {
             ...p,
-            tempId: data.tempId ?? p.tempId,
-            filename: data.filename ?? p.filename,
-            sha256: data.sha256 ?? '',
-            mime: data.mime ?? p.mime,
-            size: data.size ?? p.size,
-            // Prédictions avec validation
-            predictions,
-            autoAssigned: data.autoAssigned ?? false,
-            assignedTypeCode: preselectedType || data.assignedTypeCode || null,
-            // Duplicate avec validation
-            duplicate: {
-              isDuplicate: !!data.dedupResult && data.dedupResult.duplicateType !== 'none',
-              ofDocumentId: data.dedupResult?.matchedDocument?.id ?? undefined,
-              documentName: data.dedupResult?.matchedDocument?.name ?? undefined,
-              documentType: data.dedupResult?.matchedDocument?.type ?? undefined,
-              uploadedAt: data.dedupResult?.matchedDocument?.uploadedAt ?? undefined,
-              reason: data.dedupResult?.ui?.recommendation ?? undefined,
-            },
-            // Preview avec validation stricte
+            tempId: data.tempId,
+            sha256: data.sha256,
+            predictions: data.predictions || [],
+            autoAssigned: !!preselectedType,
+            assignedTypeCode: preselectedType,
             extractedPreview: {
               textSnippet: typeof data.extractedPreview?.textSnippet === 'string' 
                 ? data.extractedPreview.textSnippet 
@@ -611,8 +750,19 @@ export function UploadReviewModal({
           if (i === currentIndex && preselectedType) {
             setSelectedType(preselectedType);
           }
+          
+          // 5) Marquer pour auto-finalisation si le type est pré-rempli (autoLinkingDocumentType) et pas de doublon
+          // ATTENTION: Ne pas auto-finaliser si un doublon est détecté (l'utilisateur doit choisir)
+          const hasDuplicate = data.dedupResult && data.dedupResult.duplicateType !== 'none';
+          if (i === currentIndex && autoLinkingDocumentType && !hasDuplicate) {
+            console.log('[UploadReviewModal] Auto-finalisation: type pré-rempli, pas de doublon, marquage pour auto-finalisation...');
+            // Marquer pour auto-finalisation (le useEffect s'en chargera quand le preview sera ready)
+            setShouldAutoFinalize(true);
+            // Ne pas continuer avec le flux DedupFlow si on auto-finalise
+            return;
+          }
 
-          // 5) Vérifier les résultats de l'agent Dedup et orchestrer avec DedupFlow
+          // 6) Vérifier les résultats de l'agent Dedup et orchestrer avec DedupFlow
           if (data.dedupResult && data.dedupResult.duplicateType !== 'none') {
             console.log('[UploadReview] Doublon détecté par agent Dedup:', data.dedupResult);
             
@@ -635,25 +785,19 @@ export function UploadReviewModal({
               },
               userDecision: 'pending' // D'abord afficher la modale de détection
             };
-
-            const dedupFlowContext: DedupFlowContext = {
+            
+            const context: DedupFlowContext = {
               scope: scope === 'property' ? 'property' : 'global',
               scopeId: propertyId || leaseId || tenantId,
               metadata: {
-                documentType: data.assignedTypeCode,
+                documentType: preselectedType,
                 extractedFields: data.extractedPreview?.DocumentField,
                 predictions: data.predictions
               }
             };
-
-            // Orchestrer le flux
-            const flowResult = await orchestrateFlow(dedupFlowInput, dedupFlowContext);
-            console.log('[UploadReview] Résultat orchestration DedupFlow:', flowResult);
             
-            // Afficher la modale DedupFlow
-            setCurrentFileIndex(i);
-            setShowDedupFlowModal(true);
-            console.log('[UploadReview] showDedupFlowModal défini à true');
+            // Orchestrer le flux
+            await orchestrateFlow(dedupFlowInput, context);
             
             // Marquer le fichier comme en attente de décision
             setPreviews(prev => prev.map((p, idx) => idx === i ? {
@@ -679,7 +823,98 @@ export function UploadReviewModal({
         } : p));
       }
     }
-  };
+  }, [files, currentIndex, autoLinkingDocumentType, scope, propertyId, leaseId, tenantId, orchestrateFlow]);
+
+  // 1) Réinitialiser et uploader les fichiers quand la modale s'ouvre
+  useEffect(() => {
+    // ✅ EARLY RETURN : Ne rien faire si la modale n'est pas ouverte
+    // ⚠️ CRITIQUE: Cette vérification doit être la première pour éviter tout traitement
+    if (!isOpen) {
+      // Réinitialiser les refs quand la modale se ferme
+      hasInitializedRef.current = null;
+      lastFilesSignatureRef.current = '';
+      return;
+    }
+    
+    // ✅ EARLY RETURN : Ne rien faire s'il n'y a pas de fichiers
+    if (files.length === 0) {
+      console.warn('[UploadReviewModal] ⚠️ Aucun fichier fourni, arrêt du traitement');
+      hasInitializedRef.current = null;
+      lastFilesSignatureRef.current = '';
+      return;
+    }
+    
+    console.log('[UploadReviewModal] ✅ Fichiers reçus:', files.length, 'fichier(s)', files.map(f => f.name));
+    
+    // ✅ OPTIMISATION: Calculer la signature et comparer avec la dernière
+    const currentSignature = files.map(f => `${f.name}:${f.size}:${f.lastModified}`).join('|');
+    
+    // ✅ OPTIMISATION: Ne déclencher que si la signature a vraiment changé
+    if (lastFilesSignatureRef.current === currentSignature) {
+      // La signature n'a pas changé, ne rien faire
+      return;
+    }
+    
+    // ✅ OPTIMISATION: Éviter les initialisations multiples pour la même combinaison isOpen + signature
+    if (hasInitializedRef.current?.filesSignature === currentSignature && 
+        hasInitializedRef.current?.isOpen === isOpen) {
+      // Déjà initialisé pour cette combinaison, ne pas réinitialiser
+      return;
+    }
+    
+    // Mettre à jour les refs AVANT les setState pour éviter les boucles
+    lastFilesSignatureRef.current = currentSignature;
+    hasInitializedRef.current = { filesSignature: currentSignature, isOpen };
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[UploadReviewModal] Opening modal with files, starting upload...');
+    }
+    
+    // ⚙️ OPTIMISATION: Utiliser des fonctions de mise à jour pour éviter les re-renders inutiles
+    // Vider les anciens previews et relancer l'analyse
+    setPreviews(() => []);
+    setCurrentIndex(() => 0);
+    setSelectedType(() => '');
+    setCustomName(() => '');
+    
+    // Appeler uploadFiles de manière asynchrone pour éviter les problèmes de timing
+    uploadFiles();
+    // ⚠️ CRITIQUE: Inclure files dans les dépendances mais utiliser la comparaison manuelle pour éviter les boucles
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, files.length]);
+
+  // Réinitialiser l'état quand la modal se ferme
+  useEffect(() => {
+    if (!isOpen) {
+      setPreviews([]);
+      setCurrentIndex(0);
+      setSelectedType('');
+      setCustomName('');
+      setKeepDuplicate(false);
+      setIsConfirming(false);
+      setOpenTransactionModal(true);
+      setShowDedupFlowModal(false);
+      resetDedupFlow();
+    }
+  }, [isOpen, resetDedupFlow]);
+
+  // État pour déclencher l'auto-finalisation
+  const [shouldAutoFinalize, setShouldAutoFinalize] = useState(false);
+
+  // Mettre à jour le type sélectionné quand on change de fichier
+  useEffect(() => {
+    if (currentPreview) {
+      // Si on est dans un contexte de bail signé, forcer le type BAIL_SIGNE
+      if (autoLinkingDocumentType === 'BAIL_SIGNE') {
+        console.log('[UploadReview] Forçage du type BAIL_SIGNE lors du changement de fichier');
+        setSelectedType('BAIL_SIGNE');
+      } else {
+        setSelectedType(currentPreview.assignedTypeCode || '');
+      }
+      setCustomName(currentPreview.filename);
+      setOpenTransactionModal(true); // Réinitialiser la checkbox à chaque changement de fichier
+    }
+  }, [currentIndex, currentPreview?.assignedTypeCode, autoLinkingDocumentType]);
 
   // Ancien gestionnaire handleDedupAction supprimé - Remplacé par handleDedupFlowAction
 
@@ -956,10 +1191,21 @@ export function UploadReviewModal({
   };
 
   const handleConfirm = async () => {
-    if (!currentPreview) {
-      alert('Aucun fichier à traiter');
+    // Vérifier que currentPreview existe
+    const preview = previews[currentIndex];
+    if (!preview) {
+      console.error('[UploadReviewModal] handleConfirm: currentPreview is null', {
+        previewsLength: previews.length,
+        currentIndex,
+        filesLength: files.length,
+        previews: previews.map((p, idx) => ({ idx, filename: p.filename, status: p.status }))
+      });
+      alert('Aucun fichier à traiter. Veuillez attendre que l\'upload soit terminé.');
       return;
     }
+    
+    // Utiliser la variable locale pour éviter les problèmes de closure
+    const currentPreview = preview;
     
     // Pour les doublons conservés, ne pas exiger de type car l'API va hériter du type de l'original
     const isDuplicateKept = currentPreview.dedupResult?.userForcesDuplicate || 
@@ -1182,6 +1428,36 @@ export function UploadReviewModal({
       setIsConfirming(false);
     }
   };
+
+  // Auto-finaliser quand le preview est ready et que le type est pré-rempli
+  // ⚠️ IMPORTANT: Ce useEffect doit être APRÈS la déclaration de handleConfirm
+  useEffect(() => {
+    if (shouldAutoFinalize && currentPreview && currentPreview.status === 'ready' && selectedType === autoLinkingDocumentType && !isConfirming) {
+      console.log('[UploadReviewModal] ✅ Auto-finalisation déclenchée: preview ready, type sélectionné, pas de doublon');
+      setShouldAutoFinalize(false);
+      // Attendre un peu pour que l'UI soit prête
+      const timeoutId = setTimeout(async () => {
+        try {
+          // Vérifier une dernière fois que currentPreview existe et est ready
+          const preview = previews[currentIndex];
+          if (preview && preview.status === 'ready' && preview.tempId) {
+            console.log('[UploadReviewModal] ✅ Auto-finalisation: preview valide, appel de handleConfirm');
+            await handleConfirm();
+          } else {
+            console.warn('[UploadReviewModal] ⚠️ Auto-finalisation annulée: preview non disponible ou pas ready', {
+              preview: preview ? { status: preview.status, tempId: preview.tempId } : null,
+              currentIndex,
+              previewsLength: previews.length
+            });
+          }
+        } catch (error) {
+          console.error('[UploadReviewModal] ❌ Erreur lors de l\'auto-finalisation:', error);
+        }
+      }, 1500);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [shouldAutoFinalize, currentPreview, selectedType, autoLinkingDocumentType, isConfirming, previews, currentIndex, handleConfirm]);
 
   const handleViewExisting = () => {
     if (currentPreview?.dedupResult?.matchedDocument?.id) {
@@ -1505,15 +1781,18 @@ export function UploadReviewModal({
                       label="Type de document"
                       className=""
                     />
-                    {/* Message discret pour les types qui déclenchent une transaction IA */}
-                    {selectedType && (() => {
+                    {/* Message visible pour les types qui déclenchent une transaction IA */}
+                    {/* ⚠️ PROBLÈME 1: Ne pas afficher ce message si hideOpenTransactionWarning=true (contexte d'une transaction) */}
+                    {!hideOpenTransactionWarning && selectedType && (() => {
                       const selectedDocType = documentTypes.find(t => t.code === selectedType);
                       console.log('[UploadReview] Type sélectionné (draft):', selectedType, 'openTransaction:', selectedDocType?.openTransaction);
                       if (selectedDocType?.openTransaction) {
                         return (
-                          <div className="flex items-start gap-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-md p-2 mt-2">
-                            <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                            <span>Une modale de transaction sera ouverte automatiquement après l'enregistrement.</span>
+                          <div className="flex items-start gap-2 text-sm font-medium text-orange-700 bg-orange-50 border-2 border-orange-300 rounded-lg p-3 mt-3">
+                            <Info className="h-4 w-4 mt-0.5 flex-shrink-0 text-orange-600" />
+                            <span className="flex-1">
+                              <strong>⚠️ Attention :</strong> Une modale de transaction sera ouverte automatiquement après l'enregistrement de ce document pour créer la transaction associée.
+                            </span>
                           </div>
                         );
                       }
@@ -1798,21 +2077,38 @@ export function UploadReviewModal({
                       className=""
                     />
                     {/* Message avec checkbox pour les types qui déclenchent une transaction IA */}
-                    {selectedType && (() => {
-                      const selectedDocType = documentTypes.find(t => t.code === selectedType);
+                    {(() => {
+                      // Utiliser selectedType ou le type auto-assigné
+                      const typeCodeToCheck = selectedType || currentPreview?.assignedTypeCode;
+                      if (!typeCodeToCheck) return null;
+                      
+                      const selectedDocType = documentTypes.find(t => t.code === typeCodeToCheck);
+                      console.log('[UploadReview] Vérification openTransaction:', { 
+                        typeCodeToCheck, 
+                        selectedDocType, 
+                        openTransaction: selectedDocType?.openTransaction 
+                      });
+                      
                       if (selectedDocType?.openTransaction) {
                         return (
-                          <div className="flex items-start gap-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-md p-3 mt-1">
+                          <div className="flex items-start gap-2 text-sm font-medium text-orange-700 bg-orange-50 border-2 border-orange-300 rounded-lg p-3 mt-3">
+                            <Info className="h-4 w-4 mt-0.5 flex-shrink-0 text-orange-600" />
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <strong>⚠️ Attention :</strong>
                             <Checkbox
                               id="openTransactionCheckbox"
                               checked={openTransactionModal}
                               onCheckedChange={(checked) => setOpenTransactionModal(checked === true)}
-                              className="mt-0.5"
+                                  className="ml-auto"
                             />
-                            <div className="flex-1">
-                              <label htmlFor="openTransactionCheckbox" className="cursor-pointer">
-                                Ouvrir la modale de transaction après l'enregistrement
-                              </label>
+                              </div>
+                              <p className="text-sm">
+                                Une modale de transaction sera ouverte automatiquement après l'enregistrement de ce document pour créer la transaction associée.
+                              </p>
+                              <p className="text-xs text-orange-600 mt-1 italic">
+                                Vous pouvez désactiver cette option en décochant la case ci-dessus.
+                              </p>
                             </div>
                           </div>
                         );
@@ -2056,10 +2352,19 @@ export function UploadReviewModal({
               <Button
                 onClick={handleConfirm}
                 disabled={
+                  shouldDisableUpload ||
                   !selectedType ||
                   (currentPreview.status !== 'ready' && currentPreview.status !== 'duplicate_detected') ||
                   isConfirming ||
                   (currentPreview.duplicate.isDuplicate && !keepDuplicate)
+                }
+                title={
+                  shouldDisableUpload ? 'L\'upload de documents nécessite une connexion internet' :
+                  !selectedType ? 'Type de document non sélectionné' :
+                  (currentPreview.status !== 'ready' && currentPreview.status !== 'duplicate_detected') ? `Statut: ${currentPreview.status} (attendu: ready ou duplicate_detected)` :
+                  isConfirming ? 'Enregistrement en cours...' :
+                  (currentPreview.duplicate.isDuplicate && !keepDuplicate) ? 'Doublon détecté - choisissez une action' :
+                  'Cliquez pour enregistrer'
                 }
               >
                 {isConfirming ? (
@@ -2124,7 +2429,146 @@ export function UploadReviewModal({
           console.log('[UploadReview] 🎯 Création de la transaction depuis suggestion OCR:', data);
           
           try {
-            // Créer la transaction via l'API
+            const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+            
+            if (isAppShell && organizationId) {
+              // ✅ Mode app-shell : utiliser TransactionService (conforme au superprompt)
+              const transactionService = createTransactionServiceWithMode('app-shell');
+              
+              // ⚠️ CRITIQUE: Si online, pull d'abord les documents pour qu'ils soient dans IndexedDB
+              // (le document a été créé côté serveur lors de l'upload, mais peut ne pas être dans IndexedDB)
+              if (isOnline && suggestedDocumentId) {
+                try {
+                  const syncService = getGlobalSyncService();
+                  await syncService.syncEntityFromRemoteByName('document', organizationId);
+                  console.log('[UploadReview] ✅ Documents pullés depuis le serveur avant création transaction');
+                  
+                  // ✅ Vérifier que le document suggéré est maintenant dans IndexedDB
+                  const { getLocalDB } = await import('@/lib/offline/db');
+                  const db = await getLocalDB();
+                  const doc = await db.Document.get(suggestedDocumentId);
+                  if (doc && doc.organizationId === organizationId) {
+                    console.log('[UploadReview] ✅ Document suggéré trouvé dans IndexedDB après pull:', {
+                      documentId: suggestedDocumentId,
+                      organizationId: doc.organizationId,
+                      status: doc.status,
+                    });
+                  } else {
+                    console.warn('[UploadReview] ⚠️ Document suggéré non trouvé dans IndexedDB après pull:', {
+                      documentId: suggestedDocumentId,
+                      found: !!doc,
+                      organizationId: doc?.organizationId,
+                      expectedOrganizationId: organizationId,
+                    });
+                  }
+                } catch (docPullError) {
+                  console.warn('[UploadReview] Erreur lors du pull des documents avant création transaction:', docPullError);
+                  // Continuer quand même, le document peut déjà être dans IndexedDB
+                }
+              }
+              
+              const params = {
+                organizationId: organizationId,
+                propertyId: data.propertyId,
+                leaseId: data.leaseId || null,
+                bailId: data.bailId || data.leaseId || null,
+                categoryId: data.categoryId,
+                nature: data.nature,
+                natureId: data.nature,
+                label: data.label || 'Transaction',
+                amount: data.amount,
+                date: data.date,
+                reference: data.reference || null,
+                notes: data.notes || null,
+                paidAt: data.paidAt || null,
+                method: data.method || null,
+                accountingMonth: data.accountingMonth || null,
+                periodStart: data.periodStart || null,
+                periodMonth: data.periodMonth ? parseInt(data.periodMonth) : null,
+                periodYear: data.periodYear || null,
+                monthsCovered: data.monthsCovered || 1,
+                rapprochementStatus: data.rapprochementStatus || 'non_rapprochee',
+                bankRef: data.bankRef || null,
+                montantLoyer: data.montantLoyer || null,
+                chargesRecup: data.chargesRecup || null,
+                chargesNonRecup: data.chargesNonRecup || null,
+                isAutoAmount: data.isAutoAmount ?? null,
+                stagedDocumentIds: data.stagedDocumentIds || [],
+                // ✅ Ajouter le document suggéré dans stagedLinkItemIds pour créer la liaison
+                // (maintenant que le document est dans IndexedDB, le lien sera créé localement)
+                stagedLinkItemIds: [
+                  ...(data.stagedLinkItemIds || []),
+                  ...(suggestedDocumentId ? [suggestedDocumentId] : [])
+                ],
+                factures: data.factures || undefined,
+                gestionEnabled: gestionEnabled,
+                gestionCodes: gestionCodes ? {
+                  rentNature: gestionCodes.rentNature,
+                  mgmtNature: gestionCodes.mgmtNature,
+                  mgmtCategory: gestionCodes.mgmtCategory,
+                } : {
+                  rentNature: 'RECETTE_LOYER',
+                  mgmtNature: 'DEPENSE_GESTION',
+                  mgmtCategory: 'frais-gestion',
+                },
+                // ⚠️ OPTION B: En mode app-shell, ne pas créer les commissions auto localement
+                // Le serveur créera la commission lors de la sync (server-only creation)
+                skipAutoCommissions: true,
+              };
+              
+              const result = await transactionService.createTransaction(params);
+              console.log('[UploadReview] ✅ Transaction créée localement:', result);
+              
+              // ⚠️ CRITIQUE: Si online, pousser immédiatement les pendingOps vers Supabase
+              if (isOnline) {
+                try {
+                  const syncService = getGlobalSyncService();
+                  
+                  // ⚠️ ROUND-TRIP IMMÉDIAT : Push → Pull → Refresh UI
+                  console.log('[UploadReview] 🔄 Début round-trip : push pendingOps → pull transactions → refresh UI');
+                  
+                  // 1. Push des pendingOps vers Supabase (transaction mère + documentLinks)
+                  const pushResult = await syncService.syncAllPendingToRemote(organizationId);
+                  console.log('[UploadReview] ✅ Push terminé:', pushResult);
+                  
+                  // 2. Pull immédiat des transactions pour récupérer les commissions créées côté serveur
+                  try {
+                    const pullTransactionResult = await syncService.syncEntityFromRemoteByName('transaction', organizationId);
+                    console.log('[UploadReview] ✅ Pull transactions terminé, commissions récupérées');
+                    
+                    // 2bis. Re-push des pendingOps (DocumentLinks) maintenant que les transactions ont un serverId
+                    try {
+                      const secondPush = await syncService.syncAllPendingToRemote(organizationId);
+                      console.log('[UploadReview] ✅ Re-push pendingOps terminé (doc links):', secondPush);
+                    } catch (secondPushError) {
+                      console.warn('[UploadReview] ⚠️ Erreur re-push pendingOps (doc links):', secondPushError);
+                    }
+                    
+                    // 3. Pull aussi les documents et liens pour que les documents liés soient visibles
+                    // (les liens vers commissions sont créés automatiquement côté serveur)
+                    try {
+                      await syncService.syncEntityFromRemoteByName('document', organizationId);
+                      await syncService.syncEntityFromRemoteByName('documentLink', organizationId);
+                      console.log('[UploadReview] ✅ Pull documents/documentLinks terminé');
+                    } catch (docSyncError) {
+                      console.warn('[UploadReview] ⚠️ Erreur lors du pull des documents (non bloquant):', docSyncError);
+                    }
+                    
+                    // 4. Émettre les events pour refresh UI
+                    window.dispatchEvent(new CustomEvent('sync:refresh'));
+                    window.dispatchEvent(new CustomEvent('transactions:refresh'));
+                    window.dispatchEvent(new CustomEvent('documents:refresh'));
+                    console.log('[UploadReview] ✅ Round-trip terminé, UI rafraîchie');
+                  } catch (pullError) {
+                    console.warn('[UploadReview] ⚠️ Erreur lors du pull immédiat (non bloquant):', pullError);
+                    // Ne pas bloquer, la sync silencieuse récupérera les données plus tard
+                  }
+                } catch (syncError) {
+                  console.warn('[UploadReview] Erreur lors du sync après création transaction:', syncError);
+                }
+              }
+            } else {
+              // Mode normal : utiliser l'API directement
             const response = await fetch('/api/transactions', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -2138,6 +2582,7 @@ export function UploadReviewModal({
 
             const result = await response.json();
             console.log('[UploadReview] ✅ Transaction créée avec succès:', result);
+            }
 
             // Fermer après succès
             setShowTransactionModal(false);

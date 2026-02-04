@@ -121,7 +121,7 @@ export function LoansKpiBar({
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 min-w-0">
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
@@ -136,7 +136,7 @@ export function LoansKpiBar({
   }
 
   return (
-    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 min-w-0">
       {cards.map((card) => (
         <StatCard
           key={card.id}

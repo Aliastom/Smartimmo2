@@ -19,6 +19,9 @@ export interface LeaseFilters {
 
 export interface LeaseWithDetails {
   id: string;
+  organizationId: string;
+  propertyId: string; // ⚠️ CRITIQUE: Pour la sync App Shell
+  tenantId: string; // ⚠️ CRITIQUE: Pour la sync App Shell
   status: string;
   runtimeStatus: string;
   type: string;
@@ -361,6 +364,9 @@ export class LeasesService {
 
       return {
         id: lease.id,
+        organizationId: lease.organizationId, // ⚠️ CRITIQUE: Ajouter organizationId pour la sync App Shell
+        propertyId: lease.propertyId, // ⚠️ CRITIQUE: Ajouter propertyId pour la sync App Shell
+        tenantId: lease.tenantId, // ⚠️ CRITIQUE: Ajouter tenantId pour la sync App Shell
         status: lease.status,
         runtimeStatus,
         type: lease.type,

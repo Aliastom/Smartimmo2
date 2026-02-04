@@ -113,8 +113,8 @@ export function TransactionsCumulativeChart({
   }
 
   return (
-    <Card className="w-full col-span-2">
-      <CardHeader className="pb-3">
+    <Card className="w-full col-span-2 min-w-0">
+      <CardHeader className="pb-3 min-w-0">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <CardTitle className="text-base font-semibold">Évolution mensuelle cumulée</CardTitle>
@@ -128,14 +128,15 @@ export function TransactionsCumulativeChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 min-w-0">
         {data.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
             <TrendingUp className="h-12 w-12 mb-2 opacity-30" />
             <p className="text-sm">Aucune transaction sur cette période</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={180}>
+          <div className="min-w-0">
+            <ResponsiveContainer width="100%" height={180}>
             <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
               <defs>
                 <linearGradient id="colorCumulated" x1="0" y1="0" x2="0" y2="1">
@@ -173,6 +174,7 @@ export function TransactionsCumulativeChart({
               />
             </AreaChart>
           </ResponsiveContainer>
+          </div>
         )}
       </CardContent>
     </Card>

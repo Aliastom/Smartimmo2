@@ -42,10 +42,10 @@ export async function POST(
       return NextResponse.json({ error: 'Accès non autorisé' }, { status: 403 });
     }
 
-    // Vérifier que le bail est en statut BROUILLON
-    if (lease.status !== 'BROUILLON') {
+    // Vérifier que le bail est en statut BROUILLON ou À_ENVOYER (pour réessayer un envoi)
+    if (lease.status !== 'BROUILLON' && lease.status !== 'À_ENVOYER' && lease.status !== 'A_ENVOYER' && lease.status !== 'TO_SEND') {
       return NextResponse.json({ 
-        error: 'Le bail doit être en statut BROUILLON pour être envoyé pour signature' 
+        error: 'Le bail doit être en statut BROUILLON ou À_ENVOYER pour être envoyé pour signature' 
       }, { status: 400 });
     }
 

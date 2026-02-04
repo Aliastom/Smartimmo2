@@ -1,11 +1,11 @@
 import { Suspense } from 'react';
-import LeasesClient from './LeasesClient';
+import { LeasesPageCore } from '@/features/leases/LeasesPageCore';
 
 export default function LeasesPage() {
   return (
     <div className="space-y-6">
       <Suspense fallback={<div>Chargement...</div>}>
-        <LeasesClient />
+        <LeasesPageCore mode="normal" />
       </Suspense>
     </div>
   );

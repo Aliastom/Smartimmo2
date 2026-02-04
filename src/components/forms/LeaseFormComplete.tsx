@@ -27,7 +27,8 @@ import {
   Plus,
   Send
 } from 'lucide-react';
-import { SearchableSelect } from './SearchableSelect';
+import { SmartSelect } from '@/components/ui/SmartSelect';
+import { SmartDatePicker } from '@/components/ui/SmartDatePicker';
 
 const leaseSchema = z.object({
   propertyId: z.string().min(1, 'Le bien est requis'),
@@ -56,6 +57,9 @@ interface LeaseFormCompleteProps {
   title: string;
   defaultPropertyId?: string;
   defaultTenantId?: string;
+  properties?: any[]; // ✅ Props pour App Shell (depuis IndexedDB)
+  tenants?: any[]; // ✅ Props pour App Shell (depuis IndexedDB)
+  mode?: 'normal' | 'app-shell'; // ✅ Mode pour détecter App Shell
 }
 
 export default function LeaseFormComplete({ 
@@ -65,8 +69,14 @@ export default function LeaseFormComplete({
   initialData, 
   title,
   defaultPropertyId,
-  defaultTenantId
+  defaultTenantId,
+  properties: externalProperties,
+  tenants: externalTenants,
+  mode = 'normal'
 }: LeaseFormCompleteProps) {
+  // ✅ Détecter le mode app-shell
+  const isAppShell = mode === 'app-shell' || (typeof window !== 'undefined' && window.location.pathname.startsWith('/app'));
+  
   // Vérifier si la gestion déléguée est activée via la BDD
   const { isEnabled: isGestionEnabled } = useGestionDelegueStatus();
   
@@ -108,7 +118,13 @@ export default function LeaseFormComplete({
   // Charger les données initiales
   useEffect(() => {
     if (isOpen) {
-      loadInitialData();
+      // ✅ APP-SHELL: Si les props sont déjà fournis, les utiliser directement
+      if (isAppShell && externalProperties && externalTenants) {
+        setProperties(externalProperties);
+        setTenants(externalTenants);
+      } else {
+        loadInitialData();
+      }
     }
   }, [isOpen]);
 
@@ -139,7 +155,15 @@ export default function LeaseFormComplete({
   const loadInitialData = async () => {
     setIsLoadingData(true);
     try {
-      // Augmenter la limite à 10000 pour récupérer tous les biens et locataires
+      // ✅ APP-SHELL: Utiliser les props passés depuis IndexedDB
+      if (isAppShell && externalProperties && externalTenants) {
+        setProperties(externalProperties);
+        setTenants(externalTenants);
+        setIsLoadingData(false);
+        return;
+      }
+      
+      // Mode normal : charger depuis l'API
       const [propertiesRes, tenantsRes] = await Promise.all([
         fetch('/api/properties?limit=10000'),
         fetch('/api/tenants?limit=10000')
@@ -150,7 +174,6 @@ export default function LeaseFormComplete({
         // L'API retourne { data: [...], pagination: {...} }
         const propertiesList = propertiesData.data || propertiesData.properties || propertiesData.items || (Array.isArray(propertiesData) ? propertiesData : []);
         const finalList = Array.isArray(propertiesList) ? propertiesList : [];
-        console.log('[LeaseFormComplete] Propriétés chargées:', finalList.length, 'sur', propertiesData?.pagination?.total || '?');
         setProperties(finalList);
       }
 
@@ -159,7 +182,6 @@ export default function LeaseFormComplete({
         // L'API retourne { data: [...], pagination: {...} }
         const tenantsList = tenantsData.data || tenantsData.tenants || tenantsData.items || (Array.isArray(tenantsData) ? tenantsData : []);
         const finalList = Array.isArray(tenantsList) ? tenantsList : [];
-        console.log('[LeaseFormComplete] Locataires chargés:', finalList.length, 'sur', tenantsData?.pagination?.total || '?');
         setTenants(finalList);
       }
     } catch (error) {
@@ -243,15 +265,23 @@ export default function LeaseFormComplete({
     { id: 'actions', label: 'Actions', icon: Send, required: false },
   ];
 
+  // Labels courts pour mobile
+  const tabLabelsMobile: Record<string, string> = {
+    'basic': 'Essentiel',
+    'financial': 'Finances',
+    'terms': 'Clauses',
+    'actions': 'Actions',
+  };
+
   const renderBasicInfo = () => (
     <div className="space-y-6">
       {/* Header avec indication des champs obligatoires */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
         <div className="flex items-center gap-2 mb-2">
-          <AlertCircle className="h-5 w-5 text-blue-600" />
-          <h3 className="font-medium text-blue-900">Informations obligatoires</h3>
+          <AlertCircle className="h-5 w-5 text-orange-600" />
+          <h3 className="font-medium text-orange-900">Informations obligatoires</h3>
         </div>
-        <p className="text-sm text-blue-700">
+        <p className="text-sm text-orange-700">
           Les champs marqués d'un astérisque rouge (*) sont obligatoires pour créer le bail.
         </p>
       </div>
@@ -270,17 +300,16 @@ export default function LeaseFormComplete({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
             />
           ) : (
-            <SearchableSelect
+            <SmartSelect
               options={(properties && Array.isArray(properties) ? properties : []).map(p => ({
-                id: p.id,
                 value: p.id,
                 label: `${p.name} - ${p.address}`
               }))}
               value={formData.propertyId}
               onChange={(value) => handleChange('propertyId', value)}
               placeholder="Rechercher un bien..."
-              required
-              className={errors.propertyId ? 'border-red-500' : ''}
+              error={!!errors.propertyId}
+              aria-label="Sélectionner un bien"
             />
           )}
           {errors.propertyId && <p className="text-red-500 text-sm mt-1">{errors.propertyId}</p>}
@@ -290,17 +319,16 @@ export default function LeaseFormComplete({
           <label className="block text-sm font-medium text-gray-700 mb-2">
             <span className="text-red-500">*</span> Locataire
           </label>
-          <SearchableSelect
+          <SmartSelect
             options={(tenants && Array.isArray(tenants) ? tenants : []).map(t => ({
-              id: t.id,
               value: t.id,
               label: `${t.firstName} ${t.lastName}${t.email ? ` - ${t.email}` : ''}`
             }))}
             value={formData.tenantId}
             onChange={(value) => handleChange('tenantId', value)}
             placeholder="Rechercher un locataire..."
-            required
-            className={errors.tenantId ? 'border-red-500' : ''}
+            error={!!errors.tenantId}
+            aria-label="Sélectionner un locataire"
           />
           {errors.tenantId && <p className="text-red-500 text-sm mt-1">{errors.tenantId}</p>}
         </div>
@@ -309,72 +337,78 @@ export default function LeaseFormComplete({
       {/* Type de bail */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-type">
             <span className="text-red-500">*</span> Type de bail
           </label>
-          <select
+          <SmartSelect
+            id="lease-type"
             value={formData.type}
-            onChange={(e) => handleChange('type', e.target.value)}
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-              errors.type ? 'border-red-500' : 'border-gray-300'
-            }`}
-          >
-            <option value="residential">Résidentiel</option>
-            <option value="commercial">Commercial</option>
-            <option value="garage">Garage</option>
-          </select>
+            onChange={(value) => handleChange('type', value)}
+            options={[
+              { value: 'residential', label: 'Résidentiel' },
+              { value: 'commercial', label: 'Commercial' },
+              { value: 'garage', label: 'Garage' },
+            ]}
+            placeholder="Sélectionner un type"
+            error={!!errors.type}
+            aria-label="Type de bail"
+          />
           {errors.type && <p className="text-red-500 text-sm mt-1">{errors.type}</p>}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-furnishedType">
             Type de meublé
           </label>
-          <select
+          <SmartSelect
+            id="lease-furnishedType"
             value={formData.furnishedType}
-            onChange={(e) => handleChange('furnishedType', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          >
-            <option value="vide">Vide</option>
-            <option value="meuble">Meublé</option>
-            <option value="garage">Garage</option>
-          </select>
+            onChange={(value) => handleChange('furnishedType', value)}
+            options={[
+              { value: 'vide', label: 'Vide' },
+              { value: 'meuble', label: 'Meublé' },
+              { value: 'garage', label: 'Garage' },
+            ]}
+            placeholder="Sélectionner un type"
+            aria-label="Type de meublé"
+          />
         </div>
       </div>
 
       {/* Dates */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-startDate">
             <span className="text-red-500">*</span> Date de début
           </label>
-          <input
-            type="date"
+          <SmartDatePicker
+            id="lease-startDate"
             value={formData.startDate}
-            onChange={(e) => handleChange('startDate', e.target.value)}
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
-              errors.startDate ? 'border-red-500' : 'border-gray-300'
-            }`}
+            onChange={(value) => handleChange('startDate', value)}
+            placeholder="Sélectionner une date"
+            error={!!errors.startDate}
+            aria-label="Date de début"
           />
           {errors.startDate && <p className="text-red-500 text-sm mt-1">{errors.startDate}</p>}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-endDate">
             Date de fin (optionnel)
           </label>
           <div className="relative">
-            <input
-              type="date"
+            <SmartDatePicker
+              id="lease-endDate"
               value={formData.endDate || ''}
-              onChange={(e) => handleChange('endDate', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              onChange={(value) => handleChange('endDate', value || undefined)}
+              placeholder="Sélectionner une date"
+              aria-label="Date de fin"
             />
             {formData.endDate && (
               <button
                 type="button"
                 onClick={() => handleChange('endDate', undefined)}
-                className="absolute right-10 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 bg-white"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 bg-white z-10"
                 title="Effacer la date"
               >
                 <X className="h-4 w-4" />
@@ -397,7 +431,7 @@ export default function LeaseFormComplete({
               step="0.01"
               value={formData.rentAmount}
               onChange={(e) => handleChange('rentAmount', parseFloat(e.target.value) || 0)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.rentAmount ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Ex: 850.00"
@@ -414,7 +448,7 @@ export default function LeaseFormComplete({
               step="0.01"
               value={formData.deposit}
               onChange={(e) => handleChange('deposit', parseFloat(e.target.value) || 0)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
               placeholder="Ex: 1700.00"
             />
           </div>
@@ -423,11 +457,11 @@ export default function LeaseFormComplete({
 
       {/* Granularité des charges */}
       {isGestionEnabled && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h4 className="text-sm font-medium text-blue-900 mb-3">
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+          <h4 className="text-sm font-medium text-orange-900 mb-3">
             Granularité des charges (optionnel)
           </h4>
-          <p className="text-xs text-blue-700 mb-4">
+          <p className="text-xs text-orange-700 mb-4">
             Ces montants permettront de préremplir automatiquement les transactions de loyer mensuelles
           </p>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -443,7 +477,7 @@ export default function LeaseFormComplete({
                 step="0.01"
                 value={formData.chargesRecupMensuelles || ''}
                 onChange={(e) => handleChange('chargesRecupMensuelles', parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                 placeholder="Ex: 20.00"
               />
             </div>
@@ -459,7 +493,7 @@ export default function LeaseFormComplete({
                 step="0.01"
                 value={formData.chargesNonRecupMensuelles || ''}
                 onChange={(e) => handleChange('chargesNonRecupMensuelles', parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                 placeholder="Ex: 35.00"
               />
             </div>
@@ -470,20 +504,23 @@ export default function LeaseFormComplete({
       {/* Statut - seulement en édition */}
       {initialData && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-status">
             Statut du bail
           </label>
-          <select
+          <SmartSelect
+            id="lease-status"
             value={formData.status}
-            onChange={(e) => handleChange('status', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          >
-            <option value="DRAFT">Brouillon</option>
-            <option value="SENT">Envoyé</option>
-            <option value="SIGNED">Signé</option>
-            <option value="ACTIVE">Actif</option>
-            <option value="TERMINATED">Terminé</option>
-          </select>
+            onChange={(value) => handleChange('status', value)}
+            options={[
+              { value: 'DRAFT', label: 'Brouillon' },
+              { value: 'SENT', label: 'Envoyé' },
+              { value: 'SIGNED', label: 'Signé' },
+              { value: 'ACTIVE', label: 'Actif' },
+              { value: 'TERMINATED', label: 'Terminé' },
+            ]}
+            placeholder="Sélectionner un statut"
+            aria-label="Statut du bail"
+          />
         </div>
       )}
     </div>
@@ -521,18 +558,21 @@ export default function LeaseFormComplete({
       {/* Indexation */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-indexationType">
             Type d'indexation
           </label>
-          <select
+          <SmartSelect
+            id="lease-indexationType"
             value={formData.indexationType}
-            onChange={(e) => handleChange('indexationType', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          >
-            <option value="none">Aucune indexation</option>
-            <option value="insee">Index INSEE</option>
-            <option value="manual">Indexation manuelle</option>
-          </select>
+            onChange={(value) => handleChange('indexationType', value)}
+            options={[
+              { value: 'none', label: 'Aucune indexation' },
+              { value: 'insee', label: 'Index INSEE' },
+              { value: 'manual', label: 'Indexation manuelle' },
+            ]}
+            placeholder="Sélectionner un type"
+            aria-label="Type d'indexation"
+          />
         </div>
 
         {/* Note: Le taux d'indexation n'est pas encore supporté dans la base de données */}
@@ -548,9 +588,9 @@ export default function LeaseFormComplete({
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="text-center p-4 bg-blue-50 rounded-lg">
-              <p className="text-sm text-blue-600 font-medium">Loyer mensuel</p>
-              <p className="text-2xl font-bold text-blue-900">{formData.rentAmount.toFixed(2)} €</p>
+            <div className="text-center p-4 bg-orange-50 rounded-lg">
+              <p className="text-sm text-orange-600 font-medium">Loyer mensuel</p>
+              <p className="text-2xl font-bold text-orange-900">{formData.rentAmount.toFixed(2)} €</p>
             </div>
             <div className="text-center p-4 bg-green-50 rounded-lg">
               <p className="text-sm text-green-600 font-medium">Charges récup. mensuelles</p>
@@ -680,8 +720,8 @@ export default function LeaseFormComplete({
         <CardContent>
           <div className="flex items-center justify-between">
             <div className="flex flex-col items-center">
-              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                <span className="text-blue-600 font-medium text-sm">1</span>
+              <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                <span className="text-orange-600 font-medium text-sm">1</span>
               </div>
               <span className="text-xs mt-2 text-center">Création</span>
             </div>
@@ -729,20 +769,29 @@ export default function LeaseFormComplete({
       title={title}
       size="xl"
       footer={
-        <div className="flex gap-3">
-          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+          <Button 
+            variant="ghost" 
+            onClick={onClose} 
+            disabled={isSubmitting}
+            className="w-full sm:w-auto"
+          >
             Annuler
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting || isLoadingData}>
+          <Button 
+            onClick={handleSubmit} 
+            disabled={isSubmitting || isLoadingData}
+            className="w-full sm:w-auto"
+          >
             {isSubmitting ? 'Enregistrement...' : 'Enregistrer le bail'}
           </Button>
         </div>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Tabs Navigation */}
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8">
+      <form onSubmit={handleSubmit} className="flex flex-col h-full">
+        {/* Tabs Navigation - Sticky sur mobile */}
+        <div className="sticky top-0 z-10 bg-white border-b border-gray-200 -mx-4 md:-mx-6 px-4 md:px-6 mb-4">
+          <nav className="overflow-x-auto -mb-px flex space-x-4 md:space-x-8 scrollbar-hide">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
@@ -750,14 +799,15 @@ export default function LeaseFormComplete({
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
+                  className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-1 md:gap-2 relative whitespace-nowrap flex-shrink-0 ${
                     activeTab === tab.id
-                      ? 'border-primary-500 text-primary-600'
+                      ? 'border-orange-500 text-orange-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  <Icon className="h-4 w-4" />
-                  {tab.label}
+                  <Icon className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="sm:hidden">{tabLabelsMobile[tab.id] || tab.label}</span>
                   {tab.required && <span className="text-red-500 text-xs">*</span>}
                 </button>
               );
@@ -765,9 +815,18 @@ export default function LeaseFormComplete({
           </nav>
         </div>
 
-        {/* Tab Content */}
-        <div className="min-h-[500px]">
-          {renderTabContent()}
+        {/* Tab Content - Scrollable avec padding-bottom pour footer et safe-area */}
+        <div 
+          className="flex-1 overflow-y-auto overscroll-contain min-h-0 min-w-0"
+          style={{
+            paddingBottom: 'max(2rem, calc(2rem + env(safe-area-inset-bottom)))',
+            WebkitOverflowScrolling: 'touch',
+            overscrollBehavior: 'contain',
+          }}
+        >
+          <div className="min-w-0">
+            {renderTabContent()}
+          </div>
         </div>
       </form>
 

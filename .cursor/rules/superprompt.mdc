@@ -1,0 +1,366 @@
+---
+alwaysApply: true
+---
+
+# 🧠 SUPERPROMPT SMARTIMMO – V2 • OFFLINE-FIRST • APPSHELL-ONLY • SYNC CONTRAINTE
+
+Ce fichier décrit **une fois pour toutes** comment doit fonctionner Smartimmo côté IA dans Cursor.
+
+Il doit être **toujours appliqué** dans ce dépôt.  
+Les autres prompts (lancement, tâches ciblées) ne font que donner des objectifs supplémentaires.
+
+---
+
+## 1. Contexte général
+
+- Projet : **Smartimmo**, application de gestion de patrimoine immobilier.
+- Stack : **Next.js / React**, TypeScript, Tailwind/DaisyUI, React Query, Supabase, IndexedDB, Service Worker/PWA.
+- Il existe historiquement deux modes :
+  1. **Mode “normal”** – routes classiques (`/dashboard`, `/biens`, etc.) qui parlent directement à Prisma/Supabase.
+  2. **Mode “App Shell”** – route unique `/app?view=xxx` pensée pour le **offline-first**.
+
+### 1.1. Décision stratégique
+
+- À terme, **l’utilisateur final n’utilisera que le mode App Shell** (`/app`).
+- Les pages “normales” restent :
+  - comme **référence de vérité** pour l’UI et la logique métier ;
+  - comme **filet de sécurité** mais ne doivent plus être enrichies.
+- L’IA ne doit **plus créer de nouvelles fonctionnalités dans les pages normales**.
+- Toute évolution fonctionnelle doit cibler **l’App Shell**.
+
+---
+
+## 2. Architecture de référence
+
+### 2.1. Layout unique
+
+- Layout principal : `AppShell` (+ `AppShellSidebar` / header / footer).
+- En App Shell :
+  - on utilise `AppShellClient` qui **doit lui-même utiliser `AppShell`** ;
+  - **interdiction** de ré-inventer une autre structure de layout pour `/app`.
+- En mode normal :
+  - quand c’est possible, les pages peuvent aussi réutiliser `AppShell` comme layout racine ;
+  - sinon, elles restent telles quelles, mais **servent uniquement de référence** (pas de refactor massif).
+
+### 2.2. Core Components
+
+Pour chaque grande page métier il doit exister un **Core Component** réutilisable :
+
+- `DashboardPageCore`
+- `PatrimoinePageCore`
+- `PropertiesPageCore`
+- `TenantsPageCore`
+- `LeasesPageCore`
+- `TransactionsPageCore`
+- `DocumentsPageCore`
+- `EcheancesPageCore`
+- `LoansPageCore`
+- `FiscalSimulationPageCore`
+- `SyncPageCore` (ou équivalent pour la page de synchronisation)
+
+Règles :
+
+- Les Core Components contiennent **toute la logique UI** (graphiques, tableaux, KPI, filtres…).
+- Ils reçoivent leurs données via des **hooks unifiés** (voir section 3).
+- Les wrappers de page (mode normal / App Shell) ne font que :
+  - choisir le **mode** (`"normal"` ou `"app-shell"`) ;
+  - passer les bons props au Core Component ;
+  - gérer éventuellement de la navigation/URL.
+
+### 2.3. Pages
+
+- Mode normal : `src/app/<page>/page.tsx`, `BiensClientWrapper.tsx`, etc.  
+  → **Ne plus modifier la logique métier**, sauf pour les brancher sur un Core Component existant.
+- App Shell : `src/app/app/page.tsx` + vues `view=xxx`.  
+  → Toute nouvelle fonctionnalité doit être implémentée ici, via les Core Components.
+
+---
+
+## 3. Données & hooks unifiés
+
+### 3.1. Principe
+
+Pour chaque domaine de données, il doit exister **un hook unifié** :
+
+Exemples :
+
+- `useDashboardData(mode)`
+- `usePatrimoineData(mode)`
+- `usePropertiesData(mode)`
+- `useTenantsData(mode)`
+- `useLeasesData(mode)`
+- `useTransactionsData(mode)`
+- `useDocumentsData(mode)`
+- `useLoansData(mode)`
+- `useEcheancesData(mode)` / `useEcheancesKpis(mode)` / `useEcheancesCharts(mode)`
+- `useDashboardInsights({ mode, scope })`
+- `usePropertyInsights({ mode, scope, propertyId })`
+- etc.
+
+Paramètre clé : `mode` ∈ `"normal"` | `"app-shell"`.
+
+Règles :
+
+- **Même interface** en sortie, quel que soit le mode.
+- **Même forme de données** que ce qui était utilisé avant la migration.
+- En **mode normal** :
+  - lecture via Prisma/Supabase/API existante ;
+  - React Query est autorisé.
+- En **mode app-shell** :
+
+  - **interdiction d’appeler Prisma ou Supabase** directement (pas de fetch, pas de RPC, pas de Prisma) ;
+  - on lit **exclusivement depuis IndexedDB** via les repositories offline ;
+  - tous les calculs (KPI, graphiques, agrégations) sont faits en local à partir de ces données.
+
+> Si une ancienne version “online only” existe déjà, tu t’en sers comme **spécification** :
+> tu recopies la logique de calcul pour la reproduire côté IndexedDB.
+
+### 3.2. Repositories / IndexedDB
+
+- Les hooks App Shell s’appuient sur les repositories offline existants :
+  - `PropertyRepositoryOffline`
+  - `TenantRepositoryOffline`
+  - `LeaseRepositoryOffline`
+  - `TransactionRepositoryOffline`
+  - `DocumentRepositoryOffline` ou accès via `getLocalDB()`
+  - `LoanRepositoryOffline`
+  - `EcheancesRepositoryOffline` (à créer si besoin)
+  - etc.
+- Si un repository manque, tu le crées en suivant le pattern des repositories déjà présents :
+  - stockage dans IndexedDB ;
+  - méthodes `getAll`, `getById`, `upsert`, `delete`, etc. ;
+  - utilisation du même schéma que le backend Supabase.
+
+- **Navigation intra App Shell (`/app?view=...`)** :
+  - **ne doit jamais déclencher de refetch Supabase** ;
+  - doit utiliser uniquement les données déjà présentes en IDB + caches (React Query / state interne).
+
+---
+
+## 4. Modèle de synchronisation — VÉRITÉ MÉTIER CONTRAINTE
+
+Cette section est **normative** : le moteur de sync (`syncGlobal`, `fullSync`, pendingOps, page Sync, hooks) doit s’y conformer strictement.
+
+### 4.1. Source de vérité
+
+1. **Supabase = source de vérité globale**  
+   - Lors des sync “complètes” ou overwrites, c’est **Supabase qui gagne**.
+   - IDB est un miroir optimisé pour l’offline.
+
+2. **App Shell = IDB-centric**  
+   - Les pages App Shell lisent **uniquement** IDB pour les données métier.
+   - Les hooks en mode `"app-shell"` ne tapent **jamais** Supabase/Prisma.
+
+### 4.2. File d’opérations (`pendingOps`)
+
+- **pendingOps = opérations LOCALES à pousser vers Supabase** (sens App → Supabase), jamais l’inverse.
+- Toute action utilisateur (create/update/delete) en App Shell :
+
+  1. S’applique **d’abord** en IndexedDB (écriture optimiste).
+  2. Crée une entrée dans `pendingOps` avec :
+     - `type` ∈ `create` | `update` | `delete`,
+     - `table`, `orgId`, payload complet minimal,
+     - statut initial `pending`.
+  3. Est poussée vers Supabase dès que possible (online, via la sync silencieuse ou manuelle).
+
+- En cas d’erreur lors du push :
+  - la pendingOp passe en `error` avec un message,
+  - **elle n’est jamais supprimée automatiquement** sans décision explicite.
+
+### 4.3. Modes de synchronisation
+
+Il existe exactement **deux** modes de synchronisation :
+
+1. **Sync silencieuse (syncGlobal)**
+   - Utilisée :
+     - au chargement de l’App Shell (boot),
+     - après une action locale importante,
+     - lors du retour online,
+     - via un bouton “Synchroniser maintenant” dans la page Sync.
+   - Comportement :
+     1. Pousser **d’abord** toutes les `pendingOps` vers Supabase (App → SB).
+     2. Puis faire un **overwrite SB → IDB par table**, filtré par organisation.
+     3. Émettre un event `sync:refresh` pour permettre à l’UI de se rafraîchir.
+   - Ne supprime **pas** de données locales qui n’existent pas en SB avant l’overwrite ; c’est l’overwrite qui aligne.
+
+2. **Sync complète / reset (fullSync)**
+   - Utilisée :
+     - lors de la **première ouverture online** d’un appareil,
+     - après une réinitialisation manuelle depuis la page Sync,
+     - pour corriger un état local cassé.
+   - Comportement :
+     1. Optionnel : décider de ce qu’on fait des `pendingOps` (souvent : les dropper pour un reset dur).
+     2. **Vider les tables locales** pour l’organisation ciblée.
+     3. Recharger **toutes** les données depuis Supabase (SB → IDB, overwrite complet).
+     4. Mettre à jour des métadonnées de sync (par table).
+     5. Émettre `sync:refresh`.
+
+- **Interdiction de créer d’autres variantes de sync** :  
+  tout doit passer soit par `syncGlobal` (silencieuse), soit par `fullSync` (reset).
+
+### 4.4. Tableau des situations à gérer
+
+Ce tableau est la **VÉRITÉ MÉTIER** à respecter.  
+Les comportements du code doivent être vérifiés et corrigés par rapport à lui.
+
+Légende :
+- IDB = IndexedDB (base locale)
+- SB = Supabase (base distante)
+- pendingOps = file d’opérations locales à pousser vers SB
+- App Shell = `/app?view=...` (mode offline-first)
+
+| # | Situation utilisateur | Contexte réseau / état | Ce qui doit se passer dans IndexedDB (IDB) | Ce qui doit se passer dans pendingOps | Ce qui doit se passer dans Supabase (SB) | Règles métier à respecter |
+|---|-----------------------|------------------------|---------------------------------------------|----------------------------------------|------------------------------------------|----------------------------|
+| 1 | Première ouverture de l’app (App Shell) | Online, aucune donnée locale | IDB vide → **full sync initiale** : créer toutes les tables locales et les remplir avec toutes les données SB de l’organisation | Aucune pendingOp au début | SB est lue table par table et sert de source de vérité | Après ça, l’app doit être utilisable offline. |
+| 2 | Première ouverture de l’app | Offline, aucune donnée locale | IDB vide → afficher un message propre “aucune donnée locale, connecte-toi une première fois en ligne” | Aucune pendingOp | SB inaccessible | Ne pas crasher, UX claire. |
+| 3 | Ouverture de l’app (App Shell) | Online, IDB déjà remplie | Lecture **d’abord** dans IDB pour afficher les pages (Dashboard, Biens, etc.) | Rien de spécial | En arrière-plan, **sync silencieuse** : SB → IDB (overwrite total par table) | Pattern : *render from cache, then silently refresh*. |
+| 4 | Ouverture de l’app (App Shell) | Offline, IDB déjà remplie | Lecture dans IDB, affichage immédiat des données | Rien de spécial | SB inaccessible | Toutes les pages app-shell doivent fonctionner 100% offline. |
+| 5 | Création d’un bien | Online | Nouveau bien écrit dans IDB immédiatement | pendingOp `create(property)` créée, puis poussée dès que possible vers SB (via syncGlobal) | SB crée le bien, renvoie l’ID si nécessaire, puis IDB est alignée | Message : “Bien créé localement et sur le serveur”. |
+| 6 | Création d’un bien | Offline | Nouveau bien écrit dans IDB immédiatement | pendingOp `create(property)` créée et stockée | SB ne voit rien tant que la sync n’a pas lieu | Message : “Bien créé localement, sera synchronisé dès que la connexion revient”. |
+| 7 | Mise à jour d’un bien | Online | Bien mis à jour dans IDB | pendingOp `update(property)` créée + poussée dès que possible | SB met à jour la ligne | En cas d’erreur, pendingOp reste en pending/error. |
+| 8 | Mise à jour d’un bien | Offline | Bien mis à jour dans IDB | pendingOp `update(property)` créée et stockée | SB ne voit rien | Dashboard & pages lisent toujours IDB, donc voient la modif. |
+| 9 | Suppression d’un bien | Online | Bien supprimé de IDB (et éventuellement cascade locale : baux, transactions, docs) | pendingOp `delete(property)` créée + poussée dès que possible | SB supprime le bien (cascade SQL éventuelle côté serveur) | Message : “Supprimé localement et sur le serveur”. |
+|10| Suppression d’un bien | Offline | Bien supprimé de IDB | pendingOp `delete(property)` créée et stockée | SB ne voit rien | La prochaine sync online supprimera aussi côté SB. |
+|11| Création/màj/suppression d’une transaction | Online ou offline | Toujours appliquer l’opération **d’abord** en IDB | Toujours créer une pendingOp (`create/update/delete`) | SB est alignée lors de la sync (immédiate si online, différée si offline) | Les KPI / Dashboard en app-shell lisent **uniquement IDB**. |
+|12| Un autre device modifie des données | Tu ouvres l’app ici, online | Au boot / dashboard : sync silencieuse SB → IDB (overwrite) | pendingOps locales de ce device restent valides | SB reflète l’état global (tous devices) | Ce device récupère l’état à jour de SB. |
+|13| Tu as des pendingOps locales et SB a aussi évolué entre temps | Online, sync silencieuse | IDB pousse d’abord pendingOps → SB, puis fait un overwrite SB → IDB | pendingOps consommées/supprimées après succès | SB devient l’état final et **reste source de vérité absolue** | En cas de conflit, on suit SB (comportement simplifié). |
+|14| Reset manuel depuis la page Sync | Online | IDB est vidée pour certaines/all tables, puis full sync SB → IDB | pendingOps peuvent être annulées/effacées (politique explicite dans le code) | SB n’est pas modifiée par ce reset | Action lourde, pour dépannage. |
+|15| Suppression d’une ligne côté SB (via console/script) | Prochaine sync online | Overwrite SB → IDB : la ligne disparaît aussi en local | Aucune pendingOp sauf cas particulier | SB ne fait rien de spécial | Corrige les “fantômes” locaux. |
+|16| Long offline avec beaucoup de modifs locales | Offline prolongé | Toutes les modifs vont dans IDB + pendingOps | pendingOps s’accumulent | SB ne voit rien pendant ce temps | À la reconnexion : push massif pendingOps → SB, puis overwrite SB → IDB. |
+|17| Navigation Biens → Transactions en app-shell | Online ou offline | **Aucune refetch SB**, seulement lecture IDB | pendingOps inchangées | SB non appelée pour les données | Les hooks `useXxxData({ mode: "app-shell" })` doivent lire uniquement IDB. |
+|18| Dashboard ouvert + sync silencieuse en cours | Online | Dashboard lit IDB (état avant sync), puis peut être rafraîchi sur event `sync:refresh` | pendingOps peuvent être vidées si tout est envoyé | SB fournit les nouvelles données | UI peut se re-rendre après l’event. |
+|19| Page `/app?view=sync` ouverte | Online | Lit toutes les tables IDB + états (full vs partiel) | Lit toutes les pendingOps et leur statut | Appelle fullSync ou syncGlobal selon action utilisateur | Sert de “console d’observabilité” de la sync. |
+|20| Déconnexion utilisateur | Online | IDB peut être conservée (cache) ou partiellement nettoyée (selon politique choisie) | pendingOps non envoyées : à décider (conserver ou drop) | Session SB supprimée | Important de coder clairement la stratégie choisie. |
+
+### 4.5. Règles générales à faire respecter dans le code
+
+1. **Supabase est la source de vérité globale**  
+   - Lors des sync “complètes” ou overwrites, c’est SB qui gagne.
+   - IDB est un miroir optimisé pour l’offline.
+
+2. **En App Shell, on ne lit jamais directement Supabase pour les données métier**  
+   - Les hooks en mode app-shell (`useDashboardData`, `usePropertiesData`, etc.) doivent lire **uniquement** IDB.
+   - Les pages app-shell ne doivent pas appeler Prisma/Supabase directement pour l’UI.
+
+3. **Toute action utilisateur (create/update/delete)** :  
+   - S’applique d’abord en IDB (optimiste).
+   - Crée une pendingOp.
+   - Est poussée vers SB dès que possible (online, via syncGlobal).
+
+4. **Sync silencieuse (au boot / retour online / action utilisateur / bouton Sync)** :  
+   - Pousse d’abord les pendingOps vers SB.
+   - Puis fait un overwrite SB → IDB par table (après filtres d’organisation).
+   - Émet un event `sync:refresh` pour permettre aux pages de se rafraîchir si besoin.
+
+5. **Navigation intra-app-shell (changer de vue)** :  
+   - Ne doit pas relancer un fullSync.
+   - Ne doit pas refetch Supabase.
+   - Doit utiliser uniquement les caches IDB existants + React Query / caches internes.
+
+---
+
+## 5. Page de synchronisation `/app?view=sync`
+
+- Doit afficher **clairement** :
+  - nombre d’opérations totales / en attente / en erreur / synchronisées ;
+  - la liste détaillée (entité, type d’opération, date, statut, message d’erreur éventuel) ;
+  - un résumé haut niveau de l’état :
+    - pré-chargement des pages HTML (liste des vues pré-cachées) ;
+    - état du “full sync” des tables (properties, tenants, leases, transactions, documents, loans, échéances…) ;
+    - indicateurs simples : OK / incomplet / erreur ;
+    - **dernière date de sync par table** et type de sync (global/full).
+- Actions possibles :
+  - “Synchroniser maintenant” → relance la sync silencieuse (`syncGlobal`) ;
+  - “Réinitialiser la sync complète” → appelle `fullSync` (avec confirmation explicite) ;
+  - aucune suppression dangereuse sans confirmation explicite.
+
+---
+
+## 6. Authentification & mode offline
+
+### 6.1. Online
+
+- Auth basée sur **Supabase + OAuth Google**.
+- En App Shell :
+  - la page `/app/login` permet de se connecter via Google ;
+  - la session Supabase est récupérée et vérifiée côté client ;
+  - on persiste un objet `localUser` minimal dans `localStorage` (id, email, nom, avatar).
+
+### 6.2. Offline
+
+- Si l’utilisateur revient en **offline** :
+  - on **n’essaie pas d’appeler Supabase** (sinon on bloque l’UI) ;
+  - si `localUser` existe → on considère l’utilisateur **authentifié pour l’usage local** ;
+  - on donne accès à toutes les données présentes dans IndexedDB ;
+  - les actions d’écriture sont ajoutées en file de sync et partiront plus tard.
+- Si aucun `localUser` n’est présent :
+  - on redirige vers `/app/login` avec un message indiquant qu’une première connexion online est nécessaire.
+
+### 6.3. AuthGuard App Shell
+
+- Composant : `AppShellAuthGuard`.
+- Il doit systématiquement entourer l’App Shell côté `/app` :
+  - affiche un loader pendant la vérification de l’état ;
+  - gère la redirection vers `/app/login` si besoin ;
+  - restaure la vue demandée après connexion.
+
+---
+
+## 7. UX & comportement attendu
+
+1. **Même rendu visuel** entre :
+   - `/xxx` (mode normal) et
+   - `/app?view=xxx` (App Shell),
+   pour :
+   - layout (sidebar, header, marges, padding, largeur) ;
+   - cartes, KPI, graphiques, tableaux, filtres ;
+   - textes FR existants.
+
+2. **Dashboard & Patrimoine** :
+   - doivent afficher **exactement les mêmes KPI et graphiques** en mode normal et App Shell, à partir des mêmes données logiques (online vs offline).
+
+3. **Pages métiers** (Biens, Locataires, Baux, Transactions, Documents, Échéances, Prêts, Simulation fiscale) :
+   - doivent fonctionner **complètement** en App Shell, y compris :
+     - création / édition / suppression ;
+     - filtres, tris, exports, génération de documents ;
+     - diagnostics / insights / KPI.
+
+4. **Sync indicator** (badge “Synchronisé” en haut à droite) :
+   - reflète réellement l’état du moteur de sync ;
+   - se met à jour automatiquement quand une sync est en cours ou échoue.
+
+---
+
+## 8. Style de travail imposé à l’IA
+
+- **Pas de refactor massif inutile.**
+- **Diffs petits et lisibles** ; réutiliser un maximum les patterns existants.
+- **Ne jamais casser** le fonctionnement actuel d’une page en mode normal.
+- Quand une logique existe déjà pour le mode normal :
+  - **s’en servir comme spécification** pour la version App Shell ;
+  - ne pas changer les noms de types ni la structure des données sans nécessité absolue.
+- **Ne pas introduire de nouvelles dépendances** sans raison très forte.
+- **Ne pas changer les textes français métier** (libellés UI) sans demande explicite.
+
+---
+
+## 9. Priorité des prompts
+
+- Toujours respecter **ce superprompt** en priorité.
+- Les prompts de tâche (01, 02, 03, etc.) ne peuvent **pas** désactiver le modèle :
+  - offline-first App Shell,
+  - IDB comme source locale,
+  - Supabase comme source distante,
+  - moteur de sync central (pendingOps + syncGlobal + fullSync) conforme au tableau.
+- Si une demande utilisateur contredit ce superprompt :
+  - **prévenir explicitement** dans la réponse,
+  - proposer une solution compatible, ou demander si l’utilisateur veut vraiment changer les règles globales.
+
+---
+
+En résumé :  
+👉 **App Shell est la voie principale.**  
+👉 **IndexedDB est la source locale pour tout** en mode App Shell.  
+👉 **Supabase reste la source de vérité distante**, synchronisée via un moteur robuste, observable et conforme au tableau ci-dessus.  
+👉 **Les pages normales servent uniquement de référence et de secours.**  
+👉 **Garde le code lisible, modulaire, et strictement aligné sur ce modèle.**

@@ -202,7 +202,7 @@ export function TenantEditModalV2({
 
   const getTabIcon = (IconComponent: any, color: string) => {
     const colorClasses = {
-      blue: 'text-blue-600 bg-blue-100',
+      blue: 'text-gray-600 bg-gray-100',
       green: 'text-green-600 bg-green-100',
       purple: 'text-purple-600 bg-purple-100',
       yellow: 'text-yellow-600 bg-yellow-100',
@@ -222,7 +222,7 @@ export function TenantEditModalV2({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="space-y-2">
           <Label htmlFor="firstName" className="flex items-center gap-2">
-            <User className="h-4 w-4 text-blue-600" />
+            <User className="h-4 w-4 text-gray-600" />
             Prénom *
           </Label>
           <Input
@@ -237,7 +237,7 @@ export function TenantEditModalV2({
 
         <div className="space-y-2">
           <Label htmlFor="lastName" className="flex items-center gap-2">
-            <User className="h-4 w-4 text-blue-600" />
+            <User className="h-4 w-4 text-gray-600" />
             Nom *
           </Label>
           <Input
@@ -268,7 +268,7 @@ export function TenantEditModalV2({
 
         <div className="space-y-2">
           <Label htmlFor="phone" className="flex items-center gap-2">
-            <Phone className="h-4 w-4 text-blue-600" />
+            <Phone className="h-4 w-4 text-gray-600" />
             Téléphone
           </Label>
           <Input
@@ -310,11 +310,12 @@ export function TenantEditModalV2({
             <CheckCircle className="h-4 w-4 text-green-600" />
             Statut
           </Label>
+          {/* TODO: Remplacer par SmartSelect */}
           <select
             id="status"
             value={formData.status}
             onChange={(e) => handleInputChange('status', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
           >
             <option value="ACTIVE">Actif</option>
             <option value="INACTIVE">Inactif</option>
@@ -537,73 +538,74 @@ export function TenantEditModalV2({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="xl">
-      <div className="bg-gradient-to-br from-blue-50 to-indigo-100 p-6 rounded-t-lg">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-bold text-gray-900">
-            {title}
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-white/50 rounded-full transition-colors"
-          >
-            <X className="h-5 w-5 text-gray-600" />
-          </button>
-        </div>
-
-        {/* Navigation des onglets */}
-        <div className="flex space-x-1 bg-white/70 p-1 rounded-lg overflow-x-auto -mx-6 px-6 md:mx-0 md:px-1">
-          {tabs.map((tab) => {
-            const IconComponent = tab.icon;
-            const isActive = activeTab === tab.id;
-            
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1 md:gap-2 px-2 md:px-3 py-2 rounded-md transition-all duration-200 flex-shrink-0 ${
-                  isActive
-                    ? 'bg-white shadow-sm text-gray-900'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
-                }`}
-              >
-                {getTabIcon(IconComponent, tab.color)}
-                <span className="text-xs md:text-sm font-medium whitespace-nowrap">{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <form onSubmit={handleSubmit} className="p-6 bg-white">
-        {/* Contenu de l'onglet */}
-        <div className="min-h-[400px]">
-          {renderTabContent()}
-        </div>
-
-        {/* Message d'erreur général */}
-        {errors.general && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-600">{errors.general}</p>
-          </div>
-        )}
-
-        {/* Boutons d'action */}
-        <div className="flex gap-3 pt-6 border-t border-gray-200 mt-6">
+    <Modal 
+      isOpen={isOpen} 
+      onClose={onClose} 
+      size="xl"
+      title={title}
+      footer={
+        <div className="flex gap-3 w-full">
           <Button 
             type="button" 
             variant="outline" 
             onClick={onClose} 
             disabled={isSubmitting}
+            className="flex-1 sm:flex-initial"
           >
             Annuler
           </Button>
           <Button 
             type="submit" 
+            form="tenant-form"
             disabled={isSubmitting}
+            className="flex-1 sm:flex-initial"
           >
             {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
           </Button>
+        </div>
+      }
+    >
+      <form id="tenant-form" onSubmit={handleSubmit} className="flex flex-col min-h-0">
+        {/* Tabs - Sticky aligné sur les autres modales */}
+        <div className="sticky top-0 z-10 bg-white border-b border-gray-200 -mx-4 sm:-mx-6 px-4 sm:px-6">
+          <nav
+            className="flex overflow-x-auto -mb-px [&::-webkit-scrollbar]:hidden lg:overflow-x-visible"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
+          >
+            {tabs.map((tab) => {
+              const isActive = activeTab === tab.id;
+
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-3 lg:px-4 py-2 text-xs lg:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                    isActive
+                      ? 'border-orange-600 text-orange-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Contenu scrollable */}
+        <div className="flex-1 min-h-0 overflow-y-auto -mx-4 sm:-mx-6 px-4 sm:px-6 py-4">
+          {/* Contenu de l'onglet */}
+          <div className="min-h-[300px] sm:min-h-[400px]">
+            {renderTabContent()}
+          </div>
+
+          {/* Message d'erreur général */}
+          {errors.general && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-600">{errors.general}</p>
+            </div>
+          )}
         </div>
       </form>
     </Modal>

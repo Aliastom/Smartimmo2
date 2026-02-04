@@ -49,12 +49,38 @@ export class TaxParamsService {
    * Récupère tous les types fiscaux (avec fallback sur cache local)
    */
   async getTypes(activeOnly = false): Promise<FiscalType[]> {
+    // ✅ APP-SHELL: Détecter le mode app-shell et charger directement depuis IndexedDB
+    const isAppShell = typeof window !== 'undefined' && window.location.pathname.startsWith('/app');
+    
+    // En app-shell, charger directement depuis IndexedDB
+    if (isAppShell && this.db) {
+      try {
+        const db = await this.db;
+        let cached = await db.FiscalType.toArray();
+        
+        // Filtrer par isActive si demandé
+        if (activeOnly) {
+          cached = cached.filter(t => t.isActive);
+        }
+        
+        if (cached.length > 0) {
+          // Convertir en format API (enlever cachedAt)
+          return cached.map(t => {
+            const { cachedAt: _, ...data } = t;
+            return data as FiscalType;
+          });
+        }
+      } catch (error) {
+        console.error('[TaxParamsService] Erreur lecture IndexedDB:', error);
+      }
+    }
+    
     const url = activeOnly
       ? '/api/admin/tax/types?active=true'
       : '/api/admin/tax/types';
     
-    // Essayer de charger depuis le réseau
-    if (this.isOnline()) {
+    // Essayer de charger depuis le réseau (mode normal uniquement)
+    if (this.isOnline() && !isAppShell) {
       try {
         const response = await fetch(url);
         
@@ -63,10 +89,11 @@ export class TaxParamsService {
           
           // Mettre en cache si on a la DB locale
           if (this.db) {
+            const db = await this.db;
             const now = new Date().toISOString();
             await Promise.all(
               types.map((type: FiscalType) =>
-                this.db!.fiscalTypes.put({
+                db.FiscalType.put({
                   ...type,
                   cachedAt: now,
                 } as CachedFiscalType)
@@ -84,23 +111,16 @@ export class TaxParamsService {
     // Fallback sur le cache local
     if (this.db) {
       try {
-        let cached = await this.db.fiscalTypes.toArray();
+        const db = await this.db;
+        let cached = await db.FiscalType.toArray();
         
         // Filtrer par isActive si demandé
         if (activeOnly) {
           cached = cached.filter(t => t.isActive);
         }
         
-        // Vérifier l'âge du cache
-        const now = Date.now();
-        const isCacheValid = cached.every(t => {
-          const age = now - new Date(t.cachedAt).getTime();
-          return age < this.cacheMaxAge;
-        });
-        
         if (cached.length > 0) {
           // Convertir en format API (enlever cachedAt)
-          const { cachedAt, ...rest } = cached[0];
           return cached.map(t => {
             const { cachedAt: _, ...data } = t;
             return data as FiscalType;
@@ -118,6 +138,44 @@ export class TaxParamsService {
    * Récupère tous les régimes fiscaux (avec fallback sur cache local)
    */
   async getRegimes(activeOnly = false, typeId?: string): Promise<FiscalRegime[]> {
+    // ✅ APP-SHELL: Détecter le mode app-shell et charger directement depuis IndexedDB
+    const isAppShell = typeof window !== 'undefined' && window.location.pathname.startsWith('/app');
+    
+    // En app-shell, charger directement depuis IndexedDB
+    if (isAppShell && this.db) {
+      try {
+        const db = await this.db;
+        let cached = await db.FiscalRegime.toArray();
+        
+        // Filtrer par isActive si demandé
+        if (activeOnly) {
+          cached = cached.filter(r => r.isActive);
+        }
+        
+        // Filtrer par typeId si demandé
+        if (typeId) {
+          cached = cached.filter(regime => {
+            try {
+              const appliesTo = JSON.parse(regime.appliesToIds) as string[];
+              return appliesTo.includes(typeId);
+            } catch {
+              return false;
+            }
+          });
+        }
+        
+        if (cached.length > 0) {
+          // Convertir en format API (enlever cachedAt)
+          return cached.map(r => {
+            const { cachedAt: _, ...data } = r;
+            return data as FiscalRegime;
+          });
+        }
+      } catch (error) {
+        console.error('[TaxParamsService] Erreur lecture IndexedDB:', error);
+      }
+    }
+    
     let url = activeOnly
       ? '/api/admin/tax/regimes?active=true'
       : '/api/admin/tax/regimes';
@@ -126,8 +184,8 @@ export class TaxParamsService {
       url += `&typeId=${typeId}`;
     }
     
-    // Essayer de charger depuis le réseau
-    if (this.isOnline()) {
+    // Essayer de charger depuis le réseau (mode normal uniquement)
+    if (this.isOnline() && !isAppShell) {
       try {
         const response = await fetch(url);
         
@@ -136,10 +194,11 @@ export class TaxParamsService {
           
           // Mettre en cache si on a la DB locale
           if (this.db) {
+            const db = await this.db;
             const now = new Date().toISOString();
             await Promise.all(
               regimes.map((regime: FiscalRegime) =>
-                this.db!.fiscalRegimes.put({
+                db.FiscalRegime.put({
                   ...regime,
                   cachedAt: now,
                 } as CachedFiscalRegime)
@@ -157,7 +216,8 @@ export class TaxParamsService {
     // Fallback sur le cache local
     if (this.db) {
       try {
-        let cached = await this.db.fiscalRegimes.toArray();
+        const db = await this.db;
+        let cached = await db.FiscalRegime.toArray();
         
         // Filtrer par isActive si demandé
         if (activeOnly) {

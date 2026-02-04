@@ -161,7 +161,7 @@ export default function BienOverviewClient({
                 <div></div>
                 <div></div>
               </div>
-              <Link href={`/biens/${property.id}/documents`} className="hex-content hex-documents">
+              <Link href={`/app?view=property&propertyId=${property.id}&tab=documents`} className="hex-content hex-documents">
                 <span className="hex-content-inner">
                   <span className="icon">
                     <span style={{fontSize: '2rem'}}>📄</span>
@@ -230,7 +230,7 @@ export default function BienOverviewClient({
                 <div></div>
                 <div></div>
               </div>
-              <Link href={`/biens/${property.id}/echeances`} className="hex-content hex-echeances">
+              <Link href={`/app?view=property&propertyId=${property.id}&tab=deadlines`} className="hex-content hex-echeances">
                 <span className="hex-content-inner">
                   <span className="icon">
                     <span style={{fontSize: '2rem'}}>📅</span>
@@ -253,7 +253,7 @@ export default function BienOverviewClient({
                 <div></div>
                 <div></div>
               </div>
-              <Link href={`/biens/${property.id}/loans`} className="hex-content hex-prets">
+              <Link href={`/app?view=property&propertyId=${property.id}&tab=loans`} className="hex-content hex-prets">
                 <span className="hex-content-inner">
                   <span className="icon">
                     <span style={{fontSize: '2rem'}}>💳</span>

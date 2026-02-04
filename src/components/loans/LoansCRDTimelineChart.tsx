@@ -58,7 +58,7 @@ export function LoansCRDTimelineChart({
 
   if (isLoading) {
     return (
-      <Card className="col-span-2">
+      <Card className="col-span-1 md:col-span-2">
         <CardHeader>
           <CardTitle>Évolution du CRD Global</CardTitle>
         </CardHeader>
@@ -72,8 +72,8 @@ export function LoansCRDTimelineChart({
   }
 
   return (
-    <Card className="col-span-2">
-      <CardHeader>
+    <Card className="col-span-1 md:col-span-2 min-w-0">
+      <CardHeader className="min-w-0">
         <div className="flex items-center justify-between">
           <div>
             <CardTitle>Évolution du CRD Global</CardTitle>
@@ -83,14 +83,15 @@ export function LoansCRDTimelineChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0">
         {data.length === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center text-gray-400">
             <TrendingDown className="h-12 w-12 mb-2" />
             <p>Aucune donnée disponible</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={300}>
+          <div className="min-w-0">
+            <ResponsiveContainer width="100%" height={300}>
             <LineChart data={data}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis
@@ -120,6 +121,7 @@ export function LoansCRDTimelineChart({
               />
             </LineChart>
           </ResponsiveContainer>
+          </div>
         )}
       </CardContent>
     </Card>

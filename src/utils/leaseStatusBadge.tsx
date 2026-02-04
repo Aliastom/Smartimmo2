@@ -23,6 +23,10 @@ export function getLeaseStatusBadge(status: string) {
     // Statuts français (legacy - pour compatibilité)
     case 'BROUILLON':
       return <Badge variant="gray">Brouillon</Badge>;
+    case 'À_ENVOYER':
+    case 'A_ENVOYER':
+    case 'TO_SEND':
+      return <Badge variant="warning">À envoyer</Badge>;
     case 'ENVOYÉ':
     case 'ENVOYE':
       return <Badge variant="warning">Envoyé</Badge>;
@@ -57,6 +61,9 @@ export function getLeaseStatusVariant(status: string): 'success' | 'primary' | '
     case 'DRAFT':
     case 'BROUILLON':
       return 'gray';
+    case 'TO_SEND':
+    case 'À_ENVOYER':
+    case 'A_ENVOYER':
     case 'SENT':
     case 'ENVOYÉ':
     case 'ENVOYE':
@@ -91,6 +98,10 @@ export function getLeaseStatusLabel(status: string): string {
     case 'DRAFT':
     case 'BROUILLON':
       return 'Brouillon';
+    case 'TO_SEND':
+    case 'À_ENVOYER':
+    case 'A_ENVOYER':
+      return 'À envoyer';
     case 'SENT':
     case 'ENVOYÉ':
     case 'ENVOYE':

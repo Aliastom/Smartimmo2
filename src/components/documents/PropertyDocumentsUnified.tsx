@@ -38,7 +38,7 @@ import {
   DocumentTableRow,
 } from './unified';
 import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
-import { usePropertyInsights, PropertyDocumentsInsights } from '@/hooks/usePropertyInsights';
+import { usePropertyInsights, PropertyDocumentsInsights } from '@/features/insights/hooks/usePropertyInsights';
 
 interface PropertyDocumentsUnifiedProps {
   propertyId: string;
@@ -59,11 +59,12 @@ export function PropertyDocumentsUnified({ propertyId, propertyName }: PropertyD
   });
 
   // Insights property-scoped via API
-  const { insights: documentsInsights, loading: insightsLoading } = usePropertyInsights(
+  const { insights: documentsInsights, loading: insightsLoading } = usePropertyInsights({
+    mode: 'normal',
     propertyId,
-    'documents',
-    'month'
-  ) as { insights: PropertyDocumentsInsights | null; loading: boolean };
+    scope: 'documents',
+    period: 'month',
+  }) as { insights: PropertyDocumentsInsights | null; loading: boolean };
 
   // Filtres
   const [filters, setFilters] = useState({

@@ -23,6 +23,7 @@ interface UseAutoFillTransactionProps {
   leases: any[];
   categories: any[];
   selectedNature?: string; // Ajouter selectedNature pour le filtrage
+  natures?: any[]; // Ajouter natures pour passer au hook useNatureMapping en mode app-shell
 }
 
 export const useAutoFillTransaction = ({
@@ -33,6 +34,7 @@ export const useAutoFillTransaction = ({
   leases,
   categories,
   selectedNature,
+  natures,
   mode = 'create' // Ajouter le mode pour désactiver les automatismes en édition
 }: UseAutoFillTransactionProps & { mode?: 'create' | 'edit' }) => {
   const [autoFillState, setAutoFillState] = useState<AutoFillState>({
@@ -44,14 +46,19 @@ export const useAutoFillTransaction = ({
     autoSuggestions: {}
   });
 
-  // Hook pour le mapping Nature ↔ Catégorie (maintenant 100% BDD)
+  // Hook pour le mapping Nature ↔ Catégorie
+  // En mode app-shell, passer les natures et catégories chargées depuis IndexedDB
   const {
     getCompatibleCategories,
     getDefaultCategory,
     isCategoryCompatible,
     getFirstCompatibleCategory,
     loading: mappingLoading
-  } = useNatureMapping();
+  } = useNatureMapping({
+    natures,
+    categories,
+    mode: natures && categories ? 'app-shell' : 'normal'
+  });
 
   // Watchers pour les champs clés
   const propertyId = watch('propertyId');
@@ -362,6 +369,13 @@ export const useAutoFillTransaction = ({
   // Filtrer les catégories selon le mapping Nature ↔ Catégorie
   // Utiliser selectedNature en priorité, sinon watch('nature')
   const currentNature = selectedNature || nature;
+  
+  // Debug: vérifier le mapping
+  if (currentNature && !mappingLoading) {
+    const compatible = getCompatibleCategories(currentNature);
+    console.log('[useAutoFillTransaction] 🔍 Catégories compatibles pour', currentNature, ':', compatible.length);
+  }
+  
   const filteredCategories = currentNature && !mappingLoading 
     ? getCompatibleCategories(currentNature)
     : categoriesArray;

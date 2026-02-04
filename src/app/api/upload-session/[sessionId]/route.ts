@@ -68,19 +68,44 @@ export async function GET(
         expiresAt: uploadSession.expiresAt
       },
       // Documents brouillons (drafts)
+      // ⚠️ CRITIQUE: Retourner TOUS les champs nécessaires pour IndexedDB (documentTypeId, ocrStatus, etc.)
       drafts: uploadSession.Document.map(doc => ({
         id: doc.id,
         name: doc.filenameOriginal,
+        fileName: doc.fileName || doc.filenameOriginal,
+        filenameOriginal: doc.filenameOriginal,
         status: doc.status,
         type: doc.DocumentType?.label || 'Non classé',
         typeId: doc.documentTypeId,
+        documentTypeId: doc.documentTypeId, // ⚠️ CRITIQUE: Inclure documentTypeId (peut être auto-assigné)
+        detectedTypeId: doc.detectedTypeId || null,
         size: doc.size,
         mime: doc.mime,
+        url: doc.url || `/api/documents/${doc.id}/file`,
+        fileSha256: doc.fileSha256 || null,
+        textSha256: doc.textSha256 || null,
+        // ⚠️ CRITIQUE: Inclure ocrStatus et champs OCR pour éviter "En attente" dans l'UI
+        ocrStatus: doc.ocrStatus || 'pending',
+        ocrError: doc.ocrError || null,
+        ocrVendor: doc.ocrVendor || null,
+        ocrConfidence: doc.ocrConfidence || null,
+        extractedText: doc.extractedText || null,
+        indexed: doc.indexed || false,
+        source: doc.source || 'staged-upload',
+        uploadedBy: doc.uploadedBy || null,
+        ownerId: doc.ownerId || 'default',
+        bucketKey: doc.bucketKey || doc.id,
         intendedContext: {
           type: doc.intendedContextType,
           tempKey: doc.intendedContextTempKey
         },
-        uploadedAt: doc.uploadedAt
+        intendedContextType: doc.intendedContextType,
+        intendedContextTempKey: doc.intendedContextTempKey,
+        uploadSessionId: doc.uploadSessionId,
+        createdAt: doc.createdAt,
+        updatedAt: doc.updatedAt,
+        uploadedAt: doc.uploadedAt,
+        version: doc.version || 1
       })),
       // Liens vers documents existants
       links: uploadSession.UploadStagedItem.map(item => ({

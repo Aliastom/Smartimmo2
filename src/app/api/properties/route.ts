@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PropertyRepo, PropertyFilters } from '@/lib/db/PropertyRepo';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
-
+import { createPropertyServicePrisma } from '@/domain/services/propertyServiceFactory';
+import { mapPropertyServiceErrorToHttpStatus } from '@/domain/services/propertyServiceHelpers';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,7 @@ export async function GET(request: NextRequest) {
       status: searchParams.get('status') || undefined,
       type: searchParams.get('type') || undefined,
       city: searchParams.get('city') || undefined,
+      includeArchived: searchParams.get('includeArchived') === 'true', // ⚠️ CRITIQUE: Respecter le paramètre includeArchived
       page: searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1,
       limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 10,
       sortBy: (searchParams.get('sortBy') as any) || 'name',
@@ -61,25 +63,39 @@ export async function POST(request: NextRequest) {
   try {
     const user = await requireAuth();
     const body = await request.json();
+    
+    // Validation minimale (shape)
     const validatedData = createPropertySchema.parse(body);
     
     // Exclure l'ID si présent (création, pas mise à jour)
     const { id, ...dataWithoutId } = validatedData as any;
     
-    // Convertir les chaînes vides en null pour les foreign keys optionnelles
-    const sanitizedData = {
-      ...dataWithoutId,
-      acquisitionDate: new Date(validatedData.acquisitionDate),
-      managementCompanyId: dataWithoutId.managementCompanyId || null,
-      fiscalTypeId: dataWithoutId.fiscalTypeId || null,
-      fiscalRegimeId: dataWithoutId.fiscalRegimeId || null,
-      rentalMode: dataWithoutId.rentalMode || 'LONG_TERM',
-      airbnbListingId: dataWithoutId.airbnbListingId || null,
-    };
+    // Appel du service (toute la logique métier est dans PropertyService)
+    const propertyService = createPropertyServicePrisma();
+    const result = await propertyService.createProperty({
+      organizationId: user.organizationId,
+      name: dataWithoutId.name,
+      type: dataWithoutId.type,
+      address: dataWithoutId.address,
+      postalCode: dataWithoutId.postalCode,
+      city: dataWithoutId.city,
+      surface: dataWithoutId.surface,
+      rooms: dataWithoutId.rooms,
+      acquisitionDate: dataWithoutId.acquisitionDate,
+      acquisitionPrice: dataWithoutId.acquisitionPrice,
+      notaryFees: dataWithoutId.notaryFees,
+      currentValue: dataWithoutId.currentValue,
+      status: dataWithoutId.status,
+      occupation: dataWithoutId.occupation,
+      notes: dataWithoutId.notes,
+      managementCompanyId: dataWithoutId.managementCompanyId,
+      fiscalTypeId: dataWithoutId.fiscalTypeId,
+      fiscalRegimeId: dataWithoutId.fiscalRegimeId,
+      rentalMode: dataWithoutId.rentalMode,
+      airbnbListingId: dataWithoutId.airbnbListingId,
+    });
     
-    const property = await PropertyRepo.create(user.organizationId, sanitizedData);
-    
-    return NextResponse.json(property, { status: 201 });
+    return NextResponse.json(result.property, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
@@ -89,6 +105,15 @@ export async function POST(request: NextRequest) {
     }
     
     console.error('Error creating property:', error);
+    
+    if (error instanceof Error) {
+      const status = mapPropertyServiceErrorToHttpStatus(error);
+      return NextResponse.json(
+        { error: error.message },
+        { status }
+      );
+    }
+    
     return NextResponse.json(
       { error: 'Erreur lors de la création du bien' },
       { status: 500 }

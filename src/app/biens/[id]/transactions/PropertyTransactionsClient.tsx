@@ -105,9 +105,10 @@ interface PropertyTransactionsClientProps {
   propertyId: string;
   propertyName: string;
   rentalMode?: string;
+  mode?: 'normal' | 'app-shell';
 }
 
-export default function PropertyTransactionsClient({ propertyId, propertyName, rentalMode }: PropertyTransactionsClientProps) {
+export default function PropertyTransactionsClient({ propertyId, propertyName, rentalMode, mode = 'normal' }: PropertyTransactionsClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { setActions } = usePropertyHeaderActions();
@@ -117,7 +118,7 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
   const [totalCount, setTotalCount] = useState(0);
   const [pagination, setPagination] = useState({
     page: 1,
-    limit: 50,
+    limit: 30, // 30 éléments par page en desktop
     total: 0,
     pages: 0
   });
@@ -256,14 +257,14 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
       params.append('accountingMonthEnd', periodEnd);
 
       // Ajouter la pagination
-      params.append('page', '1');
-      params.append('limit', '50');
+      params.append('page', pagination.page.toString());
+      params.append('limit', '30'); // 30 éléments par page en desktop
 
       const response = await fetch(`/api/transactions?${params.toString()}`);
       const data = await response.json();
 
       setTransactions(data.data || []);
-      setPagination(data.pagination || { page: 1, limit: 50, total: 0, pages: 0 });
+      setPagination(data.pagination || { page: 1, limit: 30, total: 0, pages: 0 });
       setTotalCount(data.pagination?.total || 0);
     } catch (error) {
       console.error('Erreur lors du chargement des données:', error);
@@ -650,23 +651,23 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
   return (
     <div className="space-y-6">
 
-      {/* Graphiques */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
-        <div className="md:col-span-2">
+      {/* Graphiques - Mobile: empilés, Desktop: grille */}
+      <div className="grid gap-4 grid-cols-1 lg:grid-cols-4">
+        <div className="lg:col-span-2">
           <TransactionsCumulativeChart
             data={chartsData.timeline}
             isLoading={chartsLoading}
           />
         </div>
         
-        <div className="md:col-span-1">
+        <div className="lg:col-span-1">
           <TransactionsByCategoryChart
             data={chartsData.byCategory}
             isLoading={chartsLoading}
           />
         </div>
         
-        <div className="md:col-span-1">
+        <div className="lg:col-span-1">
           <TransactionsIncomeExpenseChart
             data={chartsData.incomeExpense}
             isLoading={chartsLoading}
@@ -698,20 +699,22 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
         hidePropertyFilter={true} // 🔒 Masquer le filtre Bien
       />
 
-      {/* Actions groupées */}
+      {/* Actions groupées - Mobile: empilées, Desktop: en ligne */}
       {selectedTransactionIds.length > 0 && (
         <Card>
           <CardContent className="py-3">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <span className="text-sm font-medium text-gray-900">
                 {selectedTransactionIds.length} transaction{selectedTransactionIds.length > 1 ? 's' : ''} sélectionnée{selectedTransactionIds.length > 1 ? 's' : ''}
               </span>
               <div className="flex-1" />
+              <div className="flex gap-2 w-full sm:w-auto">
               <Button 
                 variant="outline" 
                 size="sm" 
                 onClick={handleDeleteMultipleTransactions}
                 disabled={isLoadingDeleteModal}
+                  className="flex-1 sm:flex-initial"
               >
                 {isLoadingDeleteModal ? (
                   <>
@@ -726,9 +729,11 @@ export default function PropertyTransactionsClient({ propertyId, propertyName, r
                 variant="ghost" 
                 size="sm" 
                 onClick={() => setSelectedTransactionIds([])}
+                  className="flex-1 sm:flex-initial"
               >
                 Annuler
               </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

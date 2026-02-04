@@ -1,11 +1,11 @@
 import { Suspense } from 'react';
-import TransactionsClient from './TransactionsClient';
+import { TransactionsPageCore } from '@/features/transactions/TransactionsPageCore';
 
 export default function TransactionsPage() {
   return (
     <div className="space-y-6">
       <Suspense fallback={<div>Chargement...</div>}>
-        <TransactionsClient />
+        <TransactionsPageCore mode="normal" />
       </Suspense>
     </div>
   );

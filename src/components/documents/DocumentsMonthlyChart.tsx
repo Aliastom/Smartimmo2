@@ -76,7 +76,7 @@ export function DocumentsMonthlyChart({
 
   if (isLoading) {
     return (
-      <Card className="w-full col-span-2">
+      <Card className="w-full">
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold">Évolution mensuelle des documents</CardTitle>
         </CardHeader>
@@ -90,7 +90,7 @@ export function DocumentsMonthlyChart({
   }
 
   return (
-    <Card className="w-full col-span-2">
+    <Card className="w-full">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
@@ -101,14 +101,15 @@ export function DocumentsMonthlyChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 min-w-0">
         {data.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
             <FileText className="h-12 w-12 mb-2 opacity-30" />
             <p className="text-sm">Aucun document sur cette période</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={180}>
+          <div className="w-full min-w-0">
+            <ResponsiveContainer width="100%" height={180}>
             <LineChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis
@@ -134,6 +135,7 @@ export function DocumentsMonthlyChart({
               />
             </LineChart>
           </ResponsiveContainer>
+          </div>
         )}
       </CardContent>
     </Card>

@@ -49,6 +49,187 @@
   }
 }
 
+/* === ANIMATION BORDER PULSE (pour contexte actif) === */
+@keyframes border-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.01);
+  }
+}
+
+.property-context-border {
+  position: relative;
+  border: 2px solid rgb(251 146 60); /* orange-400 */
+  animation: border-pulse 2s ease-in-out infinite;
+}
+
+.property-context-border::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border: 2px solid rgb(249 115 22); /* orange-500 */
+  border-radius: inherit;
+  opacity: 0;
+  animation: border-glow 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes border-glow {
+  0%, 100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* === STYLES POUR LES SELECTS (suppression du bleu natif) === */
+/* Supprimer COMPLÈTEMENT le focus bleu natif des selects et inputs */
+select:focus,
+select:active,
+select:hover,
+input:focus:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+input:active:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+input[type="date"]:focus,
+input[type="date"]:active,
+textarea:focus,
+textarea:active {
+  outline: none !important;
+  border-color: #F97316 !important; /* orange-500 */
+  box-shadow: 0 0 0 1px #F97316 !important; /* bordure orange fine */
+}
+
+/* Calendrier natif (input type="date") - forcer orange */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.5) sepia(1) saturate(5) hue-rotate(0deg) brightness(1);
+  cursor: pointer;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  filter: invert(0.4) sepia(1) saturate(5) hue-rotate(0deg) brightness(1);
+}
+
+/* Calendrier popup natif - forcer orange au lieu de bleu */
+input[type="date"]::-webkit-datetime-edit-text,
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field {
+  color: #111827 !important;
+}
+
+/* Forcer orange dans le calendrier popup du navigateur */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.5) sepia(1) saturate(5) hue-rotate(0deg) brightness(1) !important;
+}
+
+/* Styles pour le calendrier popup (nécessite des règles globales plus agressives) */
+::backdrop {
+  background-color: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Forcer les couleurs orange dans le calendrier natif */
+input[type="date"]:focus::-webkit-calendar-picker-indicator {
+  filter: invert(0.4) sepia(1) saturate(5) hue-rotate(0deg) brightness(1) !important;
+}
+
+/* Supprimer le bleu de sélection natif des options - RÈGLES GLOBALES */
+select option {
+  background-color: white !important;
+  color: #111827 !important; /* gray-900 */
+  padding: 0.5rem;
+}
+
+/* Option sélectionnée (dans le select fermé) - fond gris clair */
+select option:checked {
+  background-color: #F9FAFB !important; /* gray-50 */
+  color: #111827 !important; /* gray-900 */
+}
+
+/* Option au survol (dans le dropdown ouvert) - fond gris clair au lieu de bleu */
+select option:hover,
+select option:focus,
+select option:active {
+  background-color: #F3F4F6 !important; /* gray-100 */
+  color: #111827 !important; /* gray-900 */
+}
+
+/* Checkbox - forcer orange au lieu de bleu/vert */
+input[type="checkbox"] {
+  accent-color: #F97316 !important; /* orange-500 */
+}
+
+input[type="checkbox"]:checked {
+  background-color: #F97316 !important;
+  border-color: #F97316 !important;
+}
+
+input[type="checkbox"]:checked::before {
+  color: white !important;
+}
+
+input[type="checkbox"]:focus {
+  outline: none !important;
+  ring-color: #F97316 !important;
+  border-color: #F97316 !important;
+}
+
+/* Forcer le checkmark en blanc pour les checkboxes */
+input[type="checkbox"]:checked {
+  background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L4 12.586l7.793-7.793a1 1 0 011.414 0z'/%3e%3c/svg%3e") !important;
+  background-size: 100% 100% !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+
+/* Forcer la suppression du bleu natif sur tous les états */
+select::-ms-expand {
+  display: none; /* Supprimer la flèche bleue sur IE/Edge */
+}
+
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* Styles spécifiques pour les selects dans les modales */
+.modal-scrollable-content select,
+[role="dialog"] select {
+  outline: none !important;
+}
+
+.modal-scrollable-content select:focus,
+[role="dialog"] select:focus {
+  outline: none !important;
+  border-color: #F97316 !important;
+  box-shadow: 0 0 0 1px #F97316 !important;
+}
+
+/* Forcer les styles des options dans les modales */
+.modal-scrollable-content select option,
+[role="dialog"] select option {
+  background-color: white !important;
+  color: #111827 !important;
+}
+
+.modal-scrollable-content select option:checked,
+[role="dialog"] select option:checked {
+  background-color: #F9FAFB !important;
+  color: #111827 !important;
+}
+
+.modal-scrollable-content select option:hover,
+.modal-scrollable-content select option:focus,
+[role="dialog"] select option:hover,
+[role="dialog"] select option:focus {
+  background-color: #F3F4F6 !important;
+  color: #111827 !important;
+}
+
 /* === ANIMATIONS POUR RÉSUMÉ FISCAL === */
 @keyframes slideInUp {
   from {
@@ -362,13 +543,28 @@ a:hover {
 }
 
 /* Focus rings automatiques pour les éléments interactifs */
+/* EXCEPTION : les inputs et selects dans les modales utilisent le focus orange */
 a:focus-visible,
 button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
 [tabindex]:focus-visible {
   @apply focus-ring;
+}
+
+/* Inputs et selects : focus orange au lieu de bleu */
+input:focus-visible:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select:focus-visible,
+textarea:focus-visible {
+  outline: none !important;
+  border-color: #F97316 !important; /* orange-500 */
+  box-shadow: 0 0 0 1px #F97316 !important; /* bordure orange fine */
+}
+
+/* Supprimer le focus ring des boutons d'onglets */
+button[role="tab"]:focus,
+button[role="tab"]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  ring: none !important;
 }
 
 /* === MICRO-INTERACTIONS === */
@@ -1820,183 +2016,6 @@ body {
   }
 }
 
-/* ========================================
-   PROPERTY GLASSMORPHISM NAVIGATION
-   Neutraliser les styles DaisyUI forcés
-   ======================================== */
-
-/* Neutraliser DaisyUI pour ce composant spécifique */
-[data-theme] .property-glass-nav,
-[data-theme] .property-glass-nav *,
-.property-glass-nav,
-.property-glass-nav * {
-  background-color: unset !important;
-  color: unset !important;
-  background: unset !important;
-}
-
-/* Styles Glassmorphism */
-.property-glass-nav {
-  display: grid !important;
-  grid-auto-flow: column !important;
-  place-self: center !important;
-  padding: 0 0.2em 0 !important;
-  background: transparent !important;
-  font: clamp(0.5em, 4vw, 1em) / 1.25 ubuntu, sans-serif !important;
-  gap: 1.5em !important;
-  /* Responsive : gap plus petit sur mobile */
-  gap: clamp(0.75em, 2vw, 1.5em) !important;
-}
-
-.property-glass-nav .glass-item {
-  --hl: 0;
-  display: grid !important;
-  width: clamp(4.5em, 12vw, 6em) !important;
-  color: hsl(var(--hue), calc(var(--hl) * 100%), 65%) !important;
-  text-align: center !important;
-  text-decoration: none !important;
-  transition: color 0.3s !important;
-  cursor: pointer !important;
-  font-size: clamp(0.7em, 2vw, 0.9em) !important;
-  position: relative !important;
-}
-
-.property-glass-nav .glass-item:focus {
-  outline: none !important;
-}
-
-.property-glass-nav .glass-item:hover:not(.glass-item-active),
-.property-glass-nav .glass-item:focus:not(.glass-item-active) {
-  --hl: 1;
-}
-
-/* Force la coloration de l'icône active - État permanent distinct du hover */
-.property-glass-nav .glass-item-active {
-  --hl: 1 !important;
-}
-
-.property-glass-nav .glass-item-active .glass-mono,
-.property-glass-nav .glass-item-active .glass-midl,
-.property-glass-nav .glass-item-active .glass-grey {
-  filter: hue-rotate(var(--hue)) saturate(2) brightness(1.2) drop-shadow(0 0 10px hsla(var(--hue), 70%, 50%, 0.8)) !important;
-}
-
-/* Pas de changement de couleur au hover si déjà actif */
-.property-glass-nav .glass-item-active:hover,
-.property-glass-nav .glass-item-active:focus {
-  --hl: 1 !important;
-}
-
-/* COULEURS HEXAGONES AU HOVER - LES DEUX CONTOURS (Teintes atténuées) */
-
-/* Transactions - Rouge pastel */
-.hexagon-transactions:hover .hex-item div::before,
-.hexagon-transactions:hover .hex-item div::after {
-  background-color: #fca5a5 !important;
-}
-
-/* Documents - Bleu pastel */
-.hexagon-documents:hover .hex-item div::before,
-.hexagon-documents:hover .hex-item div::after {
-  background-color: #93c5fd !important;
-}
-
-/* Échéances - Vert pastel doux */
-.hexagon-echeances:hover .hex-item div::before,
-.hexagon-echeances:hover .hex-item div::after {
-  background-color: #86efac !important;
-}
-
-/* Photos - Violet pastel */
-.hexagon-photos:hover .hex-item div::before,
-.hexagon-photos:hover .hex-item div::after {
-  background-color: #c4b5fd !important;
-}
-
-/* Baux - Jaune pastel */
-.hexagon-baux:hover .hex-item div::before,
-.hexagon-baux:hover .hex-item div::after {
-  background-color: #fde68a !important;
-}
-
-/* Rentabilité - Rose pastel */
-.hexagon-rentabilite:hover .hex-item div::before,
-.hexagon-rentabilite:hover .hex-item div::after {
-  background-color: #f9a8d4 !important;
-}
-
-/* Prêts - Cyan/Turquoise pastel */
-.hexagon-prets:hover .hex-item div::before,
-.hexagon-prets:hover .hex-item div::after {
-  background-color: #67e8f9 !important;
-}
-
-/* Paramètres - Cyan pastel */
-.hexagon-parametres:hover .hex-item div::before,
-.hexagon-parametres:hover .hex-item div::after {
-  background-color: #67e8f9 !important;
-}
-
-/* À venir - Vert clair pastel */
-.hexagon-a-venir:hover .hex-item div::before,
-.hexagon-a-venir:hover .hex-item div::after {
-  background-color: #bef264 !important;
-}
-
-.property-glass-nav .glass-icon {
-  grid-area: 1 / 1 !important;
-  place-self: center !important;
-  font-size: 2.5em !important;
-}
-
-.property-glass-nav .glass-mono {
-  z-index: 1 !important;
-  transform: translate(calc(var(--hl) * 0.375em), calc(var(--hl) * -0.25em)) rotate(calc(var(--hl) * 22.5deg)) !important;
-  opacity: var(--hl) !important;
-  filter: sepia(1) hue-rotate(calc(var(--hue) - 50deg)) saturate(3) blur(var(--r, 0)) !important;
-  transition: 0.3s !important;
-}
-
-.property-glass-nav .glass-mono[id*='blur'] {
-  --r: 4px;
-  position: fixed !important;
-  bottom: 100vh !important;
-}
-
-.property-glass-nav .glass-midl {
-  z-index: 2 !important;
-  color: transparent !important;
-  backdrop-filter: blur(4px) !important;
-  -webkit-mask: linear-gradient(red 0 0) text !important;
-  -webkit-mask-clip: text !important;
-}
-
-@supports (background: -moz-element(#hl)) {
-  .property-glass-nav .glass-midl {
-    background-color: #fff !important;
-    background-clip: text !important;
-    backdrop-filter: none !important;
-  }
-}
-
-.property-glass-nav .glass-grey {
-  z-index: 3 !important;
-  filter: grayscale(1) opacity(0.35) !important;
-}
-
-.property-glass-nav .glass-count {
-  position: absolute !important;
-  top: 0.5em !important;
-  right: 0.5em !important;
-  padding: 0.15em 0.45em !important;
-  background-color: hsl(var(--hue), 80%, 50%) !important;
-  color: white !important;
-  font-size: 0.65em !important;
-  border-radius: 10px !important;
-  font-weight: bold !important;
-  line-height: 1 !important;
-  z-index: 10 !important;
-}
 
 /* === BARRE DE CHARGEMENT INTELLIGENTE === */
 .smart-top-loader {
@@ -2025,4 +2044,44 @@ body {
 .sidebar-loader-orange {
   color: #fb923c !important;
   stroke: #fb923c !important;
+}
+
+/* === SCROLLBAR POUR SMART SELECT ADVANCED === */
+.smart-select-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.smart-select-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.smart-select-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgb(229 231 235); /* gray-200 */
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.smart-select-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(249 115 22); /* orange-500 */
+}
+
+/* Firefox */
+.smart-select-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(229 231 235) transparent; /* gray-200 */
+}
+
+.smart-select-scrollbar:hover {
+  scrollbar-color: rgb(249 115 22) transparent; /* orange-500 */
+}
+
+/* === SUPPRESSION DU BLEU NATIF POUR SMART SELECT ADVANCED === */
+.smart-select-scrollbar *:focus {
+  outline: none !important;
+}
+
+.smart-select-scrollbar *:focus-visible {
+  outline: none !important;
+  border-color: rgb(249 115 22) !important; /* orange-500 */
+  box-shadow: 0 0 0 1px rgba(249,115,22,0.3) !important;
 }

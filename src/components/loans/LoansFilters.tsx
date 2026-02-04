@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
-import { Select } from '@/components/ui/Select';
+import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
+import { SmartDatePicker } from '@/components/ui/SmartDatePicker';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { X, Filter, ChevronDown, ChevronUp } from 'lucide-react';
@@ -49,7 +50,7 @@ export function LoansFilters({
     });
   };
 
-  const hasActiveFilters = filters.search || filters.propertyId || filters.active !== '1';
+  const hasActiveFilters = filters.search || (filters.propertyId && filters.propertyId !== '') || filters.active !== '';
 
   // Tags prédéfinis
   const quickFilters = [
@@ -63,7 +64,7 @@ export function LoansFilters({
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200">
+    <div className="bg-white rounded-xl border border-gray-200 min-w-0">
       {/* Header filtres */}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
@@ -99,14 +100,17 @@ export function LoansFilters({
         {/* Tags prédéfinis + Recherche visible */}
         <div className="flex flex-wrap items-center gap-2 mt-3">
           {quickFilters.map((qf) => (
-            <Badge
+            <button
               key={qf.id}
-              variant={filters.active === qf.active ? 'default' : 'outline'}
-              className="cursor-pointer"
               onClick={() => handleQuickFilter(qf.active)}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                filters.active === qf.active
+                  ? 'bg-orange-100 hover:bg-orange-200 text-orange-700'
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              }`}
             >
               {qf.label}
-            </Badge>
+            </button>
           ))}
           {/* Recherche visible */}
           <div className="flex-1 min-w-[200px]">
@@ -129,20 +133,24 @@ export function LoansFilters({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="period-start">Période de</Label>
-              <Input
+              <SmartDatePicker
                 id="period-start"
-                type="month"
                 value={periodStart}
-                onChange={(e) => onPeriodChange(e.target.value, periodEnd)}
+                onChange={(value) => onPeriodChange(value || periodStart, periodEnd)}
+                placeholder="Sélectionner un mois"
+                mode="month"
+                aria-label="Période de début"
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="period-end">Période à</Label>
-              <Input
+              <SmartDatePicker
                 id="period-end"
-                type="month"
                 value={periodEnd}
-                onChange={(e) => onPeriodChange(periodStart, e.target.value)}
+                onChange={(value) => onPeriodChange(periodStart, value || periodEnd)}
+                placeholder="Sélectionner un mois"
+                mode="month"
+                aria-label="Période de fin"
               />
             </div>
           </div>
@@ -151,18 +159,19 @@ export function LoansFilters({
           {!hidePropertyFilter && (
             <div className="space-y-2">
               <Label htmlFor="filter-property">Bien</Label>
-              <Select
-                id="filter-property"
-                value={filters.propertyId}
-                onChange={(e) => handleFilterChange('propertyId', e.target.value)}
-              >
-                <option value="">Tous les biens</option>
-                {Array.isArray(properties) && properties.map((property) => (
-                  <option key={property.id} value={property.id}>
-                    {property.name}
-                  </option>
-                ))}
-              </Select>
+              <SmartSelect
+                value={filters.propertyId || ''}
+                onChange={(value) => handleFilterChange('propertyId', value)}
+                options={[
+                  { value: '', label: 'Tous les biens' },
+                  ...(Array.isArray(properties) ? properties.map((property): SmartSelectOption => ({
+                    value: property.id,
+                    label: property.name,
+                  })) : []),
+                ]}
+                placeholder="Tous les biens"
+                aria-label="Filtrer par bien"
+              />
             </div>
           )}
         </div>

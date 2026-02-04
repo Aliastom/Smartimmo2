@@ -781,7 +781,7 @@ export default function TransactionFormTabs({
                   placeholder="Rechercher un bien..."
                   value={searchBien}
                   onChange={(e) => setSearchBien(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
                 />
               </div>
             )}
@@ -796,7 +796,7 @@ export default function TransactionFormTabs({
             <select
               value={formData.bailId}
               onChange={(e) => handleChange('bailId', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
             >
               <option value="">Aucun bail</option>
               {Array.isArray(baux) && baux.map((bail) => (
@@ -818,7 +818,7 @@ export default function TransactionFormTabs({
               value={formData.locataireId}
               onChange={(e) => handleChange('locataireId', e.target.value)}
               disabled={formData.bailId ? true : false}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 formData.bailId ? 'bg-gray-100 cursor-not-allowed' : ''
               }`}
             >
@@ -841,7 +841,7 @@ export default function TransactionFormTabs({
               type="text"
               value={formData.libelle}
               onChange={(e) => handleChange('libelle', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.libelle ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Libellé automatique généré..."
@@ -860,7 +860,7 @@ export default function TransactionFormTabs({
               min="0"
               value={formData.montant}
               onChange={(e) => handleChange('montant', parseFloat(e.target.value) || 0)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.montant ? 'border-red-500' : 'border-gray-300'
               }`}
             />
@@ -887,7 +887,7 @@ export default function TransactionFormTabs({
               type="date"
               value={formData.date}
               onChange={(e) => handleChange('date', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.date ? 'border-red-500' : 'border-gray-300'
               }`}
             />
@@ -902,7 +902,7 @@ export default function TransactionFormTabs({
             <select
               value={formData.natureId}
               onChange={(e) => handleChange('natureId', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.natureId ? 'border-red-500' : 'border-gray-300'
               }`}
             >
@@ -929,7 +929,7 @@ export default function TransactionFormTabs({
               <select
                 value={formData.categorieId}
                 onChange={(e) => handleChange('categorieId', e.target.value)}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                   errors.categorieId ? 'border-red-500' : 'border-gray-300'
                 }`}
               >
@@ -958,7 +958,7 @@ export default function TransactionFormTabs({
               type="text"
               value={formData.reference}
               onChange={(e) => handleChange('reference', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
               placeholder="Référence interne..."
             />
           </div>
@@ -1115,7 +1115,7 @@ export default function TransactionFormTabs({
           id="envoyerEmail"
           checked={formData.envoyerEmail}
           onChange={(e) => handleChange('envoyerEmail', e.target.checked)}
-          className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+          className="h-4 w-4 text-orange-600 focus:ring-0 border-gray-300 rounded"
         />
         <label htmlFor="envoyerEmail" className="text-sm font-medium text-gray-700 flex items-center gap-2">
           <Mail className="h-4 w-4" />
@@ -1139,7 +1139,7 @@ export default function TransactionFormTabs({
             type="month"
             value={formData.debutPeriode}
             onChange={(e) => handleChange('debutPeriode', e.target.value)}
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
               errors.debutPeriode ? 'border-red-500' : 'border-gray-300'
             }`}
           />
@@ -1156,7 +1156,7 @@ export default function TransactionFormTabs({
             min="1"
             value={formData.nbMois}
             onChange={(e) => handleChange('nbMois', parseInt(e.target.value) || 1)}
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
               errors.nbMois ? 'border-red-500' : 'border-gray-300'
             }`}
           />
@@ -1171,7 +1171,7 @@ export default function TransactionFormTabs({
           id="repartitionAuto"
           checked={formData.repartitionAuto}
           onChange={(e) => handleChange('repartitionAuto', e.target.checked)}
-          className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+          className="h-4 w-4 text-orange-600 focus:ring-0 border-gray-300 rounded"
         />
         <label htmlFor="repartitionAuto" className="text-sm font-medium text-gray-700">
           Répartition automatique

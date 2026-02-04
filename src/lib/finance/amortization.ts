@@ -152,12 +152,24 @@ export function sliceSchedule(
  * Calcule le CRD à une date donnée (YYYY-MM)
  */
 export function crdAtDate(schedule: ScheduleRow[], date: string): number {
+  if (schedule.length === 0) return 0;
+  
+  // Normaliser la date de comparaison (YYYY-MM)
+  const targetMonth = date.substring(0, 7); // S'assurer qu'on compare seulement YYYY-MM
+  
   // Trouver la ligne correspondant au mois ou le mois précédent
-  const rows = schedule.filter((row) => row.date <= date);
+  // row.date peut être YYYY-MM ou YYYY-MM-DD, on normalise pour la comparaison
+  const rows = schedule.filter((row) => {
+    const rowMonth = row.date.substring(0, 7); // Extraire YYYY-MM
+    return rowMonth <= targetMonth;
+  });
+  
   if (rows.length === 0) {
-    // Avant le début du prêt
+    // Avant le début du prêt, retourner le capital initial
     return schedule[0]?.remainingCapital || 0;
   }
+  
+  // Retourner le CRD de la dernière ligne avant ou égale à la date cible
   return rows[rows.length - 1].remainingCapital;
 }
 

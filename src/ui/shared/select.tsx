@@ -55,7 +55,7 @@ const SelectTrigger = React.forwardRef<HTMLButtonElement, SelectTriggerProps>(
         ref={ref}
         type="button"
         className={cn(
-          'flex h-10 w-full items-center justify-between rounded-md border border-base-300 bg-base-100 px-3 py-2 text-sm hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary disabled:cursor-not-allowed disabled:opacity-50',
+          'flex h-10 w-full items-center justify-between rounded-md border border-gray-300 bg-white px-3 py-2 text-sm hover:border-orange-300 focus:outline-none focus:ring-0 focus:border-orange-500 transition-colors disabled:cursor-not-allowed disabled:opacity-50',
           className
         )}
         onClick={handleClick}
@@ -142,8 +142,8 @@ const SelectItem = React.forwardRef<HTMLDivElement, SelectItemProps>(
       <div
         ref={ref}
         className={cn(
-          'relative flex w-full cursor-pointer items-center px-3 py-2 text-sm hover:bg-base-200 focus:bg-base-200 focus:outline-none',
-          isSelected && 'bg-blue-50 text-primary',
+          'relative flex w-full cursor-pointer items-center px-3 py-2 text-sm hover:bg-gray-50 focus:bg-gray-50 focus:outline-none',
+          isSelected && 'bg-gray-50 text-gray-900',
           className
         )}
         onClick={handleClick}

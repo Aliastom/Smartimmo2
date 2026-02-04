@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import DashboardClientMonthly from './DashboardClientMonthly';
+import { DashboardPageCore } from '@/features/dashboard/DashboardPageCore';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Loader2 } from 'lucide-react';
 
@@ -27,7 +27,7 @@ function DashboardLoading() {
 export default function DashboardPage() {
   return (
     <Suspense fallback={<DashboardLoading />}>
-      <DashboardClientMonthly />
+      <DashboardPageCore mode="normal" />
     </Suspense>
   );
 }

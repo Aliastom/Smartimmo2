@@ -111,7 +111,7 @@ export default function TransactionKPICards({
               value={formatValue(value)}
               iconName={card.iconName}
               color={card.color}
-              className={isActive ? 'ring-2 ring-blue-500 ring-opacity-75 shadow-lg scale-105' : ''}
+              className={isActive ? 'ring-2 ring-orange-500 ring-opacity-75 shadow-lg scale-105' : ''}
             />
             <div className="mt-2 text-center">
               <p className="text-xs text-gray-500">

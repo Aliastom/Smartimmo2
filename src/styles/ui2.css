@@ -1,0 +1,548 @@
+/**
+ * Design System UI V2 - Smartimmo
+ * Variables CSS pour le style moderne
+ */
+
+:root {
+  /* Couleurs principales - Style Ulys (orange) */
+  --ui2-primary: #ff6b35; /* Orange principal */
+  --ui2-primary-light: #ff8c5a;
+  --ui2-primary-dark: #e55a2b;
+  --ui2-primary-bg: #fff8f0; /* Fond orange clair pour items actifs/hover */
+  
+  /* Fond */
+  --ui2-bg: #ffffff;
+  --ui2-bg-secondary: #f9fafb;
+  --ui2-bg-hover: #f3f4f6;
+  
+  /* Texte */
+  --ui2-text-primary: #1f2937;
+  --ui2-text-secondary: #6b7280;
+  --ui2-text-tertiary: #9ca3af;
+  
+  /* Bordures */
+  --ui2-border: #e5e7eb;
+  --ui2-border-light: #f3f4f6;
+  
+  /* États */
+  --ui2-success: #10b981;
+  --ui2-warning: #f59e0b;
+  --ui2-error: #ef4444;
+  
+  /* Espacements */
+  --ui2-spacing-xs: 0.25rem;  /* 4px */
+  --ui2-spacing-sm: 0.5rem;    /* 8px */
+  --ui2-spacing-md: 1rem;      /* 16px */
+  --ui2-spacing-lg: 1.5rem;    /* 24px */
+  --ui2-spacing-xl: 2rem;      /* 32px */
+  
+  /* Border Radius */
+  --ui2-radius-sm: 0.375rem;   /* 6px */
+  --ui2-radius-md: 0.5rem;     /* 8px */
+  --ui2-radius-lg: 0.75rem;   /* 12px */
+  --ui2-radius-xl: 1rem;       /* 16px */
+  
+  /* Ombres */
+  --ui2-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --ui2-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --ui2-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  
+  /* Transitions */
+  --ui2-transition: all 0.2s ease-in-out;
+}
+
+/* Classes utilitaires UI2 */
+.ui2-card {
+  background: var(--ui2-bg);
+  border-radius: var(--ui2-radius-lg);
+  box-shadow: var(--ui2-shadow-sm);
+  transition: var(--ui2-transition);
+}
+
+.ui2-card-hover:hover {
+  box-shadow: var(--ui2-shadow-md);
+  transform: translateY(-1px);
+}
+
+.ui2-tab-active {
+  background: var(--ui2-primary-bg);
+  color: var(--ui2-primary);
+  font-weight: 500;
+}
+
+.ui2-table-row-hover:hover {
+  background: var(--ui2-bg-hover);
+}
+
+/* Styles spécifiques pour la sidebar UI2 - Style basé sur l'exemple mcd-menu */
+.ui2-nav-container {
+  /* Permettre aux bordures actives de s'afficher tout en évitant l'ascenseur horizontal */
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.mcd-menu {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  background: #FFF;
+  width: 100%;
+  position: relative;
+}
+
+.mcd-menu li {
+  position: relative;
+}
+
+.mcd-menu li a {
+  display: block;
+  text-decoration: none;
+  padding: 12px 20px;
+  color: #777;
+  text-align: left;
+  height: auto;
+  position: relative;
+  border-bottom: 1px solid #EEE;
+  transition: all 300ms linear;
+  margin: 0;
+}
+
+.mcd-menu li a i,
+.mcd-menu li a .ui2-nav-icon,
+.mcd-menu li a svg.ui2-nav-icon {
+  float: left;
+  font-size: 20px;
+  margin: 0 10px 0 0;
+  width: 20px;
+  height: 20px;
+  color: #777 !important;
+  transition: all 300ms linear;
+  flex-shrink: 0;
+  opacity: 1;
+}
+
+.mcd-menu li a svg.ui2-nav-icon {
+  stroke: #777;
+  stroke-width: 2;
+  fill: none;
+}
+
+.mcd-menu li a svg.ui2-nav-icon * {
+  stroke: #777;
+  fill: none;
+}
+
+.mcd-menu li a strong {
+  display: block;
+  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 600;
+  color: #777 !important;
+  transition: all 300ms linear;
+  opacity: 1;
+}
+
+.mcd-menu li a small {
+  display: block;
+  font-size: 10px;
+  color: #777 !important;
+  margin-top: 2px;
+  transition: all 300ms linear;
+  opacity: 1;
+}
+
+/* Mode collapsed - masquer texte */
+.mcd-menu.collapsed li a strong,
+.mcd-menu.collapsed li a small {
+  display: none;
+}
+
+.mcd-menu.collapsed li a {
+  text-align: center;
+  padding: 12px;
+}
+
+.mcd-menu.collapsed li a .ui2-nav-icon,
+.mcd-menu.collapsed li a svg.ui2-nav-icon {
+  float: none;
+  margin: 0;
+}
+
+.mcd-menu li:hover > a {
+  color: #ff6b35;
+}
+
+.mcd-menu li:hover > a .ui2-nav-icon,
+.mcd-menu li:hover > a svg.ui2-nav-icon {
+  color: #ff6b35 !important;
+  opacity: 1 !important;
+  -webkit-animation: moveFromTop 300ms ease-in-out;
+  -moz-animation: moveFromTop 300ms ease-in-out;
+  -ms-animation: moveFromTop 300ms ease-in-out;
+  -o-animation: moveFromTop 300ms ease-in-out;
+  animation: moveFromTop 300ms ease-in-out;
+}
+
+.mcd-menu li:hover > a svg.ui2-nav-icon * {
+  stroke: #ff6b35 !important;
+}
+
+.mcd-menu li:hover > a strong {
+  color: #ff6b35 !important;
+  opacity: 1 !important;
+  -webkit-animation: moveFromLeft 300ms ease-in-out;
+  -moz-animation: moveFromLeft 300ms ease-in-out;
+  -ms-animation: moveFromLeft 300ms ease-in-out;
+  -o-animation: moveFromLeft 300ms ease-in-out;
+  animation: moveFromLeft 300ms ease-in-out;
+}
+
+.mcd-menu li:hover > a small {
+  color: #ff6b35 !important;
+  opacity: 1 !important;
+  -webkit-animation: moveFromRight 300ms ease-in-out;
+  -moz-animation: moveFromRight 300ms ease-in-out;
+  -ms-animation: moveFromRight 300ms ease-in-out;
+  -o-animation: moveFromRight 300ms ease-in-out;
+  animation: moveFromRight 300ms ease-in-out;
+}
+
+.mcd-menu li a.active {
+  position: relative;
+  color: #ff6b35 !important;
+  border: 0;
+  border-left: 4px solid #ff6b35;
+  border-right: 4px solid #ff6b35;
+  margin: 0 -4px;
+  box-shadow: 0 0 5px #DDD;
+}
+
+.mcd-menu li a.active .ui2-nav-icon,
+.mcd-menu li a.active svg.ui2-nav-icon {
+  color: #ff6b35 !important;
+  opacity: 1 !important;
+}
+
+.mcd-menu li a.active svg.ui2-nav-icon * {
+  stroke: #ff6b35 !important;
+  fill: none !important;
+}
+
+.mcd-menu li a.active strong {
+  color: #ff6b35 !important;
+  opacity: 1 !important;
+}
+
+.mcd-menu li a.active small {
+  color: #ff6b35 !important;
+  opacity: 1 !important;
+}
+
+.mcd-menu li a.active:before {
+  content: "";
+  position: absolute;
+  top: 42%;
+  left: 0;
+  border-left: 5px solid #ff6b35;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+.mcd-menu li a.active:after {
+  content: "";
+  position: absolute;
+  top: 42%;
+  right: 0;
+  border-right: 5px solid #ff6b35;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+/* Animations keyframes pour les effets hover */
+@-webkit-keyframes moveFromTop {
+    from {
+        opacity: 0;
+        -webkit-transform: translateY(200%);
+        -moz-transform: translateY(200%);
+        -ms-transform: translateY(200%);
+        -o-transform: translateY(200%);
+        transform: translateY(200%);
+    }
+    to {
+        opacity: 1;
+        -webkit-transform: translateY(0%);
+        -moz-transform: translateY(0%);
+        -ms-transform: translateY(0%);
+        -o-transform: translateY(0%);
+        transform: translateY(0%);
+    }
+}
+
+@-webkit-keyframes moveFromLeft {
+    from {
+        opacity: 0;
+        -webkit-transform: translateX(200%);
+        -moz-transform: translateX(200%);
+        -ms-transform: translateX(200%);
+        -o-transform: translateX(200%);
+        transform: translateX(200%);
+    }
+    to {
+        opacity: 1;
+        -webkit-transform: translateX(0%);
+        -moz-transform: translateX(0%);
+        -ms-transform: translateX(0%);
+        -o-transform: translateX(0%);
+        transform: translateX(0%);
+    }
+}
+
+@-webkit-keyframes moveFromRight {
+    from {
+        opacity: 0;
+        -webkit-transform: translateX(-200%);
+        -moz-transform: translateX(-200%);
+        -ms-transform: translateX(-200%);
+        -o-transform: translateX(-200%);
+        transform: translateX(-200%);
+    }
+    to {
+        opacity: 1;
+        -webkit-transform: translateX(0%);
+        -moz-transform: translateX(0%);
+        -ms-transform: translateX(0%);
+        -o-transform: translateX(0%);
+        transform: translateX(0%);
+    }
+}
+
+@keyframes moveFromTop {
+    from {
+        opacity: 0;
+        transform: translateY(200%);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0%);
+    }
+}
+
+@keyframes moveFromLeft {
+    from {
+        opacity: 0;
+        transform: translateX(200%);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0%);
+    }
+}
+
+@keyframes moveFromRight {
+    from {
+        opacity: 0;
+        transform: translateX(-200%);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0%);
+    }
+}
+
+/* Styles pour les tableaux V2 - Hover "carte" sans décalage */
+/* RÈGLE ABSOLUE : Ne JAMAIS modifier <tr> avec position/display/transform */
+/* Tous les styles hover sont appliqués uniquement sur les <td> */
+
+/* Forcer border-collapse et supprimer les espaces entre cellules */
+.ui2-table-row {
+  border-collapse: collapse !important;
+}
+
+.ui2-table-row td {
+  border-collapse: collapse !important;
+}
+
+/* S'assurer que toutes les cellules ont la même hauteur - padding identique */
+.ui2-table-row td {
+  padding-top: 1rem !important; /* py-4 = 1rem = 16px */
+  padding-bottom: 1rem !important; /* py-4 = 1rem = 16px */
+  vertical-align: middle !important;
+  line-height: 1.5;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+/* ============================================
+   HOVER UNIFORME POUR TOUS LES TABLEAUX UI2
+   ============================================ */
+
+/* 1) Hover simple : fond très léger + liseré orange à gauche (identité visuelle) */
+.ui2-table tbody tr:hover > td,
+.ui2-table-wrapper tbody tr:hover > td,
+tbody tr.ui2-table-row:hover > td,
+body.ui2-active table tbody tr:hover > td {
+  background: #fff7f3 !important; /* Fond très léger */
+}
+
+/* Liseré orange à gauche (identité visuelle) */
+.ui2-table tbody tr:hover > td:first-child,
+.ui2-table-wrapper tbody tr:hover > td:first-child,
+tbody tr.ui2-table-row:hover > td:first-child,
+body.ui2-active table tbody tr:hover > td:first-child {
+  box-shadow: inset 3px 0 0 #ff6b35 !important;
+}
+
+/* Focus clavier : même style que hover */
+.ui2-table tbody tr:focus-visible,
+.ui2-table-wrapper tbody tr:focus-visible,
+tbody tr.ui2-table-row:focus-visible {
+  outline: 2px solid #ff6b35;
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
+.ui2-table tbody tr:focus-visible > td,
+.ui2-table-wrapper tbody tr:focus-visible > td,
+tbody tr.ui2-table-row:focus-visible > td {
+  background: #fff7f3 !important;
+}
+
+.ui2-table tbody tr:focus-visible > td:first-child,
+.ui2-table-wrapper tbody tr:focus-visible > td:first-child,
+tbody tr.ui2-table-row:focus-visible > td:first-child {
+  box-shadow: inset 3px 0 0 #ff6b35 !important;
+}
+
+
+/* ============================================
+   ACTIONS - STYLE UNIFORME POUR TOUS LES TABLEAUX
+   ============================================ */
+
+/* Actions : traiter comme des liens d'action (fond discret au survol, icônes visibles) */
+.ui2-table tbody tr:hover > td:last-child button,
+.ui2-table-wrapper tbody tr:hover > td:last-child button,
+tbody tr.ui2-table-row:hover > td:last-child button {
+  font-weight: 600 !important; /* semi-bold */
+  font-size: 0.875rem !important; /* 14px */
+  color: #ff6b35 !important; /* Orange */
+  text-decoration: underline !important;
+  text-decoration-thickness: 2px !important; /* Plus épaisse */
+  text-underline-offset: 4px !important; /* Offset pour meilleure lisibilité */
+  text-decoration-color: rgba(255, 107, 53, 0.8) !important;
+  background-color: transparent !important;
+  border-radius: 0.375rem !important;
+  transition: text-decoration-color 0.15s ease, color 0.15s ease;
+  /* Pas de padding modifié pour éviter les décalages */
+}
+
+/* Au hover du bouton : couleur plus saturée */
+.ui2-table tbody tr:hover > td:last-child button:hover,
+.ui2-table-wrapper tbody tr:hover > td:last-child button:hover,
+tbody tr.ui2-table-row:hover > td:last-child button:hover {
+  color: #e55a2b !important; /* Orange plus saturé */
+  text-decoration-color: rgba(229, 90, 43, 1) !important; /* Orange plein et saturé */
+}
+
+/* Icônes dans les boutons d'action */
+.ui2-table tbody tr:hover > td:last-child button svg,
+.ui2-table-wrapper tbody tr:hover > td:last-child button svg,
+tbody tr.ui2-table-row:hover > td:last-child button svg {
+  color: #ff6b35 !important;
+  stroke: #ff6b35 !important;
+  width: 1rem !important;
+  height: 1rem !important;
+  flex-shrink: 0 !important;
+  transition: color 0.15s ease, stroke 0.15s ease;
+}
+
+.ui2-table tbody tr:hover > td:last-child button:hover svg,
+.ui2-table-wrapper tbody tr:hover > td:last-child button:hover svg,
+tbody tr.ui2-table-row:hover > td:last-child button:hover svg {
+  color: #e55a2b !important;
+  stroke: #e55a2b !important;
+}
+
+/* Alignement des boutons d'action */
+.ui2-table tbody tr:hover > td:last-child > div,
+.ui2-table-wrapper tbody tr:hover > td:last-child > div,
+tbody tr.ui2-table-row:hover > td:last-child > div {
+  display: flex !important;
+  align-items: center !important;
+  gap: 1rem !important; /* Espacement entre les boutons */
+  justify-content: flex-end !important;
+}
+
+/* ============================================
+   HIÉRARCHIE TYPOGRAPHIQUE (optionnel, pour colonnes avec meta)
+   ============================================ */
+
+/* Colonne principale : hiérarchie claire (nom principal, meta discrète, événement en badge) */
+/* Nom principal = élément principal */
+.ui2-table tbody tr > td:first-child span[class*="font-medium"],
+.ui2-table-wrapper tbody tr > td:first-child span[class*="font-medium"],
+tbody tr.ui2-table-row > td:first-child span[class*="font-medium"] {
+  font-weight: 600 !important; /* semi-bold */
+  color: #1f2937 !important; /* Gris foncé */
+  transition: color 0.15s ease;
+}
+
+/* Adresse / date = plus discret */
+.ui2-table tbody tr > td:first-child .ui2-table-cell-content,
+.ui2-table-wrapper tbody tr > td:first-child .ui2-table-cell-content,
+tbody tr.ui2-table-row > td:first-child .ui2-table-cell-content {
+  font-size: 0.75rem !important; /* 12px */
+  color: #6b7280 !important; /* Gris secondaire */
+  opacity: 0.7 !important; /* Atténué */
+  transition: opacity 0.15s ease;
+}
+
+/* Événement (transaction) = badge ou texte secondaire, jamais dominant */
+.ui2-table tbody tr > td:first-child [class*="opacity-0"][class*="group-hover:opacity-100"],
+.ui2-table-wrapper tbody tr > td:first-child [class*="opacity-0"][class*="group-hover:opacity-100"],
+tbody tr.ui2-table-row > td:first-child [class*="opacity-0"][class*="group-hover:opacity-100"] {
+  font-size: 0.75rem !important;
+  color: #6b7280 !important;
+}
+
+/* Au hover : nom en orange, meta s'atténue encore */
+.ui2-table tbody tr:hover > td:first-child svg,
+.ui2-table-wrapper tbody tr:hover > td:first-child svg,
+tbody tr.ui2-table-row:hover > td:first-child svg {
+  color: #ff6b35 !important;
+  stroke: #ff6b35 !important;
+  transition: color 0.15s ease, stroke 0.15s ease;
+}
+
+.ui2-table tbody tr:hover > td:first-child span[class*="font-medium"],
+.ui2-table-wrapper tbody tr:hover > td:first-child span[class*="font-medium"],
+tbody tr.ui2-table-row:hover > td:first-child span[class*="font-medium"] {
+  color: #ff6b35 !important;
+  transition: color 0.15s ease;
+}
+
+.ui2-table tbody tr:hover > td:first-child .ui2-table-cell-content,
+.ui2-table-wrapper tbody tr:hover > td:first-child .ui2-table-cell-content,
+tbody tr.ui2-table-row:hover > td:first-child .ui2-table-cell-content {
+  opacity: 0.5 !important; /* Encore plus discret au hover */
+}
+
+/* Wrapper pour le contenu des cellules secondaires - réserve la place */
+.ui2-table-cell-content {
+  min-height: 1.5rem; /* Réserve la place même si opacity: 0 */
+}
+
+/* Mobile : expansion via classe */
+.ui2-table-row-mobile-expanded [class*="opacity-0"] {
+  opacity: 1 !important;
+}
+
+/* Sur mobile, indicateur visuel pour le tap */
+@media (max-width: 768px) {
+  .ui2-table-row {
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+  }
+  
+  .ui2-table-row:active > td {
+    background-color: #f3f4f6;
+  }
+}
+

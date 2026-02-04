@@ -28,6 +28,11 @@ export function getLeaseRuntimeStatus(lease: Lease): string {
     return 'draft';
   }
 
+  // Si le bail est à envoyer, il reste à envoyer
+  if (lease.status === 'À_ENVOYER' || lease.status === 'A_ENVOYER' || lease.status === 'TO_SEND') {
+    return 'to_send';
+  }
+
   // Si le bail est envoyé mais pas signé, il reste envoyé
   if (lease.status === 'ENVOYÉ' || lease.status === 'SENT') {
     return 'sent';

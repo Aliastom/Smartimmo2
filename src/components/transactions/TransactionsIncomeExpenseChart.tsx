@@ -96,11 +96,11 @@ export function TransactionsIncomeExpenseChart({
   }
 
   return (
-    <Card className="w-full">
-      <CardHeader className="pb-3">
+    <Card className="w-full min-w-0">
+      <CardHeader className="pb-3 min-w-0">
         <CardTitle className="text-base font-semibold">Recettes vs Dépenses</CardTitle>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 min-w-0">
         {total === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
             <Euro className="h-12 w-12 mb-2 opacity-30" />
@@ -109,8 +109,9 @@ export function TransactionsIncomeExpenseChart({
         ) : (
           <div className="flex items-center gap-4">
             {/* Donut à gauche */}
-            <div className="flex-shrink-0 w-2/5">
-              <ResponsiveContainer width="100%" height={180}>
+            <div className="flex-shrink-0 w-2/5 min-w-0">
+              <div className="min-w-0">
+                <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
                   <Pie
                     data={chartData}
@@ -128,6 +129,7 @@ export function TransactionsIncomeExpenseChart({
                   <Tooltip content={<CustomTooltip />} />
                 </PieChart>
               </ResponsiveContainer>
+              </div>
             </div>
 
             {/* Détails à droite */}

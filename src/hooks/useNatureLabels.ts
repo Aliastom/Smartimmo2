@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { getLocalDB } from '@/lib/offline/db';
 
 interface NatureLabel {
   key: string;
@@ -15,6 +16,26 @@ export function useNatureLabels() {
     const fetchNatureLabels = async () => {
       try {
         setLoading(true);
+        
+        // ✅ Essayer d'abord IndexedDB (mode app-shell/offline)
+        try {
+          const db = await getLocalDB();
+          const natures = await db.NatureEntity.toArray();
+          if (natures && natures.length > 0) {
+            const labels: Record<string, string> = {};
+            natures.forEach((nature: any) => {
+              labels[nature.key] = nature.label;
+            });
+            setNatureLabels(labels);
+            setLoading(false);
+            return; // Succès, on sort
+          }
+        } catch (indexedDBError) {
+          // IndexedDB non disponible, continuer avec l'API
+          console.log('[useNatureLabels] IndexedDB non disponible, utilisation API');
+        }
+        
+        // Fallback : charger depuis l'API
         const response = await fetch('/api/natures');
         const data = await response.json();
         
@@ -28,6 +49,7 @@ export function useNatureLabels() {
         }
       } catch (error) {
         console.error('Erreur lors du chargement des libellés de natures:', error);
+        // En cas d'erreur, on garde les valeurs par défaut (vides)
       } finally {
         setLoading(false);
       }

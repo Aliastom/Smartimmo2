@@ -5,6 +5,8 @@ import { Search, Filter, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { SmartSelect } from '@/components/ui/SmartSelect';
+import { SmartDatePicker } from '@/components/ui/SmartDatePicker';
 
 interface LeasesFiltersProps {
   filters: {
@@ -53,9 +55,15 @@ const FURNISHED_TYPE_OPTIONS = [
 const STATUS_OPTIONS = [
   { value: '', label: 'Tous les statuts' },
   { value: 'BROUILLON', label: 'Brouillon' },
+  { value: 'À_ENVOYER', label: 'À envoyer' },
+  { value: 'A_ENVOYER', label: 'À envoyer' },
+  { value: 'TO_SEND', label: 'À envoyer' },
+  { value: 'ENVOYÉ', label: 'Envoyé' },
   { value: 'ENVOYE', label: 'Envoyé' },
+  { value: 'SIGNÉ', label: 'Signé' },
   { value: 'SIGNE', label: 'Signé' },
   { value: 'ACTIF', label: 'Actif' },
+  { value: 'RÉSILIÉ', label: 'Résilié' },
   { value: 'RESILIE', label: 'Résilié' },
 ];
 
@@ -100,7 +108,7 @@ export default function LeasesFilters({
         <div className="flex items-center gap-2">
           <h3 className="text-lg font-bold text-gray-900">Filtres</h3>
           {hasActiveFilters && (
-            <span className="bg-blue-100 text-blue-600 text-xs font-medium px-2 py-1 rounded-full">
+            <span className="bg-orange-100 text-orange-600 text-xs font-medium px-2 py-1 rounded-full">
               {activeFiltersCount} actif{activeFiltersCount > 1 ? 's' : ''}
             </span>
           )}
@@ -152,118 +160,117 @@ export default function LeasesFilters({
             <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
               {!hidePropertyFilter && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-propertyId">
                     Bien
                   </label>
-                  <select
+                  <SmartSelect
+                    id="filter-propertyId"
                     value={filters.propertyId}
-                    onChange={(e) => handleFilterChange('propertyId', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-                  >
-                    <option value="">Tous les biens</option>
-                    {Array.isArray(properties) && properties.map((property) => (
-                      <option key={property.id} value={property.id}>
-                        {property.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => handleFilterChange('propertyId', value)}
+                    options={[
+                      { value: '', label: 'Tous les biens' },
+                      ...(Array.isArray(properties) ? properties.map((property) => ({
+                        value: property.id,
+                        label: property.name,
+                      })) : []),
+                    ]}
+                    placeholder="Tous les biens"
+                    aria-label="Filtrer par bien"
+                  />
                 </div>
               )}
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-tenantId">
                   Locataire
                 </label>
-                <select
+                <SmartSelect
+                  id="filter-tenantId"
                   value={filters.tenantId}
-                  onChange={(e) => handleFilterChange('tenantId', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-                >
-                  <option value="">Tous les locataires</option>
-                  {Array.isArray(tenants) && tenants.map((tenant) => (
-                    <option key={tenant.id} value={tenant.id}>
-                      {tenant.firstName} {tenant.lastName}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => handleFilterChange('tenantId', value)}
+                  options={[
+                    { value: '', label: 'Tous les locataires' },
+                    ...(Array.isArray(tenants) ? tenants.map((tenant) => ({
+                      value: tenant.id,
+                      label: `${tenant.firstName} ${tenant.lastName}`,
+                    })) : []),
+                  ]}
+                  placeholder="Tous les locataires"
+                  aria-label="Filtrer par locataire"
+                />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-type">
                   Type de bail
                 </label>
-                <select
+                <SmartSelect
+                  id="filter-type"
                   value={filters.type}
-                  onChange={(e) => handleFilterChange('type', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-                >
-                  {TYPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => handleFilterChange('type', value)}
+                  options={TYPE_OPTIONS}
+                  placeholder="Tous les types"
+                  aria-label="Filtrer par type de bail"
+                />
               </div>
             </div>
 
             {/* Ligne 3: Type de meublé, Statut workflow */}
             <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-furnishedType">
                   Type de meublé
                 </label>
-                <select
+                <SmartSelect
+                  id="filter-furnishedType"
                   value={filters.furnishedType}
-                  onChange={(e) => handleFilterChange('furnishedType', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-                >
-                  {FURNISHED_TYPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => handleFilterChange('furnishedType', value)}
+                  options={FURNISHED_TYPE_OPTIONS}
+                  placeholder="Tous"
+                  aria-label="Filtrer par type de meublé"
+                />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-status">
                   Statut workflow
                 </label>
-                <select
+                <SmartSelect
+                  id="filter-status"
                   value={filters.status}
-                  onChange={(e) => handleFilterChange('status', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-                >
-                  {STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => handleFilterChange('status', value)}
+                  options={STATUS_OPTIONS}
+                  placeholder="Tous les statuts"
+                  aria-label="Filtrer par statut"
+                />
               </div>
             </div>
 
             {/* Ligne 4: Dates de début */}
             <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-startDateFrom">
                   Date de début (de)
                 </label>
-                <Input
-                  type="date"
+                <SmartDatePicker
+                  id="filter-startDateFrom"
                   value={filters.startDateFrom}
-                  onChange={(e) => handleFilterChange('startDateFrom', e.target.value)}
+                  onChange={(value) => handleFilterChange('startDateFrom', value)}
+                  placeholder="Sélectionner une date"
+                  aria-label="Date de début (de)"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-startDateTo">
                   Date de début (à)
                 </label>
-                <Input
-                  type="date"
+                <SmartDatePicker
+                  id="filter-startDateTo"
                   value={filters.startDateTo}
-                  onChange={(e) => handleFilterChange('startDateTo', e.target.value)}
+                  onChange={(value) => handleFilterChange('startDateTo', value)}
+                  placeholder="Sélectionner une date"
+                  aria-label="Date de début (à)"
                 />
               </div>
             </div>
@@ -271,24 +278,28 @@ export default function LeasesFilters({
             {/* Ligne 5: Dates de fin */}
             <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-endDateFrom">
                   Date de fin (de)
                 </label>
-                <Input
-                  type="date"
+                <SmartDatePicker
+                  id="filter-endDateFrom"
                   value={filters.endDateFrom}
-                  onChange={(e) => handleFilterChange('endDateFrom', e.target.value)}
+                  onChange={(value) => handleFilterChange('endDateFrom', value)}
+                  placeholder="Sélectionner une date"
+                  aria-label="Date de fin (de)"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-endDateTo">
                   Date de fin (à)
                 </label>
-                <Input
-                  type="date"
+                <SmartDatePicker
+                  id="filter-endDateTo"
                   value={filters.endDateTo}
-                  onChange={(e) => handleFilterChange('endDateTo', e.target.value)}
+                  onChange={(value) => handleFilterChange('endDateTo', value)}
+                  placeholder="Sélectionner une date"
+                  aria-label="Date de fin (à)"
                 />
               </div>
             </div>
@@ -296,41 +307,42 @@ export default function LeasesFilters({
             {/* Ligne 6: Indexation */}
             <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-indexationType">
                   Type d'indexation
                 </label>
-                <select
+                <SmartSelect
+                  id="filter-indexationType"
                   value={filters.indexationType}
-                  onChange={(e) => handleFilterChange('indexationType', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-                >
-                  {INDEXATION_TYPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Prochaine indexation (de)
-                </label>
-                <Input
-                  type="date"
-                  value={filters.indexationDateFrom}
-                  onChange={(e) => handleFilterChange('indexationDateFrom', e.target.value)}
+                  onChange={(value) => handleFilterChange('indexationType', value)}
+                  options={INDEXATION_TYPE_OPTIONS}
+                  placeholder="Tous"
+                  aria-label="Filtrer par type d'indexation"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-indexationDateFrom">
+                  Prochaine indexation (de)
+                </label>
+                <SmartDatePicker
+                  id="filter-indexationDateFrom"
+                  value={filters.indexationDateFrom}
+                  onChange={(value) => handleFilterChange('indexationDateFrom', value)}
+                  placeholder="Sélectionner une date"
+                  aria-label="Prochaine indexation (de)"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="filter-indexationDateTo">
                   Prochaine indexation (à)
                 </label>
-                <Input
-                  type="date"
+                <SmartDatePicker
+                  id="filter-indexationDateTo"
                   value={filters.indexationDateTo}
-                  onChange={(e) => handleFilterChange('indexationDateTo', e.target.value)}
+                  onChange={(value) => handleFilterChange('indexationDateTo', value)}
+                  placeholder="Sélectionner une date"
+                  aria-label="Prochaine indexation (à)"
                 />
               </div>
             </div>

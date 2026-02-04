@@ -1120,7 +1120,7 @@ export function SmartTopLoader({
       if (link) {
         const href = link.getAttribute('href');
         
-        // Vérifier si c'est un lien vers une sous-page de bien (menu PropertySubNav)
+        // Vérifier si c'est un lien vers une sous-page de bien (menu contextuel)
         // IMPORTANT: Vérifier en premier pour éviter les conflits avec les autres patterns
         if (href?.match(/^\/biens\/([^/]+)\/(transactions|documents|photos|leases|echeances|loans)$/)) {
           // Ne pas empêcher la navigation Next.js, juste démarrer le loader
@@ -1248,7 +1248,7 @@ export function SmartTopLoader({
           setProgress(initialProgress);
           setLoading('/parametres', true);
         } else if (href?.match(/^\/biens\/([^/]+)\//) && !href.match(/^\/biens\/([^/]+)\/(transactions|documents|photos|leases|echeances|loans)$/)) {
-          // Navigation vers une sous-page de bien qui n'est pas dans le menu PropertySubNav
+          // Navigation vers une sous-page de bien qui n'est pas dans le menu contextuel
           // (pour éviter les doubles déclenchements)
           const propertyId = href.match(/^\/biens\/([^/]+)\//)?.[1];
           activeFetchRequestsRef.current.clear();
