@@ -54,28 +54,24 @@ const nextConfig = {
   }
 }
 
-// Configuration PWA avec next-pwa — App Shell offline-first
+// Configuration PWA avec next-pwa — App Shell offline-first "béton"
 // Voir docs/SERVICE-WORKER-OFFLINE-CONFIG.md pour l'audit complet
+// Stratégie : /app TOUJOURS servi depuis precache, JAMAIS de NetworkFirst sur le HTML
 const pwaConfig = withPWA({
   dest: 'public',
   register: true,
-  skipWaiting: false, // Éviter les reloads forcés, laisser l'utilisateur choisir
+  skipWaiting: false, // Pas de reload forcé — l'UpdateBanner propose le reload manuel
   clientsClaim: true, // Prendre le contrôle dès activation
-  cleanupOutdatedCaches: true, // Nettoyer les caches obsolètes après nouveau build
+  cleanupOutdatedCaches: true, // Nettoyer les caches obsolètes (cause ChunkLoadError si absent)
   disable: process.env.NODE_ENV === 'development',
-  additionalManifestEntries: [
-    { url: '/offline.html', revision: null },
-  ],
+  additionalManifestEntries: [], // /app est ajouté via fallbacks.document, pas d'offline.html
   // Ignorer les query params App Shell pour matcher /app?view=xxx → precache /app
   ignoreURLParametersMatching: [/^view$/, /^propertyId$/, /^tab$/, /^redirect$/, /^utm_/, /^fbclid$/],
   fallbacks: {
-    // Fallback document : /app pour App Shell (navigation interne via ?view=)
-    // Si le precache n'a pas /app, cette page est servie
-    document: '/app',
+    document: '/app', // App Shell unique — buildFallbackWorker l'ajoute au precache
   },
-  // Workbox : navigateFallback pour routes /app* — fallback vers /app (doit être précaché)
   navigateFallback: '/app',
-  navigateFallbackAllowlist: [/^\/app($|\?)/],
+  navigateFallbackAllowlist: [/^\/app($|\/|\?)/], // /app, /app/, /app?view=xxx, /app/login
   sw: 'sw.js',
   publicExcludes: ['!sw.js', '!workbox-*.js', '!worker-*.js'],
   navigationPreload: false,
@@ -238,40 +234,13 @@ const pwaConfig = withPWA({
         ],
       },
     },
-    // Pages HTML avec stratégie NetworkFirst pour servir depuis le réseau d'abord, puis le cache
-    // IMPORTANT: Les pages préchargées lors du full sync seront disponibles ici
-    // NetworkFirst tente d'abord le réseau, puis sert le cache si le réseau échoue (offline)
-    // Cela permet de garder les pages à jour quand on est en ligne, et de servir depuis le cache offline
-    {
-      urlPattern: ({ request }) => request.mode === 'navigate',
-      handler: 'NetworkFirst',
-      options: {
-        cacheName: 'html-pages',
-        networkTimeoutSeconds: 3, // Timeout court pour basculer rapidement sur le cache
-        expiration: {
-          maxEntries: 100, // Plus de pages en cache pour le mode offline
-          maxAgeSeconds: 86400 * 7, // 7 jours pour permettre un mode offline prolongé
-        },
-        fetchOptions: {
-          mode: 'cors',
-          credentials: 'same-origin',
-        },
-        matchOptions: { ignoreSearch: true },
-        precacheFallback: { fallbackURL: '/app' }, // Si cache + réseau échouent → servir /app précaché
-        plugins: [
-          {
-            // S'assurer que les réponses HTML sont bien mises en cache
-            cacheWillUpdate: async ({ response }) => {
-              // Ne mettre en cache que les réponses valides (200-299)
-              if (response && response.status >= 200 && response.status < 300) {
-                return response;
-              }
-              return null;
-            },
-          },
-        ],
-      },
-    },
+    // ⛔ SUPPRIMÉ : NetworkFirst sur request.mode === 'navigate'
+    // Ce runtime cache "html-pages" provoquait des ChunkLoadError :
+    // - Il cachait des versions HTML variables (online = une version, offline = une autre)
+    // - cleanupOutdatedCaches supprime le precache ancien mais PAS les runtime caches
+    // - Résultat : HTML obsolète (réf. chunks v1) + chunks v1 supprimés = ChunkLoadError
+    // Pour /app* : NavigationRoute + precache servent TOUJOURS /app (déterministe, stable)
+    // Pour / : start-url NetworkFirst + handlerDidError → fallback document /app
   ],
 });
 

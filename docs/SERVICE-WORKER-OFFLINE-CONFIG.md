@@ -1,142 +1,134 @@
-# Configuration Service Worker / Workbox — App Shell Offline-First
+# Configuration Service Worker / Workbox — App Shell Offline-First "Béton"
 
 **Date :** 16 février 2025  
-**Objectif :** Stabiliser le comportement offline de l’App Shell PWA (mode web et standalone).
+**Objectif :** Rendre Smartimmo 100 % stable en offline en mode PWA standalone.
 
 ---
 
-## 1. Problèmes observés
+## 1. Cause racine : pourquoi "ça marche puis ça casse"
 
-- Pages fonctionnent quelques secondes puis cassent
-- `ERR_INTERNET_DISCONNECTED`
-- `ChunkLoadError`
-- Différence de comportement web vs PWA standalone
-- Routes `/app?view=transactions`, `/app?view=loans` échouent en offline alors que l’App Shell devrait être utilisable
+### Le problème
+
+- Les pages fonctionnent quelques secondes puis cassent (ChunkLoadError, ERR_INTERNET_DISCONNECTED).
+- Comportement instable entre sessions (parfois OK, parfois KO).
+- Différence web vs PWA standalone.
+
+### La cause
+
+Le runtime cache `html-pages` (NetworkFirst sur `request.mode === 'navigate'`) :
+
+1. **Stocke des versions HTML variables** : online → une version, offline → une autre (ou une vieille version).
+2. **N’est pas nettoyé** : `cleanupOutdatedCaches` supprime les anciens caches **precache** (chunks, CSS), mais **pas** les runtime caches (`html-pages`, `rsc-pages`, etc.).
+3. **Mismatch HTML / chunks** : l’ancien HTML en cache référence des chunks supprimés → **ChunkLoadError**.
+4. **Comportement non déterministe** : selon l’ordre réseau / cache, on sert tantôt le precache, tantôt `html-pages` → version incohérente.
+
+Résumé : **HTML en cache runtime + precache nettoyé = HTML obsolète qui pointe vers des chunks inexistants.**
 
 ---
 
-## 2. Pourquoi ça cassait
+## 2. Stratégie App Shell "béton"
 
-### 2.1. Problème des query params
+### Principes
 
-- `/app` était mis en cache dans `html-pages` (NetworkFirst)
-- `/app?view=loans` n’était pas reconnu comme équivalent à `/app` par le precache
-- Sans `ignoreURLParametersMatching` adapté, le precache ne servait pas la bonne entrée
+| Règle | Implémentation |
+|-------|----------------|
+| Toute navigation `/app*` sert **toujours** `/app` depuis le precache | NavigationRoute + `createHandlerBoundToURL("/app")` |
+| Pas de NetworkFirst sur le HTML de l’App Shell | Suppression du runtime cache `html-pages` |
+| Query params ignorés pour matcher `/app` | `ignoreURLParametersMatching: [view, propertyId, tab, ...]` |
+| Allowlist stricte | `/^\/app($|\/|\?)/` → `/app`, `/app/`, `/app?view=xxx`, `/app/login` |
 
-### 2.2. Fallback document
+### Chaîne de traitement des navigations
 
-- `fallbacks.document: '/offline.html'` servait une page générique
-- L’App Shell (`/app`) n’était pas utilisé comme fallback, donc pas d’App Shell offline
+1. **Precache (priorité)**  
+   - Requête `/app?view=loans` → params ignorés → lookup `/app` dans le precache → réponse servie.
 
-### 2.3. HTML obsolète après un build
+2. **NavigationRoute**  
+   - Pour les navigations qui matchent `/^\/app($|\/|\?)/`, servir `/app` depuis le precache.
 
-- Cache `html-pages` conservait l’ancien HTML
-- Nouveau build → nouveaux chunks, ancien HTML → références vers des chunks obsolètes → `ChunkLoadError`
+3. **Route `/` (start-url)**  
+   - NetworkFirst sur la racine ; en cas d’échec, `handlerDidError` → fallback document `/app`.
 
-### 2.4. Ordre des routes Workbox
-
-- Le precache doit matcher `/app?view=xxx` comme `/app`
-- Le navigate handler devait pouvoir fallback vers une version précachée de `/app` en cas d’échec
+4. **Autres navigations**  
+   - Aucun handler navigate générique → pas de cache runtime HTML instable.
 
 ---
 
 ## 3. Modifications appliquées
 
-### 3.1. `fallbacks.document: '/app'`
+### 3.1. Suppression du cache `html-pages`
 
-- Fallback document = App Shell
-- `buildFallbackWorker` ajoute automatiquement `/app` au precache
-- À l’install du SW (online), `/app` est récupéré et mis en precache
+- Suppression de la règle `request.mode === 'navigate'` avec NetworkFirst.
+- Suppression du cache runtime `html-pages`.
+- Toutes les navigations `/app*` passent par precache / NavigationRoute uniquement.
 
-### 3.2. `ignoreURLParametersMatching`
+### 3.2. `additionalManifestEntries`
 
-```js
-ignoreURLParametersMatching: [/^view$/, /^propertyId$/, /^tab$/, /^redirect$/, /^utm_/, /^fbclid$/]
-```
+- Avant : `[{ url: '/offline.html', revision: null }]`.
+- Après : `[]` — pas de fallback vers `offline.html`, `/app` reste l’unique App Shell.
+- `/app` est ajouté au precache via `fallbacks.document` (buildFallbackWorker).
 
-- Les paramètres `view`, `propertyId`, `tab` sont ignorés pour le precache
-- `/app?view=loans` est traité comme `/app` → match avec l’entrée précachée
+### 3.3. `navigateFallbackAllowlist`
 
-### 3.3. `navigateFallback` et `navigateFallbackAllowlist`
+- Avant : `/^\/app($|\?)/`.
+- Après : `/^\/app($|\/|\?)/` — prise en charge de `/app/login` et `/app/xxx`.
 
-```js
-navigateFallback: '/app',
-navigateFallbackAllowlist: [/^\/app($|\?)/],
-```
+### 3.4. Protection HTML obsolète
 
-- Fallback de navigation vers `/app` pour les routes qui commencent par `/app`
-- Utilisé si aucune autre route ne répond
-
-### 3.4. `precacheFallback` sur le handler navigate
-
-```js
-precacheFallback: { fallbackURL: '/app' }
-```
-
-- Quand NetworkFirst échoue (réseau + cache `html-pages` vides)
-- Le plugin sert `/app` depuis le precache
-
-### 3.5. Stabilisation du SW
-
-- `skipWaiting: false` : pas de reload forcé
-- `clientsClaim: true` : prise de contrôle immédiate après activation
-- `cleanupOutdatedCaches: true` : suppression des caches obsolètes après un nouveau build
+- `cleanupOutdatedCaches: true` — supprime les anciens precache après un nouveau build.
+- `clientsClaim: true` — prise de contrôle immédiate du SW.
+- `skipWaiting: false` — pas de reload forcé ; l’UpdateBanner propose un reload manuel.
 
 ---
 
-## 4. Chaîne de traitement des navigations
-
-1. **Precache (priorité)**  
-   - `/app?view=loans` → params ignorés → match sur `/app`  
-   - Si `/app` est en precache → réponse servie directement (offline OK)
-
-2. **Runtime navigate (NetworkFirst)**  
-   - Si le precache ne répond pas :
-     - Tenter le réseau (timeout 3 s)
-     - Sinon cache `html-pages`
-     - Sinon `precacheFallback` → servir `/app` du precache
-
-3. **navigateFallback (sécurité)**  
-   - Si aucune des routes ci-dessus ne répond → servir `/app` (precache)
-
----
-
-## 5. Checklist de test
+## 4. Checklist de tests reproductibles
 
 ### Préparation
 
-- [ ] Hard refresh (Ctrl+Shift+R)
-- [ ] Clear storage (DevTools > Application > Clear site data)
-- [ ] Build prod : `npm run build`
-- [ ] Démarrer : `npm run start`
+- [ ] Hard refresh (Ctrl+Shift+R) ou Clear site data (DevTools > Application).
+- [ ] Build prod : `npm run build`.
+- [ ] Démarrer : `npm run start`.
 
-### Scénario online
+### Scénario 1 — PWA standalone (Windows)
 
-- [ ] Ouvrir l’app en online
-- [ ] Aller sur `/app`
-- [ ] Visiter : dashboard, transactions, patrimoine, loans, documents
-- [ ] Vérifier que le SW est actif (Application > Service Workers)
+1. [ ] Ouvrir l’app en ligne dans Chrome/Edge.
+2. [ ] Installer la PWA (icône dans la barre d’adresse ou menu).
+3. [ ] Fermer le navigateur.
+4. [ ] Ouvrir la PWA en fenêtre standalone.
+5. [ ] Vérifier : Dashboard, Prêts, Échéances, Transactions, Documents.
+6. [ ] Fermer la PWA.
+7. [ ] Activer le mode avion.
+8. [ ] Rouvrir la PWA.
+9. [ ] Tester les navigations :
+   - [ ] `/app?view=dashboard`
+   - [ ] `/app?view=loans`
+   - [ ] `/app?view=echeances`
+   - [ ] `/app?view=transactions`
+   - [ ] `/app?view=documents`
+   - [ ] `/app?view=patrimoine`
+10. [ ] Vérifier l’absence d’erreurs console (ChunkLoadError, ERR_INTERNET_DISCONNECTED).
+11. [ ] Naviguer entre les vues plusieurs fois sans erreur.
 
-### Scénario offline
+### Scénario 2 — PWA iOS (si possible)
 
-- [ ] Activer le mode avion
-- [ ] Tester les navigations :
-  - [ ] `/app?view=dashboard`
-  - [ ] `/app?view=transactions`
-  - [ ] `/app?view=patrimoine`
-  - [ ] `/app?view=loans`
-  - [ ] `/app?view=documents`
-- [ ] Vérifier l’absence d’erreurs console
-- [ ] Vérifier l’absence de `ChunkLoadError` ou `ERR_INTERNET_DISCONNECTED`
+1. [ ] Ouvrir l’app en ligne dans Safari.
+2. [ ] Partager > « Sur l’écran d’accueil ».
+3. [ ] Ouvrir la PWA depuis l’écran d’accueil.
+4. [ ] Visiter Dashboard, Prêts, etc.
+5. [ ] Activer le mode avion.
+6. [ ] Rouvrir la PWA et tester la navigation entre les vues.
+7. [ ] Vérifier l’absence de ChunkLoadError et d’erreurs réseau.
 
-### Modes d’exécution
+### Scénario 3 — Mode web (onglet)
 
-- [ ] Mode web (onglet navigateur)
-- [ ] Mode PWA standalone (installée, fenêtre dédiée)
+1. [ ] Ouvrir l’app en ligne.
+2. [ ] Visiter `/app` et plusieurs vues.
+3. [ ] Activer le mode avion.
+4. [ ] Rafraîchir la page et naviguer.
+5. [ ] Vérifier la stabilité (priorité moindre que PWA standalone).
 
 ---
 
-## 6. Rappel : pas de modification React
+## 5. Rappel : pas de modification React
 
 Les imports dynamiques ont déjà été remplacés par des imports statiques (voir `AUDIT-OFFLINE-APP-SHELL.md`).  
 Les changements ci-dessus concernent uniquement la configuration du Service Worker / Workbox.
