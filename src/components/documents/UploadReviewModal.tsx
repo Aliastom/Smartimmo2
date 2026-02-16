@@ -4,7 +4,7 @@ import React, { useState, useEffect, useId, useRef, useCallback, useMemo } from 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Loader2, AlertTriangle, CheckCircle2, X, Eye, RefreshCw, Upload, FileText, Image as ImageIcon, Info } from 'lucide-react';
+import { Loader2, AlertTriangle, CheckCircle2, X, Eye, RefreshCw, Upload, FileText, Image as ImageIcon, Info, Link2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
@@ -70,6 +70,8 @@ interface UploadReviewModalProps {
   onOpenTransactionModal?: (suggestion: TransactionSuggestionPayload, documentId: string) => void;
   // ⚠️ PROBLÈME 1: Désactiver le message d'avertissement "transaction IA sera ouverte" quand on est dans le contexte d'une transaction
   hideOpenTransactionWarning?: boolean;
+  /** Contexte métier : 'transaction' = document attaché à une entité (transaction, prêt) → option "Lier l'existant" ; 'documents' = bibliothèque → pas de Lier */
+  mode?: 'transaction' | 'documents';
 }
 
 interface UploadPreview {
@@ -109,7 +111,7 @@ interface UploadPreview {
     source: 'pdf-parse' | 'tesseract' | 'pdf-ocr';
     pagesOcred?: number;
   };
-  duplicateAction?: 'replace' | 'keep' | null; // Action sur le doublon
+  duplicateAction?: 'link' | 'replace' | 'keep' | null; // Action sur le doublon (link = lier l'existant)
   dedupResult?: any; // Résultats de l'agent Dedup
   status: 'uploading' | 'analyzing' | 'ready' | 'error' | 'confirmed' | 'duplicate_detected';
   error?: string;
@@ -132,14 +134,18 @@ export function UploadReviewModal({
   strategy,
   draftDocument,
   onOpenTransactionModal,
-  hideOpenTransactionWarning = false
+  hideOpenTransactionWarning = false,
+  mode = 'documents'
 }: UploadReviewModalProps) {
+  const canLinkExisting = mode === 'transaction';
   const [previews, setPreviews] = useState<UploadPreview[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [documentTypes, setDocumentTypes] = useState<Array<{code: string, label: string, openTransaction?: boolean}>>([]);
   const [selectedType, setSelectedType] = useState<string>('');
   const [customName, setCustomName] = useState('');
   const [keepDuplicate, setKeepDuplicate] = useState(false);
+  /** Option choisie pour le doublon. Défaut: 'link' en mode transaction, 'replace' en mode documents. */
+  const [selectedDuplicateAction, setSelectedDuplicateAction] = useState<'link' | 'replace' | 'keep'>(canLinkExisting ? 'link' : 'replace');
   const [isConfirming, setIsConfirming] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [openTransactionModal, setOpenTransactionModal] = useState(true);
@@ -185,6 +191,13 @@ export function UploadReviewModal({
   const { codes: gestionCodes } = useGestionCodes();
 
   const currentPreview = previews[currentIndex];
+
+  // Réinitialiser l'option doublon selon le mode quand on affiche un preview en doublon
+  useEffect(() => {
+    if (currentPreview?.status === 'duplicate_detected') {
+      setSelectedDuplicateAction(canLinkExisting ? 'link' : 'replace');
+    }
+  }, [currentIndex, currentPreview?.status, canLinkExisting]);
 
   // Charger les types de documents
   useEffect(() => {
@@ -1017,6 +1030,9 @@ export function UploadReviewModal({
       alert('Aucun fichier à traiter');
       return;
     }
+    if (mode === 'documents' && selectedDuplicateAction === 'link') {
+      throw new Error('Action link_existing non autorisée en mode documents');
+    }
     
     // Pour les doublons conservés, ne pas exiger de type car l'API va hériter du type de l'original
     const isDuplicateKept = flags.userForcesDuplicate || flags.skipDuplicateCheck;
@@ -1027,7 +1043,8 @@ export function UploadReviewModal({
       flags
     });
     
-    if (!selectedType && !isDuplicateKept) {
+    const isLinkingExistingWithFlags = currentPreview.duplicate.isDuplicate && selectedDuplicateAction === 'link';
+    if (!selectedType && !isDuplicateKept && !isLinkingExistingWithFlags) {
       alert('Veuillez sélectionner un type de document');
       return;
     }
@@ -1039,13 +1056,16 @@ export function UploadReviewModal({
     console.log('[UploadReview] Validation doublon avec flags:', {
       isDuplicate: currentPreview.duplicate.isDuplicate,
       duplicateAction: currentPreview.duplicateAction,
+      selectedDuplicateAction,
       userForcesDuplicate,
       skipDuplicateCheck,
       flags
     });
-    
-    if (currentPreview.duplicate.isDuplicate && !currentPreview.duplicateAction && !userForcesDuplicate && !skipDuplicateCheck) {
-      alert('Ce fichier est un doublon. Veuillez choisir une action (Voir, Remplacer ou Uploader quand même)');
+    const hasDuplicateDecision = currentPreview.duplicate.isDuplicate
+      ? selectedDuplicateAction !== undefined || currentPreview.duplicateAction || userForcesDuplicate || skipDuplicateCheck
+      : true;
+    if (currentPreview.duplicate.isDuplicate && !hasDuplicateDecision) {
+      alert('Ce fichier est un doublon. Veuillez choisir une action puis cliquer sur Continuer.');
       return;
     }
 
@@ -1105,12 +1125,14 @@ export function UploadReviewModal({
             };
           })(),
           customName: customName !== currentPreview.filename ? customName : undefined,
-          // Actions sur doublons
-          replaceDuplicateId: currentPreview.duplicateAction === 'replace' 
-            ? currentPreview.dedupResult?.matchedDocument?.id 
+          // Actions sur doublons (priorité à selectedDuplicateAction ; link uniquement en mode transaction)
+          ...(canLinkExisting && selectedDuplicateAction === 'link' && currentPreview.dedupResult?.matchedDocument?.id
+            ? { dedup: { decision: 'link_existing' as const, matchedId: currentPreview.dedupResult.matchedDocument.id } }
+            : {}),
+          replaceDuplicateId: (selectedDuplicateAction === 'replace' || currentPreview.duplicateAction === 'replace')
+            ? currentPreview.dedupResult?.matchedDocument?.id
             : undefined,
-          keepDespiteDuplicate: flags.userForcesDuplicate || currentPreview.duplicateAction === 'keep',
-          // Raison utilisateur pour les doublons conservés manuellement
+          keepDespiteDuplicate: flags.userForcesDuplicate || selectedDuplicateAction === 'keep' || currentPreview.duplicateAction === 'keep',
           userReason: flags.userReason || undefined,
         }),
       });
@@ -1149,7 +1171,7 @@ export function UploadReviewModal({
 
         // 🤖 Essayer de suggérer une transaction depuis le document (seulement si la checkbox est cochée)
         let suggestionShown = false;
-        if (openTransactionModal) {
+        if (openTransactionModal && selectedDuplicateAction !== 'link') {
           suggestionShown = await tryTransactionSuggestion(result.documentId, finalTypeCode);
         }
         
@@ -1206,6 +1228,11 @@ export function UploadReviewModal({
     
     // Utiliser la variable locale pour éviter les problèmes de closure
     const currentPreview = preview;
+
+    // Sécurisation : "Lier l'existant" n'est pas autorisé en mode documents (pas d'entité cible)
+    if (mode === 'documents' && selectedDuplicateAction === 'link') {
+      throw new Error('Action link_existing non autorisée en mode documents');
+    }
     
     // Pour les doublons conservés, ne pas exiger de type car l'API va hériter du type de l'original
     const isDuplicateKept = currentPreview.dedupResult?.userForcesDuplicate || 
@@ -1221,8 +1248,9 @@ export function UploadReviewModal({
       skipDuplicateCheck: currentPreview.dedupResult?.skipDuplicateCheck
     });
     
-    // Désactiver temporairement la validation pour déboguer
-    if (!selectedType && !isDuplicateKept) {
+    // Pour "lier l'existant", le type n'est pas requis ; sinon type requis
+    const isLinkingExisting = currentPreview.duplicate.isDuplicate && selectedDuplicateAction === 'link';
+    if (!selectedType && !isDuplicateKept && !isLinkingExisting) {
       console.log('[UploadReview] Validation échouée - selectedType:', selectedType, 'isDuplicateKept:', isDuplicateKept);
       alert('Veuillez sélectionner un type de document');
       return;
@@ -1238,13 +1266,16 @@ export function UploadReviewModal({
     console.log('[UploadReview] Validation doublon:', {
       isDuplicate: currentPreview.duplicate.isDuplicate,
       duplicateAction: currentPreview.duplicateAction,
+      selectedDuplicateAction,
       userForcesDuplicate,
       skipDuplicateCheck,
       dedupResult: currentPreview.dedupResult
     });
-    
-    if (currentPreview.duplicate.isDuplicate && !currentPreview.duplicateAction && !userForcesDuplicate && !skipDuplicateCheck) {
-      alert('Ce fichier est un doublon. Veuillez choisir une action (Voir, Remplacer ou Uploader quand même)');
+    const hasDuplicateDecision = currentPreview.duplicate.isDuplicate
+      ? selectedDuplicateAction !== undefined || currentPreview.duplicateAction || userForcesDuplicate || skipDuplicateCheck
+      : true;
+    if (currentPreview.duplicate.isDuplicate && !hasDuplicateDecision) {
+      alert('Ce fichier est un doublon. Veuillez choisir une action puis cliquer sur Continuer.');
       return;
     }
 
@@ -1315,9 +1346,10 @@ export function UploadReviewModal({
       console.log('[UploadReview] 🔧 strategy:', strategy);
 
       let response;
+      const useLinkExisting = canLinkExisting && selectedDuplicateAction === 'link' && currentPreview.dedupResult?.matchedDocument?.id;
       
-      // Mode staging : uploader en mode draft
-      if (strategy?.mode === 'staged' && strategy.uploadSessionId) {
+      // Mode staging : sauf si "Lier l'existant" (nécessite finalize)
+      if (strategy?.mode === 'staged' && strategy.uploadSessionId && !useLinkExisting) {
         console.log('[UploadReview] 🔧 Mode staging activé');
         
         const formData = new FormData();
@@ -1350,12 +1382,14 @@ export function UploadReviewModal({
             ocrText: '', // Le texte complet est maintenant dans le meta.json
             context: finalContext,
             customName: customName !== currentPreview.filename ? customName : undefined,
-            // Actions sur doublons
-            replaceDuplicateId: currentPreview.duplicateAction === 'replace' 
-              ? currentPreview.dedupResult?.matchedDocument?.id 
+            // Actions sur doublons (priorité à selectedDuplicateAction ; link uniquement en mode transaction)
+            ...(canLinkExisting && selectedDuplicateAction === 'link' && currentPreview.dedupResult?.matchedDocument?.id
+              ? { dedup: { decision: 'link_existing' as const, matchedId: currentPreview.dedupResult.matchedDocument.id } }
+              : {}),
+            replaceDuplicateId: (selectedDuplicateAction === 'replace' || currentPreview.duplicateAction === 'replace')
+              ? currentPreview.dedupResult?.matchedDocument?.id
               : undefined,
-            keepDespiteDuplicate: currentPreview.duplicateAction === 'keep',
-            // Raison utilisateur pour les doublons conservés manuellement
+            keepDespiteDuplicate: selectedDuplicateAction === 'keep' || currentPreview.duplicateAction === 'keep',
             userReason: currentPreview.dedupResult?.userReason || undefined,
           }),
         });
@@ -1397,7 +1431,7 @@ export function UploadReviewModal({
 
         // 🤖 Essayer de suggérer une transaction depuis le document (seulement si la checkbox est cochée)
         let suggestionShown = false;
-        if (openTransactionModal) {
+        if (openTransactionModal && selectedDuplicateAction !== 'link') {
           suggestionShown = await tryTransactionSuggestion(result.documentId, finalTypeCode);
         }
         
@@ -1956,55 +1990,135 @@ export function UploadReviewModal({
               )}
             </div>
 
-            {/* Bandeau doublon - Désactivé quand DedupFlow est actif */}
+            {/* Bloc doublon — explication, décision (cartes), impact IA ; mode transaction vs documents */}
             {currentPreview.status === 'duplicate_detected' && !showDedupFlowModal && (
-              <div className="bg-orange-50 border-l-4 border-orange-500 p-4 rounded">
-                <div className="flex items-start">
-                  <AlertTriangle className="h-5 w-5 text-orange-500 mt-0.5 mr-3" />
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-orange-900">Document en doublon détecté</h3>
+              <div className="space-y-5">
+                {/* 1) Bloc explication */}
+                <div className="bg-orange-50 border-l-4 border-orange-500 p-4 rounded">
+                  <h3 className="font-semibold text-orange-900">
+                    {mode === 'documents' ? 'Ce document existe déjà dans la bibliothèque.' : 'Document déjà enregistré'}
+                  </h3>
+                  {mode === 'transaction' && (
                     <p className="text-sm text-orange-800 mt-1">
-                      Un document identique existe déjà:{' '}
-                      <strong>{currentPreview.dedupResult?.matchedDocument?.name || 'Document existant'}</strong>
-                      {' '}({currentPreview.dedupResult?.matchedDocument?.type || 'Type détecté'})
-                      {currentPreview.dedupResult?.matchedDocument?.uploadedAt && (
-                        <span className="text-xs">
-                          {' '}- Uploadé le {new Date(currentPreview.dedupResult.matchedDocument.uploadedAt).toLocaleDateString('fr-FR')}
-                        </span>
-                      )}
+                      Ce fichier est strictement identique à un document existant (contenu identique détecté).
                     </p>
-                    <div className="flex gap-2 mt-3">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleViewExisting}
-                        className="text-orange-700 border-orange-300 hover:bg-orange-100"
+                  )}
+                  <div className="mt-3 text-sm text-orange-800 space-y-1">
+                    <p><span className="font-medium">Nom du document existant :</span>{' '}{currentPreview.dedupResult?.matchedDocument?.name || '—'}</p>
+                    {currentPreview.dedupResult?.matchedDocument?.uploadedAt && (
+                      <p><span className="font-medium">Date d'upload :</span>{' '}{new Date(currentPreview.dedupResult.matchedDocument.uploadedAt).toLocaleDateString('fr-FR')}</p>
+                    )}
+                    <p><span className="font-medium">Type :</span>{' '}{currentPreview.dedupResult?.matchedDocument?.type || '—'}</p>
+                    {mode === 'transaction' && (
+                      <p>
+                        <span className="font-medium">Contexte principal :</span>{' '}
+                        {autoLinkingContext?.leaseId ? 'Bail associé' : autoLinkingContext?.propertyId ? 'Bien associé' : autoLinkingContext?.transactionId ? 'Transaction liée' : scope === 'property' && propertyId ? 'Bien associé' : 'Document global'}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleViewExisting}
+                    className="mt-2 text-sm text-orange-700 hover:text-orange-900 underline flex items-center gap-1"
+                  >
+                    <Eye className="h-4 w-4" />
+                    Voir le document existant
+                  </button>
+                </div>
+
+                {/* 2) Bloc décision — cartes sélectionnables ; "Lier" uniquement en mode transaction */}
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Choisir une action</p>
+                  <div className="space-y-2">
+                    {canLinkExisting && (
+                      <label
+                        className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                          selectedDuplicateAction === 'link'
+                            ? 'border-orange-500 bg-orange-50'
+                            : 'border-gray-200 hover:border-orange-200'
+                        }`}
                       >
-                        <Eye className="h-4 w-4 mr-1" />
-                        Voir l'existant
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleReplace}
-                        disabled={isConfirming}
-                        className="text-orange-700 border-orange-300 hover:bg-orange-100"
-                      >
-                        <RefreshCw className="h-4 w-4 mr-1" />
-                        Remplacer (versioning)
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleKeepDuplicate}
-                        className="text-orange-700 border-orange-300 hover:bg-orange-100"
-                      >
-                        <Upload className="h-4 w-4 mr-1" />
-                        Uploader quand même (déconseillé)
-                      </Button>
-                    </div>
+                        <input
+                          type="radio"
+                          name="duplicateAction"
+                          checked={selectedDuplicateAction === 'link'}
+                          onChange={() => setSelectedDuplicateAction('link')}
+                          className="mt-1 text-orange-600"
+                        />
+                        <div className="flex-1">
+                          <span className="font-medium text-gray-900 flex items-center gap-2">
+                            <Link2 className="h-4 w-4 text-orange-600" />
+                            Lier le document existant
+                            <span className="text-xs font-normal text-orange-600">(recommandé)</span>
+                          </span>
+                          <p className="text-sm text-gray-600 mt-0.5">Aucun nouveau fichier ne sera créé. Le document existant sera utilisé.</p>
+                        </div>
+                      </label>
+                    )}
+                    <label
+                      className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                        selectedDuplicateAction === 'replace'
+                          ? 'border-orange-500 bg-orange-50'
+                          : 'border-gray-200 hover:border-orange-200'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="duplicateAction"
+                        checked={selectedDuplicateAction === 'replace'}
+                        onChange={() => setSelectedDuplicateAction('replace')}
+                        className="mt-1 text-orange-600"
+                      />
+                      <div className="flex-1">
+                        <span className="font-medium text-gray-900 flex items-center gap-2">
+                          <RefreshCw className="h-4 w-4 text-orange-600" />
+                          Créer une nouvelle version
+                          {mode === 'documents' && <span className="text-xs font-normal text-orange-600">(recommandé)</span>}
+                        </span>
+                        <p className="text-sm text-gray-600 mt-0.5">Le document actuel sera conservé et une version v2 sera créée.</p>
+                      </div>
+                    </label>
+                    <label
+                      className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                        selectedDuplicateAction === 'keep'
+                          ? 'border-orange-500 bg-orange-50'
+                          : 'border-gray-200 hover:border-orange-200'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="duplicateAction"
+                        checked={selectedDuplicateAction === 'keep'}
+                        onChange={() => setSelectedDuplicateAction('keep')}
+                        className="mt-1 text-orange-600"
+                      />
+                      <div className="flex-1">
+                        <span className="font-medium text-gray-900 flex items-center gap-2">
+                          <Upload className="h-4 w-4 text-orange-600" />
+                          Créer un document distinct
+                          <span className="text-xs font-normal text-gray-500">(déconseillé)</span>
+                        </span>
+                        <p className="text-sm text-gray-600 mt-0.5">Un nouveau document sera créé malgré l'identité stricte.</p>
+                      </div>
+                    </label>
                   </div>
                 </div>
+
+                {/* 3) Bloc impact IA — si le type déclenche une transaction automatique (mode transaction) */}
+                {canLinkExisting && (() => {
+                  const typeCodeToCheck = selectedType || currentPreview?.assignedTypeCode || autoLinkingDocumentType;
+                  const selectedDocType = documentTypes.find(t => t.code === typeCodeToCheck);
+                  if (!selectedDocType?.openTransaction) return null;
+                  const impactText = selectedDuplicateAction === 'link' ? 'ignorée (document existant utilisé)' : selectedDuplicateAction === 'replace' ? 'appliquée à la nouvelle version' : 'maintenue';
+                  return (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm font-medium text-blue-900">Impact sur la création automatique de transaction</p>
+                      <p className="text-sm text-blue-800 mt-1">
+                        Selon l'option choisie, la création automatique de transaction sera : <strong>{impactText}</strong>
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -2353,24 +2467,27 @@ export function UploadReviewModal({
                 onClick={handleConfirm}
                 disabled={
                   shouldDisableUpload ||
-                  !selectedType ||
                   (currentPreview.status !== 'ready' && currentPreview.status !== 'duplicate_detected') ||
                   isConfirming ||
-                  (currentPreview.duplicate.isDuplicate && !keepDuplicate)
+                  (!selectedType && !(currentPreview.status === 'duplicate_detected' && selectedDuplicateAction === 'link'))
                 }
                 title={
                   shouldDisableUpload ? 'L\'upload de documents nécessite une connexion internet' :
-                  !selectedType ? 'Type de document non sélectionné' :
                   (currentPreview.status !== 'ready' && currentPreview.status !== 'duplicate_detected') ? `Statut: ${currentPreview.status} (attendu: ready ou duplicate_detected)` :
                   isConfirming ? 'Enregistrement en cours...' :
-                  (currentPreview.duplicate.isDuplicate && !keepDuplicate) ? 'Doublon détecté - choisissez une action' :
-                  'Cliquez pour enregistrer'
+                  (!selectedType && !(currentPreview.status === 'duplicate_detected' && selectedDuplicateAction === 'link')) ? 'Sélectionnez un type de document ou une action (doublon)' :
+                  'Cliquez pour continuer'
                 }
               >
                 {isConfirming ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                     Enregistrement...
+                  </>
+                ) : currentPreview.status === 'duplicate_detected' ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 mr-1" />
+                    Continuer
                   </>
                 ) : (
                   <>

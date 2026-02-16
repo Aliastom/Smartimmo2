@@ -20,14 +20,21 @@ import {
   X,
 } from 'lucide-react';
 import { MonthlyFilters } from '@/components/dashboard/MonthlyFilters';
-import { MonthlyKpiBar } from '@/components/dashboard/MonthlyKpiBar';
 import { TasksPanel } from '@/components/dashboard/TasksPanel';
 import { GestionnaireDelegueReportPanel } from '@/components/dashboard/GestionnaireDelegueReportPanel';
-import type { MonthlyDashboardData } from '@/types/dashboard';
 import { useDashboardData, type DashboardFilters } from './hooks/useDashboardData';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { logToServer } from '@/lib/utils/logger';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
+import { computeDashboardGravity } from './utils/dashboardGravity';
+import { motion } from 'framer-motion';
+import { DashboardKpiHealthCards } from './components/DashboardKpiHealthCards';
+import { DashboardPriorityActionZone } from './components/DashboardPriorityActionZone';
+import { PortfolioHealthInline } from './components/PortfolioHealthIndicator';
+import { DashboardUrgentColumn } from './components/DashboardUrgentColumn';
+import { DashboardUpcomingColumn } from './components/DashboardUpcomingColumn';
+import { DashboardGlobalOverviewSection } from './components/DashboardGlobalOverviewSection';
+import { cn } from '@/utils/cn';
 
 export interface DashboardPageCoreProps {
   mode: 'normal' | 'app-shell';
@@ -204,6 +211,60 @@ export function DashboardPageCore({
     if (newFilters.source !== undefined) setSource(newFilters.source);
   };
 
+  // Ligne micro-informative sous "Actions prioritaires" (chiffres dynamiques, 0 = non affiché)
+  const actionsSummaryText = useMemo(() => {
+    if (!data) return '';
+    const nLoyers = data.aTraiter.relances.length;
+    const nTx = data.aTraiter.transactionsNonRapprochees.length;
+    const nEcheances = data.aTraiter.echeancesPrets.length + data.aTraiter.echeancesCharges.length;
+    const parts: string[] = [];
+    if (nLoyers > 0) parts.push(`${nLoyers} loyer${nLoyers > 1 ? 's' : ''} en retard`);
+    if (nTx > 0) parts.push(`${nTx} transaction${nTx > 1 ? 's' : ''} à rapprocher`);
+    if (nEcheances > 0) parts.push(`${nEcheances} échéance${nEcheances > 1 ? 's' : ''} proches`);
+    return parts.length === 0 ? 'Aucune action urgente ce mois-ci' : parts.join(' · ');
+  }, [data]);
+
+  // Gravité et synthèse (cockpit opérationnel)
+  const gravityResult = useMemo(() => {
+    if (!data) return null;
+    return computeDashboardGravity({
+      kpis: data.kpis,
+      relances: data.aTraiter.relances,
+      transactionsNonRapprochees: data.aTraiter.transactionsNonRapprochees,
+      indexations: data.aTraiter.indexations,
+      echeancesPrets: data.aTraiter.echeancesPrets,
+      echeancesCharges: data.aTraiter.echeancesCharges,
+      bauxAEcheance: data.aTraiter.bauxAEcheance,
+      documentsAValider: data.aTraiter.documentsAValider,
+    });
+  }, [data]);
+
+  // Sparklines : dérivés de graph si dispo (sinon non affichés)
+  const sparklineCashflow = useMemo(() => {
+    if (!data?.graph?.cashflowCumule?.length) return undefined;
+    return data.graph.cashflowCumule.slice(-6).map((p) => p.cashflow);
+  }, [data?.graph?.cashflowCumule]);
+  const sparklineEncaissements = useMemo(() => {
+    if (!data?.graph?.intraMensuel?.length) return undefined;
+    return data.graph.intraMensuel.slice(-6).map((p) => p.encaissements);
+  }, [data?.graph?.intraMensuel]);
+  const sparklineDepenses = useMemo(() => {
+    if (!data?.graph?.intraMensuel?.length) return undefined;
+    return data.graph.intraMensuel.slice(-6).map((p) => p.depenses);
+  }, [data?.graph?.intraMensuel]);
+
+  /** Transition changement de mois : fade-out 0.7 + mini loader, puis fade-in (max 400ms) */
+  const prevMonthRef = React.useRef(month);
+  const [isTransitioningMonth, setIsTransitioningMonth] = useState(false);
+  useEffect(() => {
+    if (prevMonthRef.current !== month) {
+      prevMonthRef.current = month;
+      setIsTransitioningMonth(true);
+      const t = setTimeout(() => setIsTransitioningMonth(false), 400);
+      return () => clearTimeout(t);
+    }
+  }, [month]);
+
   // États de chargement et erreur
   if (loading) {
     return (
@@ -214,38 +275,37 @@ export function DashboardPageCore({
     );
   }
 
-  // Rendu principal
+  // Rendu principal — même largeur que la page Biens (w-full max-w-full, padding par le main)
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="mb-4 sm:mb-6 space-y-3">
-        {/* Ligne 1 : Hamburger + Titre */}
-        <div className="flex items-center justify-between w-full gap-2">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-            {/* Bouton hamburger mobile - Discret, aligné à gauche du titre */}
-            {sidebarContext && (
-              <button
-                onClick={sidebarContext.toggleSidebar}
-                className="lg:hidden flex items-center justify-center w-10 h-10 min-w-[40px] min-h-[40px] flex-shrink-0 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
-                aria-label={sidebarContext.sidebarOpen ? "Fermer le menu" : "Ouvrir le menu"}
-              >
-                {sidebarContext.sidebarOpen ? (
-                  <X className="h-5 w-5" />
-                ) : (
-                  <Menu className="h-5 w-5" />
-                )}
-              </button>
-            )}
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 truncate min-w-0">Dashboard</h1>
+    <div className="min-h-[50vh] w-full max-w-full rounded-2xl">
+      <div className="space-y-10 pt-0 pb-10">
+        {/* Header : titre à gauche, badge indice santé à droite, même niveau */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 sm:gap-3">
+              {sidebarContext && (
+                <button
+                  onClick={sidebarContext.toggleSidebar}
+                  className="lg:hidden flex items-center justify-center w-10 h-10 min-w-[40px] min-h-[40px] flex-shrink-0 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                  aria-label={sidebarContext.sidebarOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
+                >
+                  {sidebarContext.sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+                </button>
+              )}
+              <h1 className="text-2xl font-semibold text-gray-900 truncate">Dashboard</h1>
+            </div>
+            <p className="text-sm text-slate-500 mt-0.5">Vue mensuelle opérationnelle de votre portefeuille</p>
           </div>
+          {gravityResult && (
+            <PortfolioHealthInline
+              gravityScore={gravityResult.score}
+              className="flex-shrink-0"
+            />
+          )}
         </div>
-        
-        {/* Ligne 2 : Description */}
-        <p className="text-sm sm:text-base text-gray-600">Vue mensuelle opérationnelle de votre portefeuille</p>
-      </div>
 
-      {/* Toggle Focus Loyer - Très visible */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-4">
+      {/* Toggle Focus Loyer */}
+      <div className="mt-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center w-12 h-12 bg-blue-500 rounded-lg">
@@ -274,6 +334,7 @@ export function DashboardPageCore({
       </div>
 
       {/* Filtres */}
+      <div className="mt-8">
       <MonthlyFilters
         month={month}
         bienIds={bienIds}
@@ -285,6 +346,28 @@ export function DashboardPageCore({
         biens={properties || []}
         locataires={tenants || []}
       />
+      </div>
+
+      {/* Actions prioritaires — juste sous la sélection du mois */}
+      {!loading && data && gravityResult && (
+        <div className="mt-8" id="dashboard-actions">
+          <DashboardPriorityActionZone level={gravityResult.level} summaryText={actionsSummaryText}>
+            <TasksPanel
+              loyersNonEncaisses={data.aTraiter.loyersNonEncaisses}
+              relances={data.aTraiter.relances}
+              transactionsNonRapprochees={data.aTraiter.transactionsNonRapprochees}
+              indexations={data.aTraiter.indexations}
+              echeancesPrets={data.aTraiter.echeancesPrets}
+              echeancesCharges={data.aTraiter.echeancesCharges}
+              bauxAEcheance={data.aTraiter.bauxAEcheance}
+              documentsAValider={data.aTraiter.documentsAValider}
+              layout="horizontal"
+              currentMonth={month}
+              mode={mode}
+            />
+          </DashboardPriorityActionZone>
+        </div>
+      )}
 
       {/* Erreur */}
       {error && (
@@ -312,99 +395,130 @@ export function DashboardPageCore({
         </Card>
       )}
 
-      {/* KPIs */}
-      {loading ? (
-        <MonthlyKpiBar
-          kpis={{
-            sommesEncaisses: 0,
-            sommesEncaissesRapprochees: 0,
-            loyersAttendus: 0,
-            depensesRealisees: 0,
-            depensesRealiseesRapprochees: 0,
-            cashflow: 0,
-            tauxEncaissement: 0,
-            bauxActifs: 0,
-            documentsEnvoyes: 0,
-            deltaSommesEncaisses: 0,
-            deltaDepensesRealisees: 0,
-            deltaCashflow: 0,
-            deltaTauxEncaissement: 0,
-          }}
-          isLoading={true}
-        />
-      ) : data ? (
-        <MonthlyKpiBar kpis={data.kpis} focusLoyer={focusLoyer} />
-      ) : null}
+      {/* Contenu principal avec transition au changement de mois */}
+      <div
+        className={cn(
+          'relative mt-12 transition-opacity duration-300 ease-out space-y-12',
+          isTransitioningMonth && 'opacity-70'
+        )}
+      >
+        {isTransitioningMonth && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+            <Loader2 className="h-6 w-6 animate-spin text-slate-400" aria-hidden />
+          </div>
+        )}
 
-      {/* Placeholder IA Insights (futur) */}
-      {data?.insights && (
-        <Card className="border-blue-200 bg-blue-50">
-          <CardContent className="py-4">
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 mt-0.5">
-                <svg
-                  className="h-5 w-5 text-blue-500"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <h4 className="text-sm font-semibold text-blue-900 mb-1">
-                  Synthèse IA
-                </h4>
-                <p className="text-sm text-blue-700">{data.insights}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Panneaux de tâches côte à côte */}
+      {/* Grid 2 colonnes — Urgent | À venir */}
       <div>
-        {loading ? (
-          <Card>
-            <CardContent className="py-12">
-              <div className="flex items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+      {loading ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-8">
+          <div className="space-y-6">
+            <div className="h-6 w-32 bg-slate-200 rounded animate-pulse" />
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm animate-pulse">
+                <div className="h-4 w-1/2 bg-slate-200 rounded" />
+                <div className="h-8 w-24 mt-2 bg-slate-200 rounded" />
               </div>
-            </CardContent>
-          </Card>
-        ) : error ? (
-          <Card>
-            <CardContent className="py-12">
-              <div className="text-center text-gray-600">
-                <p className="mb-2">{error}</p>
-                <p className="text-sm text-gray-500">Veuillez réinitialiser les données locales depuis la page de synchronisation.</p>
+            ))}
+          </div>
+          <div className="space-y-6">
+            <div className="h-6 w-40 bg-slate-200 rounded animate-pulse" />
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm animate-pulse">
+                <div className="h-4 w-1/2 bg-slate-200 rounded" />
+                <div className="h-8 w-32 mt-2 bg-slate-200 rounded" />
               </div>
-            </CardContent>
-          </Card>
-        ) : data ? (
-          <TasksPanel
-            loyersNonEncaisses={data.aTraiter.loyersNonEncaisses}
-            relances={data.aTraiter.relances}
-            transactionsNonRapprochees={data.aTraiter.transactionsNonRapprochees}
-            indexations={data.aTraiter.indexations}
-            echeancesPrets={data.aTraiter.echeancesPrets}
-            echeancesCharges={data.aTraiter.echeancesCharges}
-            bauxAEcheance={data.aTraiter.bauxAEcheance}
-            documentsAValider={data.aTraiter.documentsAValider}
-            layout="horizontal"
-            currentMonth={month}
-            mode={mode}
-          />
-        ) : null}
+            ))}
+          </div>
+        </div>
+      ) : data && gravityResult ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-8 items-start">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+            className="w-full"
+          >
+            <DashboardUrgentColumn
+              kpis={data.kpis}
+              relances={data.aTraiter.relances}
+              transactionsNonRapprochees={data.aTraiter.transactionsNonRapprochees}
+              currentMonth={month}
+            />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+            className="w-full"
+          >
+            <DashboardUpcomingColumn
+              echeancesPrets={data.aTraiter.echeancesPrets}
+              echeancesCharges={data.aTraiter.echeancesCharges}
+              indexations={data.aTraiter.indexations}
+              bauxAEcheance={data.aTraiter.bauxAEcheance}
+              currentMonth={month}
+            />
+          </motion.div>
+        </div>
+      ) : null}
       </div>
 
-      {/* Rapport gestionnaire délégué */}
-      <GestionnaireDelegueReportPanel currentMonth={month} mode={mode} />
+      {/* Vue globale */}
+      <DashboardGlobalOverviewSection className="mt-12">
+        {loading ? (
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm animate-pulse">
+                <div className="h-4 bg-slate-200 rounded w-2/3 mb-2" />
+                <div className="h-6 bg-slate-200 rounded w-1/2" />
+              </div>
+            ))}
+          </div>
+        ) : data ? (
+          <>
+            <DashboardKpiHealthCards
+              kpis={data.kpis}
+              sparklineCashflow={sparklineCashflow}
+              sparklineEncaissements={sparklineEncaissements}
+              sparklineDepenses={sparklineDepenses}
+              focusLoyer={focusLoyer}
+            />
+            {data.insights && (
+              <Card className="border-slate-200 bg-white shadow-sm">
+                <CardContent className="py-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 mt-0.5">
+                      <svg className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-semibold text-slate-800 mb-1">Synthèse IA</h4>
+                      <p className="text-sm text-slate-600">{data.insights}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            <div className="pt-8">
+              <GestionnaireDelegueReportPanel currentMonth={month} mode={mode} />
+            </div>
+          </>
+        ) : error ? (
+          <Card className="border-slate-200 shadow-sm">
+            <CardContent className="py-8">
+              <div className="text-center text-slate-600">
+                <p className="mb-2">{error}</p>
+                <p className="text-sm text-slate-500">Veuillez réinitialiser les données locales depuis la page de synchronisation.</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+      </DashboardGlobalOverviewSection>
+
+      </div>
+      </div>
     </div>
   );
 }

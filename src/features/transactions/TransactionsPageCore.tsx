@@ -174,6 +174,9 @@ export function TransactionsPageCore({
     total: 0,
     pages: 0
   });
+  // Tri côté serveur (mode normal) : appliqué AVANT limit/offset pour cohérence pagination
+  const [sortBy, setSortBy] = useState<'accounting_month' | 'accountingMonth' | 'date' | 'amount' | 'nature'>('accountingMonth');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // États des modals et drawer
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -288,6 +291,10 @@ export function TransactionsPageCore({
     periodStart: shouldUseHook ? periodStart : undefined,
     periodEnd: shouldUseHook ? periodEnd : undefined,
     enabled: shouldUseHook, // ✅ CORRECTION: Désactiver complètement le hook si on a des props
+    sortBy: shouldUseHook && mode === 'normal' ? sortBy : undefined,
+    sortOrder: shouldUseHook && mode === 'normal' ? sortOrder : undefined,
+    page: shouldUseHook && mode === 'normal' ? pagination.page : undefined,
+    limit: shouldUseHook && mode === 'normal' ? pagination.limit : undefined,
   });
 
   // Enrichir les transactions passées en props avec les informations de documents
@@ -319,13 +326,49 @@ export function TransactionsPageCore({
   const loading = isAppShellWithProps ? (propLoading ?? false) : hookLoading;
   const error = isAppShellWithProps ? null : hookError;
 
-  // ⚠️ CRITIQUE: Pagination côté client pour éviter d'afficher toutes les transactions (performance)
-  // Calculer les transactions de la page courante
+  // En app-shell : tri sur l'ensemble du dataset AVANT la slice (cohérence pagination)
+  const sortedAllTransactions = useMemo(() => {
+    if (mode === 'normal' && !isAppShellWithProps) {
+      return allTransactions;
+    }
+    const list = [...allTransactions];
+    const field = sortBy === 'accountingMonth' ? 'accountingMonth' : sortBy;
+    const order = sortOrder === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+      let comparison = 0;
+      const monthA = (a as any).accountingMonth || (a as any).accounting_month || '0000-00';
+      const monthB = (b as any).accountingMonth || (b as any).accounting_month || '0000-00';
+      switch (field) {
+        case 'date':
+          comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
+          break;
+        case 'amount':
+          comparison = Math.abs(a.amount) - Math.abs(b.amount);
+          break;
+        case 'nature':
+          comparison = (a.nature?.type || '').localeCompare(b.nature?.type || '');
+          break;
+        case 'accountingMonth':
+          comparison = monthA.localeCompare(monthB);
+          break;
+        default:
+          comparison = monthA.localeCompare(monthB);
+      }
+      return order * comparison;
+    });
+    return list;
+  }, [mode, isAppShellWithProps, allTransactions, sortBy, sortOrder]);
+
+  // Mode normal : pagination côté serveur (hook retourne déjà la page courante).
+  // Mode app-shell : pagination côté client sur le dataset trié.
   const paginatedTransactions = useMemo(() => {
+    if (mode === 'normal' && !isAppShellWithProps) {
+      return allTransactions;
+    }
     const startIndex = (pagination.page - 1) * pagination.limit;
     const endIndex = startIndex + pagination.limit;
-    return allTransactions.slice(startIndex, endIndex);
-  }, [allTransactions, pagination.page, pagination.limit]);
+    return sortedAllTransactions.slice(startIndex, endIndex);
+  }, [mode, isAppShellWithProps, allTransactions, sortedAllTransactions, pagination.page, pagination.limit]);
 
   // Mettre à jour le nombre de pages basé sur le totalCount
   useEffect(() => {
@@ -337,7 +380,6 @@ export function TransactionsPageCore({
     }));
   }, [totalCount, pagination.limit]);
 
-  // Utiliser les transactions paginées pour l'affichage
   const transactions = paginatedTransactions;
 
   // Charger les KPI avec les hooks (utiliser le mode du composant, pas isAppShellWithProps)
@@ -539,7 +581,7 @@ export function TransactionsPageCore({
     }
   }, [mode, organizationId]);
 
-  const handleDeleteTransactionConfirmed = useCallback(async (deleteMode: 'delete_docs' | 'keep_docs_globalize') => {
+  const handleDeleteTransactionConfirmed = useCallback(async (deleteMode: 'delete_docs' | 'keep_docs_globalize' | 'unlink_only') => {
     if (!transactionToDelete) return;
     
     try {
@@ -600,6 +642,9 @@ export function TransactionsPageCore({
           window.dispatchEvent(new CustomEvent('transactions:refresh', {
             detail: { scope: 'property', propertyId: propPropertyId || initialPropertyId || filters.propertyId }
           }));
+          if (deleteMode === 'delete_docs' || deleteMode === 'unlink_only') {
+            window.dispatchEvent(new CustomEvent('documents:refresh'));
+          }
         }
       } else {
         // Mode normal online : utiliser l'API
@@ -614,6 +659,8 @@ export function TransactionsPageCore({
 
         if (deleteMode === 'delete_docs') {
           notify2.success('Transaction et documents supprimés');
+        } else if (deleteMode === 'unlink_only') {
+          notify2.success('Transaction supprimée ; liaisons avec les documents retirées');
         } else {
           notify2.success('Transaction supprimée, documents conservés');
         }
@@ -796,7 +843,7 @@ export function TransactionsPageCore({
     }
   }, [selectedTransactionIds, mode, transactions]);
 
-  const handleDeleteMultipleConfirmed = useCallback(async (modeDelete: 'delete_docs' | 'keep_docs_globalize') => {
+  const handleDeleteMultipleConfirmed = useCallback(async (modeDelete: 'delete_docs' | 'keep_docs_globalize' | 'unlink_only') => {
     // ⚠️ PROBLÈME 1: Filtrer automatiquement les commissions auto AVANT suppression
     // (protection supplémentaire, même si elles ne devraient plus être dans transactionsToDelete)
     const isAutoCommission = (t: Transaction): boolean => {
@@ -1138,8 +1185,8 @@ export function TransactionsPageCore({
           if (data.rapprochementStatus !== undefined) updateParams.rapprochementStatus = data.rapprochementStatus;
           if (data.bankRef !== undefined) updateParams.bankRef = data.bankRef || null;
           if (data.montantLoyer !== undefined) updateParams.montantLoyer = data.montantLoyer || null;
-          if (data.chargesRecup !== undefined) updateParams.chargesRecup = data.chargesRecup || null;
-          if (data.chargesNonRecup !== undefined) updateParams.chargesNonRecup = data.chargesNonRecup || null;
+          if (data.chargesRecup !== undefined) updateParams.chargesRecup = data.chargesRecup !== null && data.chargesRecup !== '' ? Number(data.chargesRecup) : null;
+          if (data.chargesNonRecup !== undefined) updateParams.chargesNonRecup = data.chargesNonRecup !== null && data.chargesNonRecup !== '' ? Number(data.chargesNonRecup) : null;
           if (data.isAutoAmount !== undefined) updateParams.isAutoAmount = data.isAutoAmount;
           if (data.stagedDocumentIds !== undefined) updateParams.stagedDocumentIds = data.stagedDocumentIds || [];
           if (data.stagedLinkItemIds !== undefined) updateParams.stagedLinkItemIds = data.stagedLinkItemIds || [];
@@ -1210,9 +1257,9 @@ export function TransactionsPageCore({
             monthsCovered: data.monthsCovered || 1,
             rapprochementStatus: data.rapprochementStatus || 'non_rapprochee',
             bankRef: data.bankRef || null,
-            montantLoyer: data.montantLoyer || null,
-            chargesRecup: data.chargesRecup || null,
-            chargesNonRecup: data.chargesNonRecup || null,
+            montantLoyer: data.montantLoyer ?? null,
+            chargesRecup: data.chargesRecup !== undefined && data.chargesRecup !== null ? Number(data.chargesRecup) : null,
+            chargesNonRecup: data.chargesNonRecup !== undefined && data.chargesNonRecup !== null ? Number(data.chargesNonRecup) : null,
             isAutoAmount: data.isAutoAmount ?? null,
             stagedDocumentIds: data.stagedDocumentIds || [],
             stagedLinkItemIds: data.stagedLinkItemIds || [],
@@ -1641,6 +1688,13 @@ export function TransactionsPageCore({
             loadingTransactionId={loadingTransactionId}
             amountsSummary={amountsSummary}
             pendingCommissionTransactionIds={mode === 'app-shell' ? Array.from(pendingCommissionTransactionIds) : []}
+            sortField={sortBy}
+            sortOrder={sortOrder}
+            onSortChange={(field, order) => {
+              setSortBy(field);
+              setSortOrder(order);
+              setPagination(prev => ({ ...prev, page: 1 }));
+            }}
           />
         </CardContent>
       </Card>

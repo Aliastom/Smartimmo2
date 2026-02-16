@@ -28,6 +28,7 @@ import {
   AlertCircle,
   Menu,
   Plus,
+  Star,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -100,8 +101,10 @@ export function DocumentsPageCore({
     dateFrom: '',
     dateTo: '',
     includeDeleted: false,
+    filterFavorites: false,
   });
   const [submittedFilters, setSubmittedFilters] = useState(filters);
+  const [filterFavoritesOnly, setFilterFavoritesOnly] = useState(false);
 
   // UI States
   const [showFilters, setShowFilters] = useState(false);
@@ -134,11 +137,13 @@ export function DocumentsPageCore({
     pagination: dataPagination,
     loading,
     error,
+    updateDocumentFavorite,
   } = useDocumentsData({
     mode,
     filters: mode === 'app-shell' ? submittedFilters : undefined,
     offset: pagination.offset,
     limit: pagination.limit,
+    filterFavorites: filterFavoritesOnly,
   });
 
   // Synchroniser la pagination
@@ -249,9 +254,11 @@ export function DocumentsPageCore({
       dateFrom: '',
       dateTo: '',
       includeDeleted: false,
+      filterFavorites: false,
     };
     setFilters(resetFilters);
     setSubmittedFilters(resetFilters);
+    setFilterFavoritesOnly(false);
     setPagination((prev) => ({ ...prev, offset: 0 }));
   };
 
@@ -883,6 +890,7 @@ export function DocumentsPageCore({
     filters.dateFrom,
     filters.dateTo,
     filters.includeDeleted,
+    filterFavoritesOnly,
   ].filter(Boolean).length;
 
   // États de chargement et erreur
@@ -1080,6 +1088,21 @@ export function DocumentsPageCore({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CardTitle>Filtres</CardTitle>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterFavoritesOnly((prev) => !prev);
+                  setPagination((p) => ({ ...p, offset: 0 }));
+                }}
+                className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
+                title={filterFavoritesOnly ? 'Afficher tous les documents' : 'Afficher uniquement les favoris'}
+              >
+                {filterFavoritesOnly ? (
+                  <Star className="h-5 w-5 fill-amber-400 text-amber-500 animate-pulse" />
+                ) : (
+                  <Star className="h-5 w-5 text-gray-400 hover:text-amber-500" />
+                )}
+              </button>
               {activeFiltersCount > 0 && (
                 <Badge variant="primary">{activeFiltersCount} actif{activeFiltersCount > 1 ? 's' : ''}</Badge>
               )}
@@ -1261,6 +1284,7 @@ export function DocumentsPageCore({
             onEdit={handleEdit}
             onDownload={handleDownload}
             onDelete={handleDelete}
+            onToggleFavorite={(doc, isFavorite) => updateDocumentFavorite(doc.id, isFavorite)}
             onSelect={handleSelectDocument}
             onSelectAll={(selected) => {
               if (selected) {
@@ -1272,6 +1296,7 @@ export function DocumentsPageCore({
             selectedIds={selectedIds}
             showSelection={true}
             showLinkedTo={true}
+            showFavorite={true}
             loading={loading}
           />
 

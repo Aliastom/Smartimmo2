@@ -60,6 +60,10 @@ interface TransactionsTableProps {
   onSelectTransaction?: (id: string) => void;
   onSelectAll?: (selected: boolean) => void;
   loadingTransactionId?: string | null; // ID de la transaction en cours de chargement
+  /** Tri contrôlé (pour pagination côté serveur) : quand fourni, le parent gère le tri */
+  sortField?: SortField;
+  sortOrder?: SortOrder;
+  onSortChange?: (field: SortField, order: SortOrder) => void;
 }
 
 const NATURE_COLORS = {
@@ -88,10 +92,16 @@ export default function TransactionsTable({
   selectedTransactionIds = [],
   onSelectTransaction,
   onSelectAll,
-  loadingTransactionId = null
+  loadingTransactionId = null,
+  sortField: sortFieldProp,
+  sortOrder: sortOrderProp,
+  onSortChange
 }: TransactionsTableProps) {
-  const [sortField, setSortField] = useState<SortField>('accountingMonth');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [sortFieldInternal, setSortFieldInternal] = useState<SortField>('accountingMonth');
+  const [sortOrderInternal, setSortOrderInternal] = useState<SortOrder>('desc');
+  const isControlled = sortFieldProp !== undefined && sortOrderProp !== undefined;
+  const sortField = isControlled ? sortFieldProp! : sortFieldInternal;
+  const sortOrder = isControlled ? sortOrderProp! : sortOrderInternal;
   const [mobileLimit, setMobileLimit] = useState(3); // Limite initiale sur mobile
   const isUI2Active = useUI2();
 
@@ -248,13 +258,12 @@ export default function TransactionsTable({
   const sortedTransactions = groupedTransactions;
 
   const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      // Toggle order
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    const newOrder = sortField === field ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc';
+    if (onSortChange) {
+      onSortChange(field, newOrder);
     } else {
-      // New field, default to desc
-      setSortField(field);
-      setSortOrder('desc');
+      setSortFieldInternal(field);
+      setSortOrderInternal(newOrder);
     }
   };
 

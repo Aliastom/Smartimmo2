@@ -149,6 +149,7 @@ export class IndexedDBTransactionRepository implements ITransactionRepository {
         createdAt: now,
         updatedAt: now,
         retryCount: 0,
+        organizationId, // ✅ CRITIQUE: Pour affichage page Sync et filtrage par org
       };
       
       await db.pendingOperations.add(pendingOp);
@@ -278,6 +279,7 @@ export class IndexedDBTransactionRepository implements ITransactionRepository {
         createdAt: now,
         updatedAt: now,
         retryCount: 0,
+        organizationId, // ✅ CRITIQUE: Pour affichage page Sync et filtrage par org
       };
       
       await db.pendingOperations.add(pendingOp);
@@ -316,6 +318,7 @@ export class IndexedDBTransactionRepository implements ITransactionRepository {
       createdAt: now,
       updatedAt: now,
       retryCount: 0,
+      organizationId, // ✅ CRITIQUE: Pour affichage page Sync et filtrage par org
     };
     
     await db.pendingOperations.add(pendingOp);

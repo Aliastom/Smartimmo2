@@ -17,6 +17,7 @@ import { useUploadStaging } from '@/hooks/useUploadStaging';
 import { UploadReviewModal } from '@/components/documents/UploadReviewModal';
 import { DuplicateDetectedModal } from '@/components/documents/DuplicateDetectedModal';
 import { ConfirmDeleteDocumentModal } from '@/components/documents/ConfirmDeleteDocumentModal';
+import { LinkExistingDocumentModal } from '@/components/documents/LinkExistingDocumentModal';
 import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useLoanDocuments } from '@/hooks/offline/useLoanDocuments';
@@ -174,6 +175,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateData, setDuplicateData] = useState<any>(null);
+  const [showDocumentSelectorModal, setShowDocumentSelectorModal] = useState(false);
   
   // ✅ Synchroniser les documents du hook avec l'état local en mode app-shell
   useEffect(() => {
@@ -1367,73 +1369,12 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                       {/* Bouton secondaire - Lier un document existant */}
                       <button
                         type="button"
-                        onClick={async () => {
-                          // Sélectionner un document existant
+                        onClick={() => {
                           if (!organizationId) {
                             notify2.error('Organisation non disponible');
                             return;
                           }
-                          
-                          try {
-                            const { getLocalDB } = await import('@/lib/offline/db');
-                            const db = await getLocalDB();
-                            // Charger tous les documents de l'organisation (non supprimés)
-                            const allDocs = await db.Document.where('organizationId').equals(organizationId).and(doc => !doc.deletedAt).toArray();
-                            
-                            if (allDocs.length === 0) {
-                              notify2.info('Aucun document disponible');
-                              return;
-                            }
-                            
-                            // Charger les types de documents pour afficher les labels
-                            const docTypes = await db.DocumentType.toArray();
-                            const docTypeMap = new Map(docTypes.map(dt => [dt.id, dt]));
-                            
-                            // Créer une liste simple pour sélection
-                            const docList = allDocs.map((doc, idx) => {
-                              const docType = doc.documentTypeId ? docTypeMap.get(doc.documentTypeId) : null;
-                              return `${idx + 1}. ${doc.fileName || doc.filenameOriginal} (${docType?.label || 'Non classé'})`;
-                            }).join('\n');
-                            
-                            const selected = prompt(`Sélectionnez un document (entre 1 et ${allDocs.length}):\n\n${docList}\n\nEntrez le numéro:`);
-                            
-                            if (!selected) return;
-                            
-                            const index = parseInt(selected) - 1;
-                            if (index < 0 || index >= allDocs.length) {
-                              notify2.error('Numéro invalide');
-                              return;
-                            }
-                            
-                            const selectedDoc = allDocs[index];
-                            
-                            // Vérifier si le document n'est pas déjà lié
-                            if (stagedLinks.some(link => link.existingDocument?.id === selectedDoc.id)) {
-                              notify2.warning('Ce document est déjà lié');
-                              return;
-                            }
-                            
-                            const docType = selectedDoc.documentTypeId ? docTypeMap.get(selectedDoc.documentTypeId) : null;
-                            
-                            // Ajouter aux stagedLinks au format attendu
-                            const newLink = {
-                              id: selectedDoc.id, // Utiliser l'ID du document comme ID du lien
-                              existingDocument: {
-                                id: selectedDoc.id,
-                                fileName: selectedDoc.fileName || selectedDoc.filenameOriginal,
-                                filenameOriginal: selectedDoc.filenameOriginal,
-                                typeLabel: docType?.label || 'Non classé',
-                                uploadedAt: selectedDoc.uploadedAt,
-                                type: docType?.label || 'Non classé',
-                              }
-                            };
-                            
-                            setStagedLinks(prev => [...prev, newLink]);
-                            notify2.success('Document ajouté');
-                          } catch (error) {
-                            console.error('Erreur lors de la sélection du document:', error);
-                            notify2.error('Erreur lors de la sélection du document');
-                          }
+                          setShowDocumentSelectorModal(true);
                         }}
                         className="flex items-center justify-center gap-1.5 px-3 py-2 h-10 text-xs sm:text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none w-full sm:w-auto"
                         disabled={stagingLoading || !organizationId}
@@ -1821,6 +1762,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
         }}
         files={[]} // Pas de fichiers pour le mode review-draft
         scope="global"
+        mode="transaction"
         strategy={{
           mode: 'review-draft',
           draftId: selectedDraftId || undefined,
@@ -2134,6 +2076,29 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
           loanId={initialData?.id} // ✅ Passer loanId pour identifier les liaisons à supprimer
         />
       )}
+
+      <LinkExistingDocumentModal
+        isOpen={showDocumentSelectorModal}
+        onClose={() => setShowDocumentSelectorModal(false)}
+        onSelect={(doc) => {
+          const newLink = {
+            id: doc.id,
+            existingDocument: {
+              id: doc.id,
+              fileName: doc.fileName || doc.filenameOriginal,
+              filenameOriginal: doc.filenameOriginal,
+              typeLabel: doc.typeLabel,
+              uploadedAt: doc.uploadedAt,
+              type: doc.typeLabel,
+            },
+          };
+          setStagedLinks((prev) => [...prev, newLink]);
+          notify2.success('Document ajouté');
+          setShowDocumentSelectorModal(false);
+        }}
+        excludeDocumentIds={stagedLinks.map((link) => link.existingDocument?.id).filter(Boolean) as string[]}
+        mode={isAppShellMode ? 'app-shell' : 'normal'}
+      />
     </>
   );
 };

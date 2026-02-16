@@ -169,11 +169,12 @@ export class IndexedDBDocumentRepository implements IDocumentRepository {
           entity: 'document',
           entityId: doc.id,
           operation: 'update',
-          payload: data, // Envoyer uniquement les champs modifiés
+          payload: data, // Envoyer uniquement les champs modifiés (ex: { isFavorite: true })
           status: 'pending',
           createdAt: now,
           updatedAt: now,
           retryCount: 0,
+          organizationId: docOrganizationId, // ✅ CRITIQUE: pour affichage page Sync et filtrage sync
         };
         
         await db.pendingOperations.add(pendingOp);
@@ -190,6 +191,12 @@ export class IndexedDBDocumentRepository implements IDocumentRepository {
       return; // Document déjà supprimé ou inexistante
     }
     
+    // ✅ Supprimer toutes les liaisons (DocumentLink) avant le document pour éviter que le document reste visible
+    const linksToDelete = await db.DocumentLink.where('documentId').equals(id).toArray();
+    for (const link of linksToDelete) {
+      await db.DocumentLink.delete([link.documentId, link.linkedType, link.linkedId]);
+    }
+    
     const docOrganizationId = existing.organizationId || organizationId;
     if (!docOrganizationId) {
       console.warn('[IndexedDBDocumentRepository] OrganizationId manquant pour créer la pendingOp, document supprimé localement uniquement');
@@ -201,11 +208,12 @@ export class IndexedDBDocumentRepository implements IDocumentRepository {
         entity: 'document',
         entityId: id,
         operation: 'delete',
-        payload: {}, // DELETE n'a pas de payload
+        payload: {},
         status: 'pending',
         createdAt: now,
         updatedAt: now,
         retryCount: 0,
+        organizationId: docOrganizationId, // ✅ CRITIQUE: pour affichage page Sync et filtrage sync
       };
       
       await db.pendingOperations.add(pendingOp);

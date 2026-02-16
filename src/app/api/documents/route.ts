@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
       dateFrom: searchParams.get('dateFrom') ? new Date(searchParams.get('dateFrom')!) : undefined,
       dateTo: searchParams.get('dateTo') ? new Date(searchParams.get('dateTo')!) : undefined,
       includeDeleted: searchParams.get('includeDeleted') === 'true',
+      filterFavorites: searchParams.get('filterFavorites') === 'true',
       limit: parseInt(searchParams.get('limit') || '50'),
       offset: parseInt(searchParams.get('offset') || '0'),
     };

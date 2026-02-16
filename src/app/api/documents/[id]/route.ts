@@ -63,6 +63,7 @@ export async function PATCH(
       linkedId,
       tags,
       reclassify,
+      isFavorite,
     } = body;
 
     // Renommage
@@ -87,6 +88,11 @@ export async function PATCH(
         linkedId,
         organizationId,
       });
+    }
+
+    // Favori
+    if (isFavorite !== undefined) {
+      await DocumentsService.updateIsFavorite(id, isFavorite, organizationId);
     }
 
     // Reclassification

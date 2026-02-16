@@ -23,7 +23,8 @@ import {
   CheckCircle,
   Trash2,
   Edit,
-  Loader2
+  Loader2,
+  Star
 } from 'lucide-react';
 import { useUI2 } from '@/hooks/useUI2';
 import { formatDistanceToNow } from 'date-fns';
@@ -58,6 +59,7 @@ export interface DocumentTableRow {
   ocrStatus?: string;
   deletedAt?: Date | string | null;
   userReason?: string; // Raison utilisateur (ex: "doublon_conserve_manuellement")
+  isFavorite?: boolean;
 }
 
 interface DocumentTableProps {
@@ -66,11 +68,13 @@ interface DocumentTableProps {
   onEdit?: (doc: DocumentTableRow) => void;
   onDownload?: (doc: DocumentTableRow) => void;
   onDelete?: (doc: DocumentTableRow) => void;
+  onToggleFavorite?: (doc: DocumentTableRow, isFavorite: boolean) => void;
   onSelect?: (docId: string, selected: boolean) => void;
   onSelectAll?: (selected: boolean) => void;
   selectedIds?: Set<string>;
   showSelection?: boolean;
   showLinkedTo?: boolean;
+  showFavorite?: boolean;
   loading?: boolean;
 }
 
@@ -84,11 +88,13 @@ function DocumentTableComponent({
   onEdit,
   onDownload,
   onDelete,
+  onToggleFavorite,
   onSelect,
   onSelectAll,
   selectedIds = new Set(),
   showSelection = false,
   showLinkedTo = true,
+  showFavorite = true,
   loading = false,
 }: DocumentTableProps) {
   const isUI2Active = useUI2();
@@ -368,6 +374,23 @@ function DocumentTableComponent({
                 
                 {/* Actions rapides */}
                 <div className="flex flex-col gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                  {showFavorite && onToggleFavorite && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleFavorite(doc, !doc.isFavorite);
+                      }}
+                      className="p-1 rounded hover:bg-gray-100"
+                      title={doc.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                    >
+                      {doc.isFavorite ? (
+                        <Star className="h-5 w-5 fill-amber-400 text-amber-500" />
+                      ) : (
+                        <Star className="h-5 w-5 text-gray-400" />
+                      )}
+                    </button>
+                  )}
                   {onDownload && (
                     <Button
                       variant="outline"
@@ -476,6 +499,9 @@ function DocumentTableComponent({
               <TableHeaderCellV2>Document</TableHeaderCellV2>
               <TableHeaderCellV2>Type</TableHeaderCellV2>
               <TableHeaderCellV2>OCR</TableHeaderCellV2>
+              {showFavorite && onToggleFavorite && (
+                <TableHeaderCellV2 className="text-center w-10">Favori</TableHeaderCellV2>
+              )}
               <TableHeaderCellV2 className="text-center">Actions</TableHeaderCellV2>
             </tr>
           </TableHeaderV2>
@@ -536,6 +562,25 @@ function DocumentTableComponent({
                     {getOcrBadge(doc)}
                   </div>
                 </TableCellV2>
+                {showFavorite && onToggleFavorite && (
+                  <TableCellV2 className="text-center" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleFavorite(doc, !doc.isFavorite);
+                      }}
+                      className="p-1 rounded hover:bg-gray-100 transition-colors"
+                      title={doc.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                    >
+                      {doc.isFavorite ? (
+                        <Star className="h-5 w-5 fill-amber-400 text-amber-500" />
+                      ) : (
+                        <Star className="h-5 w-5 text-gray-400 hover:text-amber-500" />
+                      )}
+                    </button>
+                  </TableCellV2>
+                )}
                 <TableCellV2 className="text-center" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-center gap-1">
                     {onDownload && (
@@ -623,6 +668,9 @@ function DocumentTableComponent({
           <TableHeaderCell>Document</TableHeaderCell>
           <TableHeaderCell>Type</TableHeaderCell>
           <TableHeaderCell>OCR</TableHeaderCell>
+          {showFavorite && onToggleFavorite && (
+            <TableHeaderCell className="text-center w-10">Favori</TableHeaderCell>
+          )}
           <TableHeaderCell>Actions</TableHeaderCell>
         </TableRow>
       </TableHeader>
@@ -680,6 +728,25 @@ function DocumentTableComponent({
             <TableCell>
               {getOcrBadge(doc)}
             </TableCell>
+            {showFavorite && onToggleFavorite && (
+              <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleFavorite(doc, !doc.isFavorite);
+                  }}
+                  className="p-1 rounded hover:bg-gray-100 transition-colors"
+                  title={doc.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                >
+                  {doc.isFavorite ? (
+                    <Star className="h-5 w-5 fill-amber-400 text-amber-500" />
+                  ) : (
+                    <Star className="h-5 w-5 text-gray-400 hover:text-amber-500" />
+                  )}
+                </button>
+              </TableCell>
+            )}
             <TableCell onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center gap-1">
                 {onDownload && (

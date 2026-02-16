@@ -98,7 +98,7 @@ export async function listNonGlobalLinks(documentId: string, organizationId: str
 /**
  * Modes de suppression de transaction
  */
-export type DeleteTransactionMode = "delete_docs" | "keep_docs_globalize";
+export type DeleteTransactionMode = "delete_docs" | "keep_docs_globalize" | "unlink_only";
 
 /**
  * Supprime une transaction avec gestion des documents liés
@@ -106,6 +106,7 @@ export type DeleteTransactionMode = "delete_docs" | "keep_docs_globalize";
  * @param mode - Mode de suppression :
  *   - "delete_docs" : supprime les documents liés (hard delete)
  *   - "keep_docs_globalize" : conserve les documents en retirant toutes leurs liaisons non-globales
+ *   - "unlink_only" : ne supprime que les liaisons document ↔ cette transaction
  */
 export async function deleteTransactionWithDocs(
   transactionId: string, 
@@ -140,6 +141,15 @@ export async function deleteTransactionWithDocs(
     for (const docId of docIds) {
       await hardDeleteDocument(docId, organizationId);
     }
+  } else if (mode === "unlink_only") {
+    // Ne supprimer que les liaisons document ↔ cette transaction
+    await prisma.documentLink.deleteMany({
+      where: {
+        linkedType: "transaction",
+        linkedId: transactionId,
+        documentId: { in: docIds },
+      },
+    });
   } else {
     // Mode B (keep_docs_globalize) : Retirer toutes les liaisons non-globales pour ces documents
     // Supprimer toutes les liaisons existantes

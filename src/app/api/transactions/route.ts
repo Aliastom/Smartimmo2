@@ -38,6 +38,13 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = (page - 1) * limit;
 
+    // Tri global : appliqué AVANT LIMIT/OFFSET pour cohérence pagination
+    const sortBy = searchParams.get('sortBy') || 'accounting_month';
+    const sortOrder = (searchParams.get('sortOrder') as 'asc' | 'desc') || 'desc';
+    const orderByField = sortBy === 'accountingMonth' ? 'accounting_month' : sortBy;
+    const validSortFields = ['accounting_month', 'date', 'amount', 'nature'];
+    const orderByKey = validSortFields.includes(orderByField) ? orderByField : 'accounting_month';
+
     // Paramètres de filtres
     const search = searchParams.get('search') || '';
     const propertyId = searchParams.get('propertyId') || '';
@@ -235,7 +242,8 @@ export async function GET(request: NextRequest) {
             }
           }
         },
-        orderBy: { date: 'desc' },
+        // Tri appliqué sur tout le dataset AVANT skip/take (cohérence pagination)
+        orderBy: { [orderByKey]: sortOrder },
         // Ne paginer QUE si pas de recherche textuelle
         ...(!shouldFetchAll && { skip: offset, take: limit })
       }),
@@ -755,7 +763,14 @@ export async function GET(request: NextRequest) {
         // ⚙️ GESTION DÉLÉGUÉE: Champs pour le badge "Auto (Gestion)"
         isAuto: transaction.isAuto,
         autoSource: transaction.autoSource,
-        managementCompanyId: transaction.managementCompanyId
+        managementCompanyId: transaction.managementCompanyId,
+        // ⚠️ CRITIQUE SYNC APP-SHELL: Inclure les champs utilisés par transformToLocal (sinon overwrite écrase avec null)
+        montantLoyer: transaction.montantLoyer ?? null,
+        chargesRecup: transaction.chargesRecup ?? null,
+        chargesNonRecup: transaction.chargesNonRecup ?? null,
+        isAutoAmount: transaction.isAutoAmount ?? null,
+        // Pour la sync: nature en clé string (transformToLocal utilise item.nature string ou item.nature.id)
+        accounting_month: transaction.accounting_month ?? null,
       };
     });
 
@@ -866,9 +881,9 @@ export async function POST(request: NextRequest) {
       monthsCovered: body.monthsCovered || 1,
       rapprochementStatus: body.rapprochementStatus || 'non_rapprochee',
       bankRef: body.bankRef || null,
-      montantLoyer: body.montantLoyer ? parseFloat(body.montantLoyer) : null,
-      chargesRecup: body.chargesRecup ? parseFloat(body.chargesRecup) : null,
-      chargesNonRecup: body.chargesNonRecup ? parseFloat(body.chargesNonRecup) : null,
+      montantLoyer: body.montantLoyer != null && body.montantLoyer !== '' ? parseFloat(String(body.montantLoyer)) : null,
+      chargesRecup: body.chargesRecup != null && body.chargesRecup !== '' ? parseFloat(String(body.chargesRecup)) : null,
+      chargesNonRecup: body.chargesNonRecup != null && body.chargesNonRecup !== '' ? parseFloat(String(body.chargesNonRecup)) : null,
       isAutoAmount: body.isAutoAmount !== undefined ? body.isAutoAmount : null,
       stagedDocumentIds: body.stagedDocumentIds || [],
       stagedLinkItemIds: stagedLinkDocumentIds, // DocumentIds extraits depuis UploadStagedItem

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Service unifiÃ© pour la gestion des documents
  * Centralise les opÃ©rations: upload, classification, OCR, versioning, liaison
  */
@@ -514,6 +514,7 @@ export class DocumentsService {
     dateFrom?: Date;
     dateTo?: Date;
     includeDeleted?: boolean;
+    filterFavorites?: boolean;
     limit?: number;
     offset?: number;
     organizationId?: string;
@@ -528,6 +529,10 @@ export class DocumentsService {
     // Tous les documents (y compris supprimés) doivent être récupérés pour la sync
     if (!filters.includeDeleted) {
       whereClause.deletedAt = null;
+    }
+
+    if (filters.filterFavorites) {
+      whereClause.isFavorite = true;
     }
 
     if (filters.type) {
@@ -646,6 +651,7 @@ export class DocumentsService {
           if (whereClause.DocumentType && doc.DocumentType?.code !== whereClause.DocumentType.code) return false;
           if (whereClause.status && doc.status !== whereClause.status) return false;
           if (whereClause.ocrStatus && doc.ocrStatus !== whereClause.ocrStatus) return false; // Filtre OCR
+          if (whereClause.isFavorite && !doc.isFavorite) return false;
           if (whereClause.isClassified && !doc.DocumentType) return false;
           
           // Filtre linkedTo : vÃ©rifier si le document a AUSSI une liaison du type demandÃ©
@@ -1054,6 +1060,20 @@ export class DocumentsService {
       where: { id: documentId },
       data: {
         status: newStatus,
+      },
+    });
+  }
+
+  /**
+   * Mettre à jour le statut favori d'un document
+   */
+  static async updateIsFavorite(documentId: string, isFavorite: boolean, organizationId?: string): Promise<void> {
+    await this.ensureDocumentBelongsToOrg(documentId, organizationId);
+
+    await prisma.document.update({
+      where: { id: documentId },
+      data: {
+        isFavorite,
       },
     });
   }

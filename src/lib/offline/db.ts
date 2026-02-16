@@ -319,6 +319,7 @@ export interface LocalDocument {
   createdAt: string;
   updatedAt: string;
   userReason?: string | null;
+  isFavorite?: boolean;
   _localUpdatedAt?: string;
   _syncedAt?: string;
   // ⚠️ GARDE-FOU : Flag pour indiquer qu'un document existe déjà côté serveur (upload via API)

@@ -11,6 +11,7 @@ export interface Document {
   textSha256?: string | null;
   status?: string;
   bucketKey?: string | null;
+  isFavorite?: boolean;
 }
 
 export interface DocumentWhere {

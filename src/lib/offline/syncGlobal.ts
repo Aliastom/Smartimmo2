@@ -794,6 +794,9 @@ const ENTITY_CONFIGS: EntitySyncConfig[] = [
       if (rest.status !== undefined) {
         cleanItem.status = rest.status;
       }
+      if (rest.isFavorite !== undefined) {
+        cleanItem.isFavorite = rest.isFavorite;
+      }
       
       return cleanItem;
     },
@@ -1460,12 +1463,16 @@ export class GlobalSyncService {
     const db = await this.getDb();
 
     // Récupérer les opérations en attente ET en erreur (pour permettre de les réessayer)
-    const pendingOps = await db.pendingOperations
+    const allPendingOps = await db.pendingOperations
       .where('status')
       .anyOf(['pending', 'error'])
       .toArray();
+    // ✅ Filtrer par organizationId : ne traiter que les ops de l'org courante (et les ops sans org pour rétrocompatibilité)
+    const pendingOps = allPendingOps.filter(
+      op => op.organizationId === organizationId || op.organizationId == null
+    );
 
-    logToServer(`[APP-SHELL][SYNC] Opérations en attente: ${pendingOps.length}`);
+    logToServer(`[APP-SHELL][SYNC] Opérations en attente: ${pendingOps.length} (org ${organizationId}, total brut: ${allPendingOps.length})`);
 
     // Remettre les opérations en erreur à "pending" pour les réessayer
     // Réinitialiser le retryCount à 0 pour permettre un nouveau cycle de tentatives
@@ -1484,11 +1491,14 @@ export class GlobalSyncService {
       console.log(`[GlobalSync] ${errorOps.length} opération(s) en erreur remise(s) à "pending" pour réessai (retryCount réinitialisé)`);
     }
 
-    // Recharger les opérations après la mise à jour
-    let allOps = await db.pendingOperations
+    // Recharger les opérations après la mise à jour (filtrer par org pour ne traiter que l'org courante)
+    const rawOps = await db.pendingOperations
       .where('status')
       .anyOf(['pending', 'syncing'])
       .toArray();
+    let allOps = rawOps.filter(
+      op => op.organizationId === organizationId || op.organizationId == null
+    );
 
     // ✅ OPTIMISATION: Annuler les pendingOps qui s'annulent mutuellement
     // Cas 1: CREATE puis DELETE du même entityId → supprimer les deux (net effect = rien)
@@ -1921,6 +1931,27 @@ export class GlobalSyncService {
               });
               continue;
             }
+          } else if (config.entity === 'transaction') {
+            // ⚠️ Transaction : en local l'id peut rester l'UUID ; le serveur attend l'id serveur (serverId)
+            // Fusionner la transaction locale avec le payload pour garantir chargesRecup/chargesNonRecup (éviter perte après overwrite)
+            let transactionIdForPut = op.entityId;
+            let bodyForPut = op.payload;
+            try {
+              const db = await this.getDb();
+              let table: any = (db as any).Transaction;
+              if (!table || typeof table === 'function' || typeof table?.get !== 'function') {
+                table = db.tables?.find((t: any) => t.name === 'Transaction');
+              }
+              if (table && typeof table.get === 'function') {
+                const localTx = await table.get(op.entityId);
+                if (localTx) {
+                  if (localTx.serverId) transactionIdForPut = localTx.serverId;
+                  // Body complet = local + payload (les champs charges peuvent ne pas être dans le payload partiel)
+                  bodyForPut = { ...localTx, ...(op.payload || {}) };
+                }
+              }
+            } catch (_) { /* garder op.entityId et op.payload */ }
+            success = await this.updateRemote(config, transactionIdForPut, bodyForPut, organizationId);
           } else {
             // Pour les autres entités, comportement normal
             success = await this.updateRemote(config, op.entityId, op.payload, organizationId);
@@ -1937,17 +1968,8 @@ export class GlobalSyncService {
         }
 
         if (success) {
-          await db.pendingOperations.update(op.id, {
-            status: 'synced',
-            updatedAt: new Date().toISOString(),
-            errorMessage: undefined,
-          });
-
-          // Supprimer l'opération après un délai
-          setTimeout(() => {
-            db.pendingOperations.delete(op.id).catch(console.error);
-          }, 24 * 60 * 60 * 1000); // 24 heures
-
+          // Suppression immédiate : push silencieux, aucune trace "synchronisé" sur la page Sync
+          await db.pendingOperations.delete(op.id);
           synced++;
         } else {
           throw new Error('Opération échouée');

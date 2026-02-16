@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import {
   AlertCircle,
   Calendar,
+  ChevronRight,
   CreditCard,
   FileText,
   Home,
@@ -20,6 +21,7 @@ import {
   X,
   Loader2,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/utils/cn';
 import type {
   LoyerNonEncaisse,
@@ -88,6 +90,8 @@ export function TasksPanel({
   
   // État pour la modale des transactions non rapprochées
   const [showAllTransactionsNonRapprochees, setShowAllTransactionsNonRapprochees] = useState(false);
+  // Recherche dans la modale transactions (si > 10 items)
+  const [searchTransactionsModal, setSearchTransactionsModal] = useState('');
   
   // État pour la modale des échéances (prêts + charges)
   const [showAllEcheances, setShowAllEcheances] = useState(false);
@@ -459,17 +463,83 @@ export function TasksPanel({
   // État pour la modale des relances
   const [showAllRelances, setShowAllRelances] = useState(false);
 
-  // Layout horizontal : les 3 panneaux principaux côte à côte
+  // Layout horizontal : 2 cartes compactes cliquables → modal (pattern SaaS)
   if (layout === 'horizontal') {
+    const relancesTotal = filteredRelances.reduce((sum, r) => sum + r.montant, 0);
+    const txTotal = filteredTransactionsNonRapprochees.reduce((sum, t) => sum + t.montant, 0);
+    const previewRelance = filteredRelances[0];
+    const previewTx = filteredTransactionsNonRapprochees[0];
+
     return (
       <>
-        <div className="space-y-6">
-          {/* Loyers en retard avec graphique */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {relances.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowAllRelances(true)}
+              className={cn(
+                'group flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm',
+                'transition-all duration-150 ease-out cursor-pointer',
+                'hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5',
+                'focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-2'
+              )}
+            >
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-red-50">
+                <AlertCircle className="h-5 w-5 text-red-500" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-slate-900">Loyers en retard</span>
+                  <Badge variant="danger" className="text-xs">{filteredRelances.length}</Badge>
+                  <span className="text-sm font-medium text-slate-700">{formatCurrency(relancesTotal)}</span>
+                </div>
+                {previewRelance && (
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {previewRelance.tenantName} – {previewRelance.propertyName}
+                  </p>
+                )}
+              </div>
+              <ChevronRight className="h-5 w-5 flex-shrink-0 text-slate-400 transition-colors group-hover:text-slate-600" />
+            </button>
+          )}
+
+          {transactionsNonRapprochees.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowAllTransactionsNonRapprochees(true)}
+              className={cn(
+                'group flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm',
+                'transition-all duration-150 ease-out cursor-pointer',
+                'hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5',
+                'focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-2'
+              )}
+            >
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-amber-50">
+                <FileText className="h-5 w-5 text-amber-600" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-slate-900">Transactions non rapprochées</span>
+                  <Badge variant="warning" className="text-xs">{filteredTransactionsNonRapprochees.length}</Badge>
+                  <span className="text-sm font-medium text-slate-700">{formatCurrency(txTotal)}</span>
+                </div>
+                {previewTx && (
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {previewTx.label || previewTx.propertyName || 'Transaction'}
+                  </p>
+                )}
+              </div>
+              <ChevronRight className="h-5 w-5 flex-shrink-0 text-slate-400 transition-colors group-hover:text-slate-600" />
+            </button>
+          )}
+        </div>
+
+        {/* Panels détaillés supprimés : Échéances / Indexations / Baux / Documents restent en layout vertical uniquement */}
+        <div className="space-y-6 hidden">
           {relances.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Encart loyers en retard */}
               <div className="md:col-span-1">
-                <Card>
+                <Card className="border-l-4 border-l-red-500 border-slate-200 bg-transparent shadow-sm">
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <div>
@@ -571,9 +641,9 @@ export function TasksPanel({
             </div>
           )}
 
-          {/* Transactions non rapprochées */}
+          {/* Transactions non rapprochées — panel neutre */}
           {transactionsNonRapprochees.length > 0 && (
-            <Card>
+            <Card className="border-slate-200 bg-transparent shadow-sm">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
@@ -669,12 +739,12 @@ export function TasksPanel({
             </Card>
           )}
 
-          {/* Panneaux principaux en ligne */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Échéances du mois + Indexations côte à côte */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-          {/* Échéances du mois */}
+          {/* Échéances du mois — panel neutre */}
           {(echeancesPrets.length > 0 || echeancesCharges.length > 0) && (
-            <Card>
+            <Card className="border-slate-200 bg-transparent shadow-sm">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
@@ -787,48 +857,46 @@ export function TasksPanel({
               </CardContent>
             </Card>
           )}
+
+          {/* Indexations — à côté des Échéances du mois */}
+          {indexations.length > 0 && (
+            <Card className="border-slate-200 bg-transparent shadow-sm">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-sm">
+                      <TrendingUp className="h-4 w-4 text-indigo-500" />
+                      Indexations
+                    </CardTitle>
+                  </div>
+                  <Badge variant="info" className="text-xs">{indexations.length}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {indexations.slice(0, 2).map((indexation) => (
+                    <TaskCard
+                      key={indexation.id}
+                      icon={TrendingUp}
+                      title={`${indexation.tenantName}`}
+                      subtitle={`Loyer: ${formatCurrency(indexation.loyerActuel)}`}
+                      date={indexation.dateAnniversaire}
+                      priority="medium"
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
-        {/* Autres panneaux en dessous si nécessaire */}
-        {(indexations.length > 0 ||
-          bauxAEcheance.length > 0 ||
-          documentsAValider.length > 0) && (
+        {/* Baux à renouveler + Documents (en dessous) */}
+        {(bauxAEcheance.length > 0 || documentsAValider.length > 0) && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
-            {/* Indexations */}
-            {indexations.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="flex items-center gap-2 text-sm">
-                        <TrendingUp className="h-4 w-4 text-indigo-500" />
-                        Indexations
-                      </CardTitle>
-                    </div>
-                    <Badge variant="info" className="text-xs">{indexations.length}</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {indexations.slice(0, 2).map((indexation) => (
-                      <TaskCard
-                        key={indexation.id}
-                        icon={TrendingUp}
-                        title={`${indexation.tenantName}`}
-                        subtitle={`Loyer: ${formatCurrency(indexation.loyerActuel)}`}
-                        date={indexation.dateAnniversaire}
-                        priority="medium"
-                      />
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Baux à renouveler */}
+            {/* Baux à renouveler — panel neutre */}
             {bauxAEcheance.length > 0 && (
-              <Card>
+              <Card className="border-slate-200 bg-transparent shadow-sm">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
@@ -857,9 +925,9 @@ export function TasksPanel({
               </Card>
             )}
 
-            {/* Documents à valider */}
+            {/* Documents à valider — panel neutre */}
             {documentsAValider.length > 0 && (
-              <Card>
+              <Card className="border-slate-200 bg-transparent shadow-sm">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
@@ -892,11 +960,25 @@ export function TasksPanel({
         </div>
 
         {/* Modale pour toutes les relances */}
+        <AnimatePresence>
         {showAllRelances && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={() => setShowAllRelances(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            >
               {/* Header */}
-              <div className="flex items-center justify-between p-6 border-b">
+              <div className="flex items-center justify-between p-6 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <AlertCircle className="h-6 w-6 text-red-500" />
                   <h2 className="text-xl font-semibold text-gray-900">
@@ -924,8 +1006,8 @@ export function TasksPanel({
                 </button>
               </div>
 
-              {/* Content */}
-              <div className="flex-1 overflow-y-auto p-6">
+              {/* Content scrollable */}
+              <div className="flex-1 overflow-y-auto p-6 min-h-0">
                 <div className="space-y-3">
                   {filteredRelances.map((loyer) => (
                     <TaskCard
@@ -966,22 +1048,44 @@ export function TasksPanel({
                 </div>
               </div>
 
-              {/* Footer */}
-              <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
+              {/* Footer sticky */}
+              <div className="flex items-center justify-between gap-3 p-6 border-t border-slate-100 bg-slate-50 flex-shrink-0">
+                <Button
+                  variant="primary"
+                  onClick={() => setShowAllRelances(false)}
+                  className="gap-2"
+                >
+                  Tout relancer ({filteredRelances.length})
+                </Button>
                 <Button variant="outline" onClick={() => setShowAllRelances(false)}>
                   Fermer
                 </Button>
               </div>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         )}
+        </AnimatePresence>
 
         {/* Modale pour toutes les transactions non rapprochées (layout horizontal) */}
+        <AnimatePresence>
         {showAllTransactionsNonRapprochees && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={() => { setShowAllTransactionsNonRapprochees(false); setSearchTransactionsModal(''); }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            >
               {/* Header */}
-              <div className="flex items-center justify-between p-6 border-b">
+              <div className="flex items-center justify-between p-6 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <FileText className="h-6 w-6 text-orange-500" />
                   <h2 className="text-xl font-semibold text-gray-900">
@@ -995,17 +1099,39 @@ export function TasksPanel({
                   )}
                 </div>
                 <button
-                  onClick={() => setShowAllTransactionsNonRapprochees(false)}
+                  onClick={() => { setShowAllTransactionsNonRapprochees(false); setSearchTransactionsModal(''); }}
                   className="text-gray-400 hover:text-gray-600 transition-colors"
                 >
                   <X className="h-6 w-6" />
                 </button>
               </div>
 
-              {/* Content */}
-              <div className="flex-1 overflow-y-auto p-6">
+              {/* Recherche si > 10 */}
+              {filteredTransactionsNonRapprochees.length > 10 && (
+                <div className="px-6 py-3 border-b border-slate-100">
+                  <input
+                    type="search"
+                    placeholder="Rechercher (label, bien, locataire…)"
+                    value={searchTransactionsModal}
+                    onChange={(e) => setSearchTransactionsModal(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                </div>
+              )}
+
+              {/* Content scrollable */}
+              <div className="flex-1 overflow-y-auto p-6 min-h-0">
                 <div className="space-y-3">
-                  {filteredTransactionsNonRapprochees.map((transaction) => (
+                  {(() => {
+                    const list = filteredTransactionsNonRapprochees.length > 10 && searchTransactionsModal.trim()
+                      ? filteredTransactionsNonRapprochees.filter(
+                          (t) =>
+                            (t.label || '').toLowerCase().includes(searchTransactionsModal.toLowerCase()) ||
+                            (t.propertyName || '').toLowerCase().includes(searchTransactionsModal.toLowerCase()) ||
+                            (t.tenantName || '').toLowerCase().includes(searchTransactionsModal.toLowerCase())
+                        )
+                      : filteredTransactionsNonRapprochees;
+                    return list.map((transaction) => (
                     <TaskCard
                       key={transaction.id}
                       icon={FileText}
@@ -1052,35 +1178,37 @@ export function TasksPanel({
                         </div>
                       }
                     />
-                  ))}
+                  ));
+                  })()}
                 </div>
               </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-between gap-3 p-6 border-t bg-gray-50">
-              <Button 
-                variant="primary"
-                onClick={handleRapprocherTout}
-                disabled={filteredTransactionsNonRapprochees.length === 0 || isReconcilingAll}
-              >
-                {isReconcilingAll ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Rapprochement en cours...
-                  </>
-                ) : (
-                  <>
-                    Tout rapprocher ({filteredTransactionsNonRapprochees.length})
-                  </>
-                )}
-              </Button>
-              <Button variant="outline" onClick={() => setShowAllTransactionsNonRapprochees(false)}>
-                Fermer
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+              {/* Footer sticky */}
+              <div className="flex items-center justify-between gap-3 p-6 border-t border-slate-100 bg-slate-50 flex-shrink-0">
+                <Button 
+                  variant="primary"
+                  onClick={handleRapprocherTout}
+                  disabled={filteredTransactionsNonRapprochees.length === 0 || isReconcilingAll}
+                >
+                  {isReconcilingAll ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Rapprochement en cours...
+                    </>
+                  ) : (
+                    <>
+                      Tout rapprocher ({filteredTransactionsNonRapprochees.length})
+                    </>
+                  )}
+                </Button>
+                <Button variant="outline" onClick={() => { setShowAllTransactionsNonRapprochees(false); setSearchTransactionsModal(''); }}>
+                  Fermer
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        </AnimatePresence>
 
       {/* Modale pour toutes les échéances */}
       {showAllEcheances && (

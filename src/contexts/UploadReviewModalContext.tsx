@@ -17,6 +17,9 @@ export interface UploadReviewModalConfig {
   
   // Scope de l'upload
   scope?: 'global' | 'property';
+
+  /** Contexte métier : 'transaction' = document attaché à une entité (option "Lier l'existant") ; 'documents' = bibliothèque */
+  mode?: 'transaction' | 'documents';
   
   // IDs contextuels
   propertyId?: string;

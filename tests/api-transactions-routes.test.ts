@@ -38,6 +38,13 @@ vi.mock('@/lib/prisma', () => ({
     documentLink: {
       findMany: vi.fn(),
     },
+    natureEntity: {
+      findMany: vi.fn(),
+    },
+    transaction: {
+      findMany: vi.fn(),
+      count: vi.fn(),
+    },
   },
 }));
 
@@ -53,6 +60,37 @@ vi.mock('@/services/storage.service', () => ({
 describe('API Routes - Transactions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe('GET /api/transactions - pagination et tri', () => {
+    it('devrait appliquer orderBy AVANT skip/take (tri global cohérent)', async () => {
+      const { requireAuth } = await import('@/lib/auth/getCurrentUser');
+      vi.mocked(requireAuth).mockResolvedValue({
+        id: 'user1',
+        organizationId: 'org1',
+        email: 'test@example.com',
+      } as any);
+
+      const { prisma } = await import('@/lib/prisma');
+      vi.mocked(prisma.natureEntity.findMany).mockResolvedValue([
+        { code: 'RECETTE_LOYER', label: 'Loyer', flow: 'INCOME' },
+      ]);
+      vi.mocked(prisma.transaction.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.transaction.count).mockResolvedValue(0);
+
+      const { GET } = await import('@/app/api/transactions/route');
+      const request = new NextRequest(
+        'http://localhost:3000/api/transactions?sortBy=accounting_month&sortOrder=desc&page=2&limit=10'
+      );
+
+      await GET(request);
+
+      expect(prisma.transaction.findMany).toHaveBeenCalled();
+      const findManyCall = vi.mocked(prisma.transaction.findMany).mock.calls[0][0];
+      expect(findManyCall.orderBy).toEqual({ accounting_month: 'desc' });
+      expect(findManyCall.skip).toBe(10);
+      expect(findManyCall.take).toBe(10);
+    });
   });
 
   describe('POST /api/transactions', () => {

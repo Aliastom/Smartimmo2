@@ -468,14 +468,11 @@ export function useSyncStatus(organizationId?: string) {
         fullSyncRunning: false,
       }));
 
-      // Après la full sync, lancer une sync normale pour récupérer les dernières modifications
+      // Après la full sync, lancer une sync normale (push puis overwrite, ordre strict)
       if (result.success) {
-        // Utiliser le service directement pour éviter la dépendance circulaire
         const globalSyncService = getGlobalSyncService();
-        await Promise.all([
-          globalSyncService.syncAllFromRemote(organizationId),
-          globalSyncService.syncAllPendingToRemote(organizationId),
-        ]);
+        await globalSyncService.syncAllPendingToRemote(organizationId);
+        await globalSyncService.syncAllFromRemote(organizationId);
         await updatePendingCount();
       }
     } catch (error: any) {
@@ -519,13 +516,11 @@ export function useSyncStatus(organizationId?: string) {
               fullSyncRunning: false,
             }));
 
-            // Après la full sync, lancer une sync normale pour récupérer les dernières modifications
+            // Après la full sync, lancer une sync normale (push puis overwrite, ordre strict)
             if (result.success) {
               const globalSyncService = getGlobalSyncService();
-              await Promise.all([
-                globalSyncService.syncAllFromRemote(organizationId),
-                globalSyncService.syncAllPendingToRemote(organizationId),
-              ]);
+              await globalSyncService.syncAllPendingToRemote(organizationId);
+              await globalSyncService.syncAllFromRemote(organizationId);
               await updatePendingCount();
             }
           } catch (error: any) {

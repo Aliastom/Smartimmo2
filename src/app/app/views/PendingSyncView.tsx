@@ -102,8 +102,10 @@ export function PendingSyncView({ organizationId }: PendingSyncViewProps) {
           .orderBy('createdAt')
           .reverse()
           .toArray();
-        // Filtrer par organizationId (les pendingOps ont organizationId)
-        const ops = allOps.filter(op => op.organizationId === organizationId);
+        // Filtrer par organizationId et exclure les "synced" (ne doivent plus exister après push = suppression immédiate)
+        const ops = allOps.filter(
+          op => op.organizationId === organizationId && op.status !== 'synced'
+        );
         
         // Charger les stats IndexedDB avec labels et icônes
         const stats: IndexedDBStats[] = [];
@@ -375,12 +377,15 @@ export function PendingSyncView({ organizationId }: PendingSyncViewProps) {
         await syncService.syncAllPendingToRemote(organizationId);
       }
 
-      // Recharger les données
+      // Recharger les données (uniquement pending / error / syncing / blocked, pas synced)
       const db = await getLocalDB();
-      const ops = await db.pendingOperations
+      const allOps = await db.pendingOperations
         .orderBy('createdAt')
         .reverse()
         .toArray();
+      const ops = allOps.filter(
+        (op: PendingOperation) => op.organizationId === organizationId && op.status !== 'synced'
+      );
       setPendingOps(ops);
 
       await showAlert({
@@ -585,10 +590,13 @@ export function PendingSyncView({ organizationId }: PendingSyncViewProps) {
       const db = await getLocalDB();
       await db.pendingOperations.delete(opId);
       
-      const ops = await db.pendingOperations
+      const allOps = await db.pendingOperations
         .orderBy('createdAt')
         .reverse()
         .toArray();
+      const ops = allOps.filter(
+        (op: PendingOperation) => op.organizationId === organizationId && op.status !== 'synced'
+      );
       setPendingOps(ops);
 
       await showAlert({
@@ -962,7 +970,7 @@ export function PendingSyncView({ organizationId }: PendingSyncViewProps) {
                 État des opérations de synchronisation
               </CardTitle>
               <CardDescription>
-                Compteurs et détails des opérations en attente, synchronisées et en erreur
+                Compteurs et détails des opérations en attente et en erreur
               </CardDescription>
             </div>
             {pendingOps.length > 0 && (
@@ -978,23 +986,19 @@ export function PendingSyncView({ organizationId }: PendingSyncViewProps) {
           </div>
         </CardHeader>
         <CardContent>
-          {/* Compteurs en haut */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          {/* Compteurs : uniquement en attente et en erreur (pas de "synchronisées", push = suppression immédiate) */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
             <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
               <div className="text-2xl font-bold text-blue-600">{pendingOps.length}</div>
               <div className="text-sm text-gray-600 mt-1">Total</div>
             </div>
             <div className="text-center p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-              <div className="text-2xl font-bold text-yellow-600">{groupedOps.pending.length}</div>
+              <div className="text-2xl font-bold text-yellow-600">{groupedOps.pending.length + groupedOps.syncing.length}</div>
               <div className="text-sm text-gray-600 mt-1">En attente</div>
             </div>
             <div className="text-center p-4 bg-red-50 rounded-lg border border-red-200">
               <div className="text-2xl font-bold text-red-600">{groupedOps.error.length}</div>
               <div className="text-sm text-gray-600 mt-1">En erreur</div>
-            </div>
-            <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
-              <div className="text-2xl font-bold text-green-600">{groupedOps.synced.length}</div>
-              <div className="text-sm text-gray-600 mt-1">Synchronisées</div>
             </div>
           </div>
 

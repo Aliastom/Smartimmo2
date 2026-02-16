@@ -591,7 +591,7 @@ export default function TransactionsClient() {
     }
   }, [selectedTransactionIds]);
 
-  const handleDeleteMultipleConfirmed = useCallback(async (mode: 'delete_docs' | 'keep_docs_globalize') => {
+  const handleDeleteMultipleConfirmed = useCallback(async (mode: 'delete_docs' | 'keep_docs_globalize' | 'unlink_only') => {
     const total = transactionsToDelete.length;
     setDeletingProgress({ current: 0, total });
     

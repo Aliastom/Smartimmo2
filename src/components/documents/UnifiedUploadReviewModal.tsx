@@ -40,6 +40,7 @@ export function UnifiedUploadReviewModal() {
       autoLinkingContext={config.autoLinkingContext}
       autoLinkingDocumentType={config.autoLinkingDocumentType}
       documentTypeEditable={config.autoLinkingDocumentType ? false : true}
+      mode={config.mode ?? 'documents'}
     />
   );
 }

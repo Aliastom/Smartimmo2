@@ -105,7 +105,7 @@ export interface UpdateTransactionParams {
 }
 
 export interface DeleteTransactionParams {
-  mode?: 'delete_docs' | 'keep_docs_globalize';
+  mode?: 'delete_docs' | 'keep_docs_globalize' | 'unlink_only';
   deleteChildren?: boolean;
 }
 
@@ -231,8 +231,8 @@ export class TransactionService {
         dateRapprochement: params.rapprochementStatus === 'rapprochee' ? new Date() : null,
         bankRef: params.bankRef || null,
         montantLoyer: params.montantLoyer ? parseFloat(String(params.montantLoyer)) : null,
-        chargesRecup: params.chargesRecup ? parseFloat(String(params.chargesRecup)) : null,
-        chargesNonRecup: params.chargesNonRecup ? parseFloat(String(params.chargesNonRecup)) : null,
+        chargesRecup: params.chargesRecup != null && params.chargesRecup !== '' ? parseFloat(String(params.chargesRecup)) : null,
+        chargesNonRecup: params.chargesNonRecup != null && params.chargesNonRecup !== '' ? parseFloat(String(params.chargesNonRecup)) : null,
         isAutoAmount: params.isAutoAmount ?? null,
         nature: params.natureId || params.nature || null,
         parentTransactionId: null,
@@ -626,9 +626,9 @@ export class TransactionService {
       updateData.dateRapprochement = params.rapprochementStatus === 'rapprochee' ? new Date() : null;
     }
     if (params.bankRef !== undefined) updateData.bankRef = params.bankRef;
-    if (params.montantLoyer !== undefined) updateData.montantLoyer = params.montantLoyer ? parseFloat(String(params.montantLoyer)) : null;
-    if (params.chargesRecup !== undefined) updateData.chargesRecup = params.chargesRecup ? parseFloat(String(params.chargesRecup)) : null;
-    if (params.chargesNonRecup !== undefined) updateData.chargesNonRecup = params.chargesNonRecup ? parseFloat(String(params.chargesNonRecup)) : null;
+    if (params.montantLoyer !== undefined) updateData.montantLoyer = params.montantLoyer != null && params.montantLoyer !== '' ? parseFloat(String(params.montantLoyer)) : null;
+    if (params.chargesRecup !== undefined) updateData.chargesRecup = params.chargesRecup != null && params.chargesRecup !== '' ? parseFloat(String(params.chargesRecup)) : null;
+    if (params.chargesNonRecup !== undefined) updateData.chargesNonRecup = params.chargesNonRecup != null && params.chargesNonRecup !== '' ? parseFloat(String(params.chargesNonRecup)) : null;
     if (params.isAutoAmount !== undefined) updateData.isAutoAmount = params.isAutoAmount;
     if (params.natureId !== undefined || params.nature !== undefined) {
       updateData.nature = params.natureId || params.nature;
@@ -941,6 +941,15 @@ export class TransactionService {
         // Supprimer les documents
         for (const link of documentLinks) {
           await this.deps.documentRepo.delete(link.documentId);
+        }
+      } else if (mode === 'unlink_only') {
+        // Ne supprimer que les liaisons document ↔ cette transaction
+        for (const link of documentLinks) {
+          await this.deps.documentLinkRepo.deleteMany({
+            documentId: link.documentId,
+            linkedType: 'transaction',
+            linkedId: id,
+          });
         }
       } else {
         // keep_docs_globalize: retirer toutes les liaisons non-globales puis créer une liaison globale

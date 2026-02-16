@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { notify2 } from '@/lib/notify2';
 
-type DeleteMode = 'delete_docs' | 'keep_docs_globalize';
+export type DeleteMode = 'delete_docs' | 'keep_docs_globalize' | 'unlink_only';
 
 interface ConfirmDeleteTransactionModalProps {
   isOpen: boolean;
@@ -20,8 +20,9 @@ interface ConfirmDeleteTransactionModalProps {
 
 /**
  * Modal de confirmation de suppression d'une transaction
- * Si la transaction contient des documents, propose 2 choix :
- * - Supprimer aussi les documents liés (et toutes leurs liaisons)
+ * Si la transaction contient des documents, propose 3 choix :
+ * - Supprimer les documents et toutes leurs liaisons
+ * - Ne supprimer que les liaisons avec cette transaction (documents et autres liaisons conservés)
  * - Conserver les documents en ne laissant que la liaison globale
  */
 export function ConfirmDeleteTransactionModal({
@@ -34,7 +35,7 @@ export function ConfirmDeleteTransactionModal({
   isLoading = false
 }: ConfirmDeleteTransactionModalProps) {
   const [isDeleting, setIsDeleting] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<DeleteMode>('keep_docs_globalize');
+  const [selectedMode, setSelectedMode] = useState<DeleteMode>('unlink_only');
 
   const handleConfirm = async () => {
     setIsDeleting(true);
@@ -120,7 +121,28 @@ export function ConfirmDeleteTransactionModal({
                 </div>
               </label>
 
-              {/* Option 2 : Conserver les documents en global */}
+              {/* Option 2 : Ne supprimer que les liaisons avec cette transaction */}
+              <label className="flex items-start p-3 border-2 rounded-lg cursor-pointer transition-colors hover:bg-gray-50">
+                <input
+                  type="radio"
+                  name="delete_mode"
+                  value="unlink_only"
+                  checked={selectedMode === 'unlink_only'}
+                  onChange={(e) => setSelectedMode(e.target.value as DeleteMode)}
+                  disabled={isDeleting}
+                  className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                />
+                <div className="ml-3 flex-1">
+                  <span className="text-sm font-medium text-gray-900">
+                    Ne supprimer que les liaisons avec cette transaction
+                  </span>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Les documents sont conservés ; seuls les liens avec cette transaction sont retirés (les liaisons avec d'autres éléments restent intactes)
+                  </p>
+                </div>
+              </label>
+
+              {/* Option 3 : Conserver les documents en global */}
               <label className="flex items-start p-3 border-2 rounded-lg cursor-pointer transition-colors hover:bg-gray-50">
                 <input
                   type="radio"

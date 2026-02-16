@@ -32,6 +32,7 @@ import { DuplicateDetectedModal } from '@/components/documents/DuplicateDetected
 import { ConfirmDeleteDocumentModal } from '@/components/documents/ConfirmDeleteDocumentModal';
 import { UnclassifiedDocumentsModal } from './UnclassifiedDocumentsModal';
 import { TransactionSuggestionConfirmModal } from './TransactionSuggestionConfirmModal';
+import { LinkExistingDocumentModal } from '@/components/documents/LinkExistingDocumentModal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 import { SearchableSelect } from '@/components/forms/SearchableSelect';
 import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
@@ -39,6 +40,8 @@ import { SmartDatePicker } from '@/components/ui/SmartDatePicker';
 import { SmartSelectAdvanced } from '@/components/ui/SmartSelectAdvanced';
 import { Switch } from '@/components/ui/Switch';
 import { Accordion } from '@/components/ui/Accordion';
+import { ModalSubmitOverlay } from '@/components/ui/ModalSubmitOverlay';
+import { useModalSubmitFlow } from '@/hooks/useModalSubmitFlow';
 
 // Configuration des natures avec libellés clairs et groupes
 const getNatureOptions = (getNatureLabel: (key: string) => string) => [
@@ -124,6 +127,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState('essentielles');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const {
+    submitStep,
+    submitError,
+    startValidation,
+    startSaving,
+    markDone,
+    markError,
+    reset: resetSubmitFlow,
+  } = useModalSubmitFlow();
+  const lastSubmitPayloadRef = React.useRef<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   // ⚠️ PROBLÈME 1: État pour suivre les fichiers en cours d'upload
   const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(new Set());
@@ -167,8 +180,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   
   // État pour la modal de sélection de document existant
   const [showDocumentSelectorModal, setShowDocumentSelectorModal] = useState(false);
-  const [availableDocuments, setAvailableDocuments] = useState<any[]>([]);
-  const [documentSearchTerm, setDocumentSearchTerm] = useState('');
 
   // Hook pour récupérer les libellés personnalisés des natures
   const { getNatureLabel, loading: natureLabelsLoading } = useNatureLabels();
@@ -284,6 +295,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   
   // Ref pour indiquer qu'on applique une suggestion OCR (évite l'écrasement par le pré-remplissage du bail)
   const isApplyingOcrSuggestion = React.useRef(false);
+  // En édition : éviter que le recalcul auto écrase le montant persisté au premier rendu
+  const editInitialLoadDoneRef = React.useRef(false);
   
   // États pour indiquer qu'un document existe déjà en brouillon
   const [showDraftExistsModal, setShowDraftExistsModal] = useState(false);
@@ -734,6 +747,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     const categoryId = watch('categoryId');
     const periodMonth = watch('periodMonth');
     const periodYear = watch('periodYear');
+    const accountingMonth = watch('accountingMonth');
     const propertyId = watch('propertyId');
     const monthsCovered = watch('monthsCovered');
 
@@ -752,14 +766,19 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       }
     }
 
-    // 2. Période - UNIQUEMENT si mode édition OU si monthsCovered = 1
-    // Si monthsCovered > 1, le backend ajoutera la période spécifique pour chaque transaction
+    // 2. Période - depuis accountingMonth (YYYY-MM) ou periodMonth/periodYear
     if (mode === 'edit' || !monthsCovered || monthsCovered === 1) {
-      if (periodMonth && periodYear) {
-        const monthNames = [
-          'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-          'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
-        ];
+      const monthNames = [
+        'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+        'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+      ];
+      if (accountingMonth && /^\d{4}-\d{2}$/.test(accountingMonth)) {
+        const [, y, m] = accountingMonth.match(/^(\d{4})-(\d{2})$/) || [];
+        if (y && m) {
+          const monthName = monthNames[parseInt(m, 10) - 1] || m;
+          labelParts.push(`${monthName} ${y}`);
+        }
+      } else if (periodMonth && periodYear) {
         const monthName = monthNames[parseInt(periodMonth) - 1] || periodMonth;
         labelParts.push(`${monthName} ${periodYear}`);
       }
@@ -775,20 +794,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
     return labelParts.join(' - ');
   }, [watch, categories, natures, properties, mode]);
-
-  // Mise à jour automatique du libellé
-  useEffect(() => {
-    const subscription = watch((value, { name }) => {
-      // Mettre à jour le libellé quand nature, catégorie, période ou bien changent
-      if (name === 'nature' || name === 'categoryId' || name === 'periodMonth' || name === 'periodYear' || name === 'propertyId') {
-        const newLabel = generateLabel();
-        if (newLabel) {
-          setValue('label', newLabel);
-        }
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, [watch, setValue, generateLabel]);
 
   // Synchroniser les états locaux avec les valeurs du formulaire
   useEffect(() => {
@@ -823,6 +828,21 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     mode: mode, // Passer le mode pour désactiver les automatismes en édition
     selectedNature: selectedNature // Passer la nature sélectionnée pour le filtrage
   });
+
+  // Mise à jour automatique du libellé (uniquement si libellé en mode auto) — après useAutoFillTransaction
+  useEffect(() => {
+    const subscription = watch((value, { name }) => {
+      const isLabelAuto = !autoFillState.isManual.label;
+      if (!isLabelAuto) return;
+      if (name === 'nature' || name === 'categoryId' || name === 'periodMonth' || name === 'periodYear' || name === 'accountingMonth' || name === 'propertyId') {
+        const newLabel = generateLabel();
+        if (newLabel) {
+          setValue('label', newLabel);
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [watch, setValue, generateLabel, autoFillState.isManual.label]);
 
   // Calculer la valeur auto du montant basée sur le bail sélectionné
   const leasesArray = Array.isArray(leases) ? leases : [];
@@ -877,6 +897,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   // Initialisation de isAutoAmount en CRÉATION uniquement
   useEffect(() => {
+    if (mode === 'create') {
+      editInitialLoadDoneRef.current = false;
+    }
     // En édition, on ne touche jamais à isAutoAmount (restauré depuis la BDD)
     if (mode !== 'create') return;
     
@@ -912,7 +935,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     // Ne pas recalculer pour les transactions enfant (commissions)
     const isChildTransaction = watch('parentTransactionId' as any);
     if (isChildTransaction) return;
-    
+    // En édition : ne pas écraser le montant persisté au chargement initial
+    if (mode === 'edit' && editInitialLoadDoneRef.current) {
+      editInitialLoadDoneRef.current = false;
+      return;
+    }
     if (isAutoAmount) {
       const selectedCategoryObj = categories.find(c => c.id === selectedCategory);
       const selectedCategorySlug = selectedCategoryObj?.slug || '';
@@ -1087,6 +1114,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
         // Si mode édition, charger la transaction + initialiser session + charger drafts
         if (mode === 'edit' && transactionId) {
+          editInitialLoadDoneRef.current = false;
           let transactionData: any;
           let sessionId: string | null = null; // Déclarer sessionId dans la portée correcte
           
@@ -1258,10 +1286,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           if (transactionData.moisIndex) setValue('moisIndex' as any, transactionData.moisIndex);
           if (transactionData.moisTotal) setValue('moisTotal' as any, transactionData.moisTotal);
           
-          // Charger les champs de breakdown loyer (gestion déléguée)
-          if (transactionData.montantLoyer) setValue('montantLoyer', transactionData.montantLoyer);
-          if (transactionData.chargesRecup) setValue('chargesRecup', transactionData.chargesRecup);
-          if (transactionData.chargesNonRecup) setValue('chargesNonRecup', transactionData.chargesNonRecup);
+          // Charger les champs de breakdown loyer (gestion déléguée) — accepter 0 (sinon 0 n'est pas restauré)
+          if (transactionData.montantLoyer != null && transactionData.montantLoyer !== '') setValue('montantLoyer', Number(transactionData.montantLoyer));
+          if (transactionData.chargesRecup != null && transactionData.chargesRecup !== '') setValue('chargesRecup', Number(transactionData.chargesRecup));
+          if (transactionData.chargesNonRecup != null && transactionData.chargesNonRecup !== '') setValue('chargesNonRecup', Number(transactionData.chargesNonRecup));
           
           // Restaurer l'état du toggle Auto en édition
           // Restauration isAutoAmount - log supprimé
@@ -1358,6 +1386,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             periodMonth: transactionData.periodMonth || '',
             periodYear: transactionData.periodYear || new Date().getFullYear()
           });
+          editInitialLoadDoneRef.current = true;
           
           // Vérifier les valeurs après reset - log supprimé
           
@@ -1938,107 +1967,94 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     );
   };
 
-  // Soumission directe sans vérification des documents non classés
+  /**
+   * Exécute la soumission avec le payload exact (appel onSubmit + effets de succès).
+   * Utilisé pour le premier envoi et pour le retry (même payload via lastSubmitPayloadRef).
+   */
+  const runSubmitWithPayload = useCallback(
+    async (payload: any) => {
+      startSaving();
+      lastSubmitPayloadRef.current = payload;
+      setIsSubmitting(true);
+      try {
+        const result = await onSubmit(payload);
+        markDone();
+
+        if (result && typeof result === 'object' && 'totalCreated' in result) {
+          const { totalCreated, successMessage } = result;
+          if (totalCreated > 1) {
+            notify2.success(successMessage || `${totalCreated} transactions créées avec succès (période multi-mois)`);
+          } else {
+            notify2.success(successMessage || 'Transaction créée avec succès');
+          }
+        } else {
+          notify2.success(mode === 'create' ? 'Transaction créée avec succès' : 'Transaction modifiée avec succès');
+        }
+
+        if (mode === 'create') {
+          await clearStaging();
+        }
+        onClose();
+        reset();
+
+        if (mode === 'edit' && transactionId && !isAppShellMode) {
+          await loadLinkedDocuments();
+        }
+      } catch (error: any) {
+        markError(error);
+        notify2.error('Erreur lors de la sauvegarde');
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [startSaving, markDone, markError, onSubmit, mode, transactionId, isAppShellMode, clearStaging, onClose, reset, loadLinkedDocuments]
+  );
+
+  /** Soumission directe : validation réelle → construction payload → runSubmitWithPayload. */
   const submitFormDirectly = async (data: TransactionFormData) => {
-    // submitFormDirectly appelé - log supprimé
+    startValidation();
     setIsSubmitting(true);
     try {
-      // Ajouter les documents en staging et les liens (création ET édition)
-      // ⚠️ CORRECTION: Utiliser filteredStagedDocuments pour éviter d'envoyer les documents déjà finalisés
       const stagedDocumentIds = filteredStagedDocuments.map(doc => doc.id);
-      // ⚠️ IMPORTANT: Utiliser existingDocument.id (ID du document) et non link.id (ID du lien)
       const stagedLinkItemIds = stagedLinks.map(link => link.existingDocument?.id || link.id);
-      
-      // Logs côté serveur pour diagnostic COMPLET
+
       await logToServer(`[TransactionModalV2] 📎 onSubmitForm - filteredStagedDocuments: ${filteredStagedDocuments.length}, stagedDocumentIds: ${stagedDocumentIds.length} - IDs: ${stagedDocumentIds.join(', ') || 'aucun'}`);
       await logToServer(`[TransactionModalV2] 📎 onSubmitForm - stagedLinks: ${stagedLinks.length}, stagedLinkItemIds: ${stagedLinkItemIds.length} - IDs: ${stagedLinkItemIds.join(', ') || 'aucun'}`);
-      if (filteredStagedDocuments.length > 0) {
-        await logToServer(`[TransactionModalV2] 📎 filteredStagedDocuments détail: ${JSON.stringify(filteredStagedDocuments.map(d => ({ id: d.id, name: d.name || d.fileName, status: d.status })))}`);
-      }
-      if (stagedLinks.length > 0) {
-        await logToServer(`[TransactionModalV2] 📎 stagedLinks détail: ${JSON.stringify(stagedLinks.map(l => ({ id: l.id, existingDocId: l.existingDocument?.id })))}`);
-      }
-      
-      // Construire accountingMonth à partir de periodMonth et periodYear pour la modification
+
       const periodMonth = localFormData.periodMonth || data.periodMonth;
       const periodYear = localFormData.periodYear || data.periodYear;
       const accountingMonth = periodMonth && periodYear ? `${periodYear}-${periodMonth.padStart(2, '0')}` : data.accountingMonth;
-      
-      // Normaliser les champs de paiement pour l'API
-      // FIX: Prioriser les valeurs du formulaire (paymentDate, paymentMethod)
-      // ⚠️ CRITIQUE: Utiliser !== undefined pour détecter la présence du champ, même si la valeur est vide
-      // Si paymentDate/paymentMethod sont présents (même vide ""), les convertir en null ou la valeur
       const normalizedPaidAt = (data as any).paymentDate !== undefined ? ((data as any).paymentDate || null) : ((data as any).paidAt !== undefined ? (data as any).paidAt : undefined);
       const normalizedMethod = (data as any).paymentMethod !== undefined ? ((data as any).paymentMethod || null) : ((data as any).method !== undefined ? (data as any).method : undefined);
-      
-      await logToServer(`[TransactionModalV2] 🔍 DEBUG payment fields dans submitFormDirectly: data.paymentDate="${(data as any).paymentDate}", data.paidAt="${(data as any).paidAt}", normalizedPaidAt="${normalizedPaidAt}"`);
-      await logToServer(`[TransactionModalV2] 🔍 DEBUG method dans submitFormDirectly: data.paymentMethod="${(data as any).paymentMethod}", data.method="${(data as any).method}", normalizedMethod="${normalizedMethod}"`);
 
       const dataWithLocalStates = {
         ...data,
         nature: selectedNature || data.nature,
         categoryId: selectedCategory || data.categoryId,
         label: localFormData.label || data.label,
-        // Champs de paiement (normalisés)
         paidAt: normalizedPaidAt,
         method: normalizedMethod,
         periodMonth: periodMonth,
         periodYear: periodYear,
         accountingMonth: accountingMonth
       };
-      
+
       const dataWithStagedDocuments = {
         ...dataWithLocalStates,
         stagedDocumentIds,
         stagedLinkItemIds,
-        // En mode création, utiliser leaseId comme bailId
         bailId: mode === 'create' ? data.leaseId : undefined,
-        // Gestion déléguée - Breakdown loyer
-        montantLoyer: (data as any).montantLoyer || undefined,
-        chargesRecup: (data as any).chargesRecup || undefined,
-        chargesNonRecup: (data as any).chargesNonRecup || undefined,
+        montantLoyer: (data as any).montantLoyer ?? undefined,
+        chargesRecup: (data as any).chargesRecup !== undefined && (data as any).chargesRecup !== null ? Number((data as any).chargesRecup) : undefined,
+        chargesNonRecup: (data as any).chargesNonRecup !== undefined && (data as any).chargesNonRecup !== null ? Number((data as any).chargesNonRecup) : undefined,
         isAutoAmount: isAutoAmount,
-        // Factures de la section DÉPENSES ET AUTRES RECETTES
         factures: (prefill as any)?.factures || undefined
       };
-      
+
       await logToServer(`[TransactionModalV2] 📎 Données envoyées à onSubmit - stagedDocumentIds: ${dataWithStagedDocuments.stagedDocumentIds?.length || 0} - IDs: ${dataWithStagedDocuments.stagedDocumentIds?.join(', ') || 'aucun'}`);
-      await logToServer(`[TransactionModalV2] 📎 Données envoyées à onSubmit - stagedLinkItemIds: ${dataWithStagedDocuments.stagedLinkItemIds?.length || 0} - IDs: ${dataWithStagedDocuments.stagedLinkItemIds?.join(', ') || 'aucun'}`);
-      const result = await onSubmit(dataWithStagedDocuments);
-      
-      // Gérer la réponse avec les transactions multiples
-      if (result && typeof result === 'object' && 'totalCreated' in result) {
-        const { totalCreated, successMessage } = result;
-        if (totalCreated > 1) {
-          notify2.success(successMessage || `${totalCreated} transactions créées avec succès (période multi-mois)`);
-        } else {
-          notify2.success(successMessage || 'Transaction créée avec succès');
-        }
-      } else {
-        notify2.success(mode === 'create' ? 'Transaction créée avec succès' : 'Transaction modifiée avec succès');
-      }
-      
-      // Nettoyer les brouillons après création réussie
-      if (mode === 'create') {
-        await clearStaging();
-      }
-      
-      onClose();
-      reset();
-      
-      // En mode édition, recharger les documents liés après la sauvegarde (mode normal uniquement)
-      if (mode === 'edit' && transactionId && !isAppShellMode) {
-        // Rechargement des documents après sauvegarde - log supprimé
-        // Délai pour éviter les conflits avec reset()
-        setTimeout(async () => {
-          await loadLinkedDocuments();
-        }, 100);
-      }
-      // En mode app-shell, le hook se rafraîchira automatiquement via les événements
-    } catch (error) {
-      // Erreur lors de la soumission - log supprimé
-      notify2.error('Erreur lors de la sauvegarde');
-    } finally {
+      await runSubmitWithPayload(dataWithStagedDocuments);
+    } catch (error: any) {
+      markError(error);
       setIsSubmitting(false);
     }
   };
@@ -2090,6 +2106,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     setShowUnclassifiedModal(false);
     setUnclassifiedDocuments([]);
   };
+
+  useEffect(() => {
+    if (isOpen) {
+      resetSubmitFlow();
+      lastSubmitPayloadRef.current = null;
+    }
+  }, [isOpen, resetSubmitFlow]);
 
   // Retourner null si la modal n'est pas ouverte
   if (!isOpen) return null;
@@ -2178,6 +2201,19 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* Overlay d'enregistrement (étapes réelles : validating → saving → done ou error) */}
+          <ModalSubmitOverlay
+            step={submitStep}
+            errorMessage={submitError}
+            onRetry={() => {
+              if (lastSubmitPayloadRef.current) {
+                resetSubmitFlow();
+                runSubmitWithPayload(lastSubmitPayloadRef.current);
+              }
+            }}
+            onDismissError={resetSubmitFlow}
+          />
 
           {activeTab === 'essentielles' && (
             <div className="space-y-4">
@@ -3010,73 +3046,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   {/* Bouton secondaire - Lier un document existant */}
                   <button
                     type="button"
-                    onClick={async () => {
-                      // Sélectionner un document existant
+                    onClick={() => {
                       if (!organizationId) {
                         notify2.error('Organisation non disponible');
                         return;
                       }
-                      
-                      try {
-                        const db = await getLocalDB();
-                        // Charger tous les documents de l'organisation (non supprimés)
-                        const allDocs = await db.Document.where('organizationId').equals(organizationId).and(doc => !doc.deletedAt).toArray();
-                        
-                        if (allDocs.length === 0) {
-                          notify2.info('Aucun document disponible');
-                          return;
-                        }
-                        
-                        // Charger les types de documents pour afficher les labels
-                        const docTypes = await db.DocumentType.toArray();
-                        const docTypeMap = new Map(docTypes.map(dt => [dt.id, dt]));
-                        
-                        // Créer une liste simple pour sélection
-                        const docList = allDocs.map((doc, idx) => {
-                          const docType = doc.documentTypeId ? docTypeMap.get(doc.documentTypeId) : null;
-                          return `${idx + 1}. ${doc.fileName || doc.filenameOriginal} (${docType?.label || 'Non classé'})`;
-                        }).join('\n');
-                        
-                        const selected = prompt(`Sélectionnez un document (entre 1 et ${allDocs.length}):\n\n${docList}\n\nEntrez le numéro:`);
-                        
-                        if (!selected) return;
-                        
-                        const index = parseInt(selected) - 1;
-                        if (index < 0 || index >= allDocs.length) {
-                          notify2.error('Numéro invalide');
-                          return;
-                        }
-                        
-                        const selectedDoc = allDocs[index];
-                        
-                        // Vérifier si le document n'est pas déjà lié
-                        if (stagedLinks.some(link => link.existingDocument?.id === selectedDoc.id)) {
-                          notify2.warning('Ce document est déjà lié');
-                          return;
-                        }
-                        
-                        const docType = selectedDoc.documentTypeId ? docTypeMap.get(selectedDoc.documentTypeId) : null;
-                        
-                        // Ajouter aux stagedLinks au format attendu
-                        const newLink = {
-                          id: selectedDoc.id, // Utiliser l'ID du document comme ID du lien
-                          existingDocument: {
-                            id: selectedDoc.id,
-                            fileName: selectedDoc.fileName || selectedDoc.filenameOriginal,
-                            filenameOriginal: selectedDoc.filenameOriginal,
-                            typeLabel: docType?.label || 'Non classé',
-                            uploadedAt: selectedDoc.uploadedAt,
-                            type: docType?.label || 'Non classé',
-                          }
-                        };
-                        
-                        setStagedLinks(prev => [...prev, newLink]);
-                        await logToServer(`[TransactionModal] ✅ Document existant ajouté à stagedLinks: docId=${selectedDoc.id}, fileName=${selectedDoc.fileName || selectedDoc.filenameOriginal}`);
-                        notify2.success('Document ajouté');
-                      } catch (error) {
-                        await logToServer(`[TransactionModal] ❌ Erreur lors de la sélection du document: ${error}`, 'error');
-                        notify2.error('Erreur lors de la sélection du document');
-                      }
+                      setShowDocumentSelectorModal(true);
                     }}
                     className="flex items-center justify-center gap-1.5 px-3 py-2 h-10 text-xs sm:text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none w-full sm:w-auto"
                     disabled={stagingLoading || !organizationId}
@@ -3568,6 +3543,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         files={[]} // Pas de fichiers pour le mode review-draft
         scope="global"
         hideOpenTransactionWarning={true} // ⚠️ PROBLÈME 1: Désactiver le message car on est dans le contexte d'une transaction
+        mode="transaction"
         strategy={{
           mode: 'review-draft',
           draftId: selectedDraftId || undefined,
@@ -3956,132 +3932,30 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         </Dialog>
       )}
 
-      {/* Modal de sélection de document existant */}
-      <Dialog open={showDocumentSelectorModal} onOpenChange={setShowDocumentSelectorModal}>
-        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Sélectionner un document existant</DialogTitle>
-            <DialogDescription>
-              Choisissez un document à lier à cette transaction
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="flex-1 overflow-hidden flex flex-col gap-4">
-            {/* Barre de recherche */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                type="text"
-                placeholder="Rechercher un document..."
-                value={documentSearchTerm}
-                onChange={(e) => setDocumentSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            
-            {/* Liste des documents */}
-            <div className="flex-1 overflow-y-auto border rounded-lg">
-              {availableDocuments
-                .filter(doc => {
-                  const searchLower = documentSearchTerm.toLowerCase();
-                  const fileName = (doc.fileName || doc.filenameOriginal || '').toLowerCase();
-                  const typeLabel = (doc.DocumentType?.label || 'Non classé').toLowerCase();
-                  return fileName.includes(searchLower) || typeLabel.includes(searchLower);
-                })
-                .filter(doc => !stagedLinks.some(link => link.existingDocument?.id === doc.id))
-                .map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="flex items-center justify-between p-4 border-b hover:bg-gray-50 cursor-pointer"
-                    onClick={async () => {
-                      // Ajouter aux stagedLinks au format attendu
-                      const newLink = {
-                        id: doc.id,
-                        existingDocument: {
-                          id: doc.id,
-                          fileName: doc.fileName || doc.filenameOriginal,
-                          filenameOriginal: doc.filenameOriginal,
-                          typeLabel: doc.DocumentType?.label || 'Non classé',
-                          uploadedAt: doc.uploadedAt,
-                          type: doc.DocumentType?.label || 'Non classé',
-                        }
-                      };
-                      
-                      setStagedLinks(prev => [...prev, newLink]);
-                      await logToServer(`[TransactionModal] ✅ Document existant ajouté à stagedLinks: docId=${doc.id}, fileName=${doc.fileName || doc.filenameOriginal}`);
-                      notify2.success('Document ajouté');
-                      setShowDocumentSelectorModal(false);
-                    }}
-                  >
-                    <div className="flex items-center gap-3 flex-1">
-                      <FileText className="h-5 w-5 text-gray-400" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {doc.fileName || doc.filenameOriginal}
-                        </p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="secondary" className="text-xs">
-                            {doc.DocumentType?.label || 'Non classé'}
-                          </Badge>
-                          <span className="text-xs text-gray-500">
-                            {new Date(doc.uploadedAt).toLocaleDateString('fr-FR')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        // Ajouter aux stagedLinks au format attendu
-                        const newLink = {
-                          id: doc.id,
-                          existingDocument: {
-                            id: doc.id,
-                            fileName: doc.fileName || doc.filenameOriginal,
-                            filenameOriginal: doc.filenameOriginal,
-                            typeLabel: doc.DocumentType?.label || 'Non classé',
-                            uploadedAt: doc.uploadedAt,
-                            type: doc.DocumentType?.label || 'Non classé',
-                          }
-                        };
-                        
-                        setStagedLinks(prev => [...prev, newLink]);
-                        await logToServer(`[TransactionModal] ✅ Document existant ajouté à stagedLinks: docId=${doc.id}, fileName=${doc.fileName || doc.filenameOriginal}`);
-                        notify2.success('Document ajouté');
-                        setShowDocumentSelectorModal(false);
-                      }}
-                    >
-                      Ajouter
-                    </Button>
-                  </div>
-                ))}
-              
-              {availableDocuments.filter(doc => {
-                const searchLower = documentSearchTerm.toLowerCase();
-                const fileName = (doc.fileName || doc.filenameOriginal || '').toLowerCase();
-                const typeLabel = (doc.DocumentType?.label || 'Non classé').toLowerCase();
-                return fileName.includes(searchLower) || typeLabel.includes(searchLower);
-              }).filter(doc => !stagedLinks.some(link => link.existingDocument?.id === doc.id)).length === 0 && (
-                <div className="p-8 text-center text-gray-500">
-                  {documentSearchTerm ? 'Aucun document trouvé' : 'Aucun document disponible'}
-                </div>
-              )}
-            </div>
-          </div>
-          
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button
-              variant="outline"
-              onClick={() => setShowDocumentSelectorModal(false)}
-            >
-              Fermer
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Modal "Lier document existant" - recherche, filtre type, pagination, aperçu */}
+      <LinkExistingDocumentModal
+        isOpen={showDocumentSelectorModal}
+        onClose={() => setShowDocumentSelectorModal(false)}
+        onSelect={(doc) => {
+          const newLink = {
+            id: doc.id,
+            existingDocument: {
+              id: doc.id,
+              fileName: doc.fileName || doc.filenameOriginal,
+              filenameOriginal: doc.filenameOriginal,
+              typeLabel: doc.typeLabel,
+              uploadedAt: doc.uploadedAt,
+              type: doc.typeLabel,
+            },
+          };
+          setStagedLinks((prev) => [...prev, newLink]);
+          logToServer(`[TransactionModal] ✅ Document existant ajouté: docId=${doc.id}`).catch(console.error);
+          notify2.success('Document ajouté');
+          setShowDocumentSelectorModal(false);
+        }}
+        excludeDocumentIds={stagedLinks.map((link) => link.existingDocument?.id).filter(Boolean) as string[]}
+        mode={isAppShellMode ? 'app-shell' : 'normal'}
+      />
     </div>
   );
 };

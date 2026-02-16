@@ -16,6 +16,7 @@ export interface UpdateDocumentParams {
   filenameOriginal?: string;
   documentTypeId?: string | null;
   tags?: string | null;
+  isFavorite?: boolean;
   // Autres champs metadata si nécessaire
 }
 
@@ -152,6 +153,9 @@ export class DocumentService {
     }
     if (params.tags !== undefined) {
       updateData.tags = params.tags;
+    }
+    if (params.isFavorite !== undefined) {
+      updateData.isFavorite = params.isFavorite;
     }
     
     // Vérifier qu'au moins un champ est fourni

@@ -175,9 +175,9 @@ export async function PUT(
       monthsCovered: body.monthsCovered,
       rapprochementStatus: body.rapprochementStatus,
       bankRef: body.bankRef,
-      montantLoyer: body.montantLoyer ? parseFloat(body.montantLoyer) : undefined,
-      chargesRecup: body.chargesRecup ? parseFloat(body.chargesRecup) : undefined,
-      chargesNonRecup: body.chargesNonRecup ? parseFloat(body.chargesNonRecup) : undefined,
+      montantLoyer: body.montantLoyer != null && body.montantLoyer !== '' ? parseFloat(String(body.montantLoyer)) : undefined,
+      chargesRecup: body.chargesRecup != null && body.chargesRecup !== '' ? parseFloat(String(body.chargesRecup)) : undefined,
+      chargesNonRecup: body.chargesNonRecup != null && body.chargesNonRecup !== '' ? parseFloat(String(body.chargesNonRecup)) : undefined,
       isAutoAmount: body.isAutoAmount,
       stagedDocumentIds: body.stagedDocumentIds || [],
       stagedLinkItemIds: stagedLinkDocumentIds,
@@ -270,7 +270,7 @@ export async function DELETE(
     
     // Récupérer le mode de suppression depuis les query params
     const url = new URL(request.url);
-    const mode = (url.searchParams.get("mode") as "delete_docs" | "keep_docs_globalize") ?? "keep_docs_globalize";
+    const mode = (url.searchParams.get("mode") as "delete_docs" | "keep_docs_globalize" | "unlink_only") ?? "unlink_only";
     const deleteChildren = url.searchParams.get("deleteChildren") === "true";
 
     // Récupérer les bucketKeys AVANT suppression (pour supprimer les fichiers physiques après)

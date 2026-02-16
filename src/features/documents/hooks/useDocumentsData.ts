@@ -9,6 +9,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getLocalDB } from '@/lib/offline/db';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { createDocumentServiceWithMode } from '@/domain/services/documentServiceFactory';
+import { getGlobalSyncService } from '@/lib/offline/syncGlobal';
 import type { LocalDocument } from '@/lib/offline/db';
 
 export interface DocumentTableRow {
@@ -32,6 +34,7 @@ export interface DocumentTableRow {
   leaseId?: string;
   loanId?: string;
   tenantId?: string;
+  isFavorite?: boolean;
   DocumentType?: {
     id: string;
     code: string;
@@ -71,6 +74,7 @@ export interface DocumentsFilters {
   dateFrom: string;
   dateTo: string;
   includeDeleted: boolean;
+  filterFavorites?: boolean;
 }
 
 export interface DocumentsStats {
@@ -88,10 +92,11 @@ export interface UseDocumentsDataOptions {
   offset?: number;
   limit?: number;
   propertyId?: string; // ✅ Optionnel : pour filtrer les events par propertyId
+  filterFavorites?: boolean; // ✅ Afficher uniquement les documents favoris
 }
 
 export function useDocumentsData(options: UseDocumentsDataOptions) {
-  const { mode, filters: filtersProp, offset = 0, limit = 50, propertyId } = options;
+  const { mode, filters: filtersProp, offset = 0, limit = 50, propertyId, filterFavorites = false } = options;
   const { organizationId } = useCurrentOrganization();
   const router = mode === 'normal' ? useRouter() : null;
   const searchParams = mode === 'normal' ? useSearchParams() : null;
@@ -107,6 +112,7 @@ export function useDocumentsData(options: UseDocumentsDataOptions) {
     dateFrom: '',
     dateTo: '',
     includeDeleted: false,
+    filterFavorites: false,
   }, [
     filtersProp?.query,
     filtersProp?.type,
@@ -116,6 +122,7 @@ export function useDocumentsData(options: UseDocumentsDataOptions) {
     filtersProp?.dateFrom,
     filtersProp?.dateTo,
     filtersProp?.includeDeleted,
+    filtersProp?.filterFavorites,
   ]);
 
   const [documents, setDocuments] = useState<LocalDocument[]>([]);
@@ -257,6 +264,10 @@ export function useDocumentsData(options: UseDocumentsDataOptions) {
 
           if (!filters.includeDeleted) {
             query = query.filter(doc => !doc.deletedAt);
+          }
+
+          if (filterFavorites || filters.filterFavorites) {
+            query = query.filter(doc => doc.isFavorite === true);
           }
 
           let allDocuments = await query.toArray();
@@ -470,6 +481,7 @@ export function useDocumentsData(options: UseDocumentsDataOptions) {
           if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
           if (filters.dateTo) params.append('dateTo', filters.dateTo);
           if (filters.includeDeleted) params.append('includeDeleted', 'true');
+          if (filterFavorites || filters.filterFavorites) params.append('filterFavorites', 'true');
           params.append('offset', offset.toString());
           params.append('limit', limit.toString());
 
@@ -583,7 +595,7 @@ export function useDocumentsData(options: UseDocumentsDataOptions) {
     return () => {
       cancelled = true;
     };
-  }, [mode, organizationId, filters, offset, limit, refreshKey]); // ✅ Utiliser filters (mémorisé) au lieu de filtersProp
+  }, [mode, organizationId, filters, offset, limit, refreshKey, filterFavorites]); // ✅ Utiliser filters (mémorisé) au lieu de filtersProp
 
   // ✅ RÈGLE 3: Écouter UNIQUEMENT documents:refresh (pas sync:refresh)
   // ✅ Filtrer les events par propertyId si spécifié
@@ -671,8 +683,53 @@ export function useDocumentsData(options: UseDocumentsDataOptions) {
       lease: undefined,
       tenant: undefined,
       DocumentLink: (doc as any).DocumentLink || undefined,
+      isFavorite: doc.isFavorite ?? false,
     }));
   }, [documents]);
+
+  const documentsRef = useRef<LocalDocument[]>([]);
+  documentsRef.current = documents;
+
+  const updateDocumentFavorite = useCallback(
+    async (documentId: string, isFavorite: boolean) => {
+      if (!organizationId) return;
+      const previous = documentsRef.current.find(d => d.id === documentId);
+      const previousFavorite = (previous as LocalDocument & { isFavorite?: boolean })?.isFavorite ?? false;
+      setDocuments(prev =>
+        prev.map(d =>
+          d.id === documentId ? { ...d, isFavorite } as LocalDocument : d
+        )
+      );
+      try {
+        if (mode === 'app-shell') {
+          const documentService = createDocumentServiceWithMode('app-shell');
+          await documentService.updateDocument(documentId, organizationId, { isFavorite });
+          // Push immédiat des pending vers Supabase si online → file vidée, page Sync affiche 0 pending
+          if (typeof navigator !== 'undefined' && navigator.onLine) {
+            getGlobalSyncService()
+              .syncAllPendingToRemote(organizationId)
+              .catch((err) => console.warn('[useDocumentsData] Push favori en arrière-plan:', err));
+          }
+        } else {
+          const res = await fetch(`/api/documents/${documentId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isFavorite }),
+          });
+          if (!res.ok) throw new Error(await res.json().then((d: any) => d.error || res.statusText));
+          // Pas de setRefreshKey : pas de rechargement de la liste
+        }
+      } catch (err) {
+        setDocuments(prev =>
+          prev.map(d =>
+            d.id === documentId ? { ...d, isFavorite: previousFavorite } as LocalDocument : d
+          )
+        );
+        setError(err instanceof Error ? err.message : 'Erreur lors de la mise à jour du favori');
+      }
+    },
+    [mode, organizationId]
+  );
 
   return {
     documents: convertedDocuments,
@@ -680,6 +737,7 @@ export function useDocumentsData(options: UseDocumentsDataOptions) {
     pagination,
     loading,
     error,
+    updateDocumentFavorite,
     // Utilitaires pour le mode normal
     router: router || null,
     searchParams: searchParams || null,

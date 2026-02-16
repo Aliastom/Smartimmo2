@@ -104,10 +104,17 @@ export interface UseTransactionsDataOptions {
   periodStart?: string; // Format: 'YYYY-MM'
   periodEnd?: string; // Format: 'YYYY-MM'
   enabled?: boolean; // ✅ NOUVEAU: Permet de désactiver complètement le hook
+  /** Tri côté serveur (mode normal). Appliqué AVANT limit/offset. */
+  sortBy?: 'accounting_month' | 'accountingMonth' | 'date' | 'amount' | 'nature';
+  sortOrder?: 'asc' | 'desc';
+  /** Page courante pour la pagination serveur (mode normal). */
+  page?: number;
+  /** Nombre d'éléments par page (mode normal). */
+  limit?: number;
 }
 
 export function useTransactionsData(options: UseTransactionsDataOptions) {
-  const { mode, filters: filtersProp, activeKpiFilter, periodStart, periodEnd, enabled = true } = options;
+  const { mode, filters: filtersProp, activeKpiFilter, periodStart, periodEnd, enabled = true, sortBy = 'accountingMonth', sortOrder = 'desc', page = 1, limit = 50 } = options;
   const { organizationId } = useCurrentOrganization();
   const router = mode === 'normal' ? useRouter() : null;
   const searchParams = mode === 'normal' ? useSearchParams() : null;
@@ -122,7 +129,8 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [amountsSummary, setAmountsSummary] = useState({ positiveSum: 0, negativeSum: 0 });
-  
+  const [paginationTotal, setPaginationTotal] = useState(0);
+
   // ⚙️ Utiliser une ref pour accéder aux valeurs actuelles des filtres dans l'event listener
   // sans créer de dépendances qui causent des remounts
   const filtersRef = useRef(filtersProp);
@@ -291,9 +299,13 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
           if (periodStart) params.append('accountingMonthStart', periodStart);
           if (periodEnd) params.append('accountingMonthEnd', periodEnd);
 
-          // Ajouter la pagination
-          params.append('page', '1');
-          params.append('limit', '50');
+          // Tri global (appliqué côté serveur avant limit/offset)
+          params.append('sortBy', sortBy === 'accountingMonth' ? 'accounting_month' : sortBy);
+          params.append('sortOrder', sortOrder);
+
+          // Pagination
+          params.append('page', String(page));
+          params.append('limit', String(limit));
 
           // ⚙️ OPTIMISATION: Charger les données de référence seulement au premier chargement
           const needsReferenceData = properties.length === 0 || leases.length === 0;
@@ -335,7 +347,8 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
           if (!cancelled) {
             setTransactions(transactionsData.data || []);
             setAmountsSummary(transactionsData.sums || { positiveSum: 0, negativeSum: 0 });
-            
+            setPaginationTotal(transactionsData.pagination?.total ?? 0);
+
             if (isFirstLoad) {
               setLoading(false);
             }
@@ -424,7 +437,8 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
     // ⚙️ OPTIMISATION: refreshKey retiré des dépendances pour éviter les rechargements complets
     // Les refreshes sont gérés par l'event listener séparé ci-dessous qui met à jour directement les données
     // ⚠️ CRITIQUE: Inclure filtersProp?.propertyId dans les dépendances pour déclencher le rechargement quand propertyId change
-  }, [mode, organizationId, filtersProp?.propertyId, filtersProp?.leaseId, filtersProp?.dateFrom, filtersProp?.dateTo, filtersProp?.natureId, activeKpiFilter, periodStart, periodEnd, enabled]);
+    // sortBy, sortOrder, page : tri et pagination côté serveur
+  }, [mode, organizationId, filtersProp?.propertyId, filtersProp?.leaseId, filtersProp?.dateFrom, filtersProp?.dateTo, filtersProp?.natureId, activeKpiFilter, periodStart, periodEnd, enabled, sortBy, sortOrder, page, limit]);
 
   // Écouter les événements de refresh en mode app-shell
   // ⚙️ OPTIMISATION: Au lieu d'utiliser refreshKey (qui déclenche un rechargement complet),
@@ -861,7 +875,7 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
     tenants: filteredTenants as any[],
     categories: categories as any[],
     natures: Array.from(natures.values()) as any[],
-    totalCount: filteredTransactions.length,
+    totalCount: mode === 'normal' && paginationTotal > 0 ? paginationTotal : filteredTransactions.length,
     amountsSummary: calculatedAmountsSummary,
     loading,
     error,

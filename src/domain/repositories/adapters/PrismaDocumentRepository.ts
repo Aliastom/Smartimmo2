@@ -46,6 +46,7 @@ export class PrismaDocumentRepository implements IDocumentRepository {
         textSha256: true,
         status: true,
         bucketKey: true,
+        isFavorite: true,
       },
     });
 
@@ -58,6 +59,7 @@ export class PrismaDocumentRepository implements IDocumentRepository {
       textSha256: doc.textSha256,
       status: doc.status,
       bucketKey: doc.bucketKey,
+      isFavorite: doc.isFavorite ?? false,
     }));
   }
 
@@ -91,6 +93,9 @@ export class PrismaDocumentRepository implements IDocumentRepository {
     }
     if (data.bucketKey !== undefined) {
       updateData.bucketKey = data.bucketKey;
+    }
+    if (data.isFavorite !== undefined) {
+      updateData.isFavorite = data.isFavorite;
     }
 
     await prisma.document.updateMany({

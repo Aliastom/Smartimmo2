@@ -12,7 +12,7 @@ interface Transaction {
 interface ConfirmDeleteMultipleTransactionsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (mode: 'delete_docs' | 'keep_docs_globalize') => void;
+  onConfirm: (mode: 'delete_docs' | 'keep_docs_globalize' | 'unlink_only') => void;
   transactions: Transaction[];
   deletingProgress?: { current: number; total: number } | null;
 }
@@ -24,7 +24,7 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
   transactions,
   deletingProgress,
 }) => {
-  const [selectedMode, setSelectedMode] = useState<'delete_docs' | 'keep_docs_globalize'>('keep_docs_globalize');
+  const [selectedMode, setSelectedMode] = useState<'delete_docs' | 'keep_docs_globalize' | 'unlink_only'>('unlink_only');
   const [isDeleting, setIsDeleting] = useState(false);
 
   if (!isOpen) return null;
@@ -133,6 +133,26 @@ export const ConfirmDeleteMultipleTransactionsModal: React.FC<ConfirmDeleteMulti
                       </div>
                       <div className="text-sm text-red-600">
                         Action irréversible : les fichiers seront définitivement supprimés
+                      </div>
+                    </div>
+                  </label>
+                  
+                  <label className={`flex items-start gap-3 p-3 border rounded-lg ${isDeleting || deletingProgress !== null ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'}`}>
+                    <input
+                      type="radio"
+                      name="deleteMode"
+                      value="unlink_only"
+                      checked={selectedMode === 'unlink_only'}
+                      onChange={(e) => setSelectedMode(e.target.value as 'unlink_only')}
+                      disabled={isDeleting || deletingProgress !== null}
+                      className="mt-1"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900">
+                        Ne supprimer que les liaisons avec ces transactions
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        Les documents sont conservés ; seuls les liens avec ces transactions sont retirés
                       </div>
                     </div>
                   </label>
