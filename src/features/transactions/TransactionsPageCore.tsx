@@ -11,7 +11,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import dynamic from 'next/dynamic';
 import { notify2 } from '@/lib/notify2';
 import { Plus, Loader2, Home } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -43,30 +42,11 @@ import { calcCommission } from '@/lib/gestion/calcCommission';
 import { logToServer } from '@/lib/utils/logger';
 import { navigateToView } from '@/utils/appShellNavigation';
 
-// ✅ OPTIMISATION: Lazy loading des modales pour réduire le bundle initial
-// ⚠️ IMPORTANT: En mode app-shell offline, les dynamic imports échouent (ChunkLoadError)
-// Pour TransactionModal, on garde le lazy loading car il est gros, mais pour les modales de suppression,
-// on utilise un import statique pour garantir le fonctionnement offline
-const TransactionModal = dynamic(
-  () => import('@/components/transactions/TransactionModalV2').then(mod => ({ default: mod.TransactionModal })),
-  { 
-    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
-    ssr: false 
-  }
-);
-
-// ✅ IMPORT STATIQUE pour éviter ChunkLoadError en mode offline
+// ✅ IMPORT STATIQUE pour garantir le fonctionnement offline (évite ChunkLoadError en app-shell)
+import { TransactionModal } from '@/components/transactions/TransactionModalV2';
 import { ConfirmDeleteTransactionModal } from '@/components/transactions/ConfirmDeleteTransactionModal';
-
 import { ConfirmDeleteMultipleTransactionsModal } from '@/components/transactions/ConfirmDeleteMultipleTransactionsModal';
-
-const DuplicateDetectedModal = dynamic(
-  () => import('@/components/documents/DuplicateDetectedModal').then(mod => ({ default: mod.DuplicateDetectedModal })),
-  { 
-    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
-    ssr: false 
-  }
-);
+import { DuplicateDetectedModal } from '@/components/documents/DuplicateDetectedModal';
 
 export interface TransactionsPageCoreProps {
   mode: 'normal' | 'app-shell';

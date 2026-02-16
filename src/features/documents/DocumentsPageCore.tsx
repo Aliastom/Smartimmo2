@@ -10,7 +10,6 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import dynamic from 'next/dynamic';
 import { 
   Search, 
   Filter, 
@@ -53,30 +52,10 @@ import { createDocumentServiceWithMode } from '@/domain/services/documentService
 import { getLocalDB } from '@/lib/offline/db';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
 
-// ✅ OPTIMISATION: Lazy loading des modales
-const DocumentEditModal = dynamic(
-  () => import('@/components/documents/unified/DocumentEditModal').then(mod => ({ default: mod.DocumentEditModal })),
-  { 
-    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
-    ssr: false 
-  }
-);
-
-const DocumentDrawer = dynamic(
-  () => import('@/components/documents/DocumentDrawer'),
-  { 
-    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
-    ssr: false 
-  }
-);
-
-const ConfirmDeleteDocumentModal = dynamic(
-  () => import('@/components/documents/ConfirmDeleteDocumentModal').then(mod => ({ default: mod.ConfirmDeleteDocumentModal })),
-  { 
-    loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>,
-    ssr: false 
-  }
-);
+// ✅ IMPORT STATIQUE pour garantir le fonctionnement offline (évite ChunkLoadError en app-shell)
+import { DocumentEditModal } from '@/components/documents/unified/DocumentEditModal';
+import DocumentDrawer from '@/components/documents/DocumentDrawer';
+import { ConfirmDeleteDocumentModal } from '@/components/documents/ConfirmDeleteDocumentModal';
 
 export interface DocumentsPageCoreProps {
   mode: 'normal' | 'app-shell';

@@ -1,17 +1,14 @@
 /**
  * Préchargement automatique des pages HTML importantes pour le mode offline
  * 
- * ⚠️ IMPORTANT : Ce préchargement concerne les PAGES NORMALES (mode fallback), pas l'App Shell.
- * 
- * - L'App Shell (`/app`) n'a PAS besoin de préchargement car il n'y a qu'un seul HTML
- *   qui sert pour toutes les vues (`/app?view=biens`, `/app?view=transactions`, etc.)
- * - Le Service Worker met en cache `/app` automatiquement avec `ignoreSearch: true`
- * - Ce préchargement est utile pour le mode normal (pages `/biens`, `/locataires`, etc.)
- *   qui servent de fallback si l'utilisateur accède directement à ces routes
+ * Inclut l'App Shell (`/app`) pour garantir qu'il soit en cache au premier chargement online.
+ * Le Service Worker utilise `ignoreSearch: true` : une seule entrée `/app` sert toutes les vues
+ * (`/app?view=biens`, `/app?view=transactions`, etc.)
  * 
  * Appelé manuellement depuis la page `/app?view=sync` (optionnel, non automatique)
  */
 const IMPORTANT_PAGES = [
+  '/app',
   '/biens',
   '/locataires',
   '/baux',

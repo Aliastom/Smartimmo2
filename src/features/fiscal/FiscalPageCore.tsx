@@ -36,33 +36,15 @@ import {
   X,
 } from 'lucide-react';
 import { FiscalCalculatingOverlay } from '@/components/fiscal/FiscalCalculatingOverlay';
-import dynamic from 'next/dynamic';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
 
-// Lazy load des onglets lourds
-const SimulationTab = dynamic(() => import('@/components/fiscal/unified/tabs/SimulationTab'), {
-  loading: () => <div className="p-6"><div className="h-96 bg-gray-100 animate-pulse rounded-2xl" /></div>,
-});
-
-const SyntheseTab = dynamic(() => import('@/components/fiscal/results/tabs/SyntheseTab').then(m => ({ default: m.default || m.SyntheseTab })), {
-  loading: () => <div className="p-6"><div className="h-96 bg-gray-100 animate-pulse rounded-2xl" /></div>,
-});
-
-const DetailsTab = dynamic(() => import('@/components/fiscal/results/tabs/DetailsTab').then(m => ({ default: m.DetailsTab })), {
-  loading: () => <div className="p-6"><div className="h-96 bg-gray-100 animate-pulse rounded-2xl" /></div>,
-});
-
-const DeclarationTab = dynamic(() => import('@/components/fiscal/results/tabs/DeclarationTab').then(m => ({ default: m.DeclarationTab })), {
-  loading: () => <div className="p-6"><div className="h-96 bg-gray-100 animate-pulse rounded-2xl" /></div>,
-});
-
-const ProjectionsTab = dynamic(() => import('@/components/fiscal/results/tabs/ProjectionsTab').then(m => ({ default: m.ProjectionsTab })), {
-  loading: () => <div className="p-6"><div className="h-96 bg-gray-100 animate-pulse rounded-2xl" /></div>,
-});
-
-const OptimisationsTab = dynamic(() => import('@/components/fiscal/results/tabs/OptimisationsTab').then(m => ({ default: m.OptimisationsTab })), {
-  loading: () => <div className="p-6"><div className="h-96 bg-gray-100 animate-pulse rounded-2xl" /></div>,
-});
+// ✅ IMPORT STATIQUE pour garantir le fonctionnement offline (évite ChunkLoadError en app-shell)
+import SimulationTab from '@/components/fiscal/unified/tabs/SimulationTab';
+import { SyntheseTab } from '@/components/fiscal/results/tabs/SyntheseTab';
+import { DetailsTab } from '@/components/fiscal/results/tabs/DetailsTab';
+import { DeclarationTab } from '@/components/fiscal/results/tabs/DeclarationTab';
+import { ProjectionsTab } from '@/components/fiscal/results/tabs/ProjectionsTab';
+import { OptimisationsTab } from '@/components/fiscal/results/tabs/OptimisationsTab';
 
 export interface FiscalPageCoreProps {
   mode: 'normal' | 'app-shell';
