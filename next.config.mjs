@@ -234,13 +234,24 @@ const pwaConfig = withPWA({
         ],
       },
     },
-    // ⛔ SUPPRIMÉ : NetworkFirst sur request.mode === 'navigate'
-    // Ce runtime cache "html-pages" provoquait des ChunkLoadError :
-    // - Il cachait des versions HTML variables (online = une version, offline = une autre)
-    // - cleanupOutdatedCaches supprime le precache ancien mais PAS les runtime caches
-    // - Résultat : HTML obsolète (réf. chunks v1) + chunks v1 supprimés = ChunkLoadError
-    // Pour /app* : NavigationRoute + precache servent TOUJOURS /app (déterministe, stable)
-    // Pour / : start-url NetworkFirst + handlerDidError → fallback document /app
+    // Filet de sécurité pour /app* : navigation ET prefetch (Next.js Link) vers /app?view=xxx
+    // Cas intermittents : NavigationRoute matche seulement request.mode === 'navigate'.
+    // Les prefetch/fetch ont mode !== 'navigate' → non interceptés → ERR_INTERNET_DISCONNECTED.
+    // On matche tout GET /app* sauf _rsc (déjà géré plus haut). Timeout 0 + precacheFallback.
+    {
+      urlPattern: ({ url }) => {
+        const p = url.pathname;
+        if (p !== '/app' && !p.startsWith('/app/')) return false;
+        return !url.searchParams.has('_rsc'); // RSC géré par la règle dédiée
+      },
+      handler: 'NetworkFirst',
+      options: {
+        networkTimeoutSeconds: 0,
+        cacheName: 'app-shell-fallback',
+        expiration: { maxEntries: 0 },
+        precacheFallback: { fallbackURL: '/app' },
+      },
+    },
   ],
 });
 

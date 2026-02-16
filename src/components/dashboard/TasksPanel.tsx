@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import {
   AlertCircle,
   Calendar,
+  CheckCircle2,
   ChevronRight,
   CreditCard,
   FileText,
@@ -20,6 +21,7 @@ import {
   ArrowRight,
   X,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/utils/cn';
@@ -36,6 +38,7 @@ import { LoyersRetardChart } from '@/components/dashboard/LoyersRetardChart';
 import { useToggleRapprochement } from '@/hooks/useToggleRapprochement';
 import { useQueryClient } from '@tanstack/react-query';
 import { TransactionReconciliationLoadingOverlay } from '@/components/dashboard/TransactionReconciliationLoadingOverlay';
+import { getAlertSeverity } from '@/features/dashboard/utils/alertSeverity';
 
 export interface TasksPanelProps {
   loyersNonEncaisses: LoyerNonEncaisse[];
@@ -470,68 +473,107 @@ export function TasksPanel({
     const previewRelance = filteredRelances[0];
     const previewTx = filteredTransactionsNonRapprochees[0];
 
+    const severityRelances = getAlertSeverity(filteredRelances.length);
+    const severityTx = getAlertSeverity(filteredTransactionsNonRapprochees.length);
+
+    const relancesCardStyles = {
+      ok: { iconBg: 'bg-emerald-50', Icon: CheckCircle2, iconClass: 'text-emerald-500' },
+      warning: { iconBg: 'bg-amber-50', Icon: AlertTriangle, iconClass: 'text-amber-600' },
+      critical: { iconBg: 'bg-red-50', Icon: AlertCircle, iconClass: 'text-red-500' },
+    };
+
     return (
       <>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {relances.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowAllRelances(true)}
-              className={cn(
-                'group flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm',
-                'transition-all duration-150 ease-out cursor-pointer',
-                'hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5',
-                'focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-2'
-              )}
-            >
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-red-50">
-                <AlertCircle className="h-5 w-5 text-red-500" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold text-slate-900">Loyers en retard</span>
-                  <Badge variant="danger" className="text-xs">{filteredRelances.length}</Badge>
-                  <span className="text-sm font-medium text-slate-700">{formatCurrency(relancesTotal)}</span>
-                </div>
-                {previewRelance && (
-                  <p className="mt-0.5 truncate text-xs text-slate-500">
-                    {previewRelance.tenantName} – {previewRelance.propertyName}
-                  </p>
+          <button
+            type="button"
+            onClick={() => severityRelances !== 'ok' && setShowAllRelances(true)}
+            className={cn(
+              'group flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm',
+              'transition-all duration-150 ease-out cursor-pointer',
+              'hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5',
+              'focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-2'
+            )}
+          >
+            <div className={cn(
+              'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg',
+              relancesCardStyles[severityRelances].iconBg
+            )}>
+              {React.createElement(relancesCardStyles[severityRelances].Icon, {
+                className: cn('h-5 w-5', relancesCardStyles[severityRelances].iconClass),
+              })}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-slate-900">Loyers en retard</span>
+                {severityRelances === 'ok' ? (
+                  <Badge variant="success" className="text-xs">OK</Badge>
+                ) : (
+                  <>
+                    <Badge variant={severityRelances === 'critical' ? 'danger' : 'warning'} className="text-xs">
+                      {filteredRelances.length}
+                    </Badge>
+                    <span className="text-sm font-medium text-slate-700">{formatCurrency(relancesTotal)}</span>
+                  </>
                 )}
               </div>
+              {severityRelances === 'ok' ? (
+                <p className="mt-0.5 text-xs text-slate-500">Tout est à jour</p>
+              ) : previewRelance ? (
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  {previewRelance.tenantName} – {previewRelance.propertyName}
+                </p>
+              ) : null}
+            </div>
+            {severityRelances !== 'ok' && (
               <ChevronRight className="h-5 w-5 flex-shrink-0 text-slate-400 transition-colors group-hover:text-slate-600" />
-            </button>
-          )}
+            )}
+          </button>
 
-          {transactionsNonRapprochees.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowAllTransactionsNonRapprochees(true)}
-              className={cn(
-                'group flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm',
-                'transition-all duration-150 ease-out cursor-pointer',
-                'hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5',
-                'focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-2'
-              )}
-            >
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-amber-50">
-                <FileText className="h-5 w-5 text-amber-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold text-slate-900">Transactions non rapprochées</span>
-                  <Badge variant="warning" className="text-xs">{filteredTransactionsNonRapprochees.length}</Badge>
-                  <span className="text-sm font-medium text-slate-700">{formatCurrency(txTotal)}</span>
-                </div>
-                {previewTx && (
-                  <p className="mt-0.5 truncate text-xs text-slate-500">
-                    {previewTx.label || previewTx.propertyName || 'Transaction'}
-                  </p>
+          <button
+            type="button"
+            onClick={() => severityTx !== 'ok' && setShowAllTransactionsNonRapprochees(true)}
+            className={cn(
+              'group flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm',
+              'transition-all duration-150 ease-out cursor-pointer',
+              'hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5',
+              'focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-2'
+            )}
+          >
+            <div className={cn(
+              'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg',
+              relancesCardStyles[severityTx].iconBg
+            )}>
+              {React.createElement(relancesCardStyles[severityTx].Icon, {
+                className: cn('h-5 w-5', relancesCardStyles[severityTx].iconClass),
+              })}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-slate-900">Transactions non rapprochées</span>
+                {severityTx === 'ok' ? (
+                  <Badge variant="success" className="text-xs">OK</Badge>
+                ) : (
+                  <>
+                    <Badge variant={severityTx === 'critical' ? 'danger' : 'warning'} className="text-xs">
+                      {filteredTransactionsNonRapprochees.length}
+                    </Badge>
+                    <span className="text-sm font-medium text-slate-700">{formatCurrency(txTotal)}</span>
+                  </>
                 )}
               </div>
+              {severityTx === 'ok' ? (
+                <p className="mt-0.5 text-xs text-slate-500">Tout est à jour</p>
+              ) : previewTx ? (
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  {previewTx.label || previewTx.propertyName || 'Transaction'}
+                </p>
+              ) : null}
+            </div>
+            {severityTx !== 'ok' && (
               <ChevronRight className="h-5 w-5 flex-shrink-0 text-slate-400 transition-colors group-hover:text-slate-600" />
-            </button>
-          )}
+            )}
+          </button>
         </div>
 
         {/* Panels détaillés supprimés : Échéances / Indexations / Baux / Documents restent en layout vertical uniquement */}

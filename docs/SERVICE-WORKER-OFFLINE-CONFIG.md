@@ -72,7 +72,14 @@ Résumé : **HTML en cache runtime + precache nettoyé = HTML obsolète qui poin
 - Avant : `/^\/app($|\?)/`.
 - Après : `/^\/app($|\/|\?)/` — prise en charge de `/app/login` et `/app/xxx`.
 
-### 3.4. Protection HTML obsolète
+### 3.4. Filet de sécurité pour /app* (préfetches)
+
+- La **NavigationRoute** ne matche que `request.mode === 'navigate'`.
+- Les **préfetches** Next.js (Link) et certains fetches ont `mode !== 'navigate'` → non interceptés → `ERR_INTERNET_DISCONNECTED` offline.
+- Une règle **NetworkFirst (timeout 0)** + `precacheFallback: '/app'` matche tout GET `/app*` (sauf `_rsc`) → sert toujours `/app` depuis le precache sans attendre le réseau.
+- `maxEntries: 0` pour ne jamais cacher de réponse réseau (éviter HTML obsolète).
+
+### 3.5. Protection HTML obsolète
 
 - `cleanupOutdatedCaches: true` — supprime les anciens precache après un nouveau build.
 - `clientsClaim: true` — prise de contrôle immédiate du SW.
