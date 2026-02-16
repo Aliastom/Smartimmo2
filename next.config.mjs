@@ -54,26 +54,30 @@ const nextConfig = {
   }
 }
 
-// Configuration PWA avec next-pwa
-// ⚠️ IMPORTANT: Ne pas activer en développement pour éviter les conflits
-// ⚠️ TEMPORAIRE: Activé pour tester le mode offline-first
+// Configuration PWA avec next-pwa — App Shell offline-first
+// Voir docs/SERVICE-WORKER-OFFLINE-CONFIG.md pour l'audit complet
 const pwaConfig = withPWA({
   dest: 'public',
   register: true,
-  skipWaiting: false, // Désactiver skipWaiting automatique pour permettre à l'utilisateur de choisir
-  disable: process.env.NODE_ENV === 'development', // Désactiver PWA en dev pour éviter les warnings Workbox
+  skipWaiting: false, // Éviter les reloads forcés, laisser l'utilisateur choisir
+  clientsClaim: true, // Prendre le contrôle dès activation
+  cleanupOutdatedCaches: true, // Nettoyer les caches obsolètes après nouveau build
+  disable: process.env.NODE_ENV === 'development',
   additionalManifestEntries: [
     { url: '/offline.html', revision: null },
   ],
+  // Ignorer les query params App Shell pour matcher /app?view=xxx → precache /app
+  ignoreURLParametersMatching: [/^view$/, /^propertyId$/, /^tab$/, /^redirect$/, /^utm_/, /^fbclid$/],
   fallbacks: {
-    document: '/offline.html', // Page de fallback pour le mode offline
-    // Exclure certaines routes du fallback pour permettre le rendu client offline
-    // Les pages listées ici seront toujours servies même en mode offline (depuis le cache HTML)
+    // Fallback document : /app pour App Shell (navigation interne via ?view=)
+    // Si le precache n'a pas /app, cette page est servie
+    document: '/app',
   },
-  // Modifier le service worker généré pour exclure certaines routes du fallback
+  // Workbox : navigateFallback pour routes /app* — fallback vers /app (doit être précaché)
+  navigateFallback: '/app',
+  navigateFallbackAllowlist: [/^\/app($|\?)/],
   sw: 'sw.js',
   publicExcludes: ['!sw.js', '!workbox-*.js', '!worker-*.js'],
-  // Configuration pour que le SW ne bloque pas certaines routes
   navigationPreload: false,
   buildExcludes: [
     /middleware-manifest\.json$/,
@@ -252,10 +256,8 @@ const pwaConfig = withPWA({
           mode: 'cors',
           credentials: 'same-origin',
         },
-        // Options de matching pour permettre de trouver les pages même avec des query params différents
-        matchOptions: {
-          ignoreSearch: true, // Ignorer les query params pour trouver les pages en cache
-        },
+        matchOptions: { ignoreSearch: true },
+        precacheFallback: { fallbackURL: '/app' }, // Si cache + réseau échouent → servir /app précaché
         plugins: [
           {
             // S'assurer que les réponses HTML sont bien mises en cache
