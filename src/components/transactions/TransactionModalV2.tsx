@@ -857,6 +857,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   // Gestion du mode auto du montant (déclenché au changement de BAIL uniquement)
   useEffect(() => {
+    // En édition : ne jamais écraser les valeurs chargées depuis la transaction (montantLoyer, chargesRecup, amount)
+    if (mode === 'edit') {
+      return;
+    }
     // ⚠️ Ne pas écraser les valeurs si on applique une suggestion OCR
     if (isApplyingOcrSuggestion.current) {
       return;
@@ -891,7 +895,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         }
       }
     }
-  }, [selectedLease?.id, isAutoAmount, autoAmountValue, setValue, isGestionEnabled, gestionCodes]); 
+  }, [mode, selectedLease?.id, isAutoAmount, autoAmountValue, setValue, isGestionEnabled, gestionCodes]); 
   // 🎯 Note : selectedNature et selectedCategory ne sont PAS dans les dépendances
   // Le pré-remplissage au changement de nature/catégorie est géré par l'autre useEffect
 
@@ -1685,6 +1689,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
         // ✨ Appliquer le pré-remplissage OCR si disponible (mode création uniquement)
         if (mode === 'create' && prefill) {
+          // Protéger contre l'écrasement par l'effet "bail" au prochain re-render
+          isApplyingOcrSuggestion.current = true;
           // Application du pré-remplissage OCR - log supprimé
           
           if (prefill.propertyId) setValue('propertyId', prefill.propertyId);
@@ -1728,6 +1734,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           });
           
           // Pré-remplissage OCR appliqué - log supprimé
+          // Réactiver l'effet bail après un délai pour que le prochain re-render ne réécrive pas les valeurs OCR
+          setTimeout(() => {
+            isApplyingOcrSuggestion.current = false;
+          }, 500);
           
           // Lier automatiquement le document suggéré
           if (suggestionMeta?.documentId && !isAppShellMode) {
