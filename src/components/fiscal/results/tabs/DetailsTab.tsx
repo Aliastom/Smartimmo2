@@ -379,11 +379,11 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
 
         {/* BLOC 7 : RENDEMENT NET (INFO) */}
         <BlockCard
-          title="💡 Rendement net de votre patrimoine"
+          title="💡 Performance locative nette"
           icon={<Info className="h-5 w-5 text-amber-600" />}
         >
           <Card className="border-2 border-amber-300 bg-amber-50 shadow-sm">
-            <CardContent className="p-5">
+            <CardContent className="px-5 pt-3 pb-5">
               <div className="space-y-4">
                 {/* Résultat principal */}
                 <div className="flex items-center justify-between">
@@ -399,7 +399,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                     <p className="text-3xl font-bold text-amber-600">
                       {formatPercent(simulation.resume?.rendementNet || 0)}
                     </p>
-                    <p className="text-xs text-amber-700">de rendement net</p>
+                    <p className="text-xs text-amber-700">net après charges et fiscalité</p>
                   </div>
                 </div>
 
@@ -417,6 +417,9 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                     const chargesTotal = simulation.biens?.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0) || 0;
                     const impotsSuppTotal = simulation.resume?.impotsSuppTotal || 0;
                     const beneficeNet = simulation.resume?.beneficeNetImmobilier || 0;
+                    const resultatFoncier = loyersBruts - chargesTotal;
+                    const tauxMargeLocative = loyersBruts > 0 ? resultatFoncier / loyersBruts : 0;
+                    const tauxFiscaliteImmobiliere = resultatFoncier > 0 ? Math.max(0, impotsSuppTotal) / resultatFoncier : 0;
                     
                     return (
                       <div className="space-y-2 text-xs">
@@ -431,7 +434,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                         </div>
                         
                         <div className="flex justify-between items-center">
-                          <span className="text-gray-600">– Impôts (IR + PS)</span>
+                          <span className="text-gray-600">– IR + PS dus à l'immobilier</span>
                           <span className="font-medium text-gray-600">-{formatEuro(Math.max(0, impotsSuppTotal))}</span>
                         </div>
                         
@@ -448,8 +451,13 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                           </p>
                         </div>
                         
+                        <div className="mt-2 pt-2 border-t border-amber-200/70 space-y-1 text-[10px] text-amber-800/90">
+                          <p>Taux de marge locative = Résultat foncier / Loyers → <strong>{formatPercent(tauxMargeLocative)}</strong></p>
+                          <p>Taux de fiscalité immobilière = IR + PS / Résultat foncier → <strong>~{formatPercent(tauxFiscaliteImmobiliere)}</strong></p>
+                        </div>
+                        
                         <p className="text-[10px] text-amber-700 italic mt-2">
-                          💡 Ce taux représente la part de vos loyers que vous conservez réellement après toutes les déductions
+                          💡 Sur 100 € de loyers encaissés, vous conservez {((simulation.resume?.rendementNet || 0) * 100).toFixed(1).replace('.', ',')} € après charges et fiscalité.
                         </p>
                       </div>
                     );

@@ -825,6 +825,22 @@ model FiscalSimulation {
   @@index([createdAt])
 }
 
+/// Session fiscale persistée par organisation (préférences déclaration / barème)
+model FiscalSession {
+  id               String   @id @default(cuid())
+  organizationId   String
+  userId           String?  // Optionnel : préférences par utilisateur
+  declarationYear  Int      // Année de dépôt (ex: 2026)
+  incomeYear       Int      // Année des revenus = declarationYear - 1 (audit)
+  baremeCode       String   // Code version publiée (ex: "2025.1")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  Organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId])
+  @@index([organizationId])
+}
+
 model Tenant {
   id               String             @id @default(cuid())
   organizationId   String             @default("default")
@@ -990,6 +1006,7 @@ model Organization {
   Photos              Photo[]
   Echeances           EcheanceRecurrente[]
   Simulations         FiscalSimulation[]
+  FiscalSessions      FiscalSession[]
   UploadSessions      UploadSession[]
   UploadItems         UploadStagedItem[]
   UserProfiles        UserProfile[]

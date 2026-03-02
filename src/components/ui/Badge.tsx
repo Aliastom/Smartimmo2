@@ -37,19 +37,17 @@ export interface BadgeProps
   children: React.ReactNode;
 }
 
-export function Badge({ 
-  variant, 
-  size, 
-  className, 
-  children, 
-  ...props 
-}: BadgeProps) {
+export const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(function Badge(
+  { variant, size, className, children, ...props },
+  ref
+) {
   return (
     <span
+      ref={ref}
       className={cn(badgeVariants({ variant, size, className }))}
       {...props}
     >
       {children}
     </span>
   );
-}
+});

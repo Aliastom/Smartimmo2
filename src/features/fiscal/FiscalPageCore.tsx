@@ -36,7 +36,9 @@ import {
   X,
 } from 'lucide-react';
 import { FiscalCalculatingOverlay } from '@/components/fiscal/FiscalCalculatingOverlay';
+import { FiscalHeaderControls } from '@/components/fiscal/FiscalHeaderControls';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
+import { useFiscalSession, FiscalSessionProvider } from '@/hooks/useFiscalSession';
 
 // ✅ IMPORT STATIQUE pour garantir le fonctionnement offline (évite ChunkLoadError en app-shell)
 import SimulationTab from '@/components/fiscal/unified/tabs/SimulationTab';
@@ -50,9 +52,15 @@ export interface FiscalPageCoreProps {
   mode: 'normal' | 'app-shell';
 }
 
-export function FiscalPageCore({
-  mode,
-}: FiscalPageCoreProps) {
+export function FiscalPageCore({ mode }: FiscalPageCoreProps) {
+  return (
+    <FiscalSessionProvider>
+      <FiscalPageCoreInner mode={mode} />
+    </FiscalSessionProvider>
+  );
+}
+
+function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
   const { activeTab, setActiveTab } = useFiscalTabs();
   const { isExpertMode, toggleExpertMode } = useExpertModeStore();
   const sidebarContext = useSidebarOptional();
@@ -69,7 +77,27 @@ export function FiscalPageCore({
     resetSimulation,
     updateDraft,
   } = useFiscalStore();
-  
+  const { session: fiscalSession } = useFiscalSession();
+
+  // Synchroniser le draft avec la session fiscale dès que la session change (ex. combobox Déclaration)
+  useEffect(() => {
+    if (!fiscalSession) return;
+    const incomeYear = fiscalSession.incomeYear;
+    const baremeCode = fiscalSession.baremeCode;
+    const currentYear = simulationDraft.year;
+    const currentBareme = (simulationDraft._uiMetadata as any)?.baremeCode;
+    if (currentYear !== incomeYear || currentBareme !== baremeCode) {
+      console.log('[Fiscal] Sync draft: année revenus', currentYear, '→', incomeYear);
+      updateDraft({
+        year: incomeYear,
+        _uiMetadata: {
+          ...(simulationDraft._uiMetadata as object),
+          baremeCode,
+        },
+      });
+    }
+  }, [fiscalSession?.incomeYear, fiscalSession?.baremeCode, fiscalSession?.updatedAt, simulationDraft.year, simulationDraft._uiMetadata, updateDraft]);
+
   // Fonction de formatage
   const formatEuro = (amount: number) =>
     new Intl.NumberFormat('fr-FR', {
@@ -191,6 +219,14 @@ export function FiscalPageCore({
       loadSavedSimulations();
     }
   }, [mode]);
+
+  // ✅ Si on est sur un onglet résultat (synthese, details, etc.) sans simulation → revenir à Simulation
+  useEffect(() => {
+    const resultsTabs = ['synthese', 'details', 'declaration', 'projections', 'optimisations'];
+    if (resultsTabs.includes(activeTab) && !simulationResult) {
+      setActiveTab('simulation');
+    }
+  }, [activeTab, simulationResult, setActiveTab]);
 
   const loadSavedSimulations = async () => {
     setLoadingSimulations(true);
@@ -630,14 +666,18 @@ export function FiscalPageCore({
 
           {/* Barre de progression cliquable (remplace les onglets) */}
           <div className="mt-4">
-            {/* Badges année et version */}
+            {/* Sélecteurs Déclaration / Barème + badges session */}
+            <div className="mb-3">
+              <FiscalHeaderControls />
+            </div>
+            {/* Badges résultat simulation (si calcul effectué) */}
             {simulationResult && (
               <div className="flex items-center justify-end gap-2 mb-3">
                 <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-300">
-                  Année {simulationResult.inputs.year}
+                  Revenus {simulationResult.inputs.year}
                 </Badge>
                 <Badge variant="outline" className="bg-sky-100 text-sky-700 border-sky-300">
-                  {simulationResult.taxParams.version}
+                  Barème {simulationResult.taxParams.version}
                 </Badge>
                 {optimizationCount > 0 && (
                   <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">

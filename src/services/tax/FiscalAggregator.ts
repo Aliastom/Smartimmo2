@@ -44,7 +44,8 @@ const BAIL_TYPE_TO_FISCAL_TYPE_FALLBACK: Record<string, TypeBien> = {
 // ============================================================================
 
 interface AggregationOptions {
-  userId: string;
+  /** Obligatoire - isolation multi-tenant */
+  organizationId: string;
   year: TaxYear;
   scope?: {
     propertyIds?: string[];      // Filtrer par biens spécifiques
@@ -197,9 +198,9 @@ class FiscalAggregatorClass {
    * Agrège toutes les données fiscales pour un utilisateur et une année
    */
   async aggregate(options: AggregationOptions): Promise<Omit<FiscalInputs, 'foyer' | 'per' | 'options'>> {
-    const { userId, year, scope, baseCalcul = 'encaisse', regimeForce } = options;
+    const { organizationId, year, scope, baseCalcul = 'encaisse', regimeForce } = options;
     
-    console.log(`📊 Agrégation fiscale ${year} pour user ${userId}...`);
+    console.log(`📊 Agrégation fiscale ${year} pour org ${organizationId.slice(0, 8)}...`);
     
     // Charger les codes système, natures et types fiscaux UNE SEULE FOIS
     await this.loadSystemCodes();
@@ -211,14 +212,14 @@ class FiscalAggregatorClass {
     const taxParams = await TaxParamsService.get(year);
     console.log(`📋 TaxParams ${taxParams.version} chargés (micro foncier: ${taxParams.micro.foncierPlafond}€, ${taxParams.micro.foncierAbattement * 100}%)`);
     
-    // Récupérer tous les biens de l'utilisateur
-    const properties = await this.getProperties(userId, scope?.propertyIds);
+    // Récupérer tous les biens de l'organisation
+    const properties = await this.getProperties(organizationId, scope?.propertyIds);
     
     // Pour chaque bien, agréger les données fiscales
     const biens: RentalPropertyInput[] = [];
     
     for (const property of properties) {
-      const propertyData = await this.aggregateProperty(property.id, year, baseCalcul, taxParams);
+      const propertyData = await this.aggregateProperty(property.id, organizationId, year, baseCalcul, taxParams);
       if (propertyData) {
         biens.push(propertyData);
       }
@@ -235,15 +236,13 @@ class FiscalAggregatorClass {
   }
   
   /**
-   * Récupère les biens d'un utilisateur
+   * Récupère les biens d'une organisation (filtrage multi-tenant obligatoire)
    */
-  private async getProperties(userId: string, propertyIds?: string[]) {
-    const where: any = {};
-    
-    // Note: Le modèle Property n'a pas de userId
-    // En production, filtrer par userId via une relation ou session
-    // Pour l'instant, récupérer tous les biens non archivés
-    where.isArchived = false;
+  private async getProperties(organizationId: string, propertyIds?: string[]) {
+    const where: any = {
+      organizationId,
+      isArchived: false,
+    };
     
     if (propertyIds && propertyIds.length > 0) {
       where.id = { in: propertyIds };
@@ -322,6 +321,7 @@ class FiscalAggregatorClass {
    */
   private async aggregateProperty(
     propertyId: string,
+    organizationId: string,
     year: TaxYear,
     baseCalcul: 'encaisse' | 'exigible',
     taxParams: any // TaxParams depuis la BDD
@@ -364,9 +364,11 @@ class FiscalAggregatorClass {
     // Récupérer les transactions du bien pour cette année
     // ✅ Base "encaissé" : uniquement les transactions rapprochées (défaut)
     // Base "exigible" : toutes les transactions (selon date comptable)
+    // ✅ Defense-in-depth : filtrer par organizationId
     const yearString = year.toString();
     const whereClause: any = {
         propertyId,
+        organizationId,
         accounting_month: { contains: yearString },
     };
     

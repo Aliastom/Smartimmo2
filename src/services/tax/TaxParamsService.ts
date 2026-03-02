@@ -233,14 +233,25 @@ class TaxParamsServiceClass {
       return params;
       
     } catch (error) {
-      console.warn(`[TaxParamsService] Erreur chargement BDD, fallback sur hardcodé:`, error);
-      
+      const isMissingYear = error instanceof Error && /Aucune version publiée pour \d+/.test(error.message);
+
       // 4. Fallback sur hardcodé
-      const fallback = FALLBACK_PARAMS.get(year);
+      let fallback = FALLBACK_PARAMS.get(year);
+      if (!fallback) {
+        // Année non disponible (ex: 2026) → utiliser la plus récente (ex: 2025)
+        const latestYear = Math.max(...FALLBACK_PARAMS.keys());
+        fallback = FALLBACK_PARAMS.get(latestYear);
+        if (isMissingYear) {
+          console.log(`[TaxParamsService] Aucune version publiée pour ${year}, utilisation de ${latestYear}`);
+        } else {
+          console.warn(`[TaxParamsService] Pas de paramètres pour ${year}, utilisation de ${latestYear}`);
+        }
+      } else if (!isMissingYear) {
+        console.warn(`[TaxParamsService] Erreur chargement BDD, fallback sur hardcodé:`, error);
+      }
       if (!fallback) {
         throw new Error(`Aucun paramètre fiscal disponible pour ${year}`);
       }
-      
       return fallback;
     }
   }
@@ -265,8 +276,6 @@ class TaxParamsServiceClass {
    * Charge la dernière version publiée pour une année
    */
   private async loadPublishedByYear(year: number): Promise<TaxParams> {
-    console.log(`[TaxParamsService] Recherche version publiée pour l'année ${year}...`);
-    
     const fiscalVersion = await prisma.fiscalVersion.findFirst({
       where: {
         year,
@@ -278,21 +287,12 @@ class TaxParamsServiceClass {
       include: { params: true },
       orderBy: { updatedAt: 'desc' }  // ✅ Utiliser updatedAt au lieu de publishedAt
     });
-    
-    console.log(`[TaxParamsService] Résultat requête:`, {
-      found: !!fiscalVersion,
-      code: fiscalVersion?.code,
-      status: fiscalVersion?.status,
-      year: fiscalVersion?.year,
-      hasParams: !!fiscalVersion?.params,
-      publishedAt: fiscalVersion?.publishedAt,
-    });
-    
+
     if (!fiscalVersion || !fiscalVersion.params) {
       throw new Error(`Aucune version publiée pour ${year}`);
     }
-    
-    console.log(`[TaxParamsService] ✅ Version trouvée: ${fiscalVersion.code} (status: ${fiscalVersion.status})`);
+
+    console.log(`[TaxParamsService] Version ${fiscalVersion.code} chargée pour ${year}`);
     return fiscalVersionToTaxParams(fiscalVersion as any);
   }
   
@@ -342,12 +342,41 @@ class TaxParamsServiceClass {
   }
   
   /**
+   * Liste les barèmes publiés pour une année (pour sélecteur UI)
+   * Retourne code, year, source, updatedAt triés par updatedAt desc
+   */
+  async listPublishedByYear(year: number): Promise<{ code: string; year: number; source: string; updatedAt: Date }[]> {
+    try {
+      const rows = await prisma.fiscalVersion.findMany({
+        where: {
+          year,
+          OR: [
+            { status: 'published' },
+            { status: 'Publié' },
+          ],
+        },
+        select: { code: true, year: true, source: true, updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+      return rows;
+    } catch (error) {
+      console.error('[TaxParamsService] Erreur listPublishedByYear:', error);
+      return [];
+    }
+  }
+
+  /**
    * Liste toutes les versions disponibles (publiées uniquement)
    */
   async listVersions(): Promise<TaxParams[]> {
     try {
       const fiscalVersions = await prisma.fiscalVersion.findMany({
-        where: { status: 'published' },
+        where: {
+          OR: [
+            { status: 'published' },
+            { status: 'Publié' },
+          ],
+        },
         include: { params: true },
         orderBy: [
           { year: 'desc' },

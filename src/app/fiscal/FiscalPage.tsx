@@ -220,6 +220,14 @@ export function FiscalPage() {
     loadSavedSimulations();
   }, []);
 
+  // ✅ Si on est sur un onglet résultat sans simulation → revenir à Simulation (évite écran blanc)
+  useEffect(() => {
+    const resultsTabs = ['synthese', 'details', 'declaration', 'projections', 'optimisations'];
+    if (resultsTabs.includes(activeTab) && !simulationResult) {
+      setActiveTab('simulation');
+    }
+  }, [activeTab, simulationResult, setActiveTab]);
+
   const loadSavedSimulations = async () => {
     setLoadingSimulations(true);
     try {

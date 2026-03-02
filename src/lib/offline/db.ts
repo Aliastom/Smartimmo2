@@ -427,6 +427,26 @@ export interface AppState {
   updatedAt: string; // ISO string
 }
 
+/** Cache des données agrégées fiscales (réponse /api/fiscal/aggregate) - offline-first */
+export interface FiscalAggregateCache {
+  id: string; // `${organizationId}:${year}:${baseCalcul}`
+  organizationId: string;
+  year: number;
+  baseCalcul: string;
+  payload: string; // JSON stringified { biens, totaux, year }
+  updatedAt: string;
+  source: 'server';
+}
+
+/** Cache local de la session fiscale (déclaration / barème) pour offline */
+export interface FiscalSessionCache {
+  organizationId: string;
+  declarationYear: number;
+  incomeYear: number;
+  baremeCode: string;
+  updatedAt: string;
+}
+
 export interface LocalUserProfile {
   id: string;
   organizationId: string;
@@ -846,6 +866,8 @@ export async function getLocalDB(): Promise<any> {
   RentIndexation!: Table<LocalRentIndexation, string>;
   FiscalSimulation!: Table<LocalFiscalSimulation, string>;
   UserProfile!: Table<LocalUserProfile, string>;
+  FiscalAggregateCache!: Table<FiscalAggregateCache, string>;
+  FiscalSessionCache!: Table<FiscalSessionCache, string>;
 
   constructor() {
           // ⚠️ CRITIQUE: Passer explicitement indexedDB et IDBKeyRange au constructeur Dexie
@@ -1323,10 +1345,45 @@ export async function getLocalDB(): Promise<any> {
       FiscalSimulation: 'id, organizationId, userId, year, createdAt, updatedAt, [organizationId+year]',
       UserProfile: 'id, organizationId, updatedAt, [organizationId]',
     }).upgrade(async (tx) => {
-      // Migration : S'assurer que toutes les pendingOps existantes ont organizationId
-      // Si organizationId est manquant, on ne peut pas le deviner, donc on laisse tel quel
-      // Les nouvelles pendingOps auront toujours organizationId grâce à BaseOfflineRepository
       console.log('[Migration v14] Index organizationId ajouté à pendingOperations');
+    });
+
+    // Version 15: Table cache agrégat fiscal pour offline-first
+    this.version(15).stores({
+      pendingOperations: 'id, entity, entityId, status, operation, organizationId, createdAt, [entity+status], [status+createdAt], [entity+entityId+operation], [organizationId+status]',
+      syncMeta: 'table',
+      AppState: 'id',
+      FiscalType: 'id, isActive, cachedAt',
+      FiscalRegime: 'id, isActive, cachedAt',
+      ManagementCompany: 'id, organizationId, actif, cachedAt, [organizationId]',
+      NatureEntity: 'key, active, cachedAt',
+      Category: 'id, type, actif, cachedAt',
+      DocumentType: 'id, code, isActive, cachedAt',
+      Signal: 'id, code, isActive, cachedAt',
+      FiscalCompatibility: 'id, scope, cachedAt',
+      Property: 'id, organizationId, updatedAt, isArchived, [organizationId+isArchived]',
+      Lease: 'id, organizationId, propertyId, tenantId, updatedAt, status, [organizationId+status]',
+      Tenant: 'id, organizationId, email, status, updatedAt, [organizationId+status]',
+      Loan: 'id, organizationId, propertyId, isActive, updatedAt, [organizationId+isActive]',
+      Transaction: 'id, organizationId, propertyId, leaseId, date, updatedAt, [organizationId+propertyId]',
+      EcheanceRecurrente: 'id, organizationId, propertyId, leaseId, isActive, updatedAt, [organizationId+isActive]',
+      Document: 'id, organizationId, propertyId, leaseId, tenantId, transactionId, loanId, updatedAt, deletedAt, [organizationId+deletedAt]',
+      DocumentLink: '[documentId+linkedType+linkedId], documentId, linkedType, linkedId, [linkedType+linkedId]',
+      Photo: 'id, organizationId, propertyId, updatedAt, [organizationId+propertyId]',
+      LoanBorrower: 'id, loanId, organizationId, updatedAt, [organizationId+loanId]',
+      OccupancyHistory: 'id, propertyId, tenantId, leaseId, startDate, updatedAt, [propertyId+tenantId]',
+      RentIndexation: 'id, leaseId, organizationId, effectiveDate, updatedAt, [organizationId+leaseId]',
+      FiscalSimulation: 'id, organizationId, userId, year, createdAt, updatedAt, [organizationId+year]',
+      UserProfile: 'id, organizationId, updatedAt, [organizationId]',
+      FiscalAggregateCache: 'id, organizationId, updatedAt',
+    }).upgrade(async () => {
+      console.log('[Migration v15] Table FiscalAggregateCache ajoutée (offline-first fiscal)');
+    });
+
+    this.version(16).stores({
+      FiscalSessionCache: 'organizationId, updatedAt',
+    }).upgrade(async () => {
+      console.log('[Migration v16] Table FiscalSessionCache ajoutée (session fiscale offline)');
     });
   }
       };

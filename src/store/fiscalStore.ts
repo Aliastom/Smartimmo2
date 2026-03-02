@@ -168,9 +168,11 @@ export const useFiscalStore = create<FiscalStore>()(
             }
           }
           
+          const baremeCode = (simulationDraft._uiMetadata as any)?.baremeCode as string | undefined;
           const payload = {
             ...simulationDraft,
             scope,
+            ...(baremeCode ? { baremeCode } : {}),
             // ✅ Passer les biens filtrés du cache si disponible pour éviter de recharger
             biens: biensFromCache,
             _useAutofillCache: useCache, // Flag pour indiquer qu'on utilise le cache

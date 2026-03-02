@@ -150,7 +150,7 @@ export function FiscalSummaryCompact({ simulation, loading, onGoToSynthese }: Fi
             <div className="flex-1">
               <span className="font-medium text-gray-700">Bénéfice net immobilier</span>
               <p className="text-xs text-gray-500 mt-1">
-                Loyers - Charges - Impôts supplémentaires (IR + PS)
+                Loyers - Charges - IR + PS dus à l'immobilier
               </p>
             </div>
             <span className={`text-xl font-bold ${beneficeNet >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -171,7 +171,7 @@ export function FiscalSummaryCompact({ simulation, loading, onGoToSynthese }: Fi
                 <span className="font-medium">-{formatEuro(chargesTotal)}</span>
               </div>
               <div className="flex justify-between text-blue-700">
-                <span>- Impôts supplémentaires (IR + PS)</span>
+                <span>- IR + PS dus à l'immobilier</span>
                 <span className="font-medium">-{formatEuro(totalImpots)}</span>
               </div>
               <div className="flex justify-between text-xs text-gray-400 ml-4">

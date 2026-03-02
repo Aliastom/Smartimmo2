@@ -6,8 +6,10 @@
 
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useFiscalStore } from '@/store/fiscalStore';
+import { useFiscalSession } from '@/hooks/useFiscalSession';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -25,12 +27,18 @@ import {
   ChevronUp,
   Info,
   Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { Separator } from '@/components/ui/Separator';
 import { FiscalLoadingOverlay } from '@/components/fiscal/FiscalLoadingOverlay';
 
 export default function SimulationTab() {
   const { simulationDraft, simulationResult, updateDraft, setAutofillCache, autofillCache } = useFiscalStore();
+  const { session: fiscalSession } = useFiscalSession();
+  const { organizationId } = useCurrentOrganization();
+
+  // Année des revenus : priorité à la session (mise à jour immédiate au changement de déclaration), sinon le draft
+  const currentIncomeYear = fiscalSession?.incomeYear ?? simulationDraft.year ?? new Date().getFullYear();
   
   // États locaux pour le formulaire
   const [accordeonState, setAccordeonState] = useState({
@@ -72,6 +80,8 @@ export default function SimulationTab() {
   const [autofillData, setAutofillData] = useState<any>(null);
   const [loadingAutofill, setLoadingAutofill] = useState(false);
   const [selectedBienIds, setSelectedBienIds] = useState<string[]>([]);
+  const [autofillFromCache, setAutofillFromCache] = useState(false); // Badge "Données locales"
+  const [offlineNoCache, setOfflineNoCache] = useState(false);       // Message "Hors ligne"
   
   // 🆕 États pour les impôts déjà payés
   const [prelevementSourceDejaPaye, setPrelevementSourceDejaPaye] = useState(
@@ -296,79 +306,123 @@ export default function SimulationTab() {
     });
   }, [netImposable, perEnabled, per, autofill, regimeOverride, salaryMode, salaireBrut, deductionMode, fraisReels, selectedBienIds, prelevementSourceDejaPaye, acomptesDejaPayes]); // ⚠️ Retirer updateDraft et simulationDraft pour éviter la boucle
 
-  // Charger les données SmartImmo
-  const loadAutofillData = async () => {
-    // ✅ Éviter les appels multiples si déjà en cours
-    if (loadingAutofill) {
+  // Charger les données SmartImmo (offline-first) pour l'année des revenus sélectionnée (session.incomeYear)
+  const loadAutofillData = useCallback(async () => {
+    if (loadingAutofill) return;
+
+    const year = currentIncomeYear;
+    const baseCalcul = simulationDraft.options?.baseCalcul ?? 'encaisse';
+    const cacheKey = organizationId ? `${organizationId}:${year}:${baseCalcul}` : null;
+
+    const applyAutofillData = (data: { biens: any[]; totaux?: { loyers?: number; charges?: number; nombreBiens?: number } }, fromCache = false) => {
+      const biens = data.biens || [];
+      setAutofillData({
+        biens,
+        loyers: data.totaux?.loyers ?? biens.reduce((s: number, b: any) => s + (b.loyers || 0), 0),
+        charges: data.totaux?.charges ?? biens.reduce((s: number, b: any) => s + (b.charges || 0), 0),
+        nombreBiens: data.totaux?.nombreBiens ?? biens.length,
+      });
+      setAutofillFromCache(fromCache);
+      setOfflineNoCache(false);
+      const savedIds = (simulationDraft._uiMetadata as any)?.selectedBienIds;
+      if (!savedIds || savedIds.length === 0) {
+        setSelectedBienIds(biens.map((b: any) => b.id));
+      }
+      setAutofillCache({ biens, year, baseCalcul });
+    };
+
+    // Offline : lire le cache IDB
+    const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+    if (!isOnline) {
+      setLoadingAutofill(true);
+      setOfflineNoCache(false);
+      try {
+        if (cacheKey) {
+          const { getLocalDB } = await import('@/lib/offline/db');
+          const db = await getLocalDB();
+          if (db?.FiscalAggregateCache) {
+            const cached = await db.FiscalAggregateCache.get(cacheKey);
+            if (cached?.payload) {
+              const data = JSON.parse(cached.payload);
+              applyAutofillData(data, true);
+              setLoadingAutofill(false);
+              return;
+            }
+          }
+        }
+        setOfflineNoCache(true);
+      } catch (e) {
+        console.warn('[Fiscal] Erreur lecture cache IDB:', e);
+        setOfflineNoCache(true);
+      }
+      setLoadingAutofill(false);
       return;
     }
-    
+
     setLoadingAutofill(true);
+    setOfflineNoCache(false);
+    setAutofillFromCache(false);
     const startTime = Date.now();
-    
-    // Initialiser la progression
-    setLoadingProgress({
-      totalBiens: 0,
-      biensProcessed: 0,
-      currentBien: '',
-      startTime,
-    });
-    
+    setLoadingProgress({ totalBiens: 0, biensProcessed: 0, currentBien: '', startTime });
+
     let progressInterval: NodeJS.Timeout | null = null;
-    let currentProgress = 0; // ✅ Suivre la progression actuelle pour éviter les retours en arrière
-    
-    // Simuler la progression pendant le chargement (phase 1 : appel API)
-    // Estimation basée sur le temps écoulé
+    let currentProgress = 0;
+
     progressInterval = setInterval(() => {
       setLoadingProgress((prev) => {
-        const elapsed = (Date.now() - prev.startTime) / 1000; // secondes
-        // Estimation: ~1-1.5 seconde par bien en moyenne
+        const elapsed = (Date.now() - prev.startTime) / 1000;
         const estimatedBiens = Math.min(Math.floor(elapsed / 1.2), 20);
-        const estimatedTotal = Math.max(prev.totalBiens || 10, estimatedBiens + 5); // Estimation conservatrice
-        
-        // ✅ Ne jamais revenir en arrière dans la progression
+        const estimatedTotal = Math.max(prev.totalBiens || 10, estimatedBiens + 5);
         const newBiensProcessed = Math.min(estimatedBiens, estimatedTotal - 1);
-        if (newBiensProcessed < currentProgress) {
-          return prev; // Garder la progression actuelle
-        }
+        if (newBiensProcessed < currentProgress) return prev;
         currentProgress = newBiensProcessed;
-        
-        return {
-          ...prev,
-          totalBiens: estimatedTotal,
-          biensProcessed: newBiensProcessed,
-        };
+        return { ...prev, totalBiens: estimatedTotal, biensProcessed: newBiensProcessed };
       });
-    }, 800); // Mise à jour toutes les 800ms pour un effet plus fluide
-    
+    }, 800);
+
     try {
-      const currentYear = new Date().getFullYear();
-      // Appel avec timeout pour éviter les chargements trop longs
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // Timeout de 30 secondes
-      
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
       const response = await fetch('/api/fiscal/aggregate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: 'demo-user',
-          year: currentYear,
-          baseCalcul: 'encaisse',
-        }),
+        body: JSON.stringify({ year, baseCalcul }),
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
       if (progressInterval) {
         clearInterval(progressInterval);
         progressInterval = null;
       }
-      
+
       if (response.ok) {
         const data = await response.json();
         const biens = data.biens || [];
-        
-        // Animer la progression finale avec les noms des biens (phase 2 : animation)
+
+        // Écrire en cache IDB pour usage offline
+        if (cacheKey && typeof window !== 'undefined') {
+          try {
+            const { getLocalDB } = await import('@/lib/offline/db');
+            const db = await getLocalDB();
+            if (db?.FiscalAggregateCache && organizationId) {
+              await db.FiscalAggregateCache.put({
+                id: cacheKey,
+                organizationId,
+                year,
+                baseCalcul,
+                payload: JSON.stringify(data),
+                updatedAt: new Date().toISOString(),
+                source: 'server',
+              });
+            }
+          } catch (e) {
+            console.warn('[Fiscal] Erreur écriture cache IDB:', e);
+          }
+        }
+
+        // Animation progression
         const biensNoms = biens.map((b: any) => b.name || b.id).filter(Boolean);
         const totalBiens = biensNoms.length;
         
@@ -408,30 +462,9 @@ export default function SimulationTab() {
           startTime,
         });
         
-        // Petit délai pour afficher la progression à 100%
         await new Promise(resolve => setTimeout(resolve, 300));
-        
-        setAutofillData({
-          biens,
-          loyers: data.totaux?.loyers || 0,
-          charges: data.totaux?.charges || 0,
-          nombreBiens: data.totaux?.nombreBiens || 0,
-        });
-        
-        // ✅ Sauvegarder dans le cache du store pour éviter de recharger lors du calcul
-        const selectedBienIds = (simulationDraft._uiMetadata as any)?.selectedBienIds || [];
-        setAutofillCache({
-          biens,
-          year: currentYear,
-          baseCalcul: simulationDraft.options?.baseCalcul || 'encaisse',
-          scope: selectedBienIds.length > 0 ? { propertyIds: selectedBienIds } : undefined,
-        });
-        
-        // ✅ Initialiser selectedBienIds avec tous les biens si pas déjà défini dans le store
-        const savedIds = (simulationDraft._uiMetadata as any)?.selectedBienIds;
-        if (!savedIds || savedIds.length === 0) {
-        setSelectedBienIds(biens.map((b: any) => b.id));
-      }
+
+        applyAutofillData(data, false);
       } else {
         console.error('Erreur chargement autofill: réponse non OK', response.status);
       }
@@ -443,7 +476,23 @@ export default function SimulationTab() {
       if (error.name === 'AbortError') {
         console.error('Timeout lors du chargement des données SmartImmo (30s)');
       } else {
-      console.error('Erreur chargement autofill:', error);
+        console.error('Erreur chargement autofill:', error);
+      }
+      // Fallback cache IDB en cas d'erreur réseau
+      if (cacheKey) {
+        try {
+          const { getLocalDB } = await import('@/lib/offline/db');
+          const db = await getLocalDB();
+          if (db?.FiscalAggregateCache) {
+            const cached = await db.FiscalAggregateCache.get(cacheKey);
+            if (cached?.payload) {
+              const data = JSON.parse(cached.payload);
+              applyAutofillData(data, true);
+            }
+          }
+        } catch (e) {
+          // Ignorer
+        }
       }
     } finally {
       // ✅ Ne réinitialiser la progression que si le chargement est vraiment terminé
@@ -460,41 +509,72 @@ export default function SimulationTab() {
         });
       }, 500);
     }
-  };
+  }, [organizationId, currentIncomeYear, simulationDraft.options?.baseCalcul, simulationDraft._uiMetadata]);
 
   // ✅ Ref pour éviter les appels multiples
   const autofillLoadingRef = useRef(false);
-  
+  const lastAutofillYearRef = useRef<number | null>(null);
+
+  // Quand l'année des revenus change (changement déclaration), invalider et recharger immédiatement
   useEffect(() => {
-    // ✅ Si on a un cache dans le store mais pas de données locales, restaurer depuis le cache
-    if (autofill && !autofillData && autofillCache && autofillCache.biens && autofillCache.biens.length > 0) {
-      console.log('✅ Restauration des données depuis le cache du store');
+    if (!autofill) return;
+    const year = currentIncomeYear;
+    const prevYear = lastAutofillYearRef.current;
+    lastAutofillYearRef.current = year;
+
+    if (prevYear !== null && prevYear !== year) {
+      console.log('[Fiscal] Année revenus changée:', prevYear, '→', year, ', rechargement données');
+      setAutofillCache(null);
+      setAutofillData(null);
+      if (!autofillLoadingRef.current) {
+        autofillLoadingRef.current = true;
+        loadAutofillData().finally(() => {
+          autofillLoadingRef.current = false;
+        });
+      }
+    }
+  }, [currentIncomeYear, autofill, loadAutofillData, setAutofillCache]);
+
+  useEffect(() => {
+    const year = currentIncomeYear;
+    // ✅ Restaurer depuis le cache du store seulement si l'année correspond
+    if (autofill && !autofillData && autofillCache?.biens?.length && autofillCache.year === year) {
       setAutofillData({
         biens: autofillCache.biens,
         loyers: autofillCache.biens.reduce((sum: number, b: any) => sum + (b.loyers || 0), 0),
         charges: autofillCache.biens.reduce((sum: number, b: any) => sum + (b.charges || 0), 0),
         nombreBiens: autofillCache.biens.length,
       });
-      // Restaurer aussi les selectedBienIds si pas déjà définis
       const savedIds = (simulationDraft._uiMetadata as any)?.selectedBienIds;
       if (!savedIds || savedIds.length === 0) {
         setSelectedBienIds(autofillCache.biens.map((b: any) => b.id));
       }
       return;
     }
-    
-    // ✅ Éviter les appels multiples et ne charger que si autofill est activé et qu'on n'a pas déjà de données
-    if (autofill && !autofillData && !autofillLoadingRef.current) {
+
+    // ✅ Charger si autofill activé et (pas de données OU année du cache différente)
+    if (autofill && (!autofillData || autofillCache?.year !== year) && !autofillLoadingRef.current) {
       autofillLoadingRef.current = true;
       loadAutofillData().finally(() => {
         autofillLoadingRef.current = false;
       });
     } else if (!autofill) {
-      // Si autofill est désactivé, réinitialiser
       setAutofillData(null);
       autofillLoadingRef.current = false;
     }
-  }, [autofill, autofillCache]);
+  }, [autofill, autofillData, autofillCache, currentIncomeYear, loadAutofillData, organizationId, simulationDraft._uiMetadata]);
+
+  // Réessayer au retour online
+  useEffect(() => {
+    const handleOnline = () => {
+      if (autofill && offlineNoCache) {
+        setOfflineNoCache(false);
+        loadAutofillData();
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [autofill, offlineNoCache, loadAutofillData]);
 
   const toggleBienSelection = (bienId: string) => {
     setSelectedBienIds((prev) =>
@@ -827,7 +907,7 @@ export default function SimulationTab() {
                   </select>
                   {regimeOverride === 'auto' && (
                     <p className="text-xs text-green-600 mt-2 flex items-center gap-1">
-                      <span>✓</span> Utilise le régime optimal pour chaque bien
+                      <span>✓</span> Utilise le régime paramétré pour chaque bien
                     </p>
                   )}
                 </div>
@@ -895,14 +975,42 @@ export default function SimulationTab() {
                       checked={autofill}
                       onCheckedChange={(checked) => {
                         setAutofill(checked);
-                        if (!checked) setAutofillData(null);
+                        if (!checked) {
+                          setAutofillData(null);
+                          setAutofillFromCache(false);
+                          setOfflineNoCache(false);
+                        }
                       }}
                     />
                   </div>
                 </div>
 
+                {/* Hors ligne sans cache */}
+                {autofill && offlineNoCache && (
+                  <div className="mt-4">
+                    <Separator />
+                    <Alert variant="outline" className="mt-4 border-amber-200 bg-amber-50">
+                      <AlertCircle className="h-4 w-4 text-amber-600" />
+                      <AlertDescription>
+                        <p className="text-sm font-medium text-amber-900">Hors ligne — impossible d&apos;importer</p>
+                        <p className="text-xs text-amber-700 mt-1">
+                          Connectez-vous ou réessayez lorsque le réseau sera disponible.
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={() => loadAutofillData()}
+                        >
+                          Réessayer
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
+                  </div>
+                )}
+
                 {/* Encart vert biens */}
-                {autofill && (loadingAutofill || autofillData) && (
+                {autofill && (loadingAutofill || autofillData) && !offlineNoCache && (
                   <div className="mt-4">
                     <Separator />
                     
@@ -911,6 +1019,12 @@ export default function SimulationTab() {
                         <Home className="h-4 w-4 text-green-700" />
                         <p className="text-sm font-medium text-green-900">
                           Données récupérées depuis SmartImmo
+                          <span className="text-green-700 font-semibold"> (revenus {currentIncomeYear})</span>
+                          {autofillFromCache && (
+                            <Badge variant="outline" className="ml-2 text-xs bg-amber-100 text-amber-800 border-amber-300">
+                              Données locales (peuvent être non à jour)
+                            </Badge>
+                          )}
                         </p>
                       </div>
                       

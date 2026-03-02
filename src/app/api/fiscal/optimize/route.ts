@@ -108,9 +108,8 @@ async function handleOptimize(request: NextRequest) {
       } else {
         logDebug(`⚠️ Pas de biens sauvegardés → Ré-agrégation depuis BDD`);
         
-        // Fallback : Ré-agréger les données immobilières depuis la BDD
         const aggregated = await FiscalAggregator.aggregate({
-          userId,
+          organizationId,
           year: inputs.year,
           baseCalcul: inputs.options?.baseCalcul || 'encaisse',
         });
@@ -166,9 +165,8 @@ async function handleOptimize(request: NextRequest) {
         } else {
           logDebug(`⚠️ Pas de biens sauvegardés → Ré-agrégation depuis BDD`);
           
-          // Fallback : Ré-agréger les données immobilières depuis la BDD
           const aggregated = await FiscalAggregator.aggregate({
-            userId,
+            organizationId,
             year: inputs.year,
             baseCalcul: inputs.options?.baseCalcul || 'encaisse',
           });
@@ -196,7 +194,7 @@ async function handleOptimize(request: NextRequest) {
         taxParams = await TaxParamsService.get(currentYear);
         
         const aggregated = await FiscalAggregator.aggregate({
-          userId,
+          organizationId,
           year: currentYear,
           baseCalcul: 'encaisse',
         });

@@ -252,6 +252,7 @@ export interface FiscalInputs {
     regimeOverride?: 'auto' | 'micro' | 'reel'; // Override manuel du régime fiscal
     autofill?: boolean;                       // Autofill activé ou non
     selectedBienIds?: string[];               // IDs des biens sélectionnés pour la simulation
+    baremeCode?: string;                     // Code barème (session fiscale, ex: "2025.1")
   };
 }
 

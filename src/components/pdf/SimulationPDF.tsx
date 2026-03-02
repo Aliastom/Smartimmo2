@@ -182,12 +182,22 @@ const styles = StyleSheet.create({
   },
 });
 
+/** Ligne transaction pour l'annexe PDF (données utilisées par la simulation). */
+export interface SimulationPDFTransactionRow {
+  propertyName: string;
+  label: string;
+  date: string;
+  amount: number;
+  categoryLabel: string;
+}
+
 interface SimulationPDFProps {
   simulation: SimulationResult;
   suggestions?: OptimizationSuggestion[];
+  transactions?: SimulationPDFTransactionRow[];
 }
 
-export function SimulationPDF({ simulation, suggestions = [] }: SimulationPDFProps) {
+export function SimulationPDF({ simulation, suggestions = [], transactions = [] }: SimulationPDFProps) {
   const formatEuro = (amount: number) => {
     // Formatage manuel pour éviter les problèmes de rendu d'espaces
     const absAmount = Math.abs(amount);
@@ -550,139 +560,6 @@ export function SimulationPDF({ simulation, suggestions = [] }: SimulationPDFPro
         {/* PAGE BREAK - Fin section Détails fiscaux */}
         <Text break />
 
-        {/* ========== SECTION 6 : PROJECTIONS ANNUELLES ========== */}
-        {simulation.biens.some(b => b.breakdown) && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>PROJECTIONS ANNUELLES</Text>
-            <Text style={{ fontSize: 9, color: '#64748b', marginBottom: 10 }}>
-              Données réalisées et projetées pour l'année {simulation.inputs.year}
-            </Text>
-            
-            {simulation.biens
-              .filter(b => b.breakdown)
-              .map((bien, i) => {
-                const bd = bien.breakdown!;
-                const totalPasse = bd.passe.recettes - bd.passe.chargesDeductibles - bd.passe.interetsEmprunt;
-                const totalProjection = bd.projection.loyersFuturs - bd.projection.chargesFutures - bd.projection.interetsEmpruntFuturs;
-                const totalAnnuel = bd.total.recettes - bd.total.chargesDeductibles - bd.total.interetsEmprunt;
-                
-                return (
-                  <View key={i} style={[styles.card, { marginBottom: 12 }]}>
-                    <Text style={styles.cardHeader}>{bien.nom}</Text>
-                    
-                    {/* Tableau 3 colonnes : Passé / Projection / Total */}
-                    <View style={{ marginTop: 8 }}>
-                      {/* Header */}
-                      <View style={{ flexDirection: 'row', backgroundColor: '#e0e7ff', padding: 6, borderRadius: 3 }}>
-                        <Text style={{ flex: 1, fontSize: 8, fontWeight: 'bold', color: '#3730a3' }}>Passé (réalisé)</Text>
-                        <Text style={{ flex: 1, fontSize: 8, fontWeight: 'bold', color: '#7e22ce', textAlign: 'center' }}>Projection</Text>
-                        <Text style={{ flex: 1, fontSize: 8, fontWeight: 'bold', color: '#1e40af', textAlign: 'right' }}>Total annuel</Text>
-                      </View>
-                      
-                      {/* Recettes */}
-                      <View style={{ flexDirection: 'row', padding: 6, borderBottom: '1 solid #e2e8f0' }}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 7, color: '#64748b' }}>Recettes</Text>
-                          <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#16a34a' }}>
-                            {formatEuro(bd.passe.recettes)}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 7, color: '#64748b', textAlign: 'center' }}>Loyers futurs</Text>
-                          <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#7e22ce', textAlign: 'center' }}>
-                            {formatEuro(bd.projection.loyersFuturs)}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 7, color: '#64748b', textAlign: 'right' }}>Total recettes</Text>
-                          <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#1e40af', textAlign: 'right' }}>
-                            {formatEuro(bd.total.recettes)}
-                          </Text>
-                        </View>
-                      </View>
-                      
-                      {/* Charges */}
-                      <View style={{ flexDirection: 'row', padding: 6, borderBottom: '1 solid #e2e8f0' }}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 7, color: '#64748b' }}>Charges</Text>
-                          <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#dc2626' }}>
-                            {formatEuro(bd.passe.chargesDeductibles)}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 7, color: '#64748b', textAlign: 'center' }}>Charges futures</Text>
-                          <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#dc2626', textAlign: 'center' }}>
-                            {formatEuro(bd.projection.chargesFutures)}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 7, color: '#64748b', textAlign: 'right' }}>Total charges</Text>
-                          <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#dc2626', textAlign: 'right' }}>
-                            {formatEuro(bd.total.chargesDeductibles)}
-                          </Text>
-                        </View>
-                      </View>
-                      
-                      {/* Intérêts */}
-                      <View style={{ flexDirection: 'row', padding: 6, borderBottom: '1 solid #e2e8f0' }}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 7, color: '#64748b' }}>Intérêts</Text>
-                          <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#f97316' }}>
-                            {formatEuro(bd.passe.interetsEmprunt)}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 7, color: '#64748b', textAlign: 'center' }}>Intérêts futurs</Text>
-                          <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#f97316', textAlign: 'center' }}>
-                            {formatEuro(bd.projection.interetsEmpruntFuturs)}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 7, color: '#64748b', textAlign: 'right' }}>Total intérêts</Text>
-                          <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#f97316', textAlign: 'right' }}>
-                            {formatEuro(bd.total.interetsEmprunt)}
-                          </Text>
-                        </View>
-                      </View>
-                      
-                      {/* Résultat net */}
-                      <View style={{ flexDirection: 'row', padding: 6, backgroundColor: '#f8fafc' }}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#475569' }}>Résultat</Text>
-                          <Text style={{ fontSize: 10, fontWeight: 'bold', color: totalPasse >= 0 ? '#16a34a' : '#dc2626' }}>
-                            {formatEuro(totalPasse)}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#475569', textAlign: 'center' }}>Résultat</Text>
-                          <Text style={{ fontSize: 10, fontWeight: 'bold', color: totalProjection >= 0 ? '#16a34a' : '#dc2626', textAlign: 'center' }}>
-                            {formatEuro(totalProjection)}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#475569', textAlign: 'right' }}>TOTAL</Text>
-                          <Text style={{ fontSize: 10, fontWeight: 'bold', color: totalAnnuel >= 0 ? '#16a34a' : '#dc2626', textAlign: 'right' }}>
-                            {formatEuro(totalAnnuel)}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                    
-                    {/* Note méthodologie */}
-                    <View style={{ marginTop: 8, padding: 6, backgroundColor: '#eff6ff', borderRadius: 3 }}>
-                      <Text style={{ fontSize: 7, color: '#1e40af' }}>
-                        💡 Passé = transactions réelles | Projection = basée sur baux actifs et échéances planifiées
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
-          </View>
-        )}
-
-        {/* PAGE BREAK */}
-        <Text break />
-
         {/* SECTION 7 : RÉSUMÉ FINAL */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>RESUME FINAL</Text>
@@ -717,7 +594,7 @@ export function SimulationPDF({ simulation, suggestions = [] }: SimulationPDFPro
               </Text>
             </View>
             <View style={styles.grid}>
-              <Text style={{ fontSize: 9, color: '#15803d' }}>- Impôts supplémentaires (IR + PS)</Text>
+              <Text style={{ fontSize: 9, color: '#15803d' }}>- IR + PS dus à l'immobilier</Text>
               <Text style={{ fontSize: 9, color: '#15803d' }}>
                 -{formatEuro(simulation.resume.impotsSuppTotal)}
               </Text>
@@ -870,6 +747,47 @@ export function SimulationPDF({ simulation, suggestions = [] }: SimulationPDFPro
               </View>
             </View>
           </View>
+        )}
+
+        {/* ANNEXE : LISTE DES TRANSACTIONS */}
+        {transactions.length > 0 && (
+          <>
+            <Text break />
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>ANNEXE – Transactions prises en compte</Text>
+              <Text style={{ fontSize: 9, color: '#64748b', marginBottom: 10 }}>
+                Année {simulation.inputs.year} – Base {simulation.inputs.options?.baseCalcul === 'exigible' ? 'exigible' : 'encaissé'} – {transactions.length} transaction(s)
+              </Text>
+              <View style={styles.table}>
+                <View style={[styles.tableHeader, { flexDirection: 'row' }]}>
+                  <Text style={{ width: '22%', fontSize: 8, fontWeight: 'bold', color: '#3730a3' }}>Bien</Text>
+                  <Text style={{ width: '30%', fontSize: 8, fontWeight: 'bold', color: '#3730a3' }}>Libellé</Text>
+                  <Text style={{ width: '18%', fontSize: 8, fontWeight: 'bold', color: '#3730a3' }}>Catégorie</Text>
+                  <Text style={{ width: '12%', fontSize: 8, fontWeight: 'bold', color: '#3730a3' }}>Date</Text>
+                  <Text style={{ width: '18%', fontSize: 8, fontWeight: 'bold', color: '#3730a3', textAlign: 'right' }}>Montant</Text>
+                </View>
+                {transactions.map((tx, i) => (
+                  <View
+                    key={i}
+                    style={{
+                      flexDirection: 'row',
+                      padding: 5,
+                      borderBottom: '1 solid #e2e8f0',
+                      backgroundColor: i % 2 === 1 ? '#f8fafc' : '#ffffff',
+                    }}
+                  >
+                    <Text style={{ width: '22%', fontSize: 7, color: '#475569' }}>{tx.propertyName}</Text>
+                    <Text style={{ width: '30%', fontSize: 7, color: '#0f172a' }}>{tx.label}</Text>
+                    <Text style={{ width: '18%', fontSize: 7, color: '#64748b' }}>{tx.categoryLabel}</Text>
+                    <Text style={{ width: '12%', fontSize: 7, color: '#64748b' }}>{tx.date}</Text>
+                    <Text style={{ width: '18%', fontSize: 7, fontWeight: 'bold', color: tx.amount >= 0 ? '#16a34a' : '#dc2626', textAlign: 'right' }}>
+                      {formatEuro(tx.amount)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </>
         )}
 
         {/* FOOTER */}

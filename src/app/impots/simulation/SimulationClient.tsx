@@ -123,7 +123,6 @@ export default function SimulationClient() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: 'demo-user', // TODO: Récupérer depuis session
           year: anneeRevenus,
           baseCalcul: 'encaisse',
         }),
@@ -1419,7 +1418,7 @@ export default function SimulationClient() {
                     <div className="flex-1">
                       <span className="font-medium text-gray-700">Bénéfice net immobilier</span>
                       <p className="text-xs text-gray-500 mt-1">
-                        Loyers - Charges - Impôts supplémentaires (IR + PS)
+                        Loyers - Charges - IR + PS dus à l'immobilier
                       </p>
                     </div>
                     <span className="text-xl font-bold text-green-600">
@@ -1444,7 +1443,7 @@ export default function SimulationClient() {
                         </span>
                       </div>
                       <div className="flex justify-between text-blue-700">
-                        <span>- Impôts supplémentaires (IR + PS causés par le foncier)</span>
+                        <span>- IR + PS dus à l'immobilier</span>
                         <span className="font-medium">
                           -{formatEuro(simulation.resume.impotsSuppTotal)}
                         </span>

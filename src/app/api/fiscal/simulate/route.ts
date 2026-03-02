@@ -1,14 +1,15 @@
 /**
  * API Route : Simulation fiscale
  * POST /api/fiscal/simulate
+ * 
+ * ⚠️ Multi-tenant : requireAuth obligatoire.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { TaxParamsService } from '@/services/tax/TaxParamsService';
 import { FiscalAggregator } from '@/services/tax/FiscalAggregator';
 import { Simulator } from '@/services/tax/Simulator';
-import { FiscalCombinationGuard } from '@/services/FiscalCombinationGuard';
 import type { FiscalInputs } from '@/types/fiscal';
 
 
@@ -17,21 +18,15 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    // Vérifier l'authentification
-    // TODO: Activer l'authentification en production
-    // const session = await getServerSession();
-    // if (!session?.user) {
-    //   return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-    // }
-    
-    // Pour les tests, utiliser un userId par défaut
-    const userId = 'demo-user';
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
     
     // Récupérer les données du body
     const body = await request.json() as Partial<FiscalInputs>;
     
     const {
       year,
+      baremeCode,
       foyer,
       per,
       options = {
@@ -49,8 +44,8 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Récupérer les paramètres fiscaux pour l'année
-    const taxParams = await TaxParamsService.get(year);
+    // Récupérer les paramètres fiscaux (année des revenus + optionnellement barème)
+    const taxParams = await TaxParamsService.get(year, baremeCode);
     
     // Agréger les données fiscales automatiquement si autofill
     let inputs: FiscalInputs;
@@ -68,9 +63,8 @@ export async function POST(request: NextRequest) {
         options,
       };
     } else if (options.autofill) {
-      // Recharger les données depuis la BDD
       const aggregated = await FiscalAggregator.aggregate({
-        userId,
+        organizationId,
         year,
         baseCalcul: options.baseCalcul,
         regimeForce: options.regimeForce,

@@ -1,18 +1,27 @@
 /**
  * API Route : Export PDF de la simulation fiscale
  * POST /api/fiscal/export-pdf
+ * Inclut en annexe la liste des transactions prises en compte (année + biens de la simulation).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth/getCurrentUser';
+import { prisma } from '@/lib/prisma';
 import { generateSimulationPDF } from '@/services/pdf/generateSimulationPDF';
 import type { SimulationResult, OptimizationSuggestion } from '@/types/fiscal';
-
+import type { SimulationPDFTransactionRow } from '@/components/pdf/SimulationPDF';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    if (!organizationId) {
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+    }
+
     const body = await request.json();
     const simulation: SimulationResult = body.simulation;
     const suggestions: OptimizationSuggestion[] = body.suggestions || [];
@@ -24,8 +33,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Générer le PDF avec les suggestions d'optimisation
-    const pdfBuffer = await generateSimulationPDF(simulation, suggestions);
+    const year = simulation.inputs.year;
+    const propertyIds = simulation.biens?.map((b) => b.id) ?? [];
+    const baseCalcul = simulation.inputs.options?.baseCalcul ?? 'encaisse';
+
+    let transactionsForPdf: SimulationPDFTransactionRow[] = [];
+    if (propertyIds.length > 0) {
+      const yearString = String(year);
+      const where: any = {
+        propertyId: { in: propertyIds },
+        organizationId,
+        accounting_month: { contains: yearString },
+      };
+      if (baseCalcul === 'encaisse') {
+        where.rapprochementStatus = 'rapprochee';
+      }
+      const rows = await prisma.transaction.findMany({
+        where,
+        include: { Category: true, Property: true },
+        orderBy: [{ propertyId: 'asc' }, { date: 'asc' }],
+      });
+      transactionsForPdf = rows.map((tx) => ({
+        propertyName: tx.Property?.name ?? '–',
+        label: tx.label ?? '–',
+        date: tx.date ? new Date(tx.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '–',
+        amount: tx.amount ?? 0,
+        categoryLabel: tx.Category?.label ?? '–',
+      }));
+    }
+
+    const pdfBuffer = await generateSimulationPDF(simulation, suggestions, transactionsForPdf);
 
     // Nom du fichier
     const filename = `simulation-fiscale-${simulation.inputs.year}-${new Date().toISOString().split('T')[0]}.pdf`;
