@@ -324,7 +324,8 @@ export default function SimulationTab() {
       });
       setAutofillFromCache(fromCache);
       setOfflineNoCache(false);
-      const savedIds = (simulationDraft._uiMetadata as any)?.selectedBienIds;
+      // Lire depuis le store au moment de l'appel (évite de recréer loadAutofillData à chaque keystroke en PWA)
+      const savedIds = (useFiscalStore.getState().simulationDraft._uiMetadata as any)?.selectedBienIds;
       if (!savedIds || savedIds.length === 0) {
         setSelectedBienIds(biens.map((b: any) => b.id));
       }
@@ -509,7 +510,7 @@ export default function SimulationTab() {
         });
       }, 500);
     }
-  }, [organizationId, currentIncomeYear, simulationDraft.options?.baseCalcul, simulationDraft._uiMetadata]);
+  }, [organizationId, currentIncomeYear, simulationDraft.options?.baseCalcul]);
 
   // ✅ Ref pour éviter les appels multiples
   const autofillLoadingRef = useRef(false);
@@ -562,7 +563,7 @@ export default function SimulationTab() {
       setAutofillData(null);
       autofillLoadingRef.current = false;
     }
-  }, [autofill, autofillData, autofillCache, currentIncomeYear, loadAutofillData, organizationId, simulationDraft._uiMetadata]);
+  }, [autofill, autofillData, autofillCache, currentIncomeYear, loadAutofillData, organizationId]);
 
   // Réessayer au retour online
   useEffect(() => {
