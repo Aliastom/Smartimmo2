@@ -13,6 +13,9 @@ import { Loader2, CheckCircle2, WifiOff } from 'lucide-react';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/Tooltip';
 import { useSyncStatus } from '@/hooks/offline/useSyncStatus';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { getSyncStatus } from '@/lib/offline/syncStatusStore';
+
+const MIN_LOADER_DISPLAY_MS = 400;
 
 interface LogoWithSyncStatusProps {
   className?: string;
@@ -32,29 +35,51 @@ export function LogoWithSyncStatus({ className, size = 'md', bgColor = 'bg-[#ff6
   const successTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartTimeRef = useRef<number | null>(null);
+  const syncingStartRef = useRef<number | null>(null);
+  const minDisplayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Détecter si on est en App Shell
-  const isAppShell = typeof window !== 'undefined' && pathname?.startsWith('/app');
+  // Lire l'état actuel au montage (évite de rater "syncing" si chunk lazy en PWA)
+  useEffect(() => {
+    const stored = getSyncStatus();
+    if (stored !== 'idle') setSyncStatus(stored);
+  }, []);
 
-  // Écouter les événements sync:status pour recevoir les mises à jour de statut
+  // Écouter les événements sync:status pour les mises à jour
   useEffect(() => {
     const handleSyncStatus = (event: CustomEvent) => {
       const { status, organizationId: eventOrgId } = event.detail;
-      // Ne prendre en compte que si c'est pour la même organisation
-      if (!organizationId || eventOrgId === organizationId) {
-        setSyncStatus(status);
-      }
+      if (!organizationId || eventOrgId === organizationId) setSyncStatus(status);
     };
 
     window.addEventListener('sync:status', handleSyncStatus as EventListener);
     return () => {
       window.removeEventListener('sync:status', handleSyncStatus as EventListener);
+      if (minDisplayTimeoutRef.current) clearTimeout(minDisplayTimeoutRef.current);
     };
   }, [organizationId]);
 
-  // Utiliser le statut de l'événement en priorité, sinon celui du hook
   const effectiveStatus = syncStatus !== 'idle' ? syncStatus : hookStatus;
-  const isSyncing = effectiveStatus === 'syncing' || fullSyncRunning;
+  const rawSyncing = effectiveStatus === 'syncing' || fullSyncRunning;
+  // Min display time: garder le loader visible au moins 400ms (évite flash si sync rapide en PWA)
+  const [minDisplayActive, setMinDisplayActive] = useState(false);
+  const isSyncing = rawSyncing || minDisplayActive;
+
+  useEffect(() => {
+    if (rawSyncing) {
+      setMinDisplayActive(true);
+      syncingStartRef.current = Date.now();
+    } else if (minDisplayActive) {
+      const elapsed = syncingStartRef.current ? Date.now() - syncingStartRef.current : 0;
+      const remaining = Math.max(0, MIN_LOADER_DISPLAY_MS - elapsed);
+      minDisplayTimeoutRef.current = setTimeout(() => setMinDisplayActive(false), remaining);
+    }
+    return () => {
+      if (minDisplayTimeoutRef.current) {
+        clearTimeout(minDisplayTimeoutRef.current);
+        minDisplayTimeoutRef.current = null;
+      }
+    };
+  }, [rawSyncing, minDisplayActive]);
 
   // Détecter quand la sync se termine (passage de 'syncing' à 'idle')
   useEffect(() => {

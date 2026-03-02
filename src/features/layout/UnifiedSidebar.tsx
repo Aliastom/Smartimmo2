@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
 import { ChevronLeft, ChevronRight, Loader2, Shield } from 'lucide-react';
@@ -136,6 +136,7 @@ export function UnifiedSidebar({
 }: UnifiedSidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const { isLoading } = useLoading();
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const collapsed = collapsedProp ?? internalCollapsed;
@@ -264,6 +265,28 @@ export function UnifiedSidebar({
     );
 
     const href = buildViewPath(item.appView as ViewType);
+    const view = item.appView as ViewType;
+
+    // En mode app-shell: navigation SPA via router.push pour éviter reload en PWA standalone
+    if (mode === 'app-shell') {
+      return (
+        <a
+          key={item.id}
+          href={href}
+          className={itemClassName}
+          onClick={(e) => {
+            e.preventDefault();
+            router.push(href, { scroll: false });
+            onNavigate?.(view);
+            if (sidebarContext && typeof window !== 'undefined' && window.innerWidth < 1024) {
+              sidebarContext.setSidebarOpen(false);
+            }
+          }}
+        >
+          {itemContent}
+        </a>
+      );
+    }
 
     return (
       <Link
@@ -271,7 +294,6 @@ export function UnifiedSidebar({
         href={href}
         className={itemClassName}
         onClick={() => {
-          // ⚠️ CORRECTION: Fermer la sidebar en mode mobile après navigation
           if (sidebarContext && typeof window !== 'undefined' && window.innerWidth < 1024) {
             sidebarContext.setSidebarOpen(false);
           }

@@ -5,8 +5,8 @@
  * Même interface que AppShellSidebar, style visuel différent
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import Link from 'next/link';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
@@ -107,8 +107,20 @@ export function UI2Sidebar({
   onCollapsedChange,
   className,
 }: UI2SidebarProps) {
+  const router = useRouter();
   const sidebarContext = useSidebarOptional();
   const searchParams = useSearchParams();
+
+  // Navigation SPA pure (router.push) pour éviter reload en PWA standalone
+  const handleNavClick = (view: ViewType, e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    const path = buildViewPath(view);
+    router.push(path, { scroll: false });
+    onNavigate(view);
+    if (sidebarContext && typeof window !== 'undefined' && window.innerWidth < 1024) {
+      sidebarContext.setSidebarOpen(false);
+    }
+  };
   const { role } = useAppSession();
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const collapsed = collapsedProp ?? internalCollapsed;
@@ -186,22 +198,20 @@ export function UI2Sidebar({
           {itemsToShowInMain.map((item) => {
             const isActive = isItemActive(item);
             const IconComponent = item.icon;
+            const view = item.appView as ViewType;
+            const path = buildViewPath(view);
             return (
               <li key={item.id}>
-                <Link
-                  href={buildViewPath(item.appView as ViewType)}
-                  onClick={() => {
-                    // Fermer la sidebar en mode mobile après navigation
-                    if (sidebarContext && typeof window !== 'undefined' && window.innerWidth < 1024) {
-                      sidebarContext.setSidebarOpen(false);
-                    }
-                  }}
+                <a
+                  href={path}
+                  onClick={(e) => handleNavClick(view, e)}
                   className={isActive ? 'active' : ''}
+                  aria-current={isActive ? 'page' : undefined}
                 >
                   <IconComponent className="ui2-nav-icon" size={20} strokeWidth={2} />
                   <strong>{item.label}</strong>
                   <small>{item.description || 'Navigation'}</small>
-                </Link>
+                </a>
               </li>
             );
           })}
@@ -217,22 +227,20 @@ export function UI2Sidebar({
               {adminItems.map((item) => {
                 const isActive = isItemActive(item);
                 const IconComponent = item.icon;
+                const view = item.appView as ViewType;
+                const path = buildViewPath(view);
                 return (
                   <li key={item.id}>
-                    <Link
-                      href={buildViewPath(item.appView as ViewType)}
-                      onClick={() => {
-                        // Fermer la sidebar en mode mobile après navigation
-                        if (sidebarContext && typeof window !== 'undefined' && window.innerWidth < 1024) {
-                          sidebarContext.setSidebarOpen(false);
-                        }
-                      }}
+                    <a
+                      href={path}
+                      onClick={(e) => handleNavClick(view, e)}
                       className={isActive ? 'active' : ''}
+                      aria-current={isActive ? 'page' : undefined}
                     >
                       <IconComponent className="ui2-nav-icon" size={20} strokeWidth={2} />
                       <strong>{item.label}</strong>
                       <small>{item.description || 'Navigation'}</small>
-                    </Link>
+                    </a>
                   </li>
                 );
               })}

@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getLocalDB } from '@/lib/offline/db';
 import { getGlobalSyncService } from '@/lib/offline/syncGlobal';
+import { setSyncStatus as setSyncStatusStore } from '@/lib/offline/syncStatusStore';
 import { hasInitialFullSyncDone, initialFullSync } from '@/lib/offline/fullSync';
 import type { SyncState } from '@/lib/offline/types';
 
@@ -347,13 +348,7 @@ export function useSyncStatus(organizationId?: string) {
     }
 
     setState(prev => ({ ...prev, status: 'syncing', error: undefined }));
-    
-    // Émettre un événement pour notifier tous les composants du changement de statut
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('sync:status', { 
-        detail: { status: 'syncing', organizationId } 
-      }));
-    }
+    setSyncStatusStore('syncing', organizationId);
 
     try {
       const globalSyncService = getGlobalSyncService();
@@ -389,13 +384,7 @@ export function useSyncStatus(organizationId?: string) {
           ? firstError || `${totalErrors} erreurs`
           : undefined,
       }));
-      
-      // Émettre un événement pour notifier tous les composants du changement de statut
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('sync:status', { 
-          detail: { status: newStatus, organizationId } 
-        }));
-      }
+      setSyncStatusStore(newStatus, organizationId);
 
       // Mettre à jour les compteurs
       await updatePendingCount();
@@ -435,14 +424,8 @@ export function useSyncStatus(organizationId?: string) {
         status: newStatus,
         error: errorMessage,
       }));
-      
-      // Émettre un événement pour notifier tous les composants du changement de statut
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('sync:status', { 
-          detail: { status: newStatus, organizationId } 
-        }));
-      }
-      
+      setSyncStatusStore(newStatus, organizationId);
+
       // Si DB_UNAVAILABLE, ne pas throw pour éviter que AppShellClient affiche une erreur
       // (l'écran de recovery est déjà affiché)
       if (!isDbUnavailable) {
@@ -459,6 +442,7 @@ export function useSyncStatus(organizationId?: string) {
 
     try {
       setState(prev => ({ ...prev, fullSyncRunning: true }));
+      setSyncStatusStore('syncing', organizationId);
 
       const result = await initialFullSync(organizationId);
 
@@ -467,6 +451,7 @@ export function useSyncStatus(organizationId?: string) {
         fullSyncDone: result.success,
         fullSyncRunning: false,
       }));
+      setSyncStatusStore('idle', organizationId);
 
       // Après la full sync, lancer une sync normale (push puis overwrite, ordre strict)
       if (result.success) {
@@ -476,12 +461,12 @@ export function useSyncStatus(organizationId?: string) {
         await updatePendingCount();
       }
     } catch (error: any) {
-      // Erreur silencieuse
       setState(prev => ({
         ...prev,
         fullSyncRunning: false,
         error: error.message || 'Erreur lors de la synchronisation complète',
       }));
+      setSyncStatusStore('idle', organizationId);
     }
   }, [organizationId, state.isOnline, state.fullSyncRunning, state.fullSyncDone, updatePendingCount]);
 
@@ -507,6 +492,7 @@ export function useSyncStatus(organizationId?: string) {
         if (!done) {
           console.log('[useSyncStatus] Base vide détectée, déclenchement automatique de la full sync initiale');
           setState(prev => ({ ...prev, fullSyncRunning: true }));
+          setSyncStatusStore('syncing', organizationId);
           
           try {
             const result = await initialFullSync(organizationId);
@@ -515,6 +501,7 @@ export function useSyncStatus(organizationId?: string) {
               fullSyncDone: result.success,
               fullSyncRunning: false,
             }));
+            setSyncStatusStore('idle', organizationId);
 
             // Après la full sync, lancer une sync normale (push puis overwrite, ordre strict)
             if (result.success) {
@@ -529,6 +516,7 @@ export function useSyncStatus(organizationId?: string) {
               fullSyncRunning: false,
               error: error.message || 'Erreur lors de la synchronisation complète',
             }));
+            setSyncStatusStore('idle', organizationId);
           }
         }
       } catch (error) {
@@ -548,6 +536,7 @@ export function useSyncStatus(organizationId?: string) {
   useEffect(() => {
     const handleOnline = () => {
       setState(prev => ({ ...prev, isOnline: true, status: 'idle' }));
+      setSyncStatusStore('idle');
       
       // DÉSACTIVÉ : Auto-sync quand on revient en ligne
       // La synchronisation se fait uniquement sur clic du bouton
@@ -558,6 +547,7 @@ export function useSyncStatus(organizationId?: string) {
 
     const handleOffline = () => {
       setState(prev => ({ ...prev, isOnline: false, status: 'offline' }));
+      setSyncStatusStore('offline');
     };
 
     window.addEventListener('online', handleOnline);

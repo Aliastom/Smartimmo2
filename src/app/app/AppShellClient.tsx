@@ -149,9 +149,11 @@ function AppShellClientContent() {
     };
   }, [setStatus]);
   
-  // PHASE 5 — Si online → synchronisation silencieuse (une seule fois)
-  // Utiliser un ref pour éviter les boucles infinies
+  // PHASE 5 — Si online → synchronisation silencieuse (une seule fois par session)
+  // En PWA standalone, un reload à chaque clic menu réinitialise syncTriggeredRef.
+  // sessionStorage persiste tant que l'onglet est ouvert => évite re-sync à chaque navigation.
   const syncTriggeredRef = React.useRef(false);
+  const SESSION_SYNC_KEY = 'app_shell_synced_this_session';
   
   // Forcer la migration vers la version 9 au démarrage
   // ⚠️ CRITIQUE: Ce hook doit être appelé AVANT le return conditionnel
@@ -164,14 +166,16 @@ function AppShellClientContent() {
   // ✅ Sync automatique au retour online (peu importe la page)
   // ⚠️ CRITIQUE: Ce hook doit être appelé AVANT le return conditionnel
   useEffect(() => {
+    const alreadySyncedThisSession = typeof sessionStorage !== 'undefined' && sessionStorage.getItem(SESSION_SYNC_KEY) === 'true';
     if (
       organizationId &&
       isOnline &&
       status === 'idle' &&
       !syncTriggeredRef.current &&
+      !alreadySyncedThisSession &&
       sync
     ) {
-      syncTriggeredRef.current = true; // Marquer comme déclenché
+      syncTriggeredRef.current = true;
       const phase5StartTime = performance.now();
       logToServer('[PHASE 5] 🔄 Synchronisation silencieuse - Démarrage (online détecté)');
       logToServer('[PHASE 5] 📤 Sync des opérations en attente (pendingOps → Supabase)');
@@ -257,9 +261,9 @@ function AppShellClientContent() {
         }
         
         logToServer('[PHASE 5] 🔔 Émission événement sync:refresh pour mise à jour UI');
-        // Ne pas émettre l'événement immédiatement pour éviter les boucles
-        // L'événement sera émis par le hook useSyncStatus lui-même si nécessaire
-        // window.dispatchEvent(new CustomEvent('sync:refresh'));
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem(SESSION_SYNC_KEY, 'true');
+        }
       }).catch((err) => {
         // ⚠️ CRITIQUE: Si DB_UNAVAILABLE, ne pas logger d'erreur (l'écran de recovery est déjà affiché)
         const isDbUnavailable = err?.message?.includes('DB_UNAVAILABLE') || 
@@ -273,10 +277,13 @@ function AppShellClientContent() {
     }
   }, [organizationId, isOnline, status, sync]); // Retirer currentView pour permettre sync sur toutes les pages
 
-  // ✅ Réinitialiser syncTriggeredRef quand on passe offline pour permettre une nouvelle sync au retour online
+  // Réinitialiser quand offline pour permettre re-sync au retour online
   useEffect(() => {
     if (!isOnline) {
       syncTriggeredRef.current = false;
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem(SESSION_SYNC_KEY);
+      }
     }
   }, [isOnline]);
 
