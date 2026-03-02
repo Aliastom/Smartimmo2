@@ -369,15 +369,17 @@ export default function SimulationTab() {
     let progressInterval: NodeJS.Timeout | null = null;
     let currentProgress = 0;
 
+    // Total à traiter : garder une valeur fixe pendant l'estimation (ne pas l'augmenter)
+    // pour éviter l'effet "le nombre augmente au fur et à mesure" – le vrai total arrive avec la réponse API
+    const initialTotal = 10;
     progressInterval = setInterval(() => {
       setLoadingProgress((prev) => {
         const elapsed = (Date.now() - prev.startTime) / 1000;
-        const estimatedBiens = Math.min(Math.floor(elapsed / 1.2), 20);
-        const estimatedTotal = Math.max(prev.totalBiens || 10, estimatedBiens + 5);
-        const newBiensProcessed = Math.min(estimatedBiens, estimatedTotal - 1);
+        const estimatedBiens = Math.min(Math.floor(elapsed / 1.2), initialTotal);
+        const newBiensProcessed = Math.min(estimatedBiens, (prev.totalBiens || initialTotal) - 1);
         if (newBiensProcessed < currentProgress) return prev;
         currentProgress = newBiensProcessed;
-        return { ...prev, totalBiens: estimatedTotal, biensProcessed: newBiensProcessed };
+        return { ...prev, totalBiens: prev.totalBiens || initialTotal, biensProcessed: newBiensProcessed };
       });
     }, 800);
 

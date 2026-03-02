@@ -210,14 +210,16 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
     };
   }, [simulationResult, savedSimulationId, status]);
 
-  // Charger la liste des simulations sauvegardées et réinitialiser
+  // Charger la liste des simulations sauvegardées au montage
+  // En mode normal : réinitialiser le store et charger
+  // En mode app-shell : charger la liste (pas de reset) pour permettre de charger une sauvegarde dès l'ouverture
   useEffect(() => {
     if (mode === 'normal') {
       localStorage.removeItem('fiscal-simulation-cache');
       localStorage.removeItem('fiscal-store');
       resetSimulation();
-      loadSavedSimulations();
     }
+    loadSavedSimulations();
   }, [mode]);
 
   // ✅ Si on est sur un onglet résultat (synthese, details, etc.) sans simulation → revenir à Simulation
