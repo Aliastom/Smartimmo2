@@ -11,6 +11,7 @@ const transactionSchema = z.object({
   label: z.string().min(1, 'Le libellé est requis'),
   amount: z.number().positive('Le montant doit être positif'),
   date: z.string().min(1, 'La date est requise'),
+  paidAt: z.string().min(1, 'La date de paiement est obligatoire'),
   category: z.string().optional(),
   isRecurring: z.boolean().optional(),
 });
@@ -24,6 +25,7 @@ export async function createTransaction(formData: FormData) {
       label: formData.get('label') as string,
       amount: parseFloat(formData.get('amount') as string),
       date: formData.get('date') as string,
+      paidAt: formData.get('paidAt') as string || formData.get('paymentDate') as string,
       category: formData.get('category') as string || undefined,
       isRecurring: formData.get('isRecurring') === 'on',
     };
@@ -32,7 +34,8 @@ export async function createTransaction(formData: FormData) {
     const transaction = await transactionRepository.create({
       ...validatedData,
       date: new Date(validatedData.date),
-    });
+      paidAt: new Date(validatedData.paidAt),
+    } as any);
 
     revalidatePath('/transactions');
     revalidatePath('/dashboard');

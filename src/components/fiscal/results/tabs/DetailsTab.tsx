@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useExpertModeStore } from '@/store/expertModeStore';
 import { ExpertCalculBlocks } from '../../expert/ExpertCalculBlocks';
 import type { SimulationResult, RentalPropertyResult } from '@/types/fiscal';
+import { PilotagePASBlock } from '@/components/fiscal/PilotagePASBlock';
 import { 
   Home, 
   Building,
@@ -170,6 +171,12 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                       <p className="text-xs text-gray-600 mt-1">
                         Taux marginal (TMI) : {formatPercent(simulation.ir.trancheMarginate)}
                       </p>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        Taux moyen d&apos;imposition : {formatPercent(simulation.resume?.tauxEffectif ?? simulation.ir.tauxMoyen)}
+                      </p>
+                      <p className="text-[10px] text-gray-500 mt-1.5 italic">
+                        Le TMI correspond à la tranche la plus élevée atteinte. Le taux moyen correspond au poids global de l&apos;impôt sur votre revenu imposable.
+                      </p>
                       <p className="text-xs text-gray-500 mt-1 italic">
                         Montant calculé selon le barème officiel {simulation.inputs.year}
                       </p>
@@ -194,7 +201,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
               <CardContent className="p-5">
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Base PS foncière</span>
+                    <span className="text-sm text-gray-600">Base PS immobilière</span>
                     <span className="font-semibold text-gray-700">
                       {formatEuro(simulation.ps.baseImposable || 0)}
                     </span>
@@ -213,9 +220,9 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                   <div className="bg-orange-100 border-2 border-orange-400 rounded-lg p-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-gray-900">Total Prélèvements Sociaux</p>
-                        <p className="text-xs text-gray-500 mt-1 italic">
-                          Les PS ne sont pas impactés par le PER
+                        <p className="font-semibold text-gray-900">Total prélèvements sociaux sur revenus immobiliers</p>
+                        <p className="text-xs text-gray-500 mt-1.5">
+                          Les prélèvements sociaux s&apos;appliquent ici aux revenus immobiliers. Ils ne sont pas réduits par le PER.
                         </p>
                       </div>
                       <span className="text-2xl font-bold text-orange-600">
@@ -253,7 +260,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                 </div>
                 
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-700">+ Prélèvements Sociaux (PS)</span>
+                  <span className="text-gray-700">+ Prélèvements sociaux sur revenus immobiliers</span>
                   <span className="font-semibold text-gray-700">{formatEuro(psTotal)}</span>
                 </div>
                 
@@ -375,6 +382,17 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
               </div>
             </CardContent>
           </Card>
+        </BlockCard>
+
+        {/* BLOC : PILOTAGE PAS & ACOMPTES */}
+        <BlockCard
+          title="Pilotage PAS & acomptes"
+          icon={<Percent className="h-5 w-5 text-indigo-600" />}
+        >
+          <PilotagePASBlock
+            mode="summary"
+            simulation={simulation}
+          />
         </BlockCard>
 
         {/* BLOC 7 : RENDEMENT NET (INFO) */}

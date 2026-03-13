@@ -362,14 +362,20 @@ class FiscalAggregatorClass {
     const typeBien = this.determinePropertyType(property);
     
     // Récupérer les transactions du bien pour cette année
-    // ✅ Base "encaissé" : uniquement les transactions rapprochées (défaut)
-    // Base "exigible" : toutes les transactions (selon date comptable)
-    // ✅ Defense-in-depth : filtrer par organizationId
+    // ✅ RÈGLE FISCALE DGFiP : Les revenus fonciers sont rattachés à l'année d'encaissement.
+    // On utilise UNIQUEMENT la date de paiement (paidAt, fallback date, fallback createdAt).
+    // NE PAS utiliser accounting_month/periodMonth/periodYear (période couverte par le loyer).
     const yearString = year.toString();
+    const jan1 = new Date(`${year}-01-01T00:00:00.000Z`);
+    const dec31 = new Date(`${year}-12-31T23:59:59.999Z`);
+    
     const whereClause: any = {
-        propertyId,
-        organizationId,
-        accounting_month: { contains: yearString },
+      propertyId,
+      organizationId,
+      OR: [
+        { paidAt: { gte: jan1, lte: dec31 } },
+        { paidAt: { equals: null }, date: { gte: jan1, lte: dec31 } },
+      ],
     };
     
     // ✅ Pour base "encaissé", filtrer uniquement les transactions rapprochées
@@ -403,7 +409,19 @@ class FiscalAggregatorClass {
     const recettesParCategorie: Record<string, { label: string; amount: number }> = {};
     const chargesParCategorie: Record<string, { label: string; amount: number }> = {};
     
+    // 🔍 DEBUG temporaire : liste des dates avec source (paidAt / date / createdAt) pour vérification fiscale
+    const debugPaidAtDates: { date: string; source: 'paidAt' | 'date' | 'createdAt' }[] = [];
+    
     for (const transaction of transactions) {
+      // ✅ Règle DGFiP : année fiscale = année d'encaissement (paymentDate). Filtre défensif.
+      const fiscalDate = transaction.paidAt ?? transaction.date ?? transaction.createdAt;
+      const fiscalYear = new Date(fiscalDate).getFullYear();
+      if (fiscalYear !== year) continue;
+      
+      const dateStr = typeof fiscalDate === 'string' ? fiscalDate.split('T')[0] : new Date(fiscalDate).toISOString().split('T')[0];
+      const source: 'paidAt' | 'date' | 'createdAt' = transaction.paidAt ? 'paidAt' : transaction.date ? 'date' : 'createdAt';
+      debugPaidAtDates.push({ date: dateStr, source });
+      
       const montant = Math.abs(transaction.amount);  // Toujours positif pour les calculs
       const natureCode = transaction.nature || '';
       const nature = natures.get(natureCode);
@@ -595,6 +613,9 @@ class FiscalAggregatorClass {
       
       // 🆕 Breakdown détaillé (passé + projection séparés pour onglet Projections)
       breakdown,
+      
+      // 🔍 DEBUG temporaire : dates d'encaissement des transactions incluses (pour vérification fiscale)
+      _debugPaidAtDates: debugPaidAtDates,
     };
   }
   
@@ -795,13 +816,18 @@ class FiscalAggregatorClass {
         }
       } else {
         // 2b. Sinon → Estimer depuis les transactions récentes (loyers)
-        // ✅ Utiliser uniquement les transactions rapprochées pour des projections fiables
+        // ✅ Règle fiscale : utiliser date d'encaissement (paidAt/date/createdAt), pas accounting_month
+        const jan1 = new Date(`${year}-01-01T00:00:00.000Z`);
+        const dec31 = new Date(`${year}-12-31T23:59:59.999Z`);
         const recentTransactions = await prisma.transaction.findMany({
           where: {
             propertyId,
-            accounting_month: { contains: yearString },
             amount: { gt: 0 }, // Recettes uniquement
-            rapprochementStatus: baseCalcul === 'encaisse' ? 'rapprochee' : undefined, // ✅ Filtrer si base encaissé
+            rapprochementStatus: baseCalcul === 'encaisse' ? 'rapprochee' : undefined,
+            OR: [
+              { paidAt: { gte: jan1, lte: dec31 } },
+              { paidAt: { equals: null }, date: { gte: jan1, lte: dec31 } },
+            ],
           },
           orderBy: { date: 'desc' },
           take: 3, // Prendre les 3 dernières recettes pour moyenne
@@ -863,13 +889,18 @@ class FiscalAggregatorClass {
         }
       } else {
         // Fallback : Estimer depuis les charges passées
-        // ✅ Utiliser uniquement les transactions rapprochées pour des projections fiables
+        // ✅ Règle fiscale : utiliser date d'encaissement (paidAt/date/createdAt), pas accounting_month
+        const jan1Charges = new Date(`${year}-01-01T00:00:00.000Z`);
+        const dec31Charges = new Date(`${year}-12-31T23:59:59.999Z`);
         const pastCharges = await prisma.transaction.findMany({
           where: {
             propertyId,
-            accounting_month: { contains: yearString },
             amount: { lt: 0 },
-            rapprochementStatus: baseCalcul === 'encaisse' ? 'rapprochee' : undefined, // ✅ Filtrer si base encaissé
+            rapprochementStatus: baseCalcul === 'encaisse' ? 'rapprochee' : undefined,
+            OR: [
+              { paidAt: { gte: jan1Charges, lte: dec31Charges } },
+              { paidAt: { equals: null }, date: { gte: jan1Charges, lte: dec31Charges } },
+            ],
           },
           include: { Category: true },
         });

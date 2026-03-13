@@ -817,6 +817,10 @@ export async function POST(request: NextRequest) {
     if (!body.amount) {
       return NextResponse.json({ error: 'Amount est requis' }, { status: 400 });
     }
+    const paidAtValue = body.paidAt ?? body.paymentDate;
+    if (!paidAtValue || (typeof paidAtValue === 'string' && !paidAtValue.trim())) {
+      return NextResponse.json({ error: 'La date de paiement est obligatoire.' }, { status: 400 });
+    }
 
     // Extraire les documentIds depuis stagedLinkItemIds (UploadStagedItem → Document)
     let stagedLinkDocumentIds: string[] = [];

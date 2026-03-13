@@ -210,15 +210,12 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
     };
   }, [simulationResult, savedSimulationId, status]);
 
-  // Charger la liste des simulations sauvegardées au montage
-  // En mode normal : réinitialiser le store et charger
-  // En mode app-shell : charger la liste (pas de reset) pour permettre de charger une sauvegarde dès l'ouverture
+  // Au montage : réinitialiser le store pour partir sur un formulaire vide
+  // Les données apparaissent uniquement quand l'utilisateur charge une sauvegarde
   useEffect(() => {
-    if (mode === 'normal') {
-      localStorage.removeItem('fiscal-simulation-cache');
-      localStorage.removeItem('fiscal-store');
-      resetSimulation();
-    }
+    localStorage.removeItem('fiscal-simulation-cache');
+    localStorage.removeItem('fiscal-store');
+    resetSimulation();
     loadSavedSimulations();
   }, [mode]);
 
@@ -765,12 +762,12 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <p className="text-xs font-medium text-gray-600 mb-1">TAUX EFFECTIF</p>
+                          <p className="text-xs font-medium text-gray-600 mb-1">Taux moyen</p>
                           <p className="text-2xl font-bold text-gray-600 mb-1">
                             {((simulationResult.resume?.tauxEffectif || 0) * 100).toFixed(1)} %
                           </p>
                           <p className="text-xs text-gray-500">
-                            TMI: {((simulationResult.ir.trancheMarginate || 0) * 100).toFixed(1)} %
+                            TMI : {((simulationResult.ir.trancheMarginate || 0) * 100).toFixed(1)} %
                           </p>
                         </div>
                         <Percent className="h-6 w-6 text-gray-400" />

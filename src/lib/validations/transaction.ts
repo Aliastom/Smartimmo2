@@ -12,6 +12,7 @@ const baseTransactionSchema = {
   amount: z.number().min(0.01, 'Le montant doit être supérieur à 0'),
   reference: z.string().optional(),
   // Champs de paiement (compatibilité avec les deux formats)
+  // paidAt / paymentDate obligatoires pour toute transaction réelle (référence fiscale = encaissement)
   paymentDate: z.string().optional(),
   paymentMethod: z.string().optional(),
   paidAt: z.string().optional(),
@@ -33,23 +34,37 @@ const baseTransactionSchema = {
 };
 
 // Schéma pour la création (avec monthsCovered)
-export const createTransactionSchema = z.object({
-  ...baseTransactionSchema,
-  monthsCovered: z.number().int().min(1, 'Au moins 1 mois doit être couvert').default(1)
-});
+export const createTransactionSchema = z
+  .object({
+    ...baseTransactionSchema,
+    monthsCovered: z.number().int().min(1, 'Au moins 1 mois doit être couvert').default(1),
+  })
+  .refine((data) => !!((data.paidAt ?? '').trim()) || !!((data.paymentDate ?? '').trim()), {
+    message: 'La date de paiement est obligatoire.',
+    path: ['paymentDate'],
+  });
 
 // Schéma pour l'édition (sans monthsCovered, champs série non modifiables)
-export const updateTransactionSchema = z.object({
-  ...baseTransactionSchema,
-  // monthsCovered n'est PAS inclus dans le schéma d'édition
-  // Les champs parentTransactionId, moisIndex, moisTotal ne sont jamais modifiables
-});
+export const updateTransactionSchema = z
+  .object({
+    ...baseTransactionSchema,
+    // monthsCovered n'est PAS inclus dans le schéma d'édition
+  })
+  .refine((data) => !!((data.paidAt ?? '').trim()) || !!((data.paymentDate ?? '').trim()), {
+    message: 'La date de paiement est obligatoire.',
+    path: ['paymentDate'],
+  });
 
-// Schéma par défaut (pour compatibilité)
-export const transactionFormSchema = z.object({
-  ...baseTransactionSchema,
-  monthsCovered: z.number().min(1, 'Au moins 1 mois doit être couvert')
-});
+// Schéma par défaut (pour compatibilité formulaire)
+export const transactionFormSchema = z
+  .object({
+    ...baseTransactionSchema,
+    monthsCovered: z.number().min(1, 'Au moins 1 mois doit être couvert'),
+  })
+  .refine((data) => !!((data.paidAt ?? '').trim()) || !!((data.paymentDate ?? '').trim()), {
+    message: 'La date de paiement est obligatoire.',
+    path: ['paymentDate'],
+  });
 
 export type TransactionFormData = z.infer<typeof transactionFormSchema>;
 export type CreateTransactionData = z.infer<typeof createTransactionSchema>;

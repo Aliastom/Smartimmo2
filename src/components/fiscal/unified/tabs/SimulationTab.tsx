@@ -31,10 +31,11 @@ import {
 } from 'lucide-react';
 import { Separator } from '@/components/ui/Separator';
 import { FiscalLoadingOverlay } from '@/components/fiscal/FiscalLoadingOverlay';
+import { PilotagePASBlock } from '@/components/fiscal/PilotagePASBlock';
 
 export default function SimulationTab() {
   const { simulationDraft, simulationResult, updateDraft, setAutofillCache, autofillCache } = useFiscalStore();
-  const { session: fiscalSession } = useFiscalSession();
+  const { session: fiscalSession, loading: fiscalSessionLoading } = useFiscalSession();
   const { organizationId } = useCurrentOrganization();
 
   // Année des revenus : priorité à la session (mise à jour immédiate au changement de déclaration), sinon le draft
@@ -83,12 +84,25 @@ export default function SimulationTab() {
   const [autofillFromCache, setAutofillFromCache] = useState(false); // Badge "Données locales"
   const [offlineNoCache, setOfflineNoCache] = useState(false);       // Message "Hors ligne"
   
-  // 🆕 États pour les impôts déjà payés
+  // États pour les impôts déjà payés
   const [prelevementSourceDejaPaye, setPrelevementSourceDejaPaye] = useState(
     simulationDraft.options?.prelevementSourceDejaPaye || 0
   );
   const [acomptesDejaPayes, setAcomptesDejaPayes] = useState(
     simulationDraft.options?.acomptesDejaPayes || 0
+  );
+  // Pilotage PAS & acomptes DGFiP
+  const [currentPersonalizedRate, setCurrentPersonalizedRate] = useState<number | null>(
+    simulationDraft.options?.currentPersonalizedRate ?? null
+  );
+  const [currentDgfipAdvanceAmount, setCurrentDgfipAdvanceAmount] = useState<number | null>(
+    simulationDraft.options?.currentDgfipAdvanceAmount ?? null
+  );
+  const [currentAdvanceFrequency, setCurrentAdvanceFrequency] = useState<'monthly' | 'quarterly' | null>(
+    simulationDraft.options?.currentAdvanceFrequency ?? null
+  );
+  const [withholdingGoal, setWithholdingGoal] = useState<'avoid_catchup' | 'smooth_cashflow' | 'keep_cash' | null>(
+    simulationDraft.options?.withholdingGoal ?? null
   );
   
   // États pour le suivi de progression du chargement
@@ -213,7 +227,7 @@ export default function SimulationTab() {
       });
     }
     
-    // ✅ Restaurer les impôts déjà payés depuis simulationDraft.options
+    // Restaurer les impôts déjà payés et pilotage PAS depuis simulationDraft.options
     if (simulationDraft.options) {
       const options = simulationDraft.options;
       if (options.prelevementSourceDejaPaye !== undefined && options.prelevementSourceDejaPaye !== prelevementSourceDejaPaye) {
@@ -221,6 +235,18 @@ export default function SimulationTab() {
       }
       if (options.acomptesDejaPayes !== undefined && options.acomptesDejaPayes !== acomptesDejaPayes) {
         setAcomptesDejaPayes(options.acomptesDejaPayes || 0);
+      }
+      if (options.currentPersonalizedRate !== undefined && options.currentPersonalizedRate !== currentPersonalizedRate) {
+        setCurrentPersonalizedRate(options.currentPersonalizedRate ?? null);
+      }
+      if (options.currentDgfipAdvanceAmount !== undefined && options.currentDgfipAdvanceAmount !== currentDgfipAdvanceAmount) {
+        setCurrentDgfipAdvanceAmount(options.currentDgfipAdvanceAmount ?? null);
+      }
+      if (options.currentAdvanceFrequency !== undefined && options.currentAdvanceFrequency !== currentAdvanceFrequency) {
+        setCurrentAdvanceFrequency(options.currentAdvanceFrequency ?? null);
+      }
+      if (options.withholdingGoal !== undefined && options.withholdingGoal !== withholdingGoal) {
+        setWithholdingGoal(options.withholdingGoal ?? null);
       }
     }
     
@@ -237,7 +263,7 @@ export default function SimulationTab() {
         });
     }
     }
-  }, [simulationDraft._uiMetadata, simulationDraft.per, simulationDraft.options?.prelevementSourceDejaPaye, simulationDraft.options?.acomptesDejaPayes]); // ⚠️ Seulement les métadonnées du store
+  }, [simulationDraft._uiMetadata, simulationDraft.per, simulationDraft.options?.prelevementSourceDejaPaye, simulationDraft.options?.acomptesDejaPayes, simulationDraft.options?.currentPersonalizedRate, simulationDraft.options?.currentDgfipAdvanceAmount, simulationDraft.options?.currentAdvanceFrequency, simulationDraft.options?.withholdingGoal]);
 
   // Synchroniser avec le store (incluant TOUTES les métadonnées UI)
   // ⚠️ Utiliser un ref pour tracker si on vient de restaurer pour éviter la boucle
@@ -263,6 +289,10 @@ export default function SimulationTab() {
       selectedBienIds,
       prelevementSourceDejaPaye,
       acomptesDejaPayes,
+      currentPersonalizedRate,
+      currentDgfipAdvanceAmount,
+      currentAdvanceFrequency,
+      withholdingGoal,
     });
     
     // Si les métadonnées n'ont pas changé, ne pas synchroniser
@@ -288,8 +318,12 @@ export default function SimulationTab() {
         ...simulationDraft.options,
         autofill,
         regimeForce: regimeOverride !== 'auto' ? regimeOverride : undefined,
-          prelevementSourceDejaPaye: prelevementSourceDejaPaye || undefined,
-          acomptesDejaPayes: acomptesDejaPayes || undefined,
+        prelevementSourceDejaPaye: prelevementSourceDejaPaye || undefined,
+        acomptesDejaPayes: acomptesDejaPayes || undefined,
+        currentPersonalizedRate: currentPersonalizedRate ?? undefined,
+        currentDgfipAdvanceAmount: currentDgfipAdvanceAmount ?? undefined,
+        currentAdvanceFrequency: currentAdvanceFrequency ?? undefined,
+        withholdingGoal: withholdingGoal ?? undefined,
       },
       // ✅ Sauvegarder TOUTES les métadonnées UI pour restaurer le formulaire correctement
       _uiMetadata: {
@@ -304,13 +338,14 @@ export default function SimulationTab() {
       },
     });
     });
-  }, [netImposable, perEnabled, per, autofill, regimeOverride, salaryMode, salaireBrut, deductionMode, fraisReels, selectedBienIds, prelevementSourceDejaPaye, acomptesDejaPayes]); // ⚠️ Retirer updateDraft et simulationDraft pour éviter la boucle
+  }, [netImposable, perEnabled, per, autofill, regimeOverride, salaryMode, salaireBrut, deductionMode, fraisReels, selectedBienIds, prelevementSourceDejaPaye, acomptesDejaPayes, currentPersonalizedRate, currentDgfipAdvanceAmount, currentAdvanceFrequency, withholdingGoal]);
 
   // Charger les données SmartImmo (offline-first) pour l'année des revenus sélectionnée (session.incomeYear)
-  const loadAutofillData = useCallback(async () => {
+  // yearOverride: année explicite pour éviter stale closure au montage (priorité sur currentIncomeYear)
+  const loadAutofillData = useCallback(async (yearOverride?: number) => {
     if (loadingAutofill) return;
 
-    const year = currentIncomeYear;
+    const year = yearOverride ?? currentIncomeYear;
     const baseCalcul = simulationDraft.options?.baseCalcul ?? 'encaisse';
     const cacheKey = organizationId ? `${organizationId}:${year}:${baseCalcul}` : null;
 
@@ -520,8 +555,10 @@ export default function SimulationTab() {
 
   // Quand l'année des revenus change (changement déclaration), invalider et recharger immédiatement
   useEffect(() => {
-    if (!autofill) return;
-    const year = currentIncomeYear;
+    // Ne charger que lorsque la session est prête : session chargée (pas le fallback) OU organizationId manquant
+    const sessionReady = !fiscalSessionLoading && organizationId && fiscalSession;
+    if (!autofill || !sessionReady) return;
+    const year = fiscalSession.incomeYear;
     const prevYear = lastAutofillYearRef.current;
     lastAutofillYearRef.current = year;
 
@@ -531,15 +568,19 @@ export default function SimulationTab() {
       setAutofillData(null);
       if (!autofillLoadingRef.current) {
         autofillLoadingRef.current = true;
-        loadAutofillData().finally(() => {
+        loadAutofillData(year).finally(() => {
           autofillLoadingRef.current = false;
         });
       }
     }
-  }, [currentIncomeYear, autofill, loadAutofillData, setAutofillCache]);
+  }, [fiscalSession, autofill, fiscalSessionLoading, organizationId, loadAutofillData, setAutofillCache]);
 
   useEffect(() => {
-    const year = currentIncomeYear;
+    // Ne charger que lorsque la session est prête (évite données 2026 au lieu de 2025 au montage)
+    const sessionReady = !fiscalSessionLoading && organizationId && fiscalSession;
+    if (!sessionReady) return;
+
+    const year = fiscalSession.incomeYear;
     // ✅ Restaurer depuis le cache du store seulement si l'année correspond
     if (autofill && !autofillData && autofillCache?.biens?.length && autofillCache.year === year) {
       setAutofillData({
@@ -558,14 +599,14 @@ export default function SimulationTab() {
     // ✅ Charger si autofill activé et (pas de données OU année du cache différente)
     if (autofill && (!autofillData || autofillCache?.year !== year) && !autofillLoadingRef.current) {
       autofillLoadingRef.current = true;
-      loadAutofillData().finally(() => {
+      loadAutofillData(year).finally(() => {
         autofillLoadingRef.current = false;
       });
     } else if (!autofill) {
       setAutofillData(null);
       autofillLoadingRef.current = false;
     }
-  }, [autofill, autofillData, autofillCache, currentIncomeYear, loadAutofillData, organizationId]);
+  }, [autofill, autofillData, autofillCache, fiscalSession, fiscalSessionLoading, loadAutofillData, organizationId, simulationDraft._uiMetadata]);
 
   // Réessayer au retour online
   useEffect(() => {
@@ -946,6 +987,7 @@ export default function SimulationTab() {
                       <Label htmlFor="acomptes" className="text-sm text-gray-600">
                         Acomptes déjà payés (€)
                       </Label>
+                      <p className="text-xs text-gray-500 mt-0.5 mb-1">Total des acomptes déjà versés sur l’année (distinct de l’acompte actuel par période, ci‑dessous)</p>
                       <div className="relative mt-1">
                         <Euro className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                         <Input
@@ -960,6 +1002,22 @@ export default function SimulationTab() {
                     </div>
                   </div>
                 </div>
+
+                <Separator />
+
+                {/* Pilotage PAS & acomptes DGFiP */}
+                <PilotagePASBlock
+                  mode="full"
+                  simulation={simulationResult}
+                  currentPersonalizedRate={currentPersonalizedRate}
+                  currentDgfipAdvanceAmount={currentDgfipAdvanceAmount}
+                  currentAdvanceFrequency={currentAdvanceFrequency}
+                  withholdingGoal={withholdingGoal}
+                  onCurrentPersonalizedRateChange={setCurrentPersonalizedRate}
+                  onCurrentDgfipAdvanceAmountChange={setCurrentDgfipAdvanceAmount}
+                  onCurrentAdvanceFrequencyChange={setCurrentAdvanceFrequency}
+                  onWithholdingGoalChange={setWithholdingGoal}
+                />
 
                 <Separator />
 
@@ -1059,27 +1117,48 @@ export default function SimulationTab() {
                                   return (
                                     <div 
                                       key={i} 
-                                      className={`flex items-center gap-2 p-2 rounded border transition-colors ${
+                                      className={`flex flex-col gap-1 p-2 rounded border transition-colors ${
                                         isSelected 
                                           ? 'bg-green-100 border-green-300' 
                                           : 'bg-gray-50 border-gray-200 opacity-60'
                                       }`}
                                     >
-                                      <input
-                                        type="checkbox"
-                                        checked={isSelected}
-                                        onChange={() => toggleBienSelection(bien.id)}
-                                        className="h-4 w-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                                      />
-                                      <Badge variant="outline" className={isSelected ? 'bg-white' : 'bg-gray-100'}>
-                                        {bien.type}
-                                      </Badge>
-                                      <span className={`text-xs flex-1 ${isSelected ? 'text-green-900 font-medium' : 'text-gray-600'}`}>
-                                        {bien.nom || bien.id}
-                                      </span>
-                                      <span className={`text-xs ${isSelected ? 'text-green-700' : 'text-gray-500'}`}>
-                                        {(bien.loyers || 0).toLocaleString('fr-FR')} €
-                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => toggleBienSelection(bien.id)}
+                                          className="h-4 w-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                                        />
+                                        <Badge variant="outline" className={isSelected ? 'bg-white' : 'bg-gray-100'}>
+                                          {bien.type}
+                                        </Badge>
+                                        <span className={`text-xs flex-1 ${isSelected ? 'text-green-900 font-medium' : 'text-gray-600'}`}>
+                                          {bien.nom || bien.id}
+                                        </span>
+                                        <span className={`text-xs ${isSelected ? 'text-green-700' : 'text-gray-500'}`}>
+                                          {(bien.loyers || 0).toLocaleString('fr-FR')} €
+                                        </span>
+                                      </div>
+                                      {/* DEBUG temporaire : liste des dates avec distinction paidAt / fallback */}
+                                      {Array.isArray((bien as any)._debugPaidAtDates) && (bien as any)._debugPaidAtDates.length > 0 && (() => {
+                                        const items = (bien as any)._debugPaidAtDates as { date: string; source: 'paidAt' | 'date' | 'createdAt' }[];
+                                        const sorted = [...items].sort((a, b) => a.date.localeCompare(b.date));
+                                        return (
+                                          <div className="pl-6 text-[10px] font-mono flex flex-wrap gap-x-2 gap-y-0.5">
+                                            {sorted.map((item: { date: string; source: string }, idx: number) => {
+                                              const fr = new Date(item.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                                              if (item.source === 'paidAt') {
+                                                return <span key={idx} className="text-green-700 font-semibold">{fr}</span>;
+                                              }
+                                              if (item.source === 'date') {
+                                                return <span key={idx} className="text-amber-700 italic" title="paidAt non renseigné, date transaction utilisée">{fr}</span>;
+                                              }
+                                              return <span key={idx} className="text-gray-500 italic underline decoration-dotted" title="paidAt et date non renseignés, createdAt utilisée">{fr}</span>;
+                                            })}
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
                                   );
                                 })}
@@ -1111,6 +1190,18 @@ export default function SimulationTab() {
                               💡 Ces données ont été automatiquement récupérées depuis votre patrimoine SmartImmo
                             </p>
                           </div>
+                          
+                          {/* Légende des dates d'encaissement (vérification fiscale) */}
+                          {autofillData.biens.some((b: any) => Array.isArray(b._debugPaidAtDates) && b._debugPaidAtDates.length > 0) && (
+                            <div className="mt-3 pt-3 border-t border-green-200">
+                              <p className="text-[10px] font-medium text-gray-600 mb-1.5">Légende des dates (année fiscale = encaissement) :</p>
+                              <ul className="text-[10px] text-gray-600 space-y-0.5">
+                                <li><span className="text-green-700 font-semibold">Date en gras vert</span> = date d’encaissement renseignée (paidAt)</li>
+                                <li><span className="text-amber-700 italic">Date en italique orange</span> = paidAt non renseigné, date de la transaction utilisée</li>
+                                <li><span className="text-gray-500 italic underline decoration-dotted">Date soulignée grise</span> = paidAt et date absents, date de création utilisée</li>
+                              </ul>
+                            </div>
+                          )}
                         </div>
                       ) : null}
                     </div>

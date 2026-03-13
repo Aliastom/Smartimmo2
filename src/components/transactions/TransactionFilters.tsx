@@ -19,6 +19,8 @@ interface TransactionFiltersProps {
     amountMax: string;
     dateFrom: string;
     dateTo: string;
+    paidAtFrom: string;
+    paidAtTo: string;
     status: string;
     hasDocument: string;
     includeManagementFees?: boolean;
@@ -533,7 +535,7 @@ export default function TransactionFilters({
               />
             </div>
 
-            {/* Date du */}
+            {/* Date du (date transaction) */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Date du
@@ -545,7 +547,7 @@ export default function TransactionFilters({
               />
             </div>
 
-            {/* Date au */}
+            {/* Date au (date transaction) */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Date au
@@ -553,6 +555,30 @@ export default function TransactionFilters({
               <SmartDatePicker
                 value={filters.dateTo}
                 onChange={(value) => handleFilterChange('dateTo', value)}
+                placeholder="jj/mm/aaaa"
+              />
+            </div>
+
+            {/* Date encaissement du */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1" title="Date à laquelle le paiement a été reçu">
+                Encaissement du
+              </label>
+              <SmartDatePicker
+                value={filters.paidAtFrom}
+                onChange={(value) => handleFilterChange('paidAtFrom', value)}
+                placeholder="jj/mm/aaaa"
+              />
+            </div>
+
+            {/* Date encaissement au */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1" title="Date à laquelle le paiement a été reçu">
+                Encaissement au
+              </label>
+              <SmartDatePicker
+                value={filters.paidAtTo}
+                onChange={(value) => handleFilterChange('paidAtTo', value)}
                 placeholder="jj/mm/aaaa"
               />
             </div>

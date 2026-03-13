@@ -161,8 +161,10 @@ function useFiscalSessionState(): FiscalSessionContextValue {
     [organizationId, saveToCache]
   );
 
+  // Ne jamais exposer le fallback quand session est null : évite la frame où orgId vient d'apparaître
+  // mais le fetch n'a pas encore démarré (loading=false, session=null) → fallback avec incomeYear=2026
   return {
-    session: session || (organizationId ? { ...DEFAULT_SESSION, organizationId } : null),
+    session: session ?? null,
     loading,
     error,
     updateSession,

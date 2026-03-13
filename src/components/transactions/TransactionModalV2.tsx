@@ -732,7 +732,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       label: '',
       amount: 0,
       reference: '',
-      paymentDate: '',
+      paymentDate: new Date().toISOString().split('T')[0], // Par défaut : aujourd'hui (obligatoire pour la fiscalité)
       paymentMethod: '',
       notes: '',
       periodMonth: '',
@@ -1276,12 +1276,18 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           // Champs de rapprochement
           if (transactionData.rapprochementStatus) setValue('rapprochementStatus', transactionData.rapprochementStatus);
           if (transactionData.bankRef) setValue('bankRef', transactionData.bankRef);
-          // Champs de période
+          // Champs de période — normaliser accounting_month (IDB) / accountingMonth (API) et dériver periodMonth/periodYear
           if (transactionData.notes) setValue('notes', transactionData.notes);
           if (transactionData.periodStart) setValue('periodStart', transactionData.periodStart);
-          if (transactionData.accountingMonth) setValue('accountingMonth', transactionData.accountingMonth);
-          if (transactionData.periodMonth) setValue('periodMonth', transactionData.periodMonth);
-          if (transactionData.periodYear) setValue('periodYear', transactionData.periodYear);
+          const normalizedAccountingMonth = transactionData.accounting_month || transactionData.accountingMonth || '';
+          const periodFromAccounting = normalizedAccountingMonth && /^\d{4}-\d{2}$/.test(normalizedAccountingMonth)
+            ? (() => { const [, y, m] = normalizedAccountingMonth.match(/^(\d{4})-(\d{2})$/) || []; return y && m ? { periodYear: parseInt(y, 10), periodMonth: m } : null; })()
+            : null;
+          const resolvedPeriodMonth = transactionData.periodMonth || periodFromAccounting?.periodMonth || '';
+          const resolvedPeriodYear = transactionData.periodYear ?? periodFromAccounting?.periodYear ?? new Date().getFullYear();
+          if (normalizedAccountingMonth) setValue('accountingMonth', normalizedAccountingMonth);
+          if (resolvedPeriodMonth) setValue('periodMonth', resolvedPeriodMonth);
+          setValue('periodYear', resolvedPeriodYear);
           if (transactionData.monthsCovered) setValue('monthsCovered', transactionData.monthsCovered);
           
           // Charger les champs de série (readonly en édition)
@@ -1356,9 +1362,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             method: transactionData.method || '', // Garder aussi "method" pour compatibilité
             notes: transactionData.notes || '',
             periodStart: transactionData.periodStart || '',
-            accountingMonth: transactionData.accountingMonth || '',
-            periodMonth: transactionData.periodMonth || '',
-            periodYear: transactionData.periodYear || new Date().getFullYear(),
+            accountingMonth: normalizedAccountingMonth || '',
+            periodMonth: resolvedPeriodMonth || '',
+            periodYear: resolvedPeriodYear,
             monthsCovered: transactionData.monthsCovered || 1,
             autoDistribution: false,
             rapprochementStatus: transactionData.rapprochementStatus || 'non_rapprochee',
@@ -1387,8 +1393,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           }, 100);
           setLocalFormData({
             label: transactionData.label || '',
-            periodMonth: transactionData.periodMonth || '',
-            periodYear: transactionData.periodYear || new Date().getFullYear()
+            periodMonth: resolvedPeriodMonth,
+            periodYear: resolvedPeriodYear
           });
           editInitialLoadDoneRef.current = true;
           
@@ -2977,13 +2983,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="paymentDate" className="text-sm font-medium text-gray-700">
-                      Date de paiement
+                      Date de paiement <span className="text-red-500">*</span>
                     </Label>
                     <SmartDatePicker
                       value={watch('paymentDate') || ''}
                       onChange={(value) => setValue('paymentDate', value)}
                       placeholder="Sélectionner une date"
                     />
+                    {errors.paymentDate && (
+                      <p className="text-xs text-red-600 mt-1">{errors.paymentDate.message}</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">Référence fiscale (encaissement). À distinguer du mois couvert (suivi locatif).</p>
                   </div>
                   <div>
                     <Label htmlFor="paymentMethod" className="text-sm font-medium text-gray-700">

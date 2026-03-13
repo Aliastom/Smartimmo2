@@ -38,6 +38,7 @@ interface Transaction {
   hasDocument: boolean;
   documentsCount: number;
   status: 'rapprochee' | 'nonRapprochee';
+  paidAt?: string | null;
   reference?: string;
   // Gestion déléguée
   parentTransactionId?: string | null;
@@ -506,6 +507,10 @@ export default function TransactionsTable({
                       {transaction.accountingMonth ? formatAccountingMonth(transaction.accountingMonth) : formatDate(transaction.date)}
                     </div>
                     <div>
+                      <span className="text-gray-500">Encaissement:</span>{' '}
+                      {transaction.paidAt ? formatDate(transaction.paidAt) : '–'}
+                    </div>
+                    <div>
                       <span className="text-gray-500">Catégorie:</span>{' '}
                       {transaction.Category?.label || 'Non classé'}
                     </div>
@@ -607,6 +612,7 @@ export default function TransactionsTable({
                   />
                 </TableHeaderCellV2>
                 <TableHeaderCellV2>Mois comptable</TableHeaderCellV2>
+                <TableHeaderCellV2>Encaissement</TableHeaderCellV2>
                 <TableHeaderCellV2>Libellé</TableHeaderCellV2>
                 {!hidePropertyColumn && <TableHeaderCellV2>Bien</TableHeaderCellV2>}
                 <TableHeaderCellV2>Nature</TableHeaderCellV2>
@@ -653,6 +659,11 @@ export default function TransactionsTable({
                     <TableCellV2>
                       <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out font-medium">
                         {transaction.accountingMonth ? formatAccountingMonth(transaction.accountingMonth) : formatDate(transaction.date)}
+                      </div>
+                    </TableCellV2>
+                    <TableCellV2>
+                      <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out text-sm text-gray-600">
+                        {transaction.paidAt ? formatDate(transaction.paidAt) : '–'}
                       </div>
                     </TableCellV2>
                     
@@ -785,6 +796,7 @@ export default function TransactionsTable({
                 />
               </TableHeaderCell>
               <TableHeaderCell>Mois comptable</TableHeaderCell>
+              <TableHeaderCell>Encaissement</TableHeaderCell>
               <TableHeaderCell>Libellé</TableHeaderCell>
               {!hidePropertyColumn && <TableHeaderCell>Bien</TableHeaderCell>}
               <TableHeaderCell>Nature</TableHeaderCell>
@@ -829,6 +841,9 @@ export default function TransactionsTable({
                 </TableCell>
                 <TableCell className="font-medium">
                   {transaction.accountingMonth ? formatAccountingMonth(transaction.accountingMonth) : formatDate(transaction.date)}
+                </TableCell>
+                <TableCell className="text-sm text-gray-600">
+                  {transaction.paidAt ? formatDate(transaction.paidAt) : '–'}
                 </TableCell>
                 
                 <TableCell>

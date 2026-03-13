@@ -39,11 +39,17 @@ export async function POST(request: NextRequest) {
 
     let transactionsForPdf: SimulationPDFTransactionRow[] = [];
     if (propertyIds.length > 0) {
-      const yearString = String(year);
+      // Règle fiscale DGFiP : les loyers sont rattachés à l'année d'encaissement.
+      // Filtrer par date de paiement (paidAt, fallback date, fallback createdAt).
+      const jan1 = new Date(`${year}-01-01T00:00:00.000Z`);
+      const dec31 = new Date(`${year}-12-31T23:59:59.999Z`);
       const where: any = {
         propertyId: { in: propertyIds },
         organizationId,
-        accounting_month: { contains: yearString },
+        OR: [
+          { paidAt: { gte: jan1, lte: dec31 } },
+          { paidAt: { equals: null }, date: { gte: jan1, lte: dec31 } },
+        ],
       };
       if (baseCalcul === 'encaisse') {
         where.rapprochementStatus = 'rapprochee';

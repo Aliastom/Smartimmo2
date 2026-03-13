@@ -271,7 +271,7 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
                   <div className="bg-purple-100 border-2 border-purple-300 rounded-lg p-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-600 mb-1">Ce que l'immobilier ajoute à l'impôt</p>
+                        <p className="text-sm text-gray-600 mb-1">Ce que l'immobilier ajoute à votre revenu imposable</p>
                         <p className="font-semibold text-gray-900">Résultat foncier net imposable</p>
                       </div>
                       <div className="text-right">

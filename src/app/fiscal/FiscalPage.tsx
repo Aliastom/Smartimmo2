@@ -819,12 +819,12 @@ export function FiscalPage() {
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <p className="text-xs font-medium text-gray-600 mb-1">TAUX EFFECTIF</p>
+                          <p className="text-xs font-medium text-gray-600 mb-1">Taux moyen</p>
                           <p className="text-2xl font-bold text-gray-600 mb-1">
                             {((simulationResult.resume?.tauxEffectif || 0) * 100).toFixed(1)} %
                           </p>
                           <p className="text-xs text-gray-500">
-                            TMI: {((simulationResult.ir.trancheMarginate || 0) * 100).toFixed(1)} %
+                            TMI : {((simulationResult.ir.trancheMarginate || 0) * 100).toFixed(1)} %
                           </p>
                         </div>
                         <Percent className="h-6 w-6 text-gray-400" />

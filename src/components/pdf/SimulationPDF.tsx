@@ -6,6 +6,7 @@
 import React from 'react';
 import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
 import type { SimulationResult, OptimizationSuggestion } from '@/types/fiscal';
+import { computeWithholdingOptimization } from '@/lib/fiscal/withholdingOptimizer';
 
 // Styles professionnels
 const styles = StyleSheet.create({
@@ -525,10 +526,11 @@ export function SimulationPDF({ simulation, suggestions = [], transactions = [] 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
             <View style={[styles.card, { flex: 1 }]}>
               <Text style={{ fontSize: 8, color: '#64748b', marginBottom: 2 }}>Taux moyen</Text>
-              <Text style={{ fontSize: 10, fontWeight: 'bold' }}>{formatPercent(simulation.ir.tauxMoyen)}</Text>
+              <Text style={{ fontSize: 10, fontWeight: 'bold' }}>{formatPercent(simulation.resume?.tauxEffectif ?? simulation.ir.tauxMoyen)}</Text>
+              <Text style={{ fontSize: 7, color: '#94a3b8', marginTop: 1 }}>TMI : {formatPercent(simulation.ir.trancheMarginate)}</Text>
             </View>
             <View style={[styles.card, { flex: 1 }]}>
-              <Text style={{ fontSize: 8, color: '#64748b', marginBottom: 2 }}>Tranche marginale</Text>
+              <Text style={{ fontSize: 8, color: '#64748b', marginBottom: 2 }}>TMI</Text>
               <Text style={{ fontSize: 10, fontWeight: 'bold' }}>{formatPercent(simulation.ir.trancheMarginate)}</Text>
             </View>
           </View>
@@ -539,8 +541,8 @@ export function SimulationPDF({ simulation, suggestions = [], transactions = [] 
           <Text style={styles.sectionTitle}>PRELEVEMENTS SOCIAUX (PS)</Text>
           <View style={styles.card}>
             <View style={styles.grid}>
-              <Text style={styles.gridLabel}>Base imposable (revenus fonciers + BIC)</Text>
-              <Text style={styles.gridValue}>{formatEuro(simulation.ps.base)}</Text>
+              <Text style={styles.gridLabel}>Base PS immobilière</Text>
+              <Text style={styles.gridValue}>{formatEuro(simulation.ps.baseImposable ?? 0)}</Text>
             </View>
             <View style={styles.grid}>
               <Text style={styles.gridLabel}>Taux PS</Text>
@@ -548,12 +550,15 @@ export function SimulationPDF({ simulation, suggestions = [], transactions = [] 
             </View>
             <View style={[styles.grid, { marginTop: 8, paddingTop: 8, borderTop: '1 solid #cbd5e1' }]}>
               <Text style={[styles.gridLabel, { fontWeight: 'bold', fontSize: 11, color: '#f97316' }]}>
-                Prélèvements sociaux (PS)
+                Total prélèvements sociaux sur revenus immobiliers
               </Text>
               <Text style={[styles.gridValue, { fontWeight: 'bold', fontSize: 12, color: '#f97316' }]}>
                 {formatEuro(simulation.ps.montant)}
               </Text>
             </View>
+            <Text style={{ fontSize: 7, color: '#64748b', marginTop: 6, fontStyle: 'italic' }}>
+              Les prélèvements sociaux s&apos;appliquent ici aux revenus immobiliers. Ils ne sont pas réduits par le PER.
+            </Text>
           </View>
         </View>
 
@@ -612,14 +617,116 @@ export function SimulationPDF({ simulation, suggestions = [], transactions = [] 
           {/* Indicateurs clés */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
             <View style={[styles.card, { flex: 1 }]}>
-              <Text style={{ fontSize: 8, color: '#64748b', marginBottom: 2 }}>Taux effectif</Text>
+              <Text style={{ fontSize: 8, color: '#64748b', marginBottom: 2 }}>Taux moyen</Text>
               <Text style={{ fontSize: 10, fontWeight: 'bold' }}>{formatPercent(simulation.resume.tauxEffectif)}</Text>
+              <Text style={{ fontSize: 7, color: '#94a3b8', marginTop: 1 }}>TMI : {formatPercent(simulation.ir.trancheMarginate)}</Text>
             </View>
             <View style={[styles.card, { flex: 1 }]}>
               <Text style={{ fontSize: 8, color: '#64748b', marginBottom: 2 }}>Rendement net</Text>
               <Text style={{ fontSize: 10, fontWeight: 'bold', color: '#7c3aed' }}>{formatPercent(simulation.resume.rendementNet)}</Text>
             </View>
           </View>
+          
+          {/* PILOTAGE PAS & ACOMPTES (moteur réaliste type DGFiP) */}
+          {(() => {
+            const opts = simulation.inputs?.options ?? undefined;
+            const opt = computeWithholdingOptimization(simulation, opts, new Date());
+            if (!opt) return null;
+            const goal = opts?.withholdingGoal ?? opts?.strategyGoal ?? 'smooth_cashflow';
+            const isKeepCash = goal === 'keep_cash';
+            return (
+              <View style={{ marginTop: 12 }}>
+                <Text style={{ fontSize: 10, fontWeight: 'bold', color: '#4338ca', marginBottom: 6 }}>
+                  PILOTAGE PAS & ACOMPTES
+                </Text>
+                <Text style={{ fontSize: 8, color: '#64748b', marginBottom: 8 }}>
+                  {opt.moisRestants} mois restants dans l’année pour ajuster vos prélèvements.
+                </Text>
+                <View style={[styles.card, { backgroundColor: '#eef2ff', border: '1 solid #c7d2fe' }]}>
+                  <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#4338ca', marginBottom: 4 }}>Situation actuelle</Text>
+                  <View style={styles.grid}>
+                    <Text style={styles.gridLabel}>PAS actuel (annuel)</Text>
+                    <Text style={styles.gridValue}>{formatEuro(opt.paiementsEstimes.pasAnnuelEstime)}</Text>
+                  </View>
+                  <View style={styles.grid}>
+                    <Text style={styles.gridLabel}>Acompte actuel (annuel)</Text>
+                    <Text style={styles.gridValue}>{formatEuro(opt.paiementsEstimes.acompteAnnuelEstime)}</Text>
+                  </View>
+                  <View style={styles.grid}>
+                    <Text style={styles.gridLabel}>Total estimé payé cette année</Text>
+                    <Text style={styles.gridValue}>{formatEuro(opt.paiementsEstimes.total)}</Text>
+                  </View>
+                  <View style={{ marginTop: 6, paddingTop: 6, borderTop: '1 solid #c7d2fe' }}>
+                    <View style={styles.grid}>
+                      <Text style={[styles.gridLabel, { fontWeight: 'bold' }]}>Impôt estimé</Text>
+                      <Text style={[styles.gridValue, { fontWeight: 'bold', color: '#4338ca' }]}>{formatEuro(opt.impotEstime)}</Text>
+                    </View>
+                    {opt.ecartAnnuel !== 0 && (
+                      <View style={styles.grid}>
+                        <Text style={styles.gridLabel}>Écart annuel (si rien ne change)</Text>
+                        <Text style={[styles.gridValue, { color: opt.ecartAnnuel > 0 ? '#dc2626' : '#16a34a' }]}>
+                          {opt.ecartAnnuel > 0 ? '+' : ''}{formatEuro(opt.ecartAnnuel)}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={{ marginTop: 8, paddingTop: 6, borderTop: '1 solid #c7d2fe' }}>
+                    <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#4338ca', marginBottom: 4 }}>Repères</Text>
+                    <View style={styles.grid}>
+                      <Text style={styles.gridLabel}>{isKeepCash ? 'PAS recommandé (scénario combiné)' : 'PAS de pilotage (repère)'}</Text>
+                      <Text style={[styles.gridValue, { color: '#4338ca' }]}>{opt.pasIdealPercent} %</Text>
+                    </View>
+                    {opt.acompteIdealMensuel > 0 && (
+                      <View style={styles.grid}>
+                        <Text style={styles.gridLabel}>{isKeepCash ? 'Acompte théorique pour couvrir (si PAS inchangé)' : 'Acompte nécessaire si PAS inchangé'}</Text>
+                        <Text style={[styles.gridValue, { color: '#4338ca' }]}>{formatEuro(opt.acompteIdealMensuel)}</Text>
+                      </View>
+                    )}
+                    {isKeepCash && opt.ecartAnnuel > 10 && (
+                      <Text style={{ fontSize: 7, color: '#92400e', marginTop: 4 }}>
+                        Avec objectif « garder du cash », vous pouvez payer moins et accepter un solde estimé de {formatEuro(opt.ecartAnnuel)}.
+                      </Text>
+                    )}
+                  </View>
+                  <View style={{ marginTop: 8, paddingTop: 6, borderTop: '1 solid #c7d2fe' }}>
+                    <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#4338ca', marginBottom: 4 }}>Stratégies</Text>
+                    {opt.strategies.map((s) => (
+                      <View key={s.id} style={{ marginBottom: 4 }}>
+                        <Text style={{ fontSize: 7, fontWeight: 'bold', color: '#475569' }}>
+                          {s.id === 'pas_only' ? 'Stratégie 1' : s.id === 'acomptes_only' ? 'Stratégie 2' : 'Stratégie 3'}
+                          {s.recommended ? ' (recommandée pour votre objectif)' : ''} — {s.label}
+                        </Text>
+                        {s.pasCiblePercent != null && (
+                          <Text style={{ fontSize: 7, color: '#334155' }}>PAS cible : {s.pasCiblePercent} %</Text>
+                        )}
+                        {s.acompteMensuelCible != null && (
+                          <Text style={{ fontSize: 7, color: '#334155' }}>
+                            {isKeepCash && s.id === 'acomptes_only' ? 'Acompte théorique pour couvrir' : s.id === 'combined' ? 'Acompte mensuel recommandé dans cette stratégie' : 'Acompte mensuel cible'} : {formatEuro(s.acompteMensuelCible)}
+                          </Text>
+                        )}
+                        {isKeepCash && s.recommended && (
+                          <Text style={{ fontSize: 6, color: '#92400e', marginTop: 2 }}>
+                            Ce montant est indicatif. Vous pouvez payer moins et accepter un solde à régulariser.
+                          </Text>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                  <View style={{ marginTop: 6 }}>
+                    <Text style={{ fontSize: 7, color: '#64748b', fontStyle: 'italic' }}>
+                      {opt.messageRecap}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 6, color: '#94a3b8', marginTop: 6 }}>
+                    Le PAS couvre principalement les revenus salariés. Les acomptes couvrent les revenus non soumis au PAS (revenus fonciers, BIC, etc.). Une combinaison des deux permet de lisser l’effort fiscal.
+                  </Text>
+                  <Text style={{ fontSize: 6, color: '#94a3b8', marginTop: 4, fontStyle: 'italic' }}>
+                    Les montants PAS affichés sont des estimations de pilotage basées sur votre simulation. Le calcul réel DGFiP peut différer.
+                  </Text>
+                </View>
+              </View>
+            );
+          })()}
           
           {/* Imputation/Report */}
           {simulation.consolidation.deficitFoncier > 0 && (

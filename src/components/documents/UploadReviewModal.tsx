@@ -2597,7 +2597,7 @@ export function UploadReviewModal({
                 date: data.date,
                 reference: data.reference || null,
                 notes: data.notes || null,
-                paidAt: data.paidAt || null,
+                paidAt: data.paidAt ?? data.paymentDate ?? null, // Obligatoire : fourni par le formulaire (Date de paiement)
                 method: data.method || null,
                 accountingMonth: data.accountingMonth || null,
                 periodStart: data.periodStart || null,

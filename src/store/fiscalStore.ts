@@ -39,7 +39,7 @@ interface FiscalStore {
 const initialDraft: Partial<FiscalInputs> = {
   year: new Date().getFullYear(),
   foyer: {
-    salaire: 50000,
+    salaire: 0,
     autresRevenus: 0,
     parts: 1,
     isCouple: false,
@@ -49,16 +49,22 @@ const initialDraft: Partial<FiscalInputs> = {
     autofill: true,
     baseCalcul: 'encaisse',
     optimiserRegimes: true,
+    prelevementSourceDejaPaye: 0,
+    acomptesDejaPayes: 0,
+    currentPersonalizedRate: null,
+    currentDgfipAdvanceAmount: null,
+    currentAdvanceFrequency: null,
+    withholdingGoal: null,
   },
-  // Métadonnées UI pour le formulaire (non utilisées dans les calculs)
   _uiMetadata: {
     salaryMode: 'brut' as 'brut' | 'netImposable',
-    salaireBrutOriginal: 50000,
+    salaireBrutOriginal: 0,
     deductionMode: 'forfaitaire' as 'forfaitaire' | 'reels',
     fraisReels: 0,
     perEnabled: false,
     regimeOverride: 'auto' as 'auto' | 'micro' | 'reel',
     autofill: true,
+    selectedBienIds: [],
   },
 };
 

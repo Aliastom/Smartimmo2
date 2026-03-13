@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import type { SimulationResult } from '@/types/fiscal';
+import { computeWithholdingOptimization } from '@/lib/fiscal/withholdingOptimizer';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -100,7 +101,25 @@ function generateCSV(simulation: SimulationResult): string {
   lines.push(
     `${simulation.taxParams.version},${simulation.taxParams.source},${new Date(simulation.dateCalcul).toISOString()}`
   );
-  
+  lines.push('');
+
+  // Pilotage PAS & acomptes (moteur réaliste type DGFiP)
+  const opt = computeWithholdingOptimization(simulation, simulation.inputs?.options ?? undefined, new Date());
+  if (opt) {
+    const goal = simulation.inputs?.options?.withholdingGoal ?? simulation.inputs?.options?.strategyGoal ?? 'smooth_cashflow';
+    lines.push('PILOTAGE PAS & ACOMPTES');
+    lines.push(`Objectif,${goal}`);
+    lines.push('Mois restants,Impôt estimé (€),PAS annuel estimé (€),Acompte annuel estimé (€),Total payé estimé (€),Écart annuel (€),PAS de pilotage (%),Acompte nécessaire si PAS inchangé (€),Message');
+    const msg = (opt.messageRecap ?? '').replace(/,/g, ';').replace(/\n/g, ' ');
+    lines.push(`${opt.moisRestants},${opt.impotEstime},${opt.paiementsEstimes.pasAnnuelEstime},${opt.paiementsEstimes.acompteAnnuelEstime},${opt.paiementsEstimes.total},${opt.ecartAnnuel},${opt.pasIdealPercent},${opt.acompteIdealMensuel},"${msg}"`);
+    lines.push('STRATÉGIES');
+    lines.push('Stratégie,PAS cible (%),Acompte mensuel cible (€),Recommandée');
+    for (const s of opt.strategies) {
+      lines.push(`${s.label},${s.pasCiblePercent ?? ''},${s.acompteMensuelCible ?? ''},${s.recommended ? 'Oui' : 'Non'}`);
+    }
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 

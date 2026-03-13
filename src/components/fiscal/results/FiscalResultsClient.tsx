@@ -122,15 +122,16 @@ export function FiscalResultsClient({
             />
 
         <KpiCard
-          title="Taux effectif"
+          title="Taux moyen"
           value={formatPercent(simulation.resume?.tauxEffectif || 0)}
           valueColor="text-sky-600"
           icon={<Percent className="h-5 w-5" />}
           size="sm"
+          subtitle={`TMI : ${formatPercent(simulation.ir.trancheMarginate)}`}
         />
 
             <KpiCard
-              title="Tranche marginale"
+              title="TMI"
               value={formatPercent(simulation.ir.trancheMarginate)}
               valueColor="text-purple-600"
               icon={<TrendingUp className="h-5 w-5" />}

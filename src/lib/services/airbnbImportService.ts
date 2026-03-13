@@ -533,6 +533,7 @@ export async function importAirbnbReservations(
                 data: {
                   amount: grossRevenue,
                   date: transactionDate,
+                  paidAt: transactionDate,
                   label: parentLabel,
                   notes: parentNotes,
                   month: transactionDate.getMonth() + 1,
@@ -552,6 +553,7 @@ export async function importAirbnbReservations(
                   label: parentLabel,
                   amount: grossRevenue,
                   date: transactionDate,
+                  paidAt: transactionDate,
                   nature: codes.rentNature,
                   categoryId: rentCategory.id,
                   notes: parentNotes,
@@ -589,6 +591,7 @@ export async function importAirbnbReservations(
                   data: {
                     amount: -serviceFee, // Négatif car c'est une dépense
                     date: transactionDate,
+                    paidAt: transactionDate,
                     label: feeLabel,
                     notes: feeNotes,
                     month: transactionDate.getMonth() + 1,
@@ -609,6 +612,7 @@ export async function importAirbnbReservations(
                     label: feeLabel,
                     amount: -serviceFee, // Négatif car c'est une dépense
                     date: transactionDate,
+                    paidAt: transactionDate,
                     nature: codes.mgmtNature,
                     categoryId: mgmtCategory.id,
                     notes: feeNotes,
@@ -647,6 +651,7 @@ export async function importAirbnbReservations(
                   data: {
                     amount: -cleaningFee, // Négatif car c'est une dépense
                     date: transactionDate,
+                    paidAt: transactionDate,
                     label: cleaningLabel,
                     notes: cleaningNotes,
                     month: transactionDate.getMonth() + 1,
@@ -667,6 +672,7 @@ export async function importAirbnbReservations(
                     label: cleaningLabel,
                     amount: -cleaningFee, // Négatif car c'est une dépense
                     date: transactionDate,
+                    paidAt: transactionDate,
                     nature: codes.mgmtNature,
                     categoryId: mgmtCategory.id,
                     notes: cleaningNotes,

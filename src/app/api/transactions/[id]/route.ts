@@ -87,15 +87,25 @@ export async function PATCH(
     const organizationId = user.organizationId;
     const body = await request.json();
 
-    const transaction = await prisma.transaction.findFirst({
+    const existingTransaction = await prisma.transaction.findFirst({
       where: { id: params.id, organizationId },
-      select: { id: true }
+      select: { id: true, paidAt: true }
     });
 
-    if (!transaction) {
+    if (!existingTransaction) {
       return NextResponse.json(
         { error: 'Transaction non trouvée' },
         { status: 404 }
+      );
+    }
+
+    const paidAtIncoming = body.paidAt ?? body.paymentDate;
+    const hasExistingPaidAt = existingTransaction.paidAt != null && (typeof existingTransaction.paidAt !== 'string' || existingTransaction.paidAt.trim() !== '');
+    const hasIncomingPaidAt = paidAtIncoming != null && (typeof paidAtIncoming !== 'string' || paidAtIncoming.trim() !== '');
+    if (!hasExistingPaidAt && !hasIncomingPaidAt) {
+      return NextResponse.json(
+        { error: 'La date de paiement est obligatoire. Veuillez la renseigner pour cette transaction.' },
+        { status: 400 }
       );
     }
 

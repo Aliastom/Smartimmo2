@@ -90,6 +90,8 @@ export interface TransactionsFilters {
   amountMax: string;
   dateFrom: string;
   dateTo: string;
+  paidAtFrom: string;
+  paidAtTo: string;
   status: string;
   hasDocument: string;
   includeManagementFees: boolean;
@@ -749,6 +751,22 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
     if (filters.dateTo) {
       const to = new Date(filters.dateTo);
       filtered = filtered.filter(t => new Date(t.date) <= to);
+    }
+
+    // Filtre par date d'encaissement (paidAt, fallback date si non renseigné)
+    if (filters.paidAtFrom) {
+      const from = new Date(filters.paidAtFrom);
+      filtered = filtered.filter(t => {
+        const encaissementDate = t.paidAt ?? t.date;
+        return encaissementDate && new Date(encaissementDate) >= from;
+      });
+    }
+    if (filters.paidAtTo) {
+      const to = new Date(filters.paidAtTo);
+      filtered = filtered.filter(t => {
+        const encaissementDate = t.paidAt ?? t.date;
+        return encaissementDate && new Date(encaissementDate) <= to;
+      });
     }
 
     if (filters.status) {

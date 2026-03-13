@@ -232,8 +232,13 @@ export interface FiscalInputs {
     baseCalcul: 'encaisse' | 'exigible';  // Base de calcul (encaissé vs exigible)
     optimiserRegimes: boolean;     // Optimiser automatiquement les régimes fiscaux
     regimeForce?: 'micro' | 'reel'; // Forcer un régime spécifique (override)
-    prelevementSourceDejaPaye?: number;  // 🆕 Impôt à la source déjà payé (€)
-    acomptesDejaPayes?: number;          // 🆕 Acomptes déjà payés (€)
+    prelevementSourceDejaPaye?: number;  // Impôt à la source déjà payé (€)
+    acomptesDejaPayes?: number;          // Acomptes déjà payés (€)
+    // Pilotage PAS & acomptes DGFiP
+    currentPersonalizedRate?: number | null;   // Taux personnalisé actuel (%)
+    currentDgfipAdvanceAmount?: number | null;  // Acompte DGFiP actuel (€)
+    currentAdvanceFrequency?: 'monthly' | 'quarterly' | null;  // Périodicité
+    withholdingGoal?: 'avoid_catchup' | 'smooth_cashflow' | 'keep_cash' | null;  // Objectif
   };
   
   // 🆕 Scope de l'agrégation (filtres optionnels)

@@ -16,6 +16,8 @@ import { useExpertModeStore } from '@/store/expertModeStore';
 import { ExpertDeclarationBlocks } from '../../expert/ExpertDeclarationBlocks';
 import type { SimulationResult } from '@/types/fiscal';
 import { generateCerfaPDF } from '@/lib/pdf/generateCerfaPDF';
+import { computeWithholdingOptimization } from '@/lib/fiscal/withholdingOptimizer';
+import { simulatePAS } from '@/services/tax/PASSimulator';
 import { 
   FileText, 
   Home, 
@@ -31,6 +33,7 @@ import {
   ChevronUp,
   X,
   Calculator,
+  Target,
 } from 'lucide-react';
 
 interface DeclarationTabProps {
@@ -230,6 +233,96 @@ export function DeclarationTab({ simulation, onExportPDF }: DeclarationTabProps)
           </CardContent>
         </Card>
       </div>
+
+      {/* CONSEILS POUR IMPOTS.GOUV */}
+      {(() => {
+        const pasSim = simulatePAS(simulation);
+        const opts = simulation.inputs?.options;
+        const opt = computeWithholdingOptimization(simulation, opts ?? undefined, new Date());
+        if (!opt || !pasSim) return null;
+        return (
+          <BlockCard
+            title="Conseils pour impots.gouv"
+            icon={<Target className="h-5 w-5 text-emerald-600" />}
+          >
+            <Card className="border-2 border-indigo-200 bg-indigo-50/30 shadow-sm">
+              <CardContent className="p-5">
+                {/* Simulation estimée impots.gouv */}
+                <div className="mb-4 p-3 rounded-lg bg-white/80 border border-indigo-200">
+                      <p className="text-xs font-semibold text-indigo-900 mb-2">Simulation estimée impots.gouv</p>
+                      <div className="space-y-1 text-sm text-gray-800">
+                        <p>Taux PAS estimé : <strong>{pasSim.pas_rate} %</strong></p>
+                        <p>Acompte IR revenus fonciers : <strong>{formatEuro(pasSim.acompte_ir_foncier)} / mois</strong></p>
+                        <p>Acompte prélèvements sociaux : <strong>{formatEuro(pasSim.acompte_ps)} / mois</strong></p>
+                        <p className="pt-2 font-medium text-indigo-800">
+                          Total prélèvements mensuels estimés : <strong>{formatEuro(pasSim.total_mensuel)} / mois</strong>
+                        </p>
+                      </div>
+                      <p className="text-[11px] text-gray-600 mt-2">
+                        Cette estimation reproduit la logique administrative de la DGFiP à partir de vos revenus annuels estimés.
+                        Le résultat peut légèrement différer du site impots.gouv car l&apos;administration fiscale tient aussi compte :
+                      </p>
+                      <ul className="text-[11px] text-gray-600 mt-1 space-y-0.5 list-disc list-inside">
+                        <li>des acomptes déjà versés</li>
+                        <li>de la date de prise d&apos;effet du nouveau taux</li>
+                        <li>du mois courant dans l&apos;année fiscale</li>
+                        <li>de ses propres règles de contemporanéité</li>
+                      </ul>
+                    </div>
+
+                    {/* Comment reproduire sur impots.gouv */}
+                    <div className="mb-4 p-3 rounded-lg bg-sky-50 border border-sky-200">
+                      <p className="text-xs font-semibold text-sky-900 mb-2 flex items-center gap-1">
+                        <Info className="h-3.5 w-3.5" />
+                        Comment reproduire cette simulation sur impots.gouv
+                      </p>
+                      <p className="text-[11px] text-sky-800 mb-3">
+                        Pour obtenir un résultat proche sur le site impots.gouv, utilisez les valeurs suivantes dans la section &laquo;&nbsp;Actualiser mon prélèvement à la source → Revenus estimés&nbsp;&raquo;.
+                      </p>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sky-800">1AJ — Salaires nets imposables</span>
+                          <span className="font-semibold text-sky-900">{formatEuro(simulation.inputs.foyer.salaire)}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sky-800">4BA — Revenus fonciers nets</span>
+                          <span className="font-semibold text-sky-900">{formatEuro(simulation.consolidation.revenusFonciers)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Note pédagogique : différence taux PAS Smartimmo vs impots.gouv */}
+                    <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
+                      <p className="text-xs font-semibold text-blue-900 mb-2">
+                        Pourquoi ce taux est différent de celui proposé par Smartimmo ?
+                      </p>
+                      <p className="text-[11px] text-blue-900 mb-2">
+                        Le taux affiché ici reproduit le calcul effectué par impots.gouv.
+                        L&apos;administration fiscale sépare le prélèvement en deux mécanismes :
+                      </p>
+                      <ul className="text-[11px] text-blue-900 space-y-1 mb-2 list-disc list-inside">
+                        <li>le prélèvement à la source sur les salaires</li>
+                        <li>des acomptes mensuels pour les revenus immobiliers</li>
+                      </ul>
+                      <p className="text-[11px] text-blue-900 mb-2">
+                        Ainsi, le taux PAS appliqué au salaire est plus faible car l&apos;impôt sur les loyers et les prélèvements sociaux sont prélevés séparément via les acomptes.
+                      </p>
+                      <p className="text-[11px] text-blue-900 mb-2">
+                        Le taux recommandé par Smartimmo ({opt.pasIdealPercent} %) correspond à un taux optimisé permettant d&apos;équilibrer l&apos;ensemble de votre impôt sur l&apos;année et de mieux lisser votre trésorerie.
+                      </p>
+                      <p className="text-[11px] text-blue-900 mb-2">
+                        Les deux approches sont donc correctes mais répondent à des objectifs différents :
+                      </p>
+                      <ul className="text-[11px] text-blue-900 space-y-0.5">
+                        <li>• <strong>Simulation impots.gouv</strong> → reproduction du mécanisme administratif réel</li>
+                        <li>• <strong>Recommandation Smartimmo</strong> → optimisation et pilotage de votre fiscalité</li>
+                      </ul>
+                    </div>
+              </CardContent>
+            </Card>
+          </BlockCard>
+        );
+      })()}
 
       {/* BLOC 2 : AFFECTATION PAR FORMULAIRE */}
       <BlockCard
@@ -442,7 +535,7 @@ export function DeclarationTab({ simulation, onExportPDF }: DeclarationTabProps)
                 ℹ️ Les PS ne sont pas modifiés par le PER
               </p>
               <p className="text-xs text-blue-700">
-                Votre versement PER réduit uniquement l'impôt sur le revenu, pas les prélèvements sociaux.
+                Le PER réduit l&apos;impôt sur le revenu, mais pas les prélèvements sociaux sur les revenus immobiliers.
               </p>
             </div>
           )}

@@ -152,6 +152,10 @@ export class TransactionService {
     if (!params.amount) {
       throw new Error('Amount est requis');
     }
+    // Date de paiement obligatoire (référence fiscale = encaissement)
+    if (params.paidAt === undefined || params.paidAt === null || (typeof params.paidAt === 'string' && !params.paidAt.trim())) {
+      throw new Error('La date de paiement est obligatoire.');
+    }
 
     // Vérifier ownership property
     const property = await this.deps.propertyRepo.findFirst({
@@ -566,6 +570,15 @@ export class TransactionService {
     const existingTransaction = await this.deps.transactionRepo.findById(id);
     if (!existingTransaction) {
       throw new Error('Transaction non trouvée');
+    }
+
+    // Si la transaction n'a pas de date de paiement, la mise à jour doit en fournir une
+    const currentPaidAt = existingTransaction.paidAt ?? (existingTransaction as any).paidAt;
+    const hasCurrentPaidAt = currentPaidAt !== undefined && currentPaidAt !== null && (typeof currentPaidAt !== 'string' || currentPaidAt.trim() !== '');
+    const incomingPaidAt = params.paidAt;
+    const hasIncomingPaidAt = incomingPaidAt !== undefined && incomingPaidAt !== null && (typeof incomingPaidAt !== 'string' || incomingPaidAt.trim() !== '');
+    if (!hasCurrentPaidAt && !hasIncomingPaidAt) {
+      throw new Error('La date de paiement est obligatoire. Veuillez la renseigner pour cette transaction.');
     }
 
     // Vérifier ownership property si modifiée

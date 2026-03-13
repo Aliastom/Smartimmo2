@@ -563,13 +563,19 @@ export function FiscalDetailDrawer({
                   </div>
                   
                   <div className="grid grid-cols-2 gap-3 text-xs text-gray-500 mt-2">
-                    <div className="flex justify-between">
-                      <span>Taux moyen :</span>
-                      <span>{formatPercent(simulation.ir.tauxMoyen)}</span>
+                    <div className="flex flex-col">
+                      <div className="flex justify-between">
+                        <span>Taux moyen d&apos;imposition :</span>
+                        <span>{formatPercent(simulation.resume?.tauxEffectif ?? simulation.ir.tauxMoyen)}</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-0.5 italic">Poids global impôt / revenu imposable</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Tranche marginale :</span>
-                      <span className="font-semibold">{formatPercent(simulation.ir.trancheMarginate)}</span>
+                    <div className="flex flex-col">
+                      <div className="flex justify-between">
+                        <span>Taux marginal (TMI) :</span>
+                        <span className="font-semibold">{formatPercent(simulation.ir.trancheMarginate)}</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-0.5 italic">Dernière tranche atteinte</p>
                     </div>
                   </div>
                 </div>
@@ -582,7 +588,7 @@ export function FiscalDetailDrawer({
           {/* ========== 4️⃣ PRÉLÈVEMENTS SOCIAUX ========== */}
           <section>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-semibold">Prélèvements sociaux (revenus fonciers positifs uniquement)</h3>
+              <h3 className="text-base font-semibold">Prélèvements sociaux (revenus immobiliers positifs uniquement)</h3>
               <span className="text-xs text-gray-500">Taux 17,2%</span>
             </div>
             
@@ -597,7 +603,7 @@ export function FiscalDetailDrawer({
                 <CardContent className="p-4">
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-gray-700">Base imposable PS :</span>
+                      <span className="text-gray-700">Base PS immobilière :</span>
                       <span className="font-medium text-gray-900">
                         {formatEuro(simulation.ps.baseImposable)}
                       </span>
@@ -611,12 +617,15 @@ export function FiscalDetailDrawer({
                     <Separator />
                     
                     <div className="flex justify-between font-bold text-base">
-                      <span className="text-gray-900">Montant PS :</span>
+                      <span className="text-gray-900">Total prélèvements sociaux sur revenus immobiliers :</span>
                       <span className="text-orange-600">
                         {formatEuro(simulation.ps.montant)}
                       </span>
                     </div>
                   </div>
+                  <p className="text-[11px] text-gray-600 mt-3 pt-2 border-t border-orange-200">
+                    Les prélèvements sociaux s&apos;appliquent ici aux revenus immobiliers. Ils ne sont pas réduits par le PER.
+                  </p>
                 </CardContent>
               </Card>
             ) : (
@@ -708,9 +717,12 @@ export function FiscalDetailDrawer({
                   <Separator />
                   
                   <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Taux effectif :</span>
-                      <span className="font-medium">{formatPercent(simulation.resume.tauxEffectif)}</span>
+                    <div className="flex flex-col">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Taux moyen :</span>
+                        <span className="font-medium">{formatPercent(simulation.resume.tauxEffectif)}</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500">TMI : {formatPercent(simulation.ir.trancheMarginate)}</p>
                     </div>
                     <div className="flex flex-col">
                       <div className="flex justify-between">

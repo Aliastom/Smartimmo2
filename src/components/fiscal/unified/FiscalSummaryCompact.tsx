@@ -113,13 +113,14 @@ export function FiscalSummaryCompact({ simulation, loading, onGoToSynthese }: Fi
               </p>
             </div>
             <div className="p-2 bg-gray-50 rounded">
-              <p className="text-gray-600 text-xs">Taux effectif</p>
+              <p className="text-gray-600 text-xs">Taux moyen</p>
               <p className="font-bold text-gray-900">
-                {formatPercent(simulation.ir.tauxEffectif)}
+                {formatPercent(simulation.resume?.tauxEffectif ?? simulation.ir.tauxMoyen)}
               </p>
+              <p className="text-[10px] text-gray-500 mt-0.5">TMI : {formatPercent(simulation.ir.trancheMarginate)}</p>
             </div>
             <div className="p-2 bg-gray-50 rounded">
-              <p className="text-gray-600 text-xs">Tranche marginale</p>
+              <p className="text-gray-600 text-xs">TMI</p>
               <p className="font-bold text-gray-900">
                 {formatPercent(simulation.ir.trancheMarginate)}
               </p>
