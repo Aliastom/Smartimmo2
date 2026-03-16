@@ -10,6 +10,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { 
   Search, 
   Filter, 
@@ -943,10 +944,18 @@ export function DocumentsPageCore({
         </div>
         
         {/* Ligne 2 : Description + Actions supplémentaires */}
-        <div className="flex items-center justify-between">
-          <p className="text-sm sm:text-base text-gray-600">
-            {pagination.total} document{pagination.total > 1 ? 's' : ''} au total
-          </p>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-4">
+            <p className="text-sm sm:text-base text-gray-600">
+              {pagination.total} document{pagination.total > 1 ? 's' : ''} au total
+            </p>
+            <Link
+              href="/documents/rapport-gestionnaire"
+              className="text-sm font-medium text-primary-600 hover:text-primary-700 hover:underline"
+            >
+              Rapport gestionnaire →
+            </Link>
+          </div>
           <div className="flex gap-2">
             {stats.drafts > 0 && (
               <Button 

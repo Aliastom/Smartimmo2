@@ -10,7 +10,7 @@
  * pour que tout montant > 0 soit critical.
  */
 
-export type AlertSeverity = 'critical' | 'warning' | 'ok';
+export type AlertSeverity = 'critical' | 'warning' | 'attention' | 'ok';
 
 export interface GetAlertSeverityOptions {
   /** Seuil au-delà duquel on passe en critical. Par défaut 3. Mettre 0 pour les montants (tout > 0 = critical). */
@@ -50,6 +50,12 @@ export const ALERT_SEVERITY_DISPLAY: Record<AlertSeverity, AlertSeverityDisplay>
     icon: 'check',
     variant: 'ok',
   },
+  attention: {
+    badgeLabel: 'Attention',
+    message: 'À surveiller',
+    icon: 'warning',
+    variant: 'warning',
+  },
   warning: {
     badgeLabel: 'À traiter',
     message: 'Action requise',
@@ -57,7 +63,7 @@ export const ALERT_SEVERITY_DISPLAY: Record<AlertSeverity, AlertSeverityDisplay>
     variant: 'warning',
   },
   critical: {
-    badgeLabel: 'À traiter',
+    badgeLabel: 'Critique',
     message: 'Action requise',
     icon: 'alert',
     variant: 'critical',

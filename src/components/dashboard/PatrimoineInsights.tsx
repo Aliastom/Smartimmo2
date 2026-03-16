@@ -1,10 +1,8 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { Card, CardContent } from '@/components/ui/Card';
 import { Lightbulb, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
 import { PatrimoineKPIs, MonthlySeriesItem, AgendaItem } from '@/types/dashboard';
-import { cn } from '@/utils/cn';
 
 interface PatrimoineInsightsProps {
   kpis: PatrimoineKPIs;
@@ -153,7 +151,7 @@ export function PatrimoineInsights({ kpis, cashflow, agenda, mode }: PatrimoineI
       }
     }
 
-    return items;
+    return items.slice(0, 3);
   }, [kpis, cashflow, agenda, mode]);
 
   const getIcon = (type: InsightType) => {
@@ -171,38 +169,44 @@ export function PatrimoineInsights({ kpis, cashflow, agenda, mode }: PatrimoineI
     return null;
   }
 
+  const getTitle = (insight: Insight) => {
+    if (insight.type === 'positive' && insight.message.includes('cashflow')) return 'Cashflow positif';
+    if (insight.type === 'negative' && insight.message.includes('cashflow')) return 'Cashflow négatif';
+    if (insight.message.includes('rendement')) return insight.type === 'positive' ? 'Rendement excellent' : insight.type === 'negative' ? 'Rendement faible' : 'Rendement correct';
+    if (insight.message.includes('endettement')) return 'Endettement';
+    if (insight.message.includes('mois de')) return 'Mois le plus chargé';
+    if (insight.message.includes('vacance')) return 'Vacance';
+    if (insight.message.includes('échéance')) return 'Prochaine échéance';
+    return 'Point d\'attention';
+  };
+
   return (
-    <Card className="border-l-4 border-l-blue-500 bg-gradient-to-r from-blue-50 to-white">
-      <CardContent className="p-5">
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 mt-1">
-            <Lightbulb className="h-5 w-5 text-blue-600" />
-          </div>
-          <div className="flex-1 space-y-2">
-            <h3 className="font-semibold text-gray-900 text-sm">💡 Analyse de votre patrimoine</h3>
-            <div className="space-y-2.5">
-              {insights.map((insight, index) => (
-                <div key={index} className="space-y-1">
-                  <div className="flex items-start gap-2">
-                    <div className="flex-shrink-0 mt-0.5">
-                      {getIcon(insight.type)}
-                    </div>
-                    <p className="text-sm text-gray-700 leading-relaxed flex-1">
-                      {insight.message}
-                    </p>
-                  </div>
-                  {insight.recommendation && (
-                    <p className="text-xs text-gray-600 leading-relaxed ml-6 italic">
-                      → {insight.recommendation}
-                    </p>
-                  )}
+    <div className="space-y-3">
+      <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+        <Lightbulb className="h-4 w-4 text-blue-600" />
+        Analyse de votre patrimoine
+      </h3>
+      <div className="grid gap-3 sm:grid-cols-1">
+        {insights.map((insight, index) => (
+          <div
+            key={index}
+            className="flex items-start gap-3 p-3 rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md"
+          >
+            <div className="flex-shrink-0 mt-0.5">{getIcon(insight.type)}</div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-gray-900 text-sm">{getTitle(insight)}</p>
+              <p className="text-sm text-gray-700 leading-snug mt-0.5">{insight.message}</p>
+              {insight.recommendation && (
+                <div className="mt-2 pt-2 border-t border-gray-100">
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Suggestion</p>
+                  <p className="text-sm text-slate-600 mt-0.5 italic">{insight.recommendation}</p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
-        </div>
-      </CardContent>
-    </Card>
+        ))}
+      </div>
+    </div>
   );
 }
 

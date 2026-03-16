@@ -75,6 +75,13 @@ export function TasksPanel({
     return `/biens/${propertyId}/transactions`;
   };
 
+  const getBailLink = (propertyId: string) => {
+    if (mode === 'app-shell') {
+      return `/app?view=property&propertyId=${propertyId}&tab=baux`;
+    }
+    return `/biens/${propertyId}`;
+  };
+
   // Gestionnaire de clic pour la navigation en mode app-shell
   const handleAppShellNavigation = (e: React.MouseEvent<HTMLAnchorElement>, propertyId: string) => {
     if (mode === 'app-shell') {
@@ -101,6 +108,8 @@ export function TasksPanel({
   
   // État pour tracker les transactions en cours de rapprochement
   const [transactionsEnCoursRapprochement, setTransactionsEnCoursRapprochement] = useState<Set<string>>(new Set());
+  // Optimistic UI : retirer de la liste dès le clic (réafficher en cas d'erreur)
+  const [optimisticRemovedTx, setOptimisticRemovedTx] = useState<Set<string>>(new Set());
   
   const queryClient = useQueryClient();
   const toggleRapprochement = useToggleRapprochement(mode);
@@ -115,8 +124,15 @@ export function TasksPanel({
     ? transactionsNonRapprochees.filter(t => t.accountingMonth === currentMonth)
     : transactionsNonRapprochees;
   
+  // Liste affichée : exclut les transactions déjà rapprochées (optimistic UI)
+  const displayedTransactionsNonRapprochees = filteredTransactionsNonRapprochees.filter(
+    t => !optimisticRemovedTx.has(t.id)
+  );
+  
   // Fonction pour rapprocher une transaction
   const handleRapprocher = async (transactionId: string) => {
+    // Optimistic UI : retirer immédiatement de la liste
+    setOptimisticRemovedTx(prev => new Set(prev).add(transactionId));
     // Marquer la transaction comme en cours de rapprochement
     setTransactionsEnCoursRapprochement(prev => new Set(prev).add(transactionId));
     
@@ -195,6 +211,12 @@ export function TasksPanel({
         console.error('[TasksPanel] handleRapprocher - ❌ Message d\'erreur:', error.message);
       }
       
+      // En cas d'erreur, réafficher la transaction (annuler l'optimistic UI)
+      setOptimisticRemovedTx(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(transactionId);
+        return newSet;
+      });
       // En cas d'erreur, retirer immédiatement de la liste des transactions en cours
       // pour que le bouton redevienne cliquable
       setTransactionsEnCoursRapprochement(prev => {
@@ -372,8 +394,8 @@ export function TasksPanel({
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
       currency: 'EUR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   };
 
@@ -550,7 +572,7 @@ export function TasksPanel({
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-slate-900">Transactions non rapprochées</span>
+                <span className="font-semibold text-slate-900">Transactions à rapprocher</span>
                 {severityTx === 'ok' ? (
                   <Badge variant="success" className="text-xs">OK</Badge>
                 ) : (
@@ -683,7 +705,7 @@ export function TasksPanel({
             </div>
           )}
 
-          {/* Transactions non rapprochées — panel neutre */}
+          {/* Transactions à rapprocher — panel neutre */}
           {transactionsNonRapprochees.length > 0 && (
             <Card className="border-slate-200 bg-transparent shadow-sm">
               <CardHeader>
@@ -691,7 +713,7 @@ export function TasksPanel({
                   <div>
                     <CardTitle className="flex items-center gap-2 text-base">
                       <FileText className="h-5 w-5 text-orange-500" />
-                      Transactions non rapprochées
+                      Transactions à rapprocher
                     </CardTitle>
                     <CardDescription className="text-xs">
                       {filteredTransactionsNonRapprochees.length} transaction{filteredTransactionsNonRapprochees.length > 1 ? 's' : ''} non rapprochée{filteredTransactionsNonRapprochees.length > 1 ? 's' : ''}
@@ -728,7 +750,7 @@ export function TasksPanel({
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {filteredTransactionsNonRapprochees.slice(0, 3).map((transaction) => (
+                  {displayedTransactionsNonRapprochees.slice(0, 3).map((transaction) => (
                     <TaskCard
                       key={transaction.id}
                       icon={FileText}
@@ -1165,14 +1187,14 @@ export function TasksPanel({
               <div className="flex-1 overflow-y-auto p-6 min-h-0">
                 <div className="space-y-3">
                   {(() => {
-                    const list = filteredTransactionsNonRapprochees.length > 10 && searchTransactionsModal.trim()
-                      ? filteredTransactionsNonRapprochees.filter(
+                    const list = displayedTransactionsNonRapprochees.length > 10 && searchTransactionsModal.trim()
+                      ? displayedTransactionsNonRapprochees.filter(
                           (t) =>
                             (t.label || '').toLowerCase().includes(searchTransactionsModal.toLowerCase()) ||
                             (t.propertyName || '').toLowerCase().includes(searchTransactionsModal.toLowerCase()) ||
                             (t.tenantName || '').toLowerCase().includes(searchTransactionsModal.toLowerCase())
                         )
-                      : filteredTransactionsNonRapprochees;
+                      : displayedTransactionsNonRapprochees;
                     return list.map((transaction) => (
                     <TaskCard
                       key={transaction.id}
@@ -1389,7 +1411,7 @@ export function TasksPanel({
       <div className="space-y-6">
         {/* Loyers en retard */}
         {relances.length > 0 && (
-          <Card>
+          <Card id="loyers-retard" className="scroll-mt-6">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
@@ -1453,27 +1475,22 @@ export function TasksPanel({
                   amount={loyer.montant}
                   priority="high"
                   actions={
-                    <div className="flex gap-1">
+                    <div className="flex flex-wrap gap-1">
                       <Button size="sm" variant="outline">
                         <Send className="h-3 w-3 mr-1" />
                         Relancer
                       </Button>
+                      <Link href={getBailLink(loyer.propertyId)}>
+                        <Button size="sm" variant="ghost">Voir bail</Button>
+                      </Link>
                       {mode === 'app-shell' ? (
-                        <a 
-                          href={getTransactionsLink(loyer.propertyId)}
-                          onClick={(e) => handleAppShellNavigation(e, loyer.propertyId)}
-                          className="inline-block"
-                        >
-                          <Button size="sm" variant="ghost">
-                            <ArrowRight className="h-3 w-3" />
-                          </Button>
+                        <a href={getTransactionsLink(loyer.propertyId)} onClick={(e) => handleAppShellNavigation(e, loyer.propertyId)} className="inline-block">
+                          <Button size="sm" variant="ghost">Voir transaction</Button>
                         </a>
                       ) : (
                         <Link href={getTransactionsLink(loyer.propertyId)} target="_blank" rel="noopener noreferrer">
-                        <Button size="sm" variant="ghost">
-                          <ArrowRight className="h-3 w-3" />
-                        </Button>
-                      </Link>
+                          <Button size="sm" variant="ghost">Voir transaction</Button>
+                        </Link>
                       )}
                     </div>
                   }
@@ -1484,15 +1501,15 @@ export function TasksPanel({
         </Card>
       )}
 
-      {/* Transactions non rapprochées */}
+      {/* Transactions à rapprocher */}
       {transactionsNonRapprochees.length > 0 && (
-        <Card>
+        <Card id="transactions-a-rapprocher" className="scroll-mt-6">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <FileText className="h-5 w-5 text-orange-500" />
-                  Transactions non rapprochées
+                  Transactions à rapprocher
                 </CardTitle>
                 <CardDescription>
                   {filteredTransactionsNonRapprochees.length} transaction{filteredTransactionsNonRapprochees.length > 1 ? 's' : ''} non rapprochée{filteredTransactionsNonRapprochees.length > 1 ? 's' : ''}
@@ -1529,7 +1546,7 @@ export function TasksPanel({
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {filteredTransactionsNonRapprochees.slice(0, 3).map((transaction) => (
+              {displayedTransactionsNonRapprochees.slice(0, 3).map((transaction) => (
                 <TaskCard
                   key={transaction.id}
                   icon={FileText}
@@ -1541,7 +1558,7 @@ export function TasksPanel({
                   amount={transaction.montant}
                   priority="medium"
                   actions={
-                    <div className="flex gap-1">
+                    <div className="flex flex-wrap gap-1">
                       <Button 
                         size="sm" 
                         variant="outline"
@@ -1550,23 +1567,15 @@ export function TasksPanel({
                       >
                         Rapprocher
                       </Button>
-                          {mode === 'app-shell' ? (
-                            <a 
-                              href={getTransactionsLink(transaction.propertyId)}
-                              onClick={(e) => handleAppShellNavigation(e, transaction.propertyId)}
-                              className="inline-block"
-                            >
-                              <Button size="sm" variant="ghost">
-                                <ArrowRight className="h-3 w-3" />
-                              </Button>
-                            </a>
-                          ) : (
-                            <Link href={getTransactionsLink(transaction.propertyId)} target="_blank" rel="noopener noreferrer">
-                        <Button size="sm" variant="ghost">
-                          <ArrowRight className="h-3 w-3" />
-                        </Button>
-                      </Link>
-                          )}
+                      {mode === 'app-shell' ? (
+                        <a href={getTransactionsLink(transaction.propertyId)} onClick={(e) => handleAppShellNavigation(e, transaction.propertyId)} className="inline-block">
+                          <Button size="sm" variant="ghost">Voir transaction</Button>
+                        </a>
+                      ) : (
+                        <Link href={getTransactionsLink(transaction.propertyId)} target="_blank" rel="noopener noreferrer">
+                          <Button size="sm" variant="ghost">Voir transaction</Button>
+                        </Link>
+                      )}
                     </div>
                   }
                 />
@@ -1578,7 +1587,7 @@ export function TasksPanel({
 
       {/* Indexations à traiter */}
       {indexations.length > 0 && (
-        <Card>
+        <Card id="indexations" className="scroll-mt-6">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -1594,21 +1603,28 @@ export function TasksPanel({
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {indexations.slice(0, 3).map((indexation) => (
-                <TaskCard
-                  key={indexation.id}
-                  icon={TrendingUp}
-                  title={`${indexation.tenantName} - ${indexation.propertyName}`}
-                  subtitle={`Indice ${indexation.indiceRequis} - Loyer actuel: ${formatCurrency(indexation.loyerActuel)}`}
-                  date={indexation.dateAnniversaire}
-                  priority="medium"
-                  actions={
-                    <Button size="sm" variant="outline">
-                      Calculer
-                    </Button>
-                  }
-                />
+                <div key={indexation.id} className="bg-white rounded-lg border border-gray-200 p-3 border-l-4 border-l-yellow-500 hover:shadow-sm transition-shadow">
+                  <div className="flex items-start gap-2">
+                    <TrendingUp className="h-4 w-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-gray-900">{indexation.tenantName} – {indexation.propertyName}</p>
+                      <dl className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
+                        <div><dt className="inline font-medium text-gray-500">Date anniversaire du bail :</dt><dd className="inline ml-1">{indexation.dateAnniversaire}</dd></div>
+                        <div><dt className="inline font-medium text-gray-500">Indice applicable :</dt><dd className="inline ml-1">{indexation.indiceRequis}</dd></div>
+                        <div><dt className="inline font-medium text-gray-500">Loyer actuel :</dt><dd className="inline ml-1 tabular-nums">{formatCurrency(indexation.loyerActuel)}</dd></div>
+                        <div><dt className="inline font-medium text-gray-500">Nouveau loyer estimé :</dt><dd className="inline ml-1 tabular-nums">{indexation.loyerPropose != null ? formatCurrency(indexation.loyerPropose) : '—'}</dd></div>
+                      </dl>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        <Button size="sm" variant="outline">Calculer indexation</Button>
+                        <Link href={mode === 'app-shell' ? '/app?view=baux' : '/baux'}>
+                          <Button size="sm" variant="ghost">Voir bail</Button>
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           </CardContent>
@@ -1617,7 +1633,7 @@ export function TasksPanel({
 
       {/* Échéances du mois */}
       {(echeancesPrets.length > 0 || echeancesCharges.length > 0) && (
-        <Card>
+        <Card id="echeances" className="scroll-mt-6">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -1929,7 +1945,7 @@ export function TasksPanel({
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6">
               <div className="space-y-3">
-                {filteredTransactionsNonRapprochees.map((transaction) => (
+                {displayedTransactionsNonRapprochees.map((transaction) => (
                   <TaskCard
                     key={transaction.id}
                     icon={FileText}

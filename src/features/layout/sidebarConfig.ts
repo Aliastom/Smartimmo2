@@ -1,6 +1,7 @@
 /**
  * Configuration unique de la sidebar
  * Source de vérité pour les items de navigation dans les deux modes (normal et app-shell)
+ * Structure par sections : Dashboard, PORTFOLIO, FINANCES, GESTION, ANALYSE, SYSTÈME, ADMIN
  */
 
 import {
@@ -11,22 +12,66 @@ import {
   Wallet,
   Settings,
   Shield,
-  Home,
+  PieChart,
   Calendar,
   Landmark,
   Calculator,
   RefreshCw,
   FolderOpen,
+  Bell,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 export type SidebarItemType = 'main' | 'admin' | 'settings';
+
+/** Sections affichées dans la sidebar (ordre d'affichage) */
+export const SIDEBAR_SECTION_ORDER = [
+  'dashboard',
+  'alerts',
+  'portfolio',
+  'finances',
+  'gestion',
+  'analyse',
+  'system',
+  'admin',
+] as const;
+
+/** Sections qui sont des groupes dépliants (avec en-tête cliquable) */
+export const SIDEBAR_COLLAPSIBLE_SECTIONS: SidebarSectionId[] = [
+  'portfolio',
+  'finances',
+  'gestion',
+  'analyse',
+  'system',
+];
+
+export type SidebarSectionId = (typeof SIDEBAR_SECTION_ORDER)[number];
+
+/** Labels des sections (affichés en uppercase dans la sidebar) */
+export const SIDEBAR_SECTION_LABELS: Record<SidebarSectionId, string> = {
+  dashboard: '',
+  alerts: '', // Alertes en item seul, pas de titre
+  portfolio: 'PORTFOLIO',
+  finances: 'FINANCES',
+  gestion: 'GESTION',
+  analyse: 'ANALYSE',
+  system: 'SYSTÈME',
+  admin: 'ADMIN',
+};
+
+/** Retourne la section contenant la vue donnée (pour ouvrir automatiquement le groupe actif) */
+export function getSectionForView(view: string): SidebarSectionId | null {
+  const item = sidebarConfig.find((i) => i.appView === view);
+  return item ? item.section : null;
+}
 
 export interface SidebarItemConfig {
   id: string;
   label: string;
   icon: LucideIcon;
   type: SidebarItemType;
+  /** Section pour le regroupement visuel */
+  section: SidebarSectionId;
   // Chemin pour le mode normal (Next.js routing)
   normalPath: string;
   // View pour le mode app-shell (query param ?view=xxx)
@@ -35,27 +80,34 @@ export interface SidebarItemConfig {
   badge?: string;
   // Optionnel : nécessite le rôle admin
   requiresAdmin?: boolean;
+  // Optionnel : description (utilisé par certains rendus)
+  description?: string;
+  /** Style discret (texte grisé, icône légère) pour entrées peu utilisées (ex. SYSTÈME) */
+  isDiscreet?: boolean;
 }
 
 /**
  * Configuration complète des items de navigation
- * Ordre et structure identiques pour les deux modes
+ * Ordre et structure par sections pour les deux modes
  */
 export const sidebarConfig: SidebarItemConfig[] = [
-  // Navigation principale
+  // ——— Dashboard (item seul, pas de titre de section) ———
   {
     id: 'dashboard',
     label: 'Dashboard',
     icon: LayoutDashboard,
     type: 'main',
+    section: 'dashboard',
     normalPath: '/dashboard',
     appView: 'dashboard',
   },
+  // ——— PORTFOLIO ———
   {
     id: 'patrimoine',
-    label: 'Patrimoine',
-    icon: Home,
+    label: 'Portfolio',
+    icon: PieChart,
     type: 'main',
+    section: 'portfolio',
     normalPath: '/dashboard/patrimoine',
     appView: 'patrimoine',
   },
@@ -64,96 +116,157 @@ export const sidebarConfig: SidebarItemConfig[] = [
     label: 'Biens',
     icon: Building,
     type: 'main',
+    section: 'portfolio',
     normalPath: '/biens',
     appView: 'biens',
-  },
-  {
-    id: 'locataires',
-    label: 'Locataires',
-    icon: UsersRound,
-    type: 'main',
-    normalPath: '/locataires',
-    appView: 'locataires',
   },
   {
     id: 'baux',
     label: 'Baux',
     icon: FileText,
     type: 'main',
+    section: 'portfolio',
     normalPath: '/baux',
     appView: 'baux',
   },
+  {
+    id: 'locataires',
+    label: 'Locataires',
+    icon: UsersRound,
+    type: 'main',
+    section: 'portfolio',
+    normalPath: '/locataires',
+    appView: 'locataires',
+  },
+  // ——— FINANCES ———
   {
     id: 'transactions',
     label: 'Transactions',
     icon: Wallet,
     type: 'main',
+    section: 'finances',
     normalPath: '/transactions',
     appView: 'transactions',
-  },
-  {
-    id: 'documents',
-    label: 'Documents',
-    icon: FolderOpen,
-    type: 'main',
-    normalPath: '/documents',
-    appView: 'documents',
-  },
-  {
-    id: 'echeances',
-    label: 'Échéances',
-    icon: Calendar,
-    type: 'main',
-    normalPath: '/echeances',
-    appView: 'echeances',
   },
   {
     id: 'loans',
     label: 'Prêts',
     icon: Landmark,
     type: 'main',
+    section: 'finances',
     normalPath: '/loans',
     appView: 'loans',
   },
+  // ——— GESTION ———
+  {
+    id: 'echeances',
+    label: 'Échéances',
+    icon: Calendar,
+    type: 'main',
+    section: 'gestion',
+    normalPath: '/echeances',
+    appView: 'echeances',
+  },
+  {
+    id: 'documents',
+    label: 'Documents',
+    icon: FolderOpen,
+    type: 'main',
+    section: 'gestion',
+    normalPath: '/documents',
+    appView: 'documents',
+  },
+  // ——— ALERTES (item seul entre Dashboard et PORTFOLIO) ———
+  {
+    id: 'alertes',
+    label: 'Alertes',
+    icon: Bell,
+    type: 'main',
+    section: 'alerts',
+    normalPath: '/app?view=alertes',
+    appView: 'alertes',
+  },
+  // ——— ANALYSE ———
   {
     id: 'fiscal',
-    label: 'Simulation Fiscale',
+    label: 'Simulation fiscale',
     icon: Calculator,
     type: 'main',
+    section: 'analyse',
     normalPath: '/fiscal',
     appView: 'fiscal',
   },
+  // ——— SYSTÈME (style discret) ———
   {
     id: 'sync',
     label: 'Synchronisation',
     icon: RefreshCw,
     type: 'main',
+    section: 'system',
     normalPath: '/app?view=sync',
     appView: 'sync',
+    isDiscreet: true,
   },
-  // Administration (nécessite le rôle admin)
-  {
-    id: 'admin',
-    label: 'Administration',
-    icon: Shield,
-    type: 'admin',
-    normalPath: '/admin',
-    appView: 'admin',
-    requiresAdmin: true,
-  },
-  // Paramètres
   {
     id: 'parametres',
     label: 'Paramètres',
     icon: Settings,
     type: 'settings',
+    section: 'system',
     normalPath: '/parametres',
     appView: 'parametres',
+    isDiscreet: true,
+  },
+  // ——— ADMIN ———
+  {
+    id: 'admin',
+    label: 'Administration',
+    icon: Shield,
+    type: 'admin',
+    section: 'admin',
+    normalPath: '/admin',
+    appView: 'admin',
+    requiresAdmin: true,
   },
 ];
 
 /**
- * Récupère les items filtrés selon le type et le rôle utilisateur
+ * Récupère les items regroupés par section (ordre SIDEBAR_SECTION_ORDER)
+ * pour l'affichage dans la sidebar.
+ */
+export function getSidebarItemsBySection(
+  userRole?: string | null,
+  includeAdmin: boolean = true,
+  includeSettings: boolean = true
+): { sectionId: SidebarSectionId; sectionLabel: string; items: SidebarItemConfig[] }[] {
+  const filtered = sidebarConfig.filter((item) => {
+    if (item.type === 'admin' && !includeAdmin) return false;
+    if (item.type === 'settings' && !includeSettings) return false;
+    if (item.requiresAdmin) {
+      const isAdmin = userRole === 'ADMIN' || userRole === 'admin';
+      return isAdmin === true;
+    }
+    return true;
+  });
+
+  const bySection = new Map<SidebarSectionId, SidebarItemConfig[]>();
+  for (const id of SIDEBAR_SECTION_ORDER) {
+    bySection.set(id, []);
+  }
+  for (const item of filtered) {
+    const list = bySection.get(item.section);
+    if (list) list.push(item);
+  }
+
+  return SIDEBAR_SECTION_ORDER.filter((id) => bySection.get(id)!.length > 0).map((sectionId) => ({
+    sectionId,
+    sectionLabel: SIDEBAR_SECTION_LABELS[sectionId],
+    items: bySection.get(sectionId)!,
+  }));
+}
+
+/**
+ * Récupère les items filtrés selon le type et le rôle utilisateur (liste plate, rétrocompat)
  */
 export function getFilteredSidebarItems(
   userRole?: string | null,
@@ -161,16 +274,12 @@ export function getFilteredSidebarItems(
   includeSettings: boolean = true
 ): SidebarItemConfig[] {
   return sidebarConfig.filter((item) => {
-    // Filtrer selon le type
     if (item.type === 'admin' && !includeAdmin) return false;
     if (item.type === 'settings' && !includeSettings) return false;
-
-    // Filtrer selon le rôle admin
     if (item.requiresAdmin) {
       const isAdmin = userRole === 'ADMIN' || userRole === 'admin';
       return isAdmin === true;
     }
-
     return true;
   });
 }

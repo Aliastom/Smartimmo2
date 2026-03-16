@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { PatrimoineResponse, PatrimoineMode } from '@/types/dashboard';
+import { PatrimoineResponse, PatrimoineMode, PerformanceParBienItem } from '@/types/dashboard';
 import { expandEcheances } from '@/lib/echeances/expandEcheances';
 import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
@@ -183,6 +183,14 @@ async function calculateRealise(
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, 40); // Limiter à 40
 
+  // Performance par bien (base patrimoniale sur la période)
+  const performanceParBien = await calculatePerformanceParBien(
+    organizationId,
+    propertyId,
+    transactions,
+    months.length
+  );
+
   return {
     period: { from: months[0], to: months[months.length - 1], months },
     kpis,
@@ -192,6 +200,7 @@ async function calculateRealise(
     repartitionParBienCharges: repartitionCharges,
     repartitionParBienCashflow: repartitionCashflow,
     agenda,
+    performanceParBien,
   };
 }
 
@@ -572,11 +581,11 @@ function smoothData(data: PatrimoineResponse): PatrimoineResponse {
       charges: smooth(data.series.charges),
       cashflow: smooth(data.series.cashflow),
     },
-    // Préserver la répartition par bien (pas lissée)
     repartitionParBien: Array.isArray(data.repartitionParBien) ? data.repartitionParBien : [],
     repartitionParBienLoyers: Array.isArray(data.repartitionParBienLoyers) ? data.repartitionParBienLoyers : (Array.isArray(data.repartitionParBien) ? data.repartitionParBien : []),
     repartitionParBienCharges: Array.isArray(data.repartitionParBienCharges) ? data.repartitionParBienCharges : [],
     repartitionParBienCashflow: Array.isArray(data.repartitionParBienCashflow) ? data.repartitionParBienCashflow : [],
+    performanceParBien: Array.isArray(data.performanceParBien) ? data.performanceParBien : undefined,
   };
 }
 
@@ -798,6 +807,58 @@ async function calculateRepartitionParBienCashflow(
     label, 
     value: Math.abs(value) // Valeur absolue pour l'affichage
   }));
+}
+
+/**
+ * Calcule la performance par bien sur la période (base patrimoniale).
+ */
+async function calculatePerformanceParBien(
+  organizationId: string,
+  propertyIdFilter: string | undefined,
+  transactions: { propertyId: string | null; amount: number; nature: string | null; Property: { name: string } | null }[],
+  nbMonths: number
+): Promise<PerformanceParBienItem[]> {
+  if (nbMonths <= 0) return [];
+  const whereProperty: any = { organizationId };
+  if (propertyIdFilter) whereProperty.id = propertyIdFilter;
+  const [properties, naturesData] = await Promise.all([
+    prisma.property.findMany({
+      where: whereProperty,
+      select: { id: true, name: true, currentValue: true, acquisitionPrice: true },
+    }),
+    prisma.natureEntity.findMany({ select: { code: true, flow: true } }),
+  ]);
+  const natureFlow = new Map(naturesData.map((n) => [n.code, n.flow?.toUpperCase()]));
+  const byProperty = new Map<string, { income: number; expense: number }>();
+  for (const tx of transactions) {
+    const pid = tx.propertyId;
+    if (!pid) continue;
+    if (!byProperty.has(pid)) byProperty.set(pid, { income: 0, expense: 0 });
+    const flow = tx.nature ? natureFlow.get(tx.nature) : null;
+    const amount = Math.abs(tx.amount ?? 0);
+    if (flow === 'INCOME') byProperty.get(pid)!.income += amount;
+    if (flow === 'EXPENSE') byProperty.get(pid)!.expense += amount;
+  }
+  return properties.map((prop) => {
+    const valeurBien = prop.currentValue ?? prop.acquisitionPrice ?? null;
+    const stats = byProperty.get(prop.id) ?? { income: 0, expense: 0 };
+    const loyerMensuel = stats.income / nbMonths;
+    const chargesMensuelles = stats.expense / nbMonths;
+    const cashflowMensuel = loyerMensuel - chargesMensuelles;
+    const rendementBrutPct =
+      valeurBien != null && valeurBien > 0 && loyerMensuel > 0
+        ? (loyerMensuel * 12 / valeurBien) * 100
+        : null;
+    return {
+      propertyId: prop.id,
+      nom: prop.name,
+      loyerMensuel,
+      chargesMensuelles,
+      cashflowMensuel,
+      rendementBrutPct,
+      valeurBien,
+    };
+  });
 }
 
 // Helpers

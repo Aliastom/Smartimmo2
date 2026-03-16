@@ -4,10 +4,20 @@ import React, { useState, useEffect } from 'react';
 import { Building2, ChevronDown } from 'lucide-react';
 import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/PropertyRepositoryOffline';
 import { getLeaseRepositoryOffline } from '@/lib/offline/repositories/LeaseRepositoryOffline';
+import { getLoanRepositoryOffline } from '@/lib/offline/repositories/LoanRepositoryOffline';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
-import type { LocalProperty } from '@/lib/offline/db';
+import type { LocalProperty, LocalLease, LocalLoan } from '@/lib/offline/db';
 import { cn } from '@/utils/cn';
 import { Badge } from '@/components/ui/Badge';
+
+/** Mensualité d'un prêt (formule standard) */
+function monthlyPayment(principal: number, annualRatePct: number, durationMonths: number): number {
+  if (durationMonths <= 0 || principal <= 0) return 0;
+  const r = annualRatePct / 100 / 12;
+  if (r < 1e-10) return principal / durationMonths;
+  const n = durationMonths;
+  return (principal * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+}
 
 interface PropertyContextCardProps {
   propertyId: string;
@@ -103,52 +113,61 @@ export function PropertyContextCard({
 }: PropertyContextCardProps) {
   const { organizationId } = useCurrentOrganization();
   const [property, setProperty] = useState<LocalProperty | null>(null);
-  const [hasActiveLease, setHasActiveLease] = useState(false);
+  const [leases, setLeases] = useState<LocalLease[]>([]);
+  const [loans, setLoans] = useState<LocalLoan[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Charger les données du bien et vérifier les baux actifs (PASSIF - ne modifie jamais l'URL)
   useEffect(() => {
     if (!propertyId || !organizationId) {
       setProperty(null);
-      setHasActiveLease(false);
+      setLeases([]);
+      setLoans([]);
       setLoading(false);
       return;
     }
 
     let cancelled = false;
 
-    async function loadPropertyAndLeases() {
+    async function load() {
       try {
         setLoading(true);
         const propRepo = getPropertyRepositoryOffline();
         const leaseRepo = getLeaseRepositoryOffline();
-        
-        // Charger le bien
-        const prop = await propRepo.getById(propertyId, organizationId);
-        
-        if (!cancelled && prop) {
-          setProperty(prop);
-          
-          // Charger les baux actifs pour ce bien
-          const activeLeases = await leaseRepo.getActiveByProperty(propertyId, organizationId);
-          const hasActive = activeLeases.length > 0;
-          setHasActiveLease(hasActive);
+        const loanRepo = getLoanRepositoryOffline();
+
+        const [prop, allLeases, activeLoans] = await Promise.all([
+          propRepo.getById(propertyId, organizationId),
+          leaseRepo.getAll(organizationId, { propertyId }),
+          loanRepo.getActiveByProperty(propertyId, organizationId),
+        ]);
+
+        if (!cancelled) {
+          setProperty(prop || null);
+          setLeases(allLeases || []);
+          setLoans(activeLoans || []);
         }
       } catch (error) {
-        console.error('[PropertyContextCard] Erreur chargement bien/baux:', error);
+        console.error('[PropertyContextCard] Erreur chargement:', error);
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
-    loadPropertyAndLeases();
-
-    return () => {
-      cancelled = true;
-    };
+    load();
+    return () => { cancelled = true; };
   }, [propertyId, organizationId]);
+
+  const hasActiveLease = leases.some((l) => l.status === 'ACTIF');
+  const activeLeases = leases.filter((l) => l.status === 'ACTIF');
+  const lotsCount = leases.length;
+  const monthlyRent = activeLeases.reduce((s, l) => s + (l.rentAmount || 0), 0);
+  const monthlyLoanTotal = loans.reduce(
+    (s, loan) => s + monthlyPayment(loan.principal, loan.annualRatePct || 0, loan.durationMonths || 1),
+    0
+  );
+  const cashflowMonthly = monthlyRent - monthlyLoanTotal;
+  const value = (property?.currentValue ?? property?.acquisitionPrice ?? 0) || 1;
+  const rendementBrut = value > 0 ? (monthlyRent * 12 / value) * 100 : 0;
 
   if (loading) {
     return (
@@ -197,6 +216,24 @@ export function PropertyContextCard({
           {addressShort}
         </div>
       )}
+
+      {/* Indicateurs : lots, cashflow, rendement */}
+      <div className="space-y-1 mb-2 pl-5.5 text-xs text-gray-600">
+        {lotsCount > 0 && (
+          <div>{lotsCount} lot{lotsCount > 1 ? 's' : ''}</div>
+        )}
+        {monthlyRent > 0 && (
+          <div>
+            Cashflow :{' '}
+            <span className={cashflowMonthly >= 0 ? 'text-emerald-600 font-medium' : 'text-red-600 font-medium'}>
+              {cashflowMonthly >= 0 ? '+' : ''}{Math.round(cashflowMonthly).toLocaleString('fr-FR')} €
+            </span>
+          </div>
+        )}
+        {rendementBrut > 0 && value > 0 && (
+          <div>Rendement : <span className="font-medium text-gray-700">{rendementBrut.toFixed(1)} %</span></div>
+        )}
+      </div>
 
       {/* Action : Changer */}
       <button

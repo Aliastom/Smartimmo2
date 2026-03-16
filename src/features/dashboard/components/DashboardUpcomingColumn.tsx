@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { CalendarCheck } from 'lucide-react';
+import { CalendarCheck, Clock } from 'lucide-react';
 import type {
   EcheancePret,
   EcheanceCharge,
@@ -26,12 +26,15 @@ function UpcomingCard({
   subLine,
   hasItems,
   index,
+  urgencyBadge,
 }: {
   title: string;
   mainLine: string;
   subLine?: string;
   hasItems: boolean;
   index: number;
+  /** URGENT (< 3 j) ou PROCHE (< 7 j) */
+  urgencyBadge?: 'URGENT' | 'PROCHE' | null;
 }) {
   return (
     <motion.div
@@ -46,30 +49,48 @@ function UpcomingCard({
         hasItems ? 'border-l-4 border-l-amber-500 border-slate-200' : 'border-slate-200'
       )}
     >
-      <div className="absolute top-4 right-4 flex items-center gap-2">
-        {hasItems ? (
+      <div className="absolute top-4 right-4 flex items-center gap-2 flex-wrap justify-end">
+        {urgencyBadge === 'URGENT' && (
           <motion.span
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.2 }}
-            className="rounded-full border border-amber-200 bg-amber-50/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 transition-colors duration-200 hover:bg-amber-100/80"
+            className="rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700"
+          >
+            Urgent (&lt; 3 j)
+          </motion.span>
+        )}
+        {urgencyBadge === 'PROCHE' && (
+          <motion.span
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.2 }}
+            className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700"
+          >
+            Proche (&lt; 7 j)
+          </motion.span>
+        )}
+        {hasItems && !urgencyBadge && (
+          <motion.span
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.2 }}
+            className="rounded-full border border-amber-200 bg-amber-50/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700"
           >
             Prochainement
           </motion.span>
-        ) : (
+        )}
+        {!hasItems && (
           <>
             <motion.span
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.2 }}
-              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 transition-colors duration-200 hover:bg-slate-100/80"
+              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500"
             >
               Aucun
             </motion.span>
-            <CalendarCheck
-              className="h-[18px] w-[18px] text-emerald-500 opacity-80"
-              aria-hidden
-            />
+            <CalendarCheck className="h-[18px] w-[18px] text-emerald-500 opacity-80" aria-hidden />
           </>
         )}
       </div>
@@ -131,10 +152,49 @@ export function DashboardUpcomingColumn({
     return Math.min(...bauxAEcheance.map((b) => b.joursRestants));
   }, [bauxAEcheance]);
 
+  const indexationsJours = useMemo(() => {
+    if (indexations.length === 0) return 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const days = indexations.map((idx) => {
+      const d = new Date(idx.dateAnniversaire);
+      d.setHours(0, 0, 0, 0);
+      return Math.ceil((d.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+    });
+    const future = days.filter((j) => j >= 0);
+    return future.length > 0 ? Math.min(...future) : 0;
+  }, [indexations]);
+
+  const urgencyBadgeEcheances: 'URGENT' | 'PROCHE' | null =
+    echeancesCount > 0 && echeancesJours >= 0
+      ? echeancesJours < 3
+        ? 'URGENT'
+        : echeancesJours < 7
+          ? 'PROCHE'
+          : null
+      : null;
+
   return (
     <div className={cn('relative space-y-6', className)}>
       <div className="lg:sticky lg:top-20 lg:z-10 lg:bg-transparent lg:py-2 lg:-mx-1 lg:px-1 lg:border-b lg:border-slate-100">
         <h2 className="text-lg font-semibold text-slate-900">À venir / Risque proche</h2>
+        {echeancesCount > 0 && echeancesJours >= 0 && (
+          <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-slate-700">
+              <Clock className="h-5 w-5 text-amber-600" aria-hidden />
+              <span className="text-sm font-medium">Prochaine échéance</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-bold text-slate-900 tabular-nums">{echeancesJours} jour{echeancesJours !== 1 ? 's' : ''}</span>
+              {urgencyBadgeEcheances === 'URGENT' && (
+                <span className="rounded-full border-2 border-red-300 bg-red-50 px-2.5 py-1 text-xs font-semibold uppercase text-red-700">Urgent &lt; 3 jours</span>
+              )}
+              {urgencyBadgeEcheances === 'PROCHE' && (
+                <span className="rounded-full border-2 border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium uppercase text-amber-700">Proche &lt; 7 jours</span>
+              )}
+            </div>
+          </div>
+        )}
         <div className="h-1 w-10 bg-amber-500 rounded-full mt-2" />
       </div>
       <div className="space-y-6">
@@ -144,12 +204,15 @@ export function DashboardUpcomingColumn({
           mainLine={
             echeancesCount === 0
               ? 'Aucune échéance'
-              : echeancesJours > 0
-                ? `${echeancesCount} échéance${echeancesCount > 1 ? 's' : ''} — prochaine dans ${echeancesJours} j`
-                : `${echeancesCount} échéance${echeancesCount > 1 ? 's' : ''}`
+              : `${echeancesCount} échéance${echeancesCount > 1 ? 's' : ''}`
           }
-          subLine={monthLabel || undefined}
+          subLine={
+            echeancesCount > 0 && echeancesJours >= 0
+              ? `Prochaine échéance dans ${echeancesJours} jour${echeancesJours !== 1 ? 's' : ''}`
+              : monthLabel || undefined
+          }
           hasItems={echeancesCount > 0}
+          urgencyBadge={urgencyBadgeEcheances}
         />
         <UpcomingCard
           index={1}
@@ -159,7 +222,13 @@ export function DashboardUpcomingColumn({
               ? 'Aucune'
               : `${indexations.length} indexation${indexations.length > 1 ? 's' : ''}`
           }
+          subLine={
+            indexations.length > 0 && indexationsJours >= 0
+              ? `Prochaine dans ${indexationsJours} jour${indexationsJours !== 1 ? 's' : ''}`
+              : undefined
+          }
           hasItems={indexations.length > 0}
+          urgencyBadge={indexations.length > 0 && indexationsJours >= 0 ? (indexationsJours < 3 ? 'URGENT' : indexationsJours < 7 ? 'PROCHE' : null) : undefined}
         />
         <UpcomingCard
           index={2}

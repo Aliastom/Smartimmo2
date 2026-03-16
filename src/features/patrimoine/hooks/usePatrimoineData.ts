@@ -15,12 +15,16 @@ import { getLocalDB } from '@/lib/offline/db';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
 import { expandEcheances } from '@/lib/echeances/expandEcheances';
-import type { PatrimoineResponse, PatrimoineFilters, PatrimoineMode } from '@/types/dashboard';
+import type { PatrimoineResponse, PatrimoineFilters, PatrimoineMode, PerformanceParBienItem, AnnualTimelineMonth } from '@/types/dashboard';
 import type { LocalTransaction, LocalProperty, LocalLease, LocalLoan, LocalEcheanceRecurrente, CachedNature } from '@/lib/offline/db';
+
+const MOIS_LABELS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
 export interface UsePatrimoineDataOptions {
   mode: 'normal' | 'app-shell';
   filters: PatrimoineFilters;
+  /** Année pour la timeline financière annuelle (app-shell uniquement) */
+  timelineYear?: number;
 }
 
 /**
@@ -77,7 +81,7 @@ function smoothData(data: PatrimoineResponse): PatrimoineResponse {
 }
 
 export function usePatrimoineData(options: UsePatrimoineDataOptions) {
-  const { mode, filters } = options;
+  const { mode, filters, timelineYear } = options;
   const { organizationId } = useCurrentOrganization();
   const [transactions, setTransactions] = useState<LocalTransaction[]>([]);
   const [properties, setProperties] = useState<LocalProperty[]>([]);
@@ -374,6 +378,70 @@ export function usePatrimoineData(options: UsePatrimoineDataOptions) {
           .sort((a, b) => a.date.localeCompare(b.date))
           .slice(0, 40);
 
+        // Performance par bien (base patrimoniale sur la période)
+        const nbMonths = months.length || 1;
+        const byPropertyPerf = new Map<string, { income: number; expense: number }>();
+        realisedTransactions.forEach(tx => {
+          const pid = tx.propertyId;
+          if (!pid) return;
+          if (!byPropertyPerf.has(pid)) byPropertyPerf.set(pid, { income: 0, expense: 0 });
+          const nat = tx.nature ? natures.get(tx.nature) : null;
+          const flow = nat?.flow?.toUpperCase();
+          const amount = Math.abs(tx.amount ?? 0);
+          if (flow === 'INCOME') byPropertyPerf.get(pid)!.income += amount;
+          if (flow === 'EXPENSE') byPropertyPerf.get(pid)!.expense += amount;
+        });
+        const performanceParBien: PerformanceParBienItem[] = filteredProperties.map((prop) => {
+          const valeurBien = prop.currentValue ?? prop.acquisitionPrice ?? null;
+          const stats = byPropertyPerf.get(prop.id) ?? { income: 0, expense: 0 };
+          const loyerMensuel = stats.income / nbMonths;
+          const chargesMensuelles = stats.expense / nbMonths;
+          const cashflowMensuel = loyerMensuel - chargesMensuelles;
+          const rendementBrutPct =
+            valeurBien != null && valeurBien > 0 && loyerMensuel > 0
+              ? (loyerMensuel * 12 / valeurBien) * 100
+              : null;
+          return {
+            propertyId: prop.id,
+            nom: prop.name,
+            loyerMensuel,
+            chargesMensuelles,
+            cashflowMensuel,
+            rendementBrutPct,
+            valeurBien,
+          };
+        });
+
+        // Timeline annuelle (app-shell, année demandée)
+        let annualTimelineData: AnnualTimelineMonth[] | undefined;
+        if (timelineYear != null && timelineYear >= 2000 && timelineYear <= 2100) {
+          let cumul = 0;
+          annualTimelineData = [];
+          for (let m = 1; m <= 12; m++) {
+            const monthStr = `${timelineYear}-${String(m).padStart(2, '0')}`;
+            const monthTx = realisedTransactions.filter(t => t.accounting_month === monthStr);
+            let income = 0;
+            let expense = 0;
+            monthTx.forEach(tx => {
+              const nat = tx.nature ? natures.get(tx.nature) : null;
+              const flow = nat?.flow?.toUpperCase();
+              const amount = Math.abs(tx.amount ?? 0);
+              if (flow === 'INCOME') income += amount;
+              if (flow === 'EXPENSE') expense += amount;
+            });
+            const cashflow = income - expense;
+            cumul += cashflow;
+            annualTimelineData.push({
+              month: monthStr,
+              label: MOIS_LABELS[m - 1],
+              loyers_encaisses: income,
+              depenses: expense,
+              cashflow,
+              cashflow_cumule: cumul,
+            });
+          }
+        }
+
         response = {
           period: { from: months[0], to: months[months.length - 1], months },
           kpis: {
@@ -387,10 +455,12 @@ export function usePatrimoineData(options: UsePatrimoineDataOptions) {
           },
           series: { loyers, charges, cashflow },
           repartitionParBien,
+          performanceParBien,
           repartitionParBienLoyers,
           repartitionParBienCharges,
           repartitionParBienCashflow,
           agenda,
+          annualTimelineData,
         };
       } else if (filters.mode === 'prevision') {
         // Mode PRÉVISIONNEL : baux actifs + échéances récurrentes
@@ -660,7 +730,7 @@ export function usePatrimoineData(options: UsePatrimoineDataOptions) {
       return response;
     }
     return null;
-  }, [mode, transactions, properties, leases, loans, echeances, natures, filters]);
+  }, [mode, transactions, properties, leases, loans, echeances, natures, filters, timelineYear]);
 
   // En mode normal, utiliser React Query
   const queryParams = useMemo(() => {

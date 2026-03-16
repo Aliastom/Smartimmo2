@@ -6,7 +6,7 @@
  */
 
 import type { DashboardFilters } from '../hooks/useDashboardData';
-import type { MonthlyKPIs } from '@/types/dashboard';
+import type { MonthlyKPIs, AnnualTimelineMonth, PerformanceParBienItem } from '@/types/dashboard';
 import type { LocalTransaction, LocalLease, LocalProperty, LocalTenant, LocalLoan, LocalLoanBorrower, LocalEcheanceRecurrente, LocalDocument, CachedNature, CachedCategory } from '@/lib/offline/db';
 import { buildSchedule } from '@/lib/finance/amortization';
 
@@ -453,6 +453,36 @@ export function computeLoyersEncaisses(
 }
 
 /**
+ * Compte le nombre de transactions "loyer" (rapprochées) pour affichage Situation du mois
+ */
+export function countLoyersEncaisses(
+  transactions: NormalizedTransaction[],
+  natures: Map<string, NormalizedNature>,
+  gestionCodes: GestionCodes
+): number {
+  const loyerNatures: string[] = [];
+  natures.forEach(nature => {
+    if (nature.code.includes('LOYER') || nature.label.toLowerCase().includes('loyer')) {
+      loyerNatures.push(nature.code);
+    }
+  });
+
+  let count = 0;
+  for (const tx of transactions) {
+    const nature = tx.nature ? natures.get(tx.nature) : null;
+    const flow = nature?.flow?.toUpperCase();
+    const hasCorrectNature = tx.nature === gestionCodes.rentNature;
+    const hasCorrectCategory = gestionCodes.rentCategoryId ? tx.categoryId === gestionCodes.rentCategoryId : true;
+    const isLoyer = hasCorrectNature && hasCorrectCategory;
+    const isLoyerFallback = !gestionCodes.rentCategoryId && tx.nature && loyerNatures.includes(tx.nature);
+    if ((isLoyer || isLoyerFallback) && flow === 'INCOME') {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/**
  * Calcule le taux d'encaissement
  */
 export function computeTauxEncaissement(
@@ -503,6 +533,7 @@ export function computeDashboardKPIs(
 
   // Compter les baux actifs
   const bauxActifs = currentMonthLeases.filter(l => l.status === 'ACTIF').length;
+  const nLoyersEncaisses = countLoyersEncaisses(currentMonthTransactions, natures, gestionCodes);
 
   return {
     sommesEncaisses: currentEncaissements.sommesEncaisses,
@@ -514,10 +545,102 @@ export function computeDashboardKPIs(
     tauxEncaissement,
     bauxActifs,
     documentsEnvoyes: documentsCount,
+    nLoyersAttendus: bauxActifs,
+    nLoyersEncaisses,
     deltaSommesEncaisses: currentEncaissements.sommesEncaisses - prevEncaissements.sommesEncaisses,
     deltaDepensesRealisees: currentDepenses.depensesRealisees - prevDepenses.depensesRealisees,
     deltaCashflow: currentCashflow - prevCashflow,
     deltaTauxEncaissement: tauxEncaissement - prevTauxEncaissement,
   };
+}
+
+const MOIS_LABELS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+
+/**
+ * Calcule la timeline financière annuelle (12 mois) : loyers encaissés, dépenses, cashflow, cashflow cumulé.
+ */
+export function computeAnnualTimeline(
+  year: number,
+  transactions: NormalizedTransaction[],
+  natures: Map<string, NormalizedNature>
+): AnnualTimelineMonth[] {
+  const result: AnnualTimelineMonth[] = [];
+  let cumul = 0;
+
+  for (let m = 1; m <= 12; m++) {
+    const monthStr = `${year}-${String(m).padStart(2, '0')}`;
+    const monthTx = transactions.filter((t) => t.accounting_month === monthStr);
+    const enc = computeEncaissements(monthTx, natures);
+    const dep = computeDepenses(monthTx, natures);
+    const loyersEncaisses = enc.sommesEncaisses;
+    const depenses = dep.depensesRealisees;
+    const cashflow = loyersEncaisses - depenses;
+    cumul += cashflow;
+    result.push({
+      month: monthStr,
+      label: MOIS_LABELS[m - 1],
+      loyers_encaisses: loyersEncaisses,
+      depenses,
+      cashflow,
+      cashflow_cumule: cumul,
+    });
+  }
+  return result;
+}
+
+/** Propriété minimale pour le calcul performance (id, nom, valeur) */
+export interface PropertyForPerformance {
+  id: string;
+  name: string;
+  currentValue?: number | null;
+  acquisitionPrice?: number | null;
+}
+
+/**
+ * Calcule la performance par bien : loyer mensuel, charges, cashflow, rendement brut.
+ */
+export function computePerformanceParBien(
+  properties: PropertyForPerformance[],
+  leases: NormalizedLease[],
+  transactions: NormalizedTransaction[],
+  natures: Map<string, NormalizedNature>
+): PerformanceParBienItem[] {
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  return properties.map((prop) => {
+    const valeurBien = prop.currentValue ?? prop.acquisitionPrice ?? null;
+    const actifLeases = leases.filter(
+      (l) => l.propertyId === prop.id && l.status === 'ACTIF'
+    );
+    const loyerMensuel = actifLeases.reduce((s, l) => s + (l.rentAmount || 0), 0);
+    const propTx = transactions.filter(
+      (t) => t.propertyId === prop.id && t.accounting_month === currentMonth
+    );
+    let income = 0;
+    let expense = 0;
+    for (const tx of propTx) {
+      const nature = tx.nature ? natures.get(tx.nature) : null;
+      const flow = nature?.flow?.toUpperCase();
+      const amount = Math.abs(tx.amount);
+      if (flow === 'INCOME') income += amount;
+      if (flow === 'EXPENSE') expense += amount;
+    }
+    const cashflowMensuel = income - expense;
+    const chargesMensuelles = expense;
+    const rendementBrutPct =
+      valeurBien != null && valeurBien > 0 && loyerMensuel > 0
+        ? (loyerMensuel * 12 / valeurBien) * 100
+        : null;
+    return {
+      propertyId: prop.id,
+      nom: prop.name,
+      loyerMensuel,
+      chargesMensuelles,
+      cashflowMensuel,
+      rendementBrutPct,
+      valeurBien,
+    };
+  });
 }
 

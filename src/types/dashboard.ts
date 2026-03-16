@@ -53,6 +53,10 @@ export interface PatrimoineResponse {
   repartitionParBienCashflow?: RepartitionParBienItem[]; // Répartition pour le cashflow
   agenda: AgendaItem[];
   insights?: string; // Synthèse IA contextuelle (optionnel)
+  /** Performance par bien sur la période (analyse patrimoniale) */
+  performanceParBien?: PerformanceParBienItem[];
+  /** Timeline financière annuelle (analyse patrimoniale, année sélectionnée) */
+  annualTimelineData?: AnnualTimelineMonth[];
 }
 
 export interface PatrimoineFilters {
@@ -78,6 +82,10 @@ export interface MonthlyKPIs {
   tauxEncaissement: number; // En pourcentage (0-100)
   bauxActifs: number;
   documentsEnvoyes: number;
+  /** Nombre de loyers attendus (baux actifs concernés) pour affichage Situation du mois */
+  nLoyersAttendus?: number;
+  /** Nombre de loyers encaissés (transactions loyer rapprochées) pour affichage Situation du mois */
+  nLoyersEncaisses?: number;
   // Deltas vs mois précédent
   deltaSommesEncaisses: number;
   deltaDepensesRealisees: number;
@@ -229,5 +237,26 @@ export interface MonthlyDashboardFilters {
   type?: 'INCOME' | 'EXPENSE' | 'ALL';
   statut?: 'paye' | 'en_retard' | 'a_venir' | 'ALL';
   source?: 'loyer' | 'hors_loyer' | 'ALL';
+}
+
+/** Un mois de la timeline financière annuelle */
+export interface AnnualTimelineMonth {
+  month: string; // Format 'YYYY-MM'
+  label: string; // Ex: "Janvier"
+  loyers_encaisses: number;
+  depenses: number;
+  cashflow: number;
+  cashflow_cumule: number;
+}
+
+/** Ligne "Performance par bien" */
+export interface PerformanceParBienItem {
+  propertyId: string;
+  nom: string;
+  loyerMensuel: number;
+  chargesMensuelles: number;
+  cashflowMensuel: number;
+  rendementBrutPct: number | null;
+  valeurBien: number | null;
 }
 

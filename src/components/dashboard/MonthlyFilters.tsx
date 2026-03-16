@@ -7,11 +7,14 @@ import { cn } from '@/utils/cn';
 
 export interface MonthlyFiltersProps {
   month: string; // Format: YYYY-MM
+  /** Afficher le sélecteur de mois (prévu pour être affiché séparément en haut de page) */
+  showMonthSelector?: boolean;
   bienIds: string[];
   locataireIds: string[];
   type: 'INCOME' | 'EXPENSE' | 'ALL';
   statut: 'paye' | 'en_retard' | 'a_venir' | 'ALL';
   source: 'loyer' | 'hors_loyer' | 'ALL';
+  focusLoyer?: boolean;
   onFilterChange: (filters: {
     month?: string;
     bienIds?: string[];
@@ -19,6 +22,7 @@ export interface MonthlyFiltersProps {
     type?: 'INCOME' | 'EXPENSE' | 'ALL';
     statut?: 'paye' | 'en_retard' | 'a_venir' | 'ALL';
     source?: 'loyer' | 'hors_loyer' | 'ALL';
+    focusLoyer?: boolean;
   }) => void;
   biens?: Array<{ id: string; name: string }>;
   locataires?: Array<{ id: string; firstName: string; lastName: string }>;
@@ -26,11 +30,13 @@ export interface MonthlyFiltersProps {
 
 export function MonthlyFilters({
   month,
+  showMonthSelector = true,
   bienIds,
   locataireIds,
   type,
   statut,
   source,
+  focusLoyer = false,
   onFilterChange,
   biens = [],
   locataires = [],
@@ -69,6 +75,7 @@ export function MonthlyFilters({
       type: 'ALL',
       statut: 'ALL',
       source: 'ALL',
+      focusLoyer: false,
     });
   };
 
@@ -85,192 +92,240 @@ export function MonthlyFilters({
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
-      {/* Sélecteur de mois */}
-      <div className="flex items-center justify-between gap-2 md:gap-4 flex-wrap">
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePrevMonth}
-            aria-label="Mois précédent"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          
-          <div className="min-w-[200px] text-center">
-            <h3 className="text-lg font-semibold text-gray-900 capitalize">
-              {formatMonth(localMonth)}
-            </h3>
-            {!isCurrentMonth() && (
-              <p className="text-xs text-gray-500">
-                (Mois sélectionné)
-              </p>
-            )}
+    <div className={cn(
+      'bg-white rounded-xl border border-gray-200',
+      showMonthSelector ? 'p-4 space-y-4' : 'px-3 py-2 space-y-2'
+    )}>
+      {/* Sélecteur de mois (optionnel, pour affichage en bas ou tout-en-un) */}
+      {showMonthSelector && (
+        <div className="flex items-center justify-between gap-2 md:gap-4 flex-wrap">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrevMonth}
+              aria-label="Mois précédent"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            
+            <div className="min-w-[200px] text-center">
+              <h3 className="text-lg font-semibold text-gray-900 capitalize">
+                {formatMonth(localMonth)}
+              </h3>
+              {!isCurrentMonth() && (
+                <p className="text-xs text-gray-500">
+                  (Mois sélectionné)
+                </p>
+              )}
+            </div>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNextMonth}
+              aria-label="Mois suivant"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
           </div>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleNextMonth}
-            aria-label="Mois suivant"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
 
-        <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="whitespace-nowrap text-[10px] md:text-sm px-1.5 py-1 md:px-3 md:py-2 h-7 md:h-9"
-          >
-            <span className="hidden md:inline">{showAdvanced ? 'Masquer filtres' : 'Filtres avancés'}</span>
-            <span className="md:hidden text-[10px]">{showAdvanced ? 'Masq.' : 'Filtres'}</span>
-          </Button>
-          
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleReset}
-            className="whitespace-nowrap text-[10px] md:text-sm px-1.5 py-1 md:px-3 md:py-2 h-7 md:h-9"
-          >
-            <RotateCcw className="h-3 w-3 md:h-4 md:w-4 mr-0.5 md:mr-2" />
-            <span className="md:hidden text-[10px]">Reset</span>
-            <span className="hidden md:inline">Réinitialiser</span>
-          </Button>
+          <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="whitespace-nowrap text-[10px] md:text-sm px-1.5 py-1 md:px-3 md:py-2 h-7 md:h-9"
+            >
+              <span className="hidden md:inline">{showAdvanced ? 'Masquer filtres' : 'Filtres avancés'}</span>
+              <span className="md:hidden text-[10px]">{showAdvanced ? 'Masq.' : 'Filtres'}</span>
+            </Button>
+            
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleReset}
+              className="whitespace-nowrap text-[10px] md:text-sm px-1.5 py-1 md:px-3 md:py-2 h-7 md:h-9"
+            >
+              <RotateCcw className="h-3 w-3 md:h-4 md:w-4 mr-0.5 md:mr-2" />
+              <span className="md:hidden text-[10px]">Reset</span>
+              <span className="hidden md:inline">Réinitialiser</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Toolbar compacte : Filtres (quand pas de sélecteur de mois) */}
+      {!showMonthSelector && (
+        <div className="flex flex-wrap items-center gap-2 py-1">
+          <span className="text-xs font-medium text-slate-500 mr-1">Filtres :</span>
+          <div className="flex flex-wrap items-center gap-1">
+            <div className="flex gap-0.5 bg-slate-100 rounded-md p-0.5">
+              {[
+                { value: 'ALL' as const, label: 'Tous' },
+                { value: 'INCOME' as const, label: 'Recettes' },
+                { value: 'EXPENSE' as const, label: 'Dépenses' },
+              ].map((o) => (
+                <button
+                  key={o.value}
+                  onClick={() => onFilterChange({ type: o.value })}
+                  className={cn(
+                    'px-2.5 py-1 text-xs font-medium rounded transition-colors',
+                    type === o.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-slate-300 mx-0.5" aria-hidden>|</span>
+            <div className="flex gap-0.5 bg-slate-100 rounded-md p-0.5">
+              {[
+                { value: 'ALL' as const, label: 'Tous' },
+                { value: 'paye' as const, label: 'Payé' },
+                { value: 'en_retard' as const, label: 'Retard' },
+                { value: 'a_venir' as const, label: 'À venir' },
+              ].map((o) => (
+                <button
+                  key={o.value}
+                  onClick={() => onFilterChange({ statut: o.value })}
+                  className={cn(
+                    'px-2.5 py-1 text-xs font-medium rounded transition-colors',
+                    statut === o.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-slate-300 mx-0.5" aria-hidden>|</span>
+            <div className="flex gap-0.5 bg-slate-100 rounded-md p-0.5">
+              {[
+                { value: 'ALL' as const, label: 'Tous' },
+                { value: 'loyer' as const, label: 'Loyers' },
+                { value: 'hors_loyer' as const, label: 'Hors loyers' },
+              ].map((o) => (
+                <button
+                  key={o.value}
+                  onClick={() => onFilterChange({ source: o.value })}
+                  className={cn(
+                    'px-2.5 py-1 text-xs font-medium rounded transition-colors',
+                    source === o.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="ml-1 h-7 px-2 text-xs"
+            >
+              {showAdvanced ? 'Masquer' : 'Avancés'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleReset} className="h-7 px-2 text-xs">
+              <RotateCcw className="h-3 w-3 mr-1" />
+              Reset
+            </Button>
+          </div>
+        </div>
+      )}
+      {/* Filtres en blocs (avec sélecteur de mois) */}
+      {showMonthSelector && (
+      <div className="flex flex-wrap gap-6">
+        <div>
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">Type</p>
+          <div className="flex gap-1 bg-gray-50 rounded-lg p-1">
+            {[
+              { value: 'ALL' as const, label: 'Tous' },
+              { value: 'INCOME' as const, label: 'Recettes' },
+              { value: 'EXPENSE' as const, label: 'Dépenses' },
+            ].map((o) => (
+              <button
+                key={o.value}
+                onClick={() => onFilterChange({ type: o.value })}
+                className={cn(
+                  'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
+                  type === o.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">Statut</p>
+          <div className="flex gap-1 bg-gray-50 rounded-lg p-1">
+            {[
+              { value: 'ALL' as const, label: 'Tous' },
+              { value: 'paye' as const, label: 'Payé' },
+              { value: 'en_retard' as const, label: 'Retard' },
+              { value: 'a_venir' as const, label: 'À venir' },
+            ].map((o) => (
+              <button
+                key={o.value}
+                onClick={() => onFilterChange({ statut: o.value })}
+                className={cn(
+                  'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
+                  statut === o.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">Catégorie</p>
+          <div className="flex gap-1 bg-gray-50 rounded-lg p-1">
+            {[
+              { value: 'ALL' as const, label: 'Tous' },
+              { value: 'loyer' as const, label: 'Loyers' },
+              { value: 'hors_loyer' as const, label: 'Hors loyers' },
+            ].map((o) => (
+              <button
+                key={o.value}
+                onClick={() => onFilterChange({ source: o.value })}
+                className={cn(
+                  'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
+                  source === o.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+      )}
 
-      {/* Filtres rapides */}
-      <div className="flex flex-wrap gap-2">
-        {/* Filtre Type */}
-        <div className="flex gap-1 bg-gray-50 rounded-lg p-1">
-          <button
-            onClick={() => onFilterChange({ type: 'ALL' })}
-            className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-              type === 'ALL'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            )}
-          >
-            Tous
-          </button>
-          <button
-            onClick={() => onFilterChange({ type: 'INCOME' })}
-            className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-              type === 'INCOME'
-                ? 'bg-white text-green-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            )}
-          >
-            Recettes
-          </button>
-          <button
-            onClick={() => onFilterChange({ type: 'EXPENSE' })}
-            className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-              type === 'EXPENSE'
-                ? 'bg-white text-red-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            )}
-          >
-            Dépenses
-          </button>
-        </div>
-
-        {/* Filtre Statut */}
-        <div className="flex gap-1 bg-gray-50 rounded-lg p-1">
-          <button
-            onClick={() => onFilterChange({ statut: 'ALL' })}
-            className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-              statut === 'ALL'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            )}
-          >
-            Tous
-          </button>
-          <button
-            onClick={() => onFilterChange({ statut: 'paye' })}
-            className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-              statut === 'paye'
-                ? 'bg-white text-green-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            )}
-          >
-            Payés
-          </button>
-          <button
-            onClick={() => onFilterChange({ statut: 'en_retard' })}
-            className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-              statut === 'en_retard'
-                ? 'bg-white text-red-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            )}
-          >
-            En retard
-          </button>
-          <button
-            onClick={() => onFilterChange({ statut: 'a_venir' })}
-            className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-              statut === 'a_venir'
-                ? 'bg-white text-blue-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            )}
-          >
-            À venir
-          </button>
-        </div>
-
-        {/* Filtre Source */}
-        <div className="flex gap-1 bg-gray-50 rounded-lg p-1">
-          <button
-            onClick={() => onFilterChange({ source: 'ALL' })}
-            className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-              source === 'ALL'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            )}
-          >
-            Tout
-          </button>
-          <button
-            onClick={() => onFilterChange({ source: 'loyer' })}
-            className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-              source === 'loyer'
-                ? 'bg-white text-blue-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            )}
-          >
-            Loyers
-          </button>
-          <button
-            onClick={() => onFilterChange({ source: 'hors_loyer' })}
-            className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-              source === 'hors_loyer'
-                ? 'bg-white text-gray-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            )}
-          >
-            Hors loyers
-          </button>
-        </div>
-      </div>
-
-      {/* Filtres avancés (multi-select) */}
+      {/* Filtres avancés (multi-select + Focus loyer) */}
       {showAdvanced && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-200">
+        <div className="space-y-4 pt-4 border-t border-gray-200">
+          {/* Focus loyer */}
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-slate-50 p-3">
+            <div>
+              <p className="text-sm font-medium text-gray-700">Focus loyer</p>
+              <p className="text-xs text-gray-500">
+                Afficher uniquement les transactions de gestion déléguée (loyers et frais de gestion)
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={focusLoyer}
+                onChange={(e) => onFilterChange({ focusLoyer: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
+              <span className="ml-2 text-sm text-gray-700">{focusLoyer ? 'Activé' : 'Désactivé'}</span>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Multi-select Biens */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -367,6 +422,7 @@ export function MonthlyFilters({
                 </div>
               )}
             </div>
+          </div>
           </div>
         </div>
       )}

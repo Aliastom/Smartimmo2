@@ -16,6 +16,10 @@ interface PatrimoineChartsProps {
   repartitionParBienCharges?: RepartitionParBienItem[];
   repartitionParBienCashflow?: RepartitionParBienItem[];
   isLoading?: boolean;
+  /** 'all' | 'evolution' (Loyers vs Charges + Cashflow cumulé) | 'repartition' (Répartition par bien) */
+  variant?: 'all' | 'evolution' | 'repartition';
+  /** Mode pour libellés dynamiques (Réalisé / Prévisionnel / Lissé) */
+  mode?: 'realise' | 'prevision' | 'lisse';
 }
 
 export const PatrimoineCharts = React.memo(function PatrimoineCharts({
@@ -27,6 +31,8 @@ export const PatrimoineCharts = React.memo(function PatrimoineCharts({
   repartitionParBienCharges,
   repartitionParBienCashflow,
   isLoading = false,
+  variant = 'all',
+  mode = 'realise',
 }: PatrimoineChartsProps) {
   return (
     <PatrimoineChartsInternal
@@ -38,6 +44,8 @@ export const PatrimoineCharts = React.memo(function PatrimoineCharts({
       repartitionParBienCharges={repartitionParBienCharges}
       repartitionParBienCashflow={repartitionParBienCashflow}
       isLoading={isLoading}
+      variant={variant}
+      mode={mode}
     />
   );
 });

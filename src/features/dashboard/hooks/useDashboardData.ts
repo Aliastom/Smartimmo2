@@ -47,6 +47,72 @@ export interface UseDashboardDataOptions {
   filters?: DashboardFilters;
 }
 
+/** Structure vide pour éviter tout accès à .length sur undefined. */
+const EMPTY_DASHBOARD_DATA: MonthlyDashboardData = {
+  period: { month: '', firstDay: '', lastDay: '' },
+  kpis: {
+    sommesEncaisses: 0,
+    sommesEncaissesRapprochees: 0,
+    loyersAttendus: 0,
+    depensesRealisees: 0,
+    depensesRealiseesRapprochees: 0,
+    cashflow: 0,
+    tauxEncaissement: 0,
+    bauxActifs: 0,
+    documentsEnvoyes: 0,
+    deltaSommesEncaisses: 0,
+    deltaDepensesRealisees: 0,
+    deltaCashflow: 0,
+    deltaTauxEncaissement: 0,
+  },
+  aTraiter: {
+    loyersNonEncaisses: [],
+    relances: [],
+    transactionsNonRapprochees: [],
+    indexations: [],
+    echeancesPrets: [],
+    echeancesCharges: [],
+    bauxAEcheance: [],
+    documentsAValider: [],
+  },
+  graph: {
+    intraMensuel: [],
+    cashflowCumule: [],
+    loyersRetardParMois: [],
+  },
+};
+
+/** Normalise la réponse API sans jamais accéder à .length sur undefined (utilise uniquement Array.isArray). */
+function safeNormalizeApiData(apiData: unknown): MonthlyDashboardData {
+  if (!apiData || typeof apiData !== 'object') return EMPTY_DASHBOARD_DATA;
+  const a = (apiData as Record<string, unknown>).aTraiter;
+  const g = (apiData as Record<string, unknown>).graph;
+  const p = (apiData as Record<string, unknown>).period;
+  const k = (apiData as Record<string, unknown>).kpis;
+  const at = a && typeof a === 'object' ? a as Record<string, unknown> : null;
+  const gr = g && typeof g === 'object' ? g as Record<string, unknown> : null;
+  return {
+    period: (p && typeof p === 'object' && p !== null && 'month' in p) ? p as MonthlyDashboardData['period'] : EMPTY_DASHBOARD_DATA.period,
+    kpis: (k && typeof k === 'object' && k !== null) ? k as MonthlyDashboardData['kpis'] : EMPTY_DASHBOARD_DATA.kpis,
+    aTraiter: {
+      loyersNonEncaisses: Array.isArray(at?.loyersNonEncaisses) ? at.loyersNonEncaisses : [],
+      relances: Array.isArray(at?.relances) ? at.relances : [],
+      transactionsNonRapprochees: Array.isArray(at?.transactionsNonRapprochees) ? at.transactionsNonRapprochees : [],
+      indexations: Array.isArray(at?.indexations) ? at.indexations : [],
+      echeancesPrets: Array.isArray(at?.echeancesPrets) ? at.echeancesPrets : [],
+      echeancesCharges: Array.isArray(at?.echeancesCharges) ? at.echeancesCharges : [],
+      bauxAEcheance: Array.isArray(at?.bauxAEcheance) ? at.bauxAEcheance : [],
+      documentsAValider: Array.isArray(at?.documentsAValider) ? at.documentsAValider : [],
+    },
+    graph: {
+      intraMensuel: Array.isArray(gr?.intraMensuel) ? gr.intraMensuel : [],
+      cashflowCumule: Array.isArray(gr?.cashflowCumule) ? gr.cashflowCumule : [],
+      loyersRetardParMois: Array.isArray(gr?.loyersRetardParMois) ? gr.loyersRetardParMois : [],
+    },
+    insights: (apiData as Record<string, unknown>).insights as string | undefined,
+  };
+}
+
 export function useDashboardData(options: UseDashboardDataOptions) {
   const { mode, filters: filtersProp } = options;
   const { organizationId, isLoading: orgLoading } = useCurrentOrganization();
@@ -309,6 +375,8 @@ export function useDashboardData(options: UseDashboardDataOptions) {
             tauxEncaissement: 0,
             bauxActifs: 0,
             documentsEnvoyes: 0,
+            nLoyersAttendus: 0,
+            nLoyersEncaisses: 0,
             deltaSommesEncaisses: 0,
             deltaDepensesRealisees: 0,
             deltaCashflow: 0,
@@ -845,7 +913,7 @@ export function useDashboardData(options: UseDashboardDataOptions) {
   // ⚠️ Ce guard doit être APRÈS tous les hooks
   if (mode === 'app-shell' && (orgLoading || !organizationId)) {
     return {
-      data: null,
+      data: EMPTY_DASHBOARD_DATA,
       properties: [],
       tenants: [],
       loading: true,
@@ -855,10 +923,15 @@ export function useDashboardData(options: UseDashboardDataOptions) {
     };
   }
 
+  const safeData =
+    mode === 'normal'
+      ? (apiData ? safeNormalizeApiData(apiData) : EMPTY_DASHBOARD_DATA)
+      : (calculatedData ?? EMPTY_DASHBOARD_DATA);
+
   return {
-    data: mode === 'normal' ? apiData : calculatedData,
-    properties: properties as any[],
-    tenants: tenants as any[],
+    data: safeData,
+    properties: Array.isArray(properties) ? properties : [],
+    tenants: Array.isArray(tenants) ? tenants : [],
     loading: mode === 'normal' ? apiLoading : loading,
     error: mode === 'normal' ? (apiError as Error | null) : (error ? new Error(error) : null),
     // Utilitaires pour le mode normal

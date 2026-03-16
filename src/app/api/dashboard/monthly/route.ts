@@ -419,8 +419,9 @@ export async function GET(request: NextRequest) {
     
     const bauxActifs = activeLeases.length;
     // Le taux d'encaissement reste basé sur les loyers attendus vs loyers encaissés (pour les loyers uniquement)
-    // On calcule les loyers encaissés pour le taux d'encaissement
+    // On calcule les loyers encaissés et le nombre de loyers encaissés pour le taux d'encaissement
     let loyersEncaisses = 0;
+    let nLoyersEncaisses = 0;
     for (const transaction of transactions) {
       const natureData = transaction.nature ? natureMap.get(transaction.nature) : null;
       const hasCorrectNature = transaction.nature === rentNature;
@@ -429,6 +430,7 @@ export async function GET(request: NextRequest) {
       const isLoyerFallback = !rentCategoryId && transaction.nature && loyerNatures.includes(transaction.nature);
       if ((isLoyer || isLoyerFallback) && natureData?.flow === 'INCOME') {
         loyersEncaisses += Math.abs(transaction.amount);
+        nLoyersEncaisses += 1;
       }
     }
     const tauxEncaissement = loyersAttendus > 0 ? (loyersEncaisses / loyersAttendus) * 100 : 0;
@@ -484,6 +486,8 @@ export async function GET(request: NextRequest) {
       tauxEncaissement,
       bauxActifs,
       documentsEnvoyes,
+      nLoyersAttendus: bauxActifs,
+      nLoyersEncaisses,
       deltaSommesEncaisses: sommesEncaisses - prevSommesEncaisses,
       deltaDepensesRealisees: depensesRealisees - prevDepensesRealisees,
       deltaCashflow: cashflow - prevCashflow,

@@ -32,6 +32,7 @@ import { AdminPageCore } from '@/features/admin/AdminPageCore';
 import { PendingSyncView } from './views/PendingSyncView';
 import { PropertyDetailView } from './views/PropertyDetailView';
 import { GestionDelegueePageCore } from '@/features/gestion/GestionDelegueePageCore';
+import { AlertesPageCore } from '@/features/alertes/AlertesPageCore';
 import { AppShellSidebar } from './AppShellSidebar';
 import { UI2Sidebar } from '@/components/ui2/app-shell/UI2Sidebar';
 import { AppShell } from '@/components/layout/AppShell';
@@ -69,7 +70,7 @@ function AppShellClientContent() {
   // Dériver currentView directement depuis searchParams (réactif, pas de polling)
   const currentView = useMemo<ViewType>(() => {
     const viewParam = searchParams.get('view');
-    if (viewParam && ['dashboard', 'patrimoine', 'biens', 'locataires', 'baux', 'transactions', 'documents', 'echeances', 'loans', 'fiscal', 'admin', 'parametres', 'sync', 'property', 'profil', 'gestion-deleguee'].includes(viewParam)) {
+    if (viewParam && ['dashboard', 'patrimoine', 'biens', 'locataires', 'baux', 'transactions', 'documents', 'echeances', 'loans', 'fiscal', 'admin', 'parametres', 'sync', 'property', 'profil', 'gestion-deleguee', 'alertes'].includes(viewParam)) {
       console.log('[AppShellClient] 📍 Vue calculée depuis URL:', viewParam, 'URL:', window.location.href);
       return viewParam as ViewType;
     }
@@ -149,11 +150,10 @@ function AppShellClientContent() {
     };
   }, [setStatus]);
   
-  // PHASE 5 — Si online → synchronisation silencieuse (une seule fois par session)
-  // En PWA standalone, un reload à chaque clic menu réinitialise syncTriggeredRef.
-  // sessionStorage persiste tant que l'onglet est ouvert => évite re-sync à chaque navigation.
+  // PHASE 5 — Si online → synchronisation silencieuse au chargement (et au refresh)
+  // syncTriggeredRef évite de lancer plusieurs sync dans le même montage (re-renders).
+  // Chaque refresh = nouveau montage => ref réinitialisée => sync se déclenche.
   const syncTriggeredRef = React.useRef(false);
-  const SESSION_SYNC_KEY = 'app_shell_synced_this_session';
   
   // Forcer la migration vers la version 9 au démarrage
   // ⚠️ CRITIQUE: Ce hook doit être appelé AVANT le return conditionnel
@@ -166,13 +166,11 @@ function AppShellClientContent() {
   // ✅ Sync automatique au retour online (peu importe la page)
   // ⚠️ CRITIQUE: Ce hook doit être appelé AVANT le return conditionnel
   useEffect(() => {
-    const alreadySyncedThisSession = typeof sessionStorage !== 'undefined' && sessionStorage.getItem(SESSION_SYNC_KEY) === 'true';
     if (
       organizationId &&
       isOnline &&
       status === 'idle' &&
       !syncTriggeredRef.current &&
-      !alreadySyncedThisSession &&
       sync
     ) {
       syncTriggeredRef.current = true;
@@ -261,9 +259,6 @@ function AppShellClientContent() {
         }
         
         logToServer('[PHASE 5] 🔔 Émission événement sync:refresh pour mise à jour UI');
-        if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.setItem(SESSION_SYNC_KEY, 'true');
-        }
       }).catch((err) => {
         // ⚠️ CRITIQUE: Si DB_UNAVAILABLE, ne pas logger d'erreur (l'écran de recovery est déjà affiché)
         const isDbUnavailable = err?.message?.includes('DB_UNAVAILABLE') || 
@@ -281,9 +276,6 @@ function AppShellClientContent() {
   useEffect(() => {
     if (!isOnline) {
       syncTriggeredRef.current = false;
-      if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.removeItem(SESSION_SYNC_KEY);
-      }
     }
   }, [isOnline]);
 
@@ -578,6 +570,8 @@ function AppShellClientContent() {
             mode="app-shell"
           />
         );
+      case 'alertes':
+        return <AlertesPageCore mode="app-shell" />;
       case 'sync':
         if (!organizationId) {
           return (

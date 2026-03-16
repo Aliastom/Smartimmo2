@@ -19,7 +19,8 @@ export type ViewType =
   | 'sync'
   | 'profil'
   | 'property'
-  | 'gestion-deleguee';
+  | 'gestion-deleguee'
+  | 'alertes';
 
 /**
  * Liste des paramètres qui sont property-scoped (doivent être supprimés lors de la navigation vers des vues globales)

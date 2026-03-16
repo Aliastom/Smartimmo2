@@ -10,19 +10,27 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import {
-  Building2,
   Loader2,
   Menu,
   X,
+  Zap,
+  ArrowRight,
+  AlertCircle,
+  FileSearch,
+  Percent,
+  CalendarCheck,
+  Euro,
+  Clock,
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { MonthlyFilters } from '@/components/dashboard/MonthlyFilters';
-import { TasksPanel } from '@/components/dashboard/TasksPanel';
-import { GestionnaireDelegueReportPanel } from '@/components/dashboard/GestionnaireDelegueReportPanel';
 import { useDashboardData, type DashboardFilters } from './hooks/useDashboardData';
+import type { MonthlyDashboardData } from '@/types/dashboard';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { logToServer } from '@/lib/utils/logger';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
@@ -30,14 +38,71 @@ import { computeDashboardGravity } from './utils/dashboardGravity';
 import { motion } from 'framer-motion';
 import { DashboardKpiHealthCards } from './components/DashboardKpiHealthCards';
 import { DashboardPriorityActionZone } from './components/DashboardPriorityActionZone';
-import { PortfolioHealthInline } from './components/PortfolioHealthIndicator';
+import { IndicePortefeuille } from './components/IndicePortefeuille';
+import { SuggestionsSmartimmoCard } from './components/SuggestionsSmartimmoCard';
+import { SantePortefeuilleCard } from './components/SantePortefeuilleCard';
+import { ResumeMoisCard } from './components/ResumeMoisCard';
+import { OptimisationPossibleCard } from './components/OptimisationPossibleCard';
+import { PrioriteDuJourCard } from './components/PrioriteDuJourCard';
 import { DashboardUrgentColumn } from './components/DashboardUrgentColumn';
 import { DashboardUpcomingColumn } from './components/DashboardUpcomingColumn';
 import { DashboardGlobalOverviewSection } from './components/DashboardGlobalOverviewSection';
+import { DashboardMonthTimeline } from './components/DashboardMonthTimeline';
+import { ProchainesActionsCard } from './components/ProchainesActionsCard';
+import { CashflowPrevisionnelCard } from './components/CashflowPrevisionnelCard';
+import { PortfolioHeatmap } from './components/PortfolioHeatmap';
+import { ProgressionMoisCard } from './components/ProgressionMoisCard';
 import { cn } from '@/utils/cn';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+
+export type DashboardTabId = 'vue-generale' | 'actions' | 'timeline' | 'finances' | 'analyse';
 
 export interface DashboardPageCoreProps {
   mode: 'normal' | 'app-shell';
+}
+
+function TraiterActionsButton({
+  totalActions,
+  onOpenActions,
+}: {
+  totalActions: number;
+  onOpenActions: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (totalActions <= 0) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => { onOpenActions(); setOpen(true); }}
+        className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+      >
+        <Zap className="h-4 w-4" aria-hidden />
+        Traiter {totalActions} action{totalActions > 1 ? 's' : ''}
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="md:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Traiter mes actions</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600 mb-4">
+            Suivez les étapes pour traiter vos anomalies en quelques minutes.
+          </p>
+          <div className="space-y-4">
+            <Link
+              href="/app?view=alertes"
+              onClick={() => setOpen(false)}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+            >
+              Voir toutes les alertes
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 export function DashboardPageCore({
@@ -77,7 +142,7 @@ export function DashboardPageCore({
     }
     return false;
   });
-
+  const [activeTab, setActiveTab] = useState<DashboardTabId>('vue-generale');
   // Construire les filtres
   const filters: DashboardFilters = useMemo(() => ({
     month,
@@ -202,6 +267,7 @@ export function DashboardPageCore({
     type?: 'INCOME' | 'EXPENSE' | 'ALL';
     statut?: 'paye' | 'en_retard' | 'a_venir' | 'ALL';
     source?: 'loyer' | 'hors_loyer' | 'ALL';
+    focusLoyer?: boolean;
   }) => {
     if (newFilters.month !== undefined) setMonth(newFilters.month);
     if (newFilters.bienIds !== undefined) setBienIds(newFilters.bienIds);
@@ -209,17 +275,28 @@ export function DashboardPageCore({
     if (newFilters.type !== undefined) setType(newFilters.type);
     if (newFilters.statut !== undefined) setStatut(newFilters.statut);
     if (newFilters.source !== undefined) setSource(newFilters.source);
+    if (newFilters.focusLoyer !== undefined) setFocusLoyer(newFilters.focusLoyer);
   };
 
-  // Ligne micro-informative sous "Actions prioritaires" (chiffres dynamiques, 0 = non affiché)
+  // Ligne micro-informative sous "Actions prioritaires" (résumé alertes, détail dans page Alertes)
   const actionsSummaryText = useMemo(() => {
     if (!data) return '';
-    const nLoyers = data.aTraiter.relances.length;
-    const nTx = data.aTraiter.transactionsNonRapprochees.length;
-    const nEcheances = data.aTraiter.echeancesPrets.length + data.aTraiter.echeancesCharges.length;
+    const relances = data?.aTraiter?.relances ?? [];
+    const tx = data?.aTraiter?.transactionsNonRapprochees ?? [];
+    const indexations = data?.aTraiter?.indexations ?? [];
+    const baux = data?.aTraiter?.bauxAEcheance ?? [];
+    const echeancesP = data?.aTraiter?.echeancesPrets ?? [];
+    const echeancesC = data?.aTraiter?.echeancesCharges ?? [];
+    const nLoyers = relances.length;
+    const nTx = tx.length;
+    const nIndexations = indexations.length;
+    const nBaux = baux.length;
+    const nEcheances = echeancesP.length + echeancesC.length;
     const parts: string[] = [];
     if (nLoyers > 0) parts.push(`${nLoyers} loyer${nLoyers > 1 ? 's' : ''} en retard`);
     if (nTx > 0) parts.push(`${nTx} transaction${nTx > 1 ? 's' : ''} à rapprocher`);
+    if (nIndexations > 0) parts.push(`${nIndexations} indexation${nIndexations > 1 ? 's' : ''} à appliquer`);
+    if (nBaux > 0) parts.push(`${nBaux} bail${nBaux > 1 ? 'x' : ''} proche${nBaux > 1 ? 's' : ''} expiration`);
     if (nEcheances > 0) parts.push(`${nEcheances} échéance${nEcheances > 1 ? 's' : ''} proches`);
     return parts.length === 0 ? 'Aucune action urgente ce mois-ci' : parts.join(' · ');
   }, [data]);
@@ -228,30 +305,38 @@ export function DashboardPageCore({
   const gravityResult = useMemo(() => {
     if (!data) return null;
     return computeDashboardGravity({
-      kpis: data.kpis,
-      relances: data.aTraiter.relances,
-      transactionsNonRapprochees: data.aTraiter.transactionsNonRapprochees,
-      indexations: data.aTraiter.indexations,
-      echeancesPrets: data.aTraiter.echeancesPrets,
-      echeancesCharges: data.aTraiter.echeancesCharges,
-      bauxAEcheance: data.aTraiter.bauxAEcheance,
-      documentsAValider: data.aTraiter.documentsAValider,
+      kpis: data.kpis ?? ({} as MonthlyDashboardData['kpis']),
+      relances: data?.aTraiter?.relances ?? [],
+      transactionsNonRapprochees: data?.aTraiter?.transactionsNonRapprochees ?? [],
+      indexations: data?.aTraiter?.indexations ?? [],
+      echeancesPrets: data?.aTraiter?.echeancesPrets ?? [],
+      echeancesCharges: data?.aTraiter?.echeancesCharges ?? [],
+      bauxAEcheance: data?.aTraiter?.bauxAEcheance ?? [],
+      documentsAValider: data?.aTraiter?.documentsAValider ?? [],
     });
   }, [data]);
 
   // Sparklines : dérivés de graph si dispo (sinon non affichés)
   const sparklineCashflow = useMemo(() => {
-    if (!data?.graph?.cashflowCumule?.length) return undefined;
-    return data.graph.cashflowCumule.slice(-6).map((p) => p.cashflow);
+    const arr = data?.graph?.cashflowCumule ?? [];
+    if (arr.length === 0) return undefined;
+    return arr.slice(-6).map((p) => p.cashflow);
   }, [data?.graph?.cashflowCumule]);
   const sparklineEncaissements = useMemo(() => {
-    if (!data?.graph?.intraMensuel?.length) return undefined;
-    return data.graph.intraMensuel.slice(-6).map((p) => p.encaissements);
+    const arr = data?.graph?.intraMensuel ?? [];
+    if (arr.length === 0) return undefined;
+    return arr.slice(-6).map((p) => p.encaissements);
   }, [data?.graph?.intraMensuel]);
   const sparklineDepenses = useMemo(() => {
-    if (!data?.graph?.intraMensuel?.length) return undefined;
-    return data.graph.intraMensuel.slice(-6).map((p) => p.depenses);
+    const arr = data?.graph?.intraMensuel ?? [];
+    if (arr.length === 0) return undefined;
+    return arr.slice(-6).map((p) => p.depenses);
   }, [data?.graph?.intraMensuel]);
+
+  const relancesCount = (data?.aTraiter?.relances ?? []).length;
+  const txCount = (data?.aTraiter?.transactionsNonRapprochees ?? []).length;
+  const indexationsCount = (data?.aTraiter?.indexations ?? []).length;
+  const echeancesCount = (data?.aTraiter?.echeancesPrets ?? []).length + (data?.aTraiter?.echeancesCharges ?? []).length;
 
   /** Transition changement de mois : fade-out 0.7 + mini loader, puis fade-in (max 400ms) */
   const prevMonthRef = React.useRef(month);
@@ -275,11 +360,26 @@ export function DashboardPageCore({
     );
   }
 
+  const formatMonthLabel = (m: string) =>
+    m ? new Date(m + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }).replace(/^\w/, (c) => c.toUpperCase()) : '';
+  const handlePrevMonth = () => {
+    const [y, mm] = month.split('-').map(Number);
+    const d = new Date(y, mm - 2, 1);
+    const newMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    handleFilterChange({ month: newMonth });
+  };
+  const handleNextMonth = () => {
+    const [y, mm] = month.split('-').map(Number);
+    const d = new Date(y, mm, 1);
+    const newMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    handleFilterChange({ month: newMonth });
+  };
+
   // Rendu principal — même largeur que la page Biens (w-full max-w-full, padding par le main)
   return (
     <div className="min-h-[50vh] w-full max-w-full rounded-2xl">
       <div className="space-y-10 pt-0 pb-10">
-        {/* Header : titre à gauche, badge indice santé à droite, même niveau */}
+        {/* Header : titre à gauche, badge indice santé à droite */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 sm:gap-3">
@@ -292,79 +392,423 @@ export function DashboardPageCore({
                   {sidebarContext.sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
                 </button>
               )}
-              <h1 className="text-2xl font-semibold text-gray-900 truncate">Dashboard</h1>
+              <h1 className="text-2xl font-semibold text-gray-900 truncate">
+                Dashboard{month ? ` — ${formatMonthLabel(month)}` : ''}
+              </h1>
             </div>
             <p className="text-sm text-slate-500 mt-0.5">Vue mensuelle opérationnelle de votre portefeuille</p>
           </div>
-          {gravityResult && (
-            <PortfolioHealthInline
-              gravityScore={gravityResult.score}
-              className="flex-shrink-0"
+          <div className="flex items-center gap-3 flex-shrink-0 flex-wrap justify-end">
+            <TraiterActionsButton
+              totalActions={relancesCount + txCount + indexationsCount + echeancesCount}
+              onOpenActions={() => setActiveTab('actions')}
             />
-          )}
+          </div>
         </div>
 
-      {/* Toggle Focus Loyer */}
-      <div className="mt-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-12 h-12 bg-blue-500 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
+        {/* Priorité du jour + Indice portefeuille — côte à côte */}
+        {!loading && data && (
+          gravityResult ? (
+            <div className="flex flex-wrap items-stretch gap-3">
+              <PrioriteDuJourCard
+                relances={data.aTraiter?.relances ?? []}
+                transactionsNonRapprochees={data.aTraiter?.transactionsNonRapprochees ?? []}
+                indexationsCount={indexationsCount}
+                echeancesCount={echeancesCount}
+              />
+              <IndicePortefeuille gravityScore={gravityResult.score} className="flex-shrink-0" />
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-gray-900">Focus loyer</h3>
-              <p className="text-sm text-gray-600">
-                Afficher uniquement les transactions de gestion déléguée (loyers et frais de gestion)
-              </p>
+          ) : (
+            <PrioriteDuJourCard
+              relances={data.aTraiter?.relances ?? []}
+              transactionsNonRapprochees={data.aTraiter?.transactionsNonRapprochees ?? []}
+              indexationsCount={indexationsCount}
+              echeancesCount={echeancesCount}
+            />
+          )
+        )}
+
+        {/* Synthèse du portefeuille — chips horizontales cliquables */}
+        {!loading && data && (relancesCount > 0 || txCount > 0 || indexationsCount > 0 || echeancesCount > 0) && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-sm font-semibold text-slate-800 mb-2">Synthèse du portefeuille</p>
+            <div className="flex flex-wrap gap-2">
+              {relancesCount > 0 && (
+                <Link
+                  href="/app?view=alertes&type=loyers_retard"
+                  className="inline-flex items-center gap-1.5 rounded-full border-2 border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                >
+                  {relancesCount} loyer{relancesCount > 1 ? 's' : ''} en retard
+                </Link>
+              )}
+              {txCount > 0 && (
+                <Link
+                  href="/app?view=alertes&type=transactions"
+                  className="inline-flex items-center gap-1.5 rounded-full border-2 border-orange-200 bg-orange-50 px-3 py-1.5 text-sm font-medium text-orange-800 transition-colors hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                >
+                  {txCount} transaction{txCount > 1 ? 's' : ''} à rapprocher
+                </Link>
+              )}
+              {indexationsCount > 0 && (
+                <Link
+                  href="/app?view=alertes&type=indexations"
+                  className="inline-flex items-center gap-1.5 rounded-full border-2 border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                >
+                  {indexationsCount} indexation{indexationsCount > 1 ? 's' : ''} à appliquer
+                </Link>
+              )}
+              {echeancesCount > 0 && (
+                <Link
+                  href="/app?view=alertes&type=echeances"
+                  className="inline-flex items-center gap-1.5 rounded-full border-2 border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+                >
+                  {echeancesCount} échéance{echeancesCount > 1 ? 's' : ''} à venir
+                </Link>
+              )}
             </div>
           </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={focusLoyer}
-              onChange={(e) => setFocusLoyer(e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-14 h-7 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
-            <span className="ml-3 text-sm font-medium text-gray-700">
-              {focusLoyer ? 'Activé' : 'Désactivé'}
+        )}
+
+        {/* Sélecteur de mois + barre de filtres (sticky) */}
+        <div className="sticky top-0 z-20 -mx-1 px-1 pt-1 pb-2 bg-white/95 backdrop-blur-sm border-b border-slate-100 space-y-3">
+          <div className="flex items-center justify-center gap-2 sm:gap-4">
+            <Button variant="outline" size="sm" onClick={handlePrevMonth} aria-label="Mois précédent">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="min-w-[180px] text-center text-lg font-semibold text-gray-900 capitalize">
+              {formatMonthLabel(month)}
             </span>
-          </label>
+            <Button variant="outline" size="sm" onClick={handleNextMonth} aria-label="Mois suivant">
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+          <MonthlyFilters
+            month={month}
+            showMonthSelector={false}
+            bienIds={bienIds}
+            locataireIds={locataireIds}
+            type={type}
+            statut={statut}
+            source={source}
+            focusLoyer={focusLoyer}
+            onFilterChange={handleFilterChange}
+            biens={properties || []}
+            locataires={tenants || []}
+          />
+          {/* Menu horizontal — onglets du dashboard */}
+          <div className="flex flex-wrap gap-1 pt-2 border-t border-slate-100 mt-2">
+            {([
+              { id: 'vue-generale' as const, label: 'Vue générale' },
+              { id: 'actions' as const, label: 'Actions' },
+              { id: 'timeline' as const, label: 'Timeline' },
+              { id: 'finances' as const, label: 'Finances' },
+              { id: 'analyse' as const, label: 'Analyse' },
+            ]).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  'rounded-lg px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                  activeTab === tab.id
+                    ? 'bg-primary-600 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* Filtres */}
-      <div className="mt-8">
-      <MonthlyFilters
-        month={month}
-        bienIds={bienIds}
-        locataireIds={locataireIds}
-        type={type}
-        statut={statut}
-        source={source}
-        onFilterChange={handleFilterChange}
-        biens={properties || []}
-        locataires={tenants || []}
-      />
-      </div>
+        {/* ========== Contenu par onglet ========== */}
+        <div
+          className={cn(
+            'relative mt-6 transition-opacity duration-300 ease-out',
+            isTransitioningMonth && 'opacity-70'
+          )}
+        >
+          {isTransitioningMonth && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+              <Loader2 className="h-6 w-6 animate-spin text-slate-400" aria-hidden />
+            </div>
+          )}
 
-      {/* Actions prioritaires — juste sous la sélection du mois */}
-      {!loading && data && gravityResult && (
-        <div className="mt-8" id="dashboard-actions">
-          <DashboardPriorityActionZone level={gravityResult.level} summaryText={actionsSummaryText}>
-            <TasksPanel
-              loyersNonEncaisses={data.aTraiter.loyersNonEncaisses}
-              relances={data.aTraiter.relances}
-              transactionsNonRapprochees={data.aTraiter.transactionsNonRapprochees}
-              indexations={data.aTraiter.indexations}
-              echeancesPrets={data.aTraiter.echeancesPrets}
-              echeancesCharges={data.aTraiter.echeancesCharges}
-              bauxAEcheance={data.aTraiter.bauxAEcheance}
-              documentsAValider={data.aTraiter.documentsAValider}
-              layout="horizontal"
-              currentMonth={month}
-              mode={mode}
+        {/* ========== Vue générale ========== */}
+        {activeTab === 'vue-generale' && (
+        <section className="space-y-8 pt-2">
+          <h2 className="text-base font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 pb-2">
+            Pilotage du mois
+          </h2>
+
+        {/* Santé du portefeuille + Résumé du mois */}
+        {!loading && data && gravityResult && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <SantePortefeuilleCard
+              riskLevel={gravityResult.level === 'critical' ? 'high' : gravityResult.level === 'warning' ? 'medium' : 'low'}
+              nLoyersRetard={relancesCount}
+              nTransactionsNonRapprochees={txCount}
+              nIndexationsEnAttente={indexationsCount}
             />
+            <ResumeMoisCard
+              lines={[
+                relancesCount > 0 && `${relancesCount} loyer${relancesCount > 1 ? 's' : ''} en retard`,
+                txCount > 0 && `${txCount} transaction${txCount > 1 ? 's' : ''} non rapprochée${txCount > 1 ? 's' : ''}`,
+                echeancesCount > 0 && `${echeancesCount} échéance${echeancesCount > 1 ? 's' : ''} imminente${echeancesCount > 1 ? 's' : ''}`,
+              ].filter(Boolean) as string[]}
+              suggestionPrincipale={relancesCount > 0 ? 'relancer les locataires en retard' : txCount > 0 ? 'rapprocher les transactions' : echeancesCount > 0 ? 'vérifier les échéances à venir' : undefined}
+            />
+          </div>
+        )}
+
+        {/* Résumé du mois — cards d'insights */}
+        {!loading && data && (relancesCount > 0 || txCount > 0 || indexationsCount > 0 || echeancesCount > 0 || (data.kpis?.cashflow != null)) && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {relancesCount > 0 && (
+              <Card className="border-slate-200 bg-white shadow-sm overflow-hidden">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 rounded-lg bg-red-100 p-2 text-red-600">
+                      <AlertCircle className="h-5 w-5" aria-hidden />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Loyers en retard</p>
+                      <p className="mt-0.5 text-lg font-semibold text-slate-900 tabular-nums">{relancesCount} loyer{relancesCount > 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {txCount > 0 && (
+              <Card className="border-slate-200 bg-white shadow-sm overflow-hidden">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 rounded-lg bg-orange-100 p-2 text-orange-600">
+                      <FileSearch className="h-5 w-5" aria-hidden />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Transactions à rapprocher</p>
+                      <p className="mt-0.5 text-lg font-semibold text-slate-900 tabular-nums">{txCount} transaction{txCount > 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {indexationsCount > 0 && (
+              <Card className="border-slate-200 bg-white shadow-sm overflow-hidden">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 rounded-lg bg-blue-100 p-2 text-blue-600">
+                      <Percent className="h-5 w-5" aria-hidden />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Indexations</p>
+                      <p className="mt-0.5 text-lg font-semibold text-slate-900 tabular-nums">{indexationsCount} indexation{indexationsCount > 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {echeancesCount > 0 && (
+              <Card className="border-slate-200 bg-white shadow-sm overflow-hidden">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 rounded-lg bg-emerald-100 p-2 text-emerald-600">
+                      <CalendarCheck className="h-5 w-5" aria-hidden />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Échéances</p>
+                      <p className="mt-0.5 text-lg font-semibold text-slate-900 tabular-nums">{echeancesCount} échéance{echeancesCount > 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {data.kpis?.cashflow != null && (
+              <Card className="border-slate-200 bg-white shadow-sm overflow-hidden">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 rounded-lg bg-emerald-100 p-2 text-emerald-600">
+                      <Euro className="h-5 w-5" aria-hidden />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Cashflow prévisionnel</p>
+                      <p className="mt-0.5 text-lg font-semibold text-slate-900 tabular-nums">
+                        {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(data.kpis.cashflow)}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+      {/* Situation du mois */}
+      {!loading && data?.kpis && (() => {
+        const kpis = data.kpis;
+        const loyersAttendus = kpis.loyersAttendus ?? 0;
+        const loyersEncaisses = kpis.sommesEncaissesRapprochees ?? 0;
+        const nLoyersAttendus = kpis.nLoyersAttendus ?? kpis.bauxActifs ?? 0;
+        const nLoyersEncaisses = kpis.nLoyersEncaisses ?? 0;
+        const restant = Math.max(0, loyersAttendus - loyersEncaisses);
+        const tauxEncaissement = loyersAttendus > 0
+          ? Math.min(100, (loyersEncaisses / loyersAttendus) * 100)
+          : 0;
+        const barColor = tauxEncaissement >= 80 ? 'bg-emerald-500' : tauxEncaissement >= 50 ? 'bg-amber-500' : 'bg-red-500';
+        return (
+          <Card className="mt-6 border-slate-200 bg-white shadow-sm">
+            <CardContent className="py-5">
+              <h3 className="text-sm font-semibold text-slate-800 mb-4">Situation du mois</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-4">
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-wide">Loyers attendus</p>
+                  <p className="text-lg font-semibold text-slate-900 tabular-nums mt-0.5">
+                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(loyersAttendus)}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">({nLoyersAttendus} loyer{nLoyersAttendus !== 1 ? 's' : ''})</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-wide">Loyers encaissés</p>
+                  <p className="text-lg font-semibold text-emerald-600 tabular-nums mt-0.5">
+                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(loyersEncaisses)}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">({nLoyersEncaisses} loyer{nLoyersEncaisses !== 1 ? 's' : ''})</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-wide">Restant à encaisser</p>
+                  <p className="text-lg font-semibold tabular-nums text-slate-900 mt-0.5">
+                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(restant)}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">({nLoyersAttendus} loyer{nLoyersAttendus !== 1 ? 's' : ''})</p>
+                </div>
+              </div>
+              <div className="mt-1">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-slate-700">Encaissement</span>
+                  <span className="text-base font-semibold text-slate-900 tabular-nums">{tauxEncaissement.toFixed(0)} %</span>
+                </div>
+                <div className="h-4 w-full rounded-full bg-slate-100 overflow-hidden shadow-inner">
+                  <div
+                    className={cn('h-full rounded-full transition-all duration-500 ease-out', barColor)}
+                    style={{ width: `${Math.min(100, Math.max(0, tauxEncaissement))}%` }}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+        {/* Cashflow prévisionnel du mois */}
+        {!loading && data?.kpis && (
+          <CashflowPrevisionnelCard
+            kpis={data.kpis}
+            intraMensuel={data.graph?.intraMensuel}
+            currentMonth={month}
+          />
+        )}
+
+        </section>
+        )}
+
+        {/* ========== Actions ========== */}
+        {activeTab === 'actions' && (
+        <section className="space-y-10 pt-2">
+          <h2 className="text-base font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 pb-2">
+            Priorités
+          </h2>
+
+        {/* Prochaines actions recommandées */}
+        {!loading && data && (
+          <ProchainesActionsCard
+            relances={data.aTraiter?.relances ?? []}
+            transactionsNonRapprochees={data.aTraiter?.transactionsNonRapprochees ?? []}
+            indexations={data.aTraiter?.indexations ?? []}
+            echeancesCount={echeancesCount}
+          />
+        )}
+
+        {/* Progression du mois */}
+        {!loading && data && (() => {
+          const totalActions = relancesCount + txCount + indexationsCount + echeancesCount;
+          return totalActions > 0 ? (
+            <ProgressionMoisCard
+              actionsTraitees={0}
+              totalActions={totalActions}
+            />
+          ) : null;
+        })()}
+
+      {/* Actions prioritaires — chips KPI */}
+      {!loading && data && gravityResult && (
+        <div id="dashboard-actions">
+          <DashboardPriorityActionZone level={gravityResult.level} summaryText={actionsSummaryText}>
+            {(() => {
+              const totalActions = relancesCount + txCount + indexationsCount + echeancesCount;
+              return (
+                <>
+                  {totalActions > 0 && (
+                    <>
+                      <div className="mb-3">
+                        <p className="text-sm font-semibold text-slate-800 mb-1">Actions du mois</p>
+                        <p className="text-lg font-bold text-slate-900 tabular-nums">0 / {totalActions} traitées</p>
+                        <div className="mt-2 h-2.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                          <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: '0%' }} />
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {relancesCount > 0 && (
+                      <Link
+                        href="/app?view=alertes&type=loyers_retard"
+                        className="inline-flex items-center gap-2 rounded-full border-2 border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0" aria-hidden />
+                        {relancesCount} loyer{relancesCount > 1 ? 's' : ''} en retard
+                      </Link>
+                    )}
+                    {txCount > 0 && (
+                      <Link
+                        href="/app?view=alertes&type=transactions"
+                        className="inline-flex items-center gap-2 rounded-full border-2 border-orange-300 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-800 transition-colors hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-orange-500 flex-shrink-0" aria-hidden />
+                        {txCount} transaction{txCount > 1 ? 's' : ''} à rapprocher
+                      </Link>
+                    )}
+                    {indexationsCount > 0 && (
+                      <Link
+                        href="/app?view=alertes&type=indexations"
+                        className="inline-flex items-center gap-2 rounded-full border-2 border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500 flex-shrink-0" aria-hidden />
+                        {indexationsCount} indexation{indexationsCount > 1 ? 's' : ''}
+                      </Link>
+                    )}
+                    {echeancesCount > 0 && (
+                      <Link
+                        href="/app?view=alertes&type=echeances"
+                        className="inline-flex items-center gap-2 rounded-full border-2 border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0" aria-hidden />
+                        {echeancesCount} échéance{echeancesCount > 1 ? 's' : ''}
+                      </Link>
+                    )}
+                    {(relancesCount === 0 && txCount === 0 && indexationsCount === 0 && echeancesCount === 0) && (
+                      <span className="text-sm text-slate-500">Aucune action urgente ce mois-ci</span>
+                    )}
+                    <Link
+                      href="/app?view=alertes"
+                      className="ml-1 text-sm font-medium text-primary-600 hover:text-primary-700 hover:underline"
+                    >
+                      Voir tout →
+                    </Link>
+                  </div>
+                </>
+              );
+            })()}
           </DashboardPriorityActionZone>
         </div>
       )}
@@ -394,19 +838,6 @@ export function DashboardPageCore({
           </CardContent>
         </Card>
       )}
-
-      {/* Contenu principal avec transition au changement de mois */}
-      <div
-        className={cn(
-          'relative mt-12 transition-opacity duration-300 ease-out space-y-12',
-          isTransitioningMonth && 'opacity-70'
-        )}
-      >
-        {isTransitioningMonth && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-            <Loader2 className="h-6 w-6 animate-spin text-slate-400" aria-hidden />
-          </div>
-        )}
 
       {/* Grid 2 colonnes — Urgent | À venir */}
       <div>
@@ -441,8 +872,8 @@ export function DashboardPageCore({
           >
             <DashboardUrgentColumn
               kpis={data.kpis}
-              relances={data.aTraiter.relances}
-              transactionsNonRapprochees={data.aTraiter.transactionsNonRapprochees}
+              relances={data?.aTraiter?.relances ?? []}
+              transactionsNonRapprochees={data?.aTraiter?.transactionsNonRapprochees ?? []}
               currentMonth={month}
             />
           </motion.div>
@@ -453,10 +884,10 @@ export function DashboardPageCore({
             className="w-full"
           >
             <DashboardUpcomingColumn
-              echeancesPrets={data.aTraiter.echeancesPrets}
-              echeancesCharges={data.aTraiter.echeancesCharges}
-              indexations={data.aTraiter.indexations}
-              bauxAEcheance={data.aTraiter.bauxAEcheance}
+              echeancesPrets={data?.aTraiter?.echeancesPrets ?? []}
+              echeancesCharges={data?.aTraiter?.echeancesCharges ?? []}
+              indexations={data?.aTraiter?.indexations ?? []}
+              bauxAEcheance={data?.aTraiter?.bauxAEcheance ?? []}
               currentMonth={month}
             />
           </motion.div>
@@ -464,8 +895,123 @@ export function DashboardPageCore({
       ) : null}
       </div>
 
+        </section>
+        )}
+
+        {/* ========== Timeline ========== */}
+        {activeTab === 'timeline' && (
+        <section className="space-y-8 pt-2">
+          <h2 className="text-base font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 pb-2">
+            Timeline du mois
+          </h2>
+          {!loading && data && (
+            <DashboardMonthTimeline
+              relances={data.aTraiter?.relances ?? []}
+              transactionsNonRapprochees={data.aTraiter?.transactionsNonRapprochees ?? []}
+              indexations={data.aTraiter?.indexations ?? []}
+              echeancesPrets={data.aTraiter?.echeancesPrets ?? []}
+              echeancesCharges={data.aTraiter?.echeancesCharges ?? []}
+              bauxAEcheance={data.aTraiter?.bauxAEcheance ?? []}
+              currentMonth={month}
+            />
+          )}
+        </section>
+        )}
+
+        {/* ========== Finances ========== */}
+        {activeTab === 'finances' && (
+        <section className="space-y-8 pt-2">
+          <h2 className="text-base font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 pb-2">
+            Finances
+          </h2>
+      {/* Situation du mois */}
+      {!loading && data?.kpis && (() => {
+        const kpis = data.kpis;
+        const loyersAttendus = kpis.loyersAttendus ?? 0;
+        const loyersEncaisses = kpis.sommesEncaissesRapprochees ?? 0;
+        const nLoyersAttendus = kpis.nLoyersAttendus ?? kpis.bauxActifs ?? 0;
+        const nLoyersEncaisses = kpis.nLoyersEncaisses ?? 0;
+        const restant = Math.max(0, loyersAttendus - loyersEncaisses);
+        const tauxEncaissement = loyersAttendus > 0
+          ? Math.min(100, (loyersEncaisses / loyersAttendus) * 100)
+          : 0;
+        const barColor = tauxEncaissement >= 80 ? 'bg-emerald-500' : tauxEncaissement >= 50 ? 'bg-amber-500' : 'bg-red-500';
+        return (
+          <Card className="border-slate-200 bg-white shadow-sm">
+            <CardContent className="py-5">
+              <h3 className="text-sm font-semibold text-slate-800 mb-4">Situation du mois</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-4">
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-wide">Loyers attendus</p>
+                  <p className="text-lg font-semibold text-slate-900 tabular-nums mt-0.5">
+                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(loyersAttendus)}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">({nLoyersAttendus} loyer{nLoyersAttendus !== 1 ? 's' : ''})</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-wide">Loyers encaissés</p>
+                  <p className="text-lg font-semibold text-emerald-600 tabular-nums mt-0.5">
+                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(loyersEncaisses)}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">({nLoyersEncaisses} loyer{nLoyersEncaisses !== 1 ? 's' : ''})</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-wide">Restant à encaisser</p>
+                  <p className="text-lg font-semibold tabular-nums text-slate-900 mt-0.5">
+                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(restant)}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">({nLoyersAttendus} loyer{nLoyersAttendus !== 1 ? 's' : ''})</p>
+                </div>
+              </div>
+              <div className="mt-1">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-slate-700">Encaissement</span>
+                  <span className="text-base font-semibold text-slate-900 tabular-nums">{tauxEncaissement.toFixed(0)} %</span>
+                </div>
+                <div className="h-4 w-full rounded-full bg-slate-100 overflow-hidden shadow-inner">
+                  <div
+                    className={cn('h-full rounded-full transition-all duration-500 ease-out', barColor)}
+                    style={{ width: `${Math.min(100, Math.max(0, tauxEncaissement))}%` }}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+        {!loading && data?.kpis && (
+          <CashflowPrevisionnelCard
+            kpis={data.kpis}
+            intraMensuel={data.graph?.intraMensuel}
+            currentMonth={month}
+          />
+        )}
+        </section>
+        )}
+
+        {/* ========== Analyse ========== */}
+        {activeTab === 'analyse' && (
+        <section className="space-y-8 pt-2">
+          <h2 className="text-base font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 pb-2">
+            Analyse
+          </h2>
+
       {/* Vue globale */}
-      <DashboardGlobalOverviewSection className="mt-12">
+      <DashboardGlobalOverviewSection>
+        {!loading && data && (
+          <PortfolioHeatmap
+            propertyNames={Array.from(new Set([
+              ...(properties?.map((p) => p.name) ?? []),
+              ...(data.aTraiter?.relances?.map((r) => r.propertyName) ?? []),
+              ...(data.aTraiter?.transactionsNonRapprochees?.map((t) => t.propertyName) ?? []),
+              ...(data.aTraiter?.indexations?.map((i) => i.propertyName) ?? []),
+            ]))}
+            propertyList={properties?.map((p) => ({ id: p.id, name: p.name })) ?? []}
+            relances={data.aTraiter?.relances ?? []}
+            transactionsNonRapprochees={data.aTraiter?.transactionsNonRapprochees ?? []}
+            indexations={data.aTraiter?.indexations ?? []}
+          />
+        )}
         {loading ? (
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {[1, 2, 3, 4, 5].map((i) => (
@@ -483,6 +1029,7 @@ export function DashboardPageCore({
               sparklineEncaissements={sparklineEncaissements}
               sparklineDepenses={sparklineDepenses}
               focusLoyer={focusLoyer}
+              propertyCount={properties?.length ?? 0}
             />
             {data.insights && (
               <Card className="border-slate-200 bg-white shadow-sm">
@@ -501,8 +1048,13 @@ export function DashboardPageCore({
                 </CardContent>
               </Card>
             )}
-            <div className="pt-8">
-              <GestionnaireDelegueReportPanel currentMonth={month} mode={mode} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <SuggestionsSmartimmoCard
+                indexations={data.aTraiter?.indexations ?? []}
+                bauxAEcheance={data.aTraiter?.bauxAEcheance ?? []}
+                relances={data.aTraiter?.relances ?? []}
+              />
+              <OptimisationPossibleCard indexations={data.aTraiter?.indexations ?? []} />
             </div>
           </>
         ) : error ? (
@@ -517,7 +1069,10 @@ export function DashboardPageCore({
         ) : null}
       </DashboardGlobalOverviewSection>
 
-      </div>
+        </section>
+        )}
+
+        </div>
       </div>
     </div>
   );

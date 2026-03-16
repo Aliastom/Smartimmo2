@@ -5,19 +5,24 @@
  * Utilise la configuration unique sidebarConfig.ts
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
-import { ChevronLeft, ChevronRight, Loader2, Shield } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, Shield } from 'lucide-react';
 import { AppVersionBadge } from '@/components/layout/AppVersionBadge';
 import { UserDisplay } from '@/components/auth/UserDisplay';
 import { AppShellUserDisplay } from '@/components/auth/AppShellUserDisplay';
 import { useAuth } from '@/hooks/useAuth';
 import { useAppAuth } from '@/features/auth/useAppAuth';
 import { useLoading } from '@/contexts/LoadingContext';
-import { sidebarConfig, getFilteredSidebarItems, type SidebarItemConfig } from './sidebarConfig';
+import {
+  getSidebarItemsBySection,
+  SIDEBAR_COLLAPSIBLE_SECTIONS,
+  type SidebarItemConfig,
+  type SidebarSectionId,
+} from './sidebarConfig';
 import { buildViewPath, type ViewType } from '@/utils/appShellNavigation';
 import { SidebarSyncIndicator } from '@/components/offline/SidebarSyncIndicator';
 import { PropertySwitcher } from '@/components/property/PropertySwitcher';
@@ -190,23 +195,51 @@ export function UnifiedSidebar({
     if (collapsedProp === undefined) setInternalCollapsed(next);
   };
 
-  // Filtrer les items selon le rôle
-  const filteredItems = getFilteredSidebarItems(
+  const STORAGE_KEY = 'smartimmo.sidebar.section';
+  const [sectionOpen, setSectionOpen] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setSectionOpen(JSON.parse(raw) as Record<string, boolean>);
+    } catch {}
+  }, []);
+  const isSectionOpen = (sectionId: SidebarSectionId): boolean => {
+    if (!SIDEBAR_COLLAPSIBLE_SECTIONS.includes(sectionId)) return true;
+    return sectionOpen[sectionId] !== false;
+  };
+  const toggleSection = (sectionId: SidebarSectionId) => {
+    const next = !isSectionOpen(sectionId);
+    setSectionOpen((prev) => {
+      const nextState = { ...prev, [sectionId]: next };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+      } catch {}
+      return nextState;
+    });
+  };
+
+  /** Ferme les autres groupes et n'ouvre que celui de l'item cliqué */
+  const openOnlySection = useCallback((sectionId: SidebarSectionId | null) => {
+    if (!sectionId || !SIDEBAR_COLLAPSIBLE_SECTIONS.includes(sectionId)) return;
+    setSectionOpen((prev) => {
+      const nextState: Record<string, boolean> = {};
+      for (const id of SIDEBAR_COLLAPSIBLE_SECTIONS) {
+        nextState[id] = id === sectionId;
+      }
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+      } catch {}
+      return nextState;
+    });
+  }, []);
+
+  // Items regroupés par section (Dashboard, PORTFOLIO, FINANCES, GESTION, etc.)
+  const sections = getSidebarItemsBySection(
     user?.role,
     true, // includeAdmin
     true  // includeSettings
   );
-
-  // Séparer les items par type
-  // Dans les deux modes, on met tous les items (main + settings) dans la liste principale
-  // Admin est séparé avec un séparateur visuel
-  const mainItems = filteredItems.filter((item) => item.type === 'main');
-  const adminItems = filteredItems.filter((item) => item.type === 'admin');
-  const settingsItems = filteredItems.filter((item) => item.type === 'settings');
-  
-  // Dans les deux modes, on inclut les settings dans la liste principale
-  // pour avoir exactement la même structure visuelle
-  const itemsToShowInMain = [...mainItems, ...settingsItems];
 
   // Déterminer si l'item est actif
   const isItemActive = (item: SidebarItemConfig): boolean => {
@@ -225,10 +258,10 @@ export function UnifiedSidebar({
   };
 
   // Gérer la navigation
-  // Rendre un item de navigation
   const renderNavItem = (item: SidebarItemConfig) => {
     const isActive = isItemActive(item);
     const itemLoading = mode === 'normal' ? isLoading(item.normalPath) : false;
+    const discreet = item.isDiscreet;
 
     const itemContent = (
       <>
@@ -238,13 +271,13 @@ export function UnifiedSidebar({
           <item.icon
             className={cn(
               'h-5 w-5 flex-shrink-0',
-              isActive ? 'text-primary-600' : 'text-gray-500'
+              isActive ? 'text-primary-600' : discreet ? 'text-gray-400' : 'text-gray-500'
             )}
           />
         )}
         {!collapsed && (
           <>
-            <span className="truncate">{item.label}</span>
+            <span className={cn('truncate', discreet && 'text-gray-400 font-normal')}>{item.label}</span>
             {item.badge && (
               <span className="ml-auto px-2 py-0.5 text-xs bg-danger-100 text-danger-600 rounded-full">
                 {item.badge}
@@ -260,7 +293,7 @@ export function UnifiedSidebar({
       'hover:bg-gray-100 hover:text-gray-900',
       isActive
         ? 'bg-primary-50 text-primary-600 border border-primary-200'
-        : 'text-gray-600',
+        : discreet ? 'text-gray-500' : 'text-gray-600',
       collapsed && 'justify-center px-2'
     );
 
@@ -278,6 +311,7 @@ export function UnifiedSidebar({
             e.preventDefault();
             router.push(href, { scroll: false });
             onNavigate?.(view);
+            openOnlySection(item.section);
             if (sidebarContext && typeof window !== 'undefined' && window.innerWidth < 1024) {
               sidebarContext.setSidebarOpen(false);
             }
@@ -294,6 +328,7 @@ export function UnifiedSidebar({
         href={href}
         className={itemClassName}
         onClick={() => {
+          openOnlySection(item.section);
           if (sidebarContext && typeof window !== 'undefined' && window.innerWidth < 1024) {
             sidebarContext.setSidebarOpen(false);
           }
@@ -354,20 +389,44 @@ export function UnifiedSidebar({
           />
         )}
         
-        {/* Navigation principale */}
-        {itemsToShowInMain.map(renderNavItem)}
-
-        {/* Séparateur Administration */}
-        {adminItems.length > 0 && !collapsed && (
-          <div className="pt-4 mt-4 border-t border-gray-200">
-            <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-              Administration
+        {/* Navigation par sections : séparateur Dashboard/Alertes → PORTFOLIO, groupes dépliants */}
+        {sections.map(({ sectionId, sectionLabel, items }) => {
+          const isCollapsible = SIDEBAR_COLLAPSIBLE_SECTIONS.includes(sectionId);
+          const open = isSectionOpen(sectionId);
+          const showSeparator = !collapsed && sectionId === 'portfolio';
+          return (
+            <div
+              key={sectionId}
+              className={cn(
+                sectionId === 'dashboard' || sectionId === 'alerts' ? '' : 'pt-2 mt-2',
+                sectionId !== 'portfolio' && sectionId !== 'dashboard' && sectionId !== 'alerts' && 'border-t border-gray-100'
+              )}
+            >
+              {showSeparator && <div className="border-t-2 border-gray-300 my-3 -mt-1 pt-3" aria-hidden />}
+              {sectionLabel && !collapsed && isCollapsible && (
+                <button
+                  type="button"
+                  onClick={() => toggleSection(sectionId)}
+                  className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+                  aria-expanded={open}
+                >
+                  {sectionLabel}
+                  {open ? <ChevronDown className="h-3.5 w-3.5 ml-auto" /> : <ChevronUp className="h-3.5 w-3.5 ml-auto" />}
+                </button>
+              )}
+              {sectionLabel && !collapsed && !isCollapsible && sectionId !== 'dashboard' && sectionId !== 'alerts' && (
+                <div className="px-3 py-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                  {sectionLabel}
+                </div>
+              )}
+              {(!isCollapsible || open || collapsed) && (
+                <div className="space-y-1">
+                  {items.map(renderNavItem)}
+                </div>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* Navigation Administration */}
-        {adminItems.map(renderNavItem)}
+          );
+        })}
       </nav>
 
       {/* Badge de version - Au-dessus du profil utilisateur */}

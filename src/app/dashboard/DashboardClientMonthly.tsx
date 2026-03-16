@@ -17,7 +17,6 @@ import Link from 'next/link';
 import { MonthlyFilters } from '@/components/dashboard/MonthlyFilters';
 import { MonthlyKpiBar } from '@/components/dashboard/MonthlyKpiBar';
 import { TasksPanel } from '@/components/dashboard/TasksPanel';
-import { GestionnaireDelegueReportPanel } from '@/components/dashboard/GestionnaireDelegueReportPanel';
 import type { MonthlyDashboardData } from '@/types/dashboard';
 
 export default function DashboardClientMonthly() {
@@ -340,8 +339,6 @@ export default function DashboardClientMonthly() {
         ) : null}
       </div>
 
-      {/* Rapport gestionnaire délégué */}
-      <GestionnaireDelegueReportPanel currentMonth={month} />
     </div>
   );
 }
