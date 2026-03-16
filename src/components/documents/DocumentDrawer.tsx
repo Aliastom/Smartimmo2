@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { X, Edit, Trash2, FileText, Download, Link as LinkIcon, CheckCircle, AlertCircle, Image as ImageIcon, File } from 'lucide-react';
+import { X, Trash2, FileText, Download, Link as LinkIcon, CheckCircle, AlertCircle, Image as ImageIcon, File, Home, DollarSign, User } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { formatDistanceToNow } from 'date-fns';
@@ -152,41 +152,43 @@ export default function DocumentDrawer({
     );
   };
 
+  const getLinkIcon = (linkedType: string) => {
+    const t = (linkedType || '').toLowerCase();
+    if (t === 'property') return <Home className="h-4 w-4 text-gray-500" />;
+    if (t === 'lease') return <FileText className="h-4 w-4 text-gray-500" />;
+    if (t === 'transaction') return <DollarSign className="h-4 w-4 text-gray-500" />;
+    if (t === 'tenant') return <User className="h-4 w-4 text-gray-500" />;
+    return <LinkIcon className="h-4 w-4 text-gray-400" />;
+  };
+
+  const getEntityLabel = (linkedType: string) => {
+    const t = (linkedType || '').toLowerCase();
+    switch (t) {
+      case 'property': return 'Bien';
+      case 'lease': return 'Bail';
+      case 'tenant': return 'Locataire';
+      case 'transaction': return 'Transaction';
+      case 'global': return 'Global';
+      default: return linkedType;
+    }
+  };
+
   const getLinkedToLabel = () => {
     if (document.DocumentLink && document.DocumentLink.length > 0) {
-      return document.DocumentLink.map((link, index) => {
-        const getEntityLabel = (linkedType: string) => {
-          // Normaliser linkedType en minuscules (peut être en majuscules depuis IndexedDB)
-          const normalizedType = linkedType.toLowerCase();
-          switch (normalizedType) {
-            case 'property': return 'Bien';
-            case 'lease': return 'Bail';
-            case 'tenant': return 'Locataire';
-            case 'transaction': return 'Transaction';
-            case 'global': return 'Global';
-            default: return linkedType;
-          }
-        };
-
-        return (
-          <div key={link.id || index} className="flex items-center gap-2 text-sm">
-            <LinkIcon className="h-3 w-3 text-gray-400" />
-            <span className="text-gray-600">{getEntityLabel(link.linkedType)}</span>
-            {link.entityName && (
-              <span className="font-medium">- {link.entityName}</span>
-            )}
-            {link.linkedId && link.linkedId !== 'global' && (
-              <span className="text-xs text-gray-400">({link.linkedId.substring(0, 8)}...)</span>
-            )}
+      return document.DocumentLink.map((link, index) => (
+        <div key={link.id || index} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-gray-50 border border-gray-100">
+          {getLinkIcon(link.linkedType)}
+          <div>
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{getEntityLabel(link.linkedType)}</span>
+            <p className="font-medium text-gray-900">{link.entityName || '(entité liée)'}</p>
           </div>
-        );
-      });
+        </div>
+      ));
     }
-    
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-400">
-        <LinkIcon className="h-3 w-3" />
-        <span>Global</span>
+      <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
+        <LinkIcon className="h-4 w-4" />
+        <span>Aucune liaison</span>
       </div>
     );
   };
@@ -222,69 +224,63 @@ export default function DocumentDrawer({
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-4">
-            <div className="space-y-4">
-              {/* Aperçu du document */}
-              <div className="flex items-start gap-6">
-                <div className="flex-shrink-0">
-                  {getDocumentIcon(document.mime)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-lg font-semibold text-gray-900 truncate mb-2">
-                    {document.filenameOriginal}
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {(document.DocumentType || document.documentType) ? (
-                      <Badge variant="default">{(document.DocumentType || document.documentType)!.label}</Badge>
-                    ) : (
-                      <Badge variant="secondary">Non classé</Badge>
-                    )}
-                    {getOcrBadge()}
-                  </div>
-                </div>
-              </div>
-
-              {/* Métadonnées du fichier */}
-              <div className="border-t pt-4">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Informations du fichier</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-sm text-gray-600">Taille</p>
-                    <p className="font-medium">{formatFileSize(document.size)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Date d'upload</p>
-                    <p className="font-medium">{formatDate(document.createdAt)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Type MIME</p>
-                    <p className="font-medium text-xs">{document.mime}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Statut OCR</p>
-                    <div className="mt-1">
-                      {getOcrBadge()}
+            <div className="space-y-6">
+              {/* Section Document */}
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+                  <FileText className="h-3.5 w-3.5" />
+                  Document
+                </h3>
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0">{getDocumentIcon(document.mime)}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 truncate">{document.filenameOriginal}</p>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {(document.DocumentType || document.documentType) ? (
+                        <Badge variant="default">{(document.DocumentType || document.documentType)!.label}</Badge>
+                      ) : (
+                        <Badge variant="secondary">Non classé</Badge>
+                      )}
                     </div>
+                    <div className="mt-2">Statut OCR : {getOcrBadge()}</div>
                   </div>
                 </div>
-              </div>
+              </section>
 
-              {/* Liaisons */}
-              <div className="border-t pt-4">
-                <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center gap-2">
-                  <LinkIcon className="h-5 w-5" />
-                  Lié à: {document.DocumentLink && document.DocumentLink.length > 1 ? `Multiple (${document.DocumentLink.length})` : document.DocumentLink && document.DocumentLink.length === 1 ? document.DocumentLink[0].linkedType : 'Global'}
+              {/* Section Fichier */}
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Fichier</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-gray-500">Taille</p>
+                    <p className="font-medium text-gray-900">{formatFileSize(document.size)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Date d'upload</p>
+                    <p className="font-medium text-gray-900">{formatDate(document.createdAt)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Format</p>
+                    <p className="font-medium text-gray-900">{document.mime || '—'}</p>
+                  </div>
+                </div>
+              </section>
+
+              {/* Section Liaisons */}
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+                  <LinkIcon className="h-3.5 w-3.5" />
+                  Liaisons
                 </h3>
                 <div className="space-y-2">
                   {getLinkedToLabel()}
                 </div>
-              </div>
+              </section>
 
               {/* Texte extrait */}
               {document.extractedText && (
-                <div className="border-t pt-4">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">
-                    Texte extrait (aperçu)
-                  </h3>
+                <section>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Texte extrait (aperçu)</h3>
                   <div className="bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
                     <p className="text-sm text-gray-700 whitespace-pre-wrap">
                       {document.extractedText.length > 500 
@@ -292,29 +288,8 @@ export default function DocumentDrawer({
                         : document.extractedText}
                     </p>
                   </div>
-                </div>
+                </section>
               )}
-
-              {/* Informations système */}
-              <div className="border-t pt-4">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Informations système</h3>
-                <div className="grid grid-cols-1 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-600">ID Document</p>
-                    <p className="font-mono text-xs text-gray-500">{document.id}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Nom de fichier interne</p>
-                    <p className="font-mono text-xs text-gray-500">{document.fileName}</p>
-                  </div>
-                  {document.userReason && (
-                    <div>
-                      <p className="text-sm text-gray-600">Raison utilisateur</p>
-                      <p className="text-sm text-gray-700">{document.userReason}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
           </div>
 

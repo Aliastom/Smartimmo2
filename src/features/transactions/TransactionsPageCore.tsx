@@ -22,7 +22,6 @@ import TransactionsTable from '@/components/transactions/TransactionsTable';
 import TransactionDrawer from '@/components/transactions/TransactionDrawer';
 import { TransactionsKpiBar } from '@/components/transactions/TransactionsKpiBar';
 import { TransactionsCumulativeChart } from '@/components/transactions/TransactionsCumulativeChart';
-import { TransactionsByCategoryChart } from '@/components/transactions/TransactionsByCategoryChart';
 import { TransactionsIncomeExpenseChart } from '@/components/transactions/TransactionsIncomeExpenseChart';
 import { useTransactionsKpis } from '@/hooks/useTransactionsKpis';
 import { useTransactionsCharts } from '@/hooks/useTransactionsCharts';
@@ -181,6 +180,10 @@ export function TransactionsPageCore({
   // États pour la modal de doublon
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateData, setDuplicateData] = useState<any>(null);
+
+  // Filtre rapide Tous / Recettes / Dépenses (client-side sur la page courante)
+  const [flowFilter, setFlowFilter] = useState<'all' | 'income' | 'expense'>('all');
+  const [scrollToDocuments, setScrollToDocuments] = useState(false);
   
   // ⚠️ SUPPRIMÉ: refreshKey n'est plus utilisé pour éviter les remounts
   // Les KPI et graphiques se recalculent automatiquement via leurs dépendances (periodStart, periodEnd, propertyId)
@@ -1556,26 +1559,15 @@ export function TransactionsPageCore({
         </div>
       )}
 
-      {/* Graphiques - TOUS sur la même ligne (AU DESSUS DES CARTES) */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
-        {/* Graphique 1 : Évolution cumulée (2 colonnes) */}
-        <div className="md:col-span-2 min-w-0">
+      {/* Graphiques : Évolution cumulée + Recettes vs Dépenses (Répartition par catégorie supprimée) */}
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+        <div className="min-w-0">
           <TransactionsCumulativeChart
             data={chartsData.timeline}
             isLoading={chartsLoading}
           />
         </div>
-        
-        {/* Graphique 2 : Répartition par catégorie (1 colonne) */}
-        <div className="md:col-span-1 min-w-0">
-          <TransactionsByCategoryChart
-            data={chartsData.byCategory}
-            isLoading={chartsLoading}
-          />
-        </div>
-        
-        {/* Graphique 3 : Recettes vs Dépenses (1 colonne) */}
-        <div className="md:col-span-1 min-w-0">
+        <div className="min-w-0">
           <TransactionsIncomeExpenseChart
             data={chartsData.incomeExpense}
             isLoading={chartsLoading}
@@ -1645,20 +1637,63 @@ export function TransactionsPageCore({
       {/* Tableau */}
       <Card>
         <CardHeader>
-          <CardTitle>Transactions</CardTitle>
-          <p className="text-sm text-gray-600">
-            {totalCount > 0
-              ? `Affichage de ${((pagination.page - 1) * pagination.limit) + 1} à ${Math.min(pagination.page * pagination.limit, totalCount)} sur ${totalCount}`
-              : 'Aucune transaction'}
-          </p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <CardTitle>Transactions</CardTitle>
+              <p className="text-sm text-gray-600 mt-1">
+                {totalCount > 0
+                  ? `Affichage de ${((pagination.page - 1) * pagination.limit) + 1} à ${Math.min(pagination.page * pagination.limit, totalCount)} sur ${totalCount}`
+                  : 'Aucune transaction'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Filtre rapide :</span>
+              <button
+                type="button"
+                onClick={() => setFlowFilter('all')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  flowFilter === 'all'
+                    ? 'bg-orange-100 text-orange-700 border border-orange-300'
+                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Tous
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlowFilter('income')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  flowFilter === 'income'
+                    ? 'bg-green-100 text-green-700 border border-green-300'
+                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Recettes
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlowFilter('expense')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  flowFilter === 'expense'
+                    ? 'bg-red-100 text-red-700 border border-red-300'
+                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Dépenses
+              </button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <TransactionsTable
-            transactions={
-              filters.includeManagementFees 
-                ? transactions 
-                : transactions.filter(t => t.autoSource !== 'gestion')
-            }
+            transactions={(() => {
+              let list = filters.includeManagementFees
+                ? transactions
+                : transactions.filter(t => t.autoSource !== 'gestion');
+              if (flowFilter === 'income') list = list.filter(t => t.nature?.type === 'RECETTE');
+              if (flowFilter === 'expense') list = list.filter(t => t.nature?.type === 'DEPENSE');
+              return list;
+            })()}
             onEdit={handleEditTransaction}
             onDelete={handleDeleteTransaction}
             onDeleteMultiple={handleDeleteMultipleTransactions}
@@ -1679,6 +1714,11 @@ export function TransactionsPageCore({
               setSortOrder(order);
               setPagination(prev => ({ ...prev, page: 1 }));
             }}
+            onOpenDrawerForDocuments={(t) => {
+              setScrollToDocuments(true);
+              handleRowClick(t);
+            }}
+            groupByMonth={true}
           />
         </CardContent>
       </Card>
@@ -1732,7 +1772,10 @@ export function TransactionsPageCore({
       <TransactionDrawer
         transaction={selectedTransaction}
         isOpen={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)}
+        onClose={() => {
+          setScrollToDocuments(false);
+          setIsDrawerOpen(false);
+        }}
         onEdit={handleEditTransaction}
         onDelete={handleDeleteTransaction}
         mode={mode}
@@ -1745,6 +1788,8 @@ export function TransactionsPageCore({
           }
         }}
         onViewDocument={handleViewDocument}
+        initialScrollToDocuments={scrollToDocuments}
+        onScrollToDocumentsDone={() => setScrollToDocuments(false)}
       />
 
       {/* Modal de confirmation de suppression de transaction */}

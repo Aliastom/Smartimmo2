@@ -567,6 +567,33 @@ button[role="tab"]:focus-visible {
   ring: none !important;
 }
 
+/* === ONGLETS PATRIMOINE (page /app?view=patrimoine) — style dashboard, priorité sur thèmes === */
+nav[data-patrimoine-section-tabs] .patrimoine-section-tab {
+  transition: background-color 0.2s ease, color 0.2s ease;
+  outline: none;
+}
+nav[data-patrimoine-section-tabs] .patrimoine-section-tab:focus-visible {
+  box-shadow: 0 0 0 2px #2563eb !important;
+  outline: none !important;
+}
+nav[data-patrimoine-section-tabs] .patrimoine-section-tab[data-active="true"] {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05) !important;
+}
+nav[data-patrimoine-section-tabs] .patrimoine-section-tab[data-active="true"]:hover {
+  background-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+nav[data-patrimoine-section-tabs] .patrimoine-section-tab[data-active="false"] {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+}
+nav[data-patrimoine-section-tabs] .patrimoine-section-tab[data-active="false"]:hover {
+  background-color: #e2e8f0 !important;
+  color: #334155 !important;
+}
+
 /* === MICRO-INTERACTIONS === */
 .hover-lift {
   @apply transition-all duration-150 ease-out;

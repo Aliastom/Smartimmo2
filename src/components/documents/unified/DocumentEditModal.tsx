@@ -414,6 +414,7 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate, mode = 
           </TabsList>
 
           <TabsContent value="rename" className="mt-4 space-y-4">
+            <p className="text-sm text-gray-500">Modifier le nom du fichier affiché.</p>
             <div>
               <Label htmlFor="newFilename">Nom du document</Label>
               <Input
@@ -430,6 +431,7 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate, mode = 
           </TabsContent>
 
           <TabsContent value="reclassify" className="mt-4 space-y-4">
+            <p className="text-sm text-gray-500">Changer le type de document (bail, quittance, etc.).</p>
             <div className="border rounded-lg p-4 bg-gray-50">
               <h4 className="font-semibold mb-2">Analyse de classification</h4>
               <p className="text-sm text-gray-700 mb-3">
@@ -494,6 +496,7 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate, mode = 
           </TabsContent>
 
           <TabsContent value="link" className="mt-4 space-y-4">
+            <p className="text-sm text-gray-500">Associer ce document à un bien, un bail, une transaction ou un locataire.</p>
             <div className="space-y-4">
               <div>
                 <h4 className="font-semibold mb-2">Liaisons actuelles</h4>

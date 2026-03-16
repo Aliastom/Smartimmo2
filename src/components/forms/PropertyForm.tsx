@@ -11,6 +11,7 @@ import AddressAutocomplete from '@/components/forms/AddressAutocomplete';
 import { useQuery } from '@tanstack/react-query';
 import { TaxParamsService } from '@/services/TaxParamsService';
 import { Home, Armchair, Building2, FileText, Settings } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const propertySchema = z.object({
   name: z.string().min(1, 'Le nom est requis'),
@@ -34,15 +35,35 @@ const propertySchema = z.object({
   airbnbListingId: z.string().optional(),
 });
 
+export interface PropertySummaryMetrics {
+  cashflowMensuel?: number;
+  score?: number;
+  rendementPct?: number;
+  scoreLabel?: string;
+}
+
 interface PropertyFormProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: any) => Promise<void>;
   initialData?: any;
+  summaryMetrics?: PropertySummaryMetrics;
   title: string;
 }
 
-export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, title }: PropertyFormProps) {
+const PROPERTY_TYPE_EMOJI: Record<string, string> = {
+  house: '🏠',
+  apartment: '🏢',
+  garage: '🚗',
+  commercial: '🏬',
+  land: '🌳',
+};
+
+function formatEur(value: number): string {
+  return `${value.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €`;
+}
+
+export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, summaryMetrics, title }: PropertyFormProps) {
   const [formData, setFormData] = useState(initialData || {
     name: '',
     type: 'apartment',
@@ -362,12 +383,114 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
             onClick={handleSubmit}
             className="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium bg-orange-600 hover:bg-orange-700 text-white transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
+            {isSubmitting ? 'Sauvegarde...' : initialData?.id ? 'Sauvegarder' : 'Créer le bien'}
           </button>
         </div>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Résumé du bien : identité / action / KPI */}
+        {initialData?.id && (
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-3">
+            {/* Ligne 1 : identité à gauche, bouton dashboard à droite */}
+            <div className="flex justify-between items-start gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg leading-none" aria-hidden>{PROPERTY_TYPE_EMOJI[initialData.type] || '🏠'}</span>
+                  <span className="font-semibold text-gray-900">{initialData.name}</span>
+                </div>
+                <div className="text-gray-500 mt-1 text-xs">
+                  {[initialData.address, initialData.postalCode, initialData.city].filter(Boolean).join(', ') || '—'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  const isAppShell = typeof window !== 'undefined' && window.location.pathname.startsWith('/app');
+                  const url = isAppShell
+                    ? `/app?view=property&propertyId=${initialData.id}`
+                    : `/biens/${initialData.id}`;
+                  window.location.href = url;
+                }}
+                className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1"
+              >
+                <span aria-hidden>📊</span>
+                Voir le dashboard du bien
+              </button>
+            </div>
+            {/* Ligne 2 : grille KPI 3 lignes × 2 colonnes — label + valeur sur une ligne */}
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+              {/* Ligne 1 */}
+              <div className="grid grid-cols-[auto_1fr] gap-x-2 items-baseline">
+                <span className="text-gray-500 text-xs font-normal">Loyer</span>
+                <span className="text-gray-900 font-semibold">
+                  {initialData.Lease?.[0]?.rentAmount != null ? formatEur(Number(initialData.Lease[0].rentAmount)) : '—'}
+                </span>
+              </div>
+              <div className="grid grid-cols-[auto_1fr] gap-x-2 items-baseline min-w-0">
+                <span className="text-gray-500 text-xs font-normal flex-shrink-0">Locataire</span>
+                <span className="text-gray-900 font-semibold truncate">
+                  {initialData.Lease?.[0]?.Tenant
+                    ? `${initialData.Lease[0].Tenant.firstName} ${initialData.Lease[0].Tenant.lastName}`
+                    : '—'}
+                </span>
+              </div>
+              {/* Ligne 2 */}
+              <div className="grid grid-cols-[auto_1fr] gap-x-2 items-baseline">
+                <span className="text-gray-500 text-xs font-normal">Statut</span>
+                <span className="text-gray-900 font-semibold">
+                  {initialData.occupation === 'OCCUPIED' || (initialData.Lease?.length ?? 0) > 0 ? 'Occupé' : 'Vacant'}
+                </span>
+              </div>
+              <div className="grid grid-cols-[auto_1fr] gap-x-2 items-baseline">
+                <span className="text-gray-500 text-xs font-normal">Rendement</span>
+                <span className="text-gray-900 font-semibold">
+                  {summaryMetrics?.rendementPct != null
+                    ? `${Number(summaryMetrics.rendementPct).toFixed(1)} %`
+                    : (() => {
+                        const rent = initialData.Lease?.[0]?.rentAmount;
+                        const value = initialData.currentValue ?? initialData.acquisitionPrice;
+                        if (rent && value && Number(value) > 0) {
+                          return `${((Number(rent) * 12 / Number(value)) * 100).toFixed(1)} %`;
+                        }
+                        return '—';
+                      })()}
+                </span>
+              </div>
+              {/* Ligne 3 */}
+              <div className="grid grid-cols-[auto_1fr] gap-x-2 items-baseline">
+                <span className="text-gray-500 text-xs font-normal">Cashflow</span>
+                <span className="text-gray-900 font-semibold">
+                  {summaryMetrics?.cashflowMensuel != null
+                    ? (summaryMetrics.cashflowMensuel >= 0 ? '+' : '') + formatEur(summaryMetrics.cashflowMensuel)
+                    : '—'}
+                </span>
+              </div>
+              <div className="grid grid-cols-[auto_1fr] gap-x-2 items-baseline">
+                <span className="text-gray-500 text-xs font-normal">Score</span>
+                <span>
+                  {summaryMetrics?.score != null ? (
+                    <span
+                      className={cn(
+                        'inline-flex items-center rounded px-1 py-0.5 text-xs font-medium text-white',
+                        summaryMetrics.score >= 90 && 'bg-emerald-600',
+                        summaryMetrics.score >= 70 && summaryMetrics.score < 90 && 'bg-emerald-500',
+                        summaryMetrics.score >= 50 && summaryMetrics.score < 70 && 'bg-amber-500',
+                        summaryMetrics.score < 50 && 'bg-red-500'
+                      )}
+                    >
+                      {summaryMetrics.score} — {({ excellent: 'Excellent', tres_bon: 'Très bon', correct: 'Correct', faible: 'Faible' } as Record<string, string>)[summaryMetrics.scoreLabel ?? ''] ?? summaryMetrics.scoreLabel ?? '—'}
+                    </span>
+                  ) : (
+                    <span className="text-gray-900 font-semibold">—</span>
+                  )}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Navigation par onglets - Style Smartimmo */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2 border-b border-gray-200">
@@ -411,9 +534,9 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
 
           {/* ========== ONGLET 1 : ESSENTIELS ========== */}
           <TabsContent value="essentials">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   Nom du bien *
                 </label>
             <input
@@ -429,7 +552,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Type *
             </label>
             <SmartSelect
@@ -449,10 +572,10 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           </div>
 
           <div className="md:col-span-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Type Fiscal */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Type fiscal */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   Type fiscal
                 </label>
                 <SmartSelect
@@ -475,10 +598,10 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
                 </p>
               </div>
 
-              {/* Régime Fiscal */}
+              {/* Régime */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Régime fiscal
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Régime
                 </label>
                 <SmartSelect
                   value={formData.fiscalRegimeId}
@@ -521,40 +644,22 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
                 )}
               </div>
 
-              {/* Affichage des informations fiscales si sélection faite - Style Smartimmo sobre */}
+              {/* Résumé fiscal */}
               {formData.fiscalTypeId && formData.fiscalRegimeId && (
-                <div className="md:col-span-2 bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0">
-                      {(() => {
-                        const type = fiscalTypes.find((t: any) => t.id === formData.fiscalTypeId);
-                        if (type?.category === 'FONCIER') return <Home className="h-5 w-5 text-gray-600" />;
-                        if (type?.category === 'BIC') return <Armchair className="h-5 w-5 text-gray-600" />;
-                        if (type?.category === 'IS') return <Building2 className="h-5 w-5 text-gray-600" />;
-                        return null;
-                      })()}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">
-                        Configuration fiscale sélectionnée
-                      </p>
-                      <div className="flex gap-2 mt-2">
-                        <Badge variant="outline" className="bg-white border-gray-300 text-gray-700">
-                          {fiscalTypes.find((t: any) => t.id === formData.fiscalTypeId)?.label}
-                        </Badge>
-                        <Badge variant="outline" className="bg-white border-gray-300 text-gray-700">
-                          {fiscalRegimes.find((r: any) => r.id === formData.fiscalRegimeId)?.label}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
+                <div className="md:col-span-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <p className="text-xs text-gray-500">Résumé fiscal</p>
+                  <p className="text-sm font-medium text-gray-900 mt-0.5">
+                    {fiscalTypes.find((t: any) => t.id === formData.fiscalTypeId)?.label}
+                    {' · '}
+                    {fiscalRegimes.find((r: any) => r.id === formData.fiscalRegimeId)?.label}
+                  </p>
                 </div>
               )}
             </div>
           </div>
 
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Adresse *
             </label>
             <AddressAutocomplete
@@ -586,7 +691,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Code postal *
             </label>
             <input
@@ -602,7 +707,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Ville *
             </label>
             <input
@@ -618,7 +723,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Surface (m²) *
             </label>
             <input
@@ -635,7 +740,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Nombre de pièces *
             </label>
             <input
@@ -652,7 +757,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Date d'acquisition *
             </label>
             <input
@@ -667,7 +772,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Prix d'acquisition (€) *
             </label>
             <input
@@ -677,7 +782,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.acquisitionPrice ? 'border-red-500' : 'border-gray-300'
               }`}
-              placeholder="Ex: 250000"
+              placeholder="Ex: 250 000"
               min="1"
             />
             {errors.acquisitionPrice && <p className="text-red-500 text-sm mt-1">{errors.acquisitionPrice}</p>}
@@ -687,9 +792,9 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
 
           {/* ========== ONGLET 2 : OPTIONS AVANCÉES ========== */}
           <TabsContent value="options">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   Frais de notaire (€)
                 </label>
             <input
@@ -699,14 +804,14 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.notaryFees ? 'border-red-500' : 'border-gray-300'
               }`}
-              placeholder="Ex: 15000"
+              placeholder="Ex: 15 000"
               min="0"
             />
             {errors.notaryFees && <p className="text-red-500 text-sm mt-1">{errors.notaryFees}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Valeur actuelle (€)
             </label>
             <input
@@ -716,14 +821,14 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
               className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
                 errors.currentValue ? 'border-red-500' : 'border-gray-300'
               }`}
-              placeholder="Ex: 300000"
+              placeholder="Ex: 300 000"
               min="0"
             />
             {errors.currentValue && <p className="text-red-500 text-sm mt-1">{errors.currentValue}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Statut
             </label>
             <SmartSelect
@@ -742,7 +847,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           {/* Champ de sélection de société de gestion */}
           {finalIsGestionEnabled && finalSocietes.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Société de gestion
               </label>
               <SmartSelect
@@ -765,7 +870,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
 
           {/* Mode d'exploitation / Canal de location */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Mode d'exploitation
             </label>
             <SmartSelect
@@ -785,7 +890,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           {/* ID de l'annonce Airbnb (si mode Airbnb) */}
           {formData.rentalMode === 'SEASONAL_AIRBNB' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 ID de l'annonce Airbnb (optionnel)
               </label>
               <input
@@ -802,7 +907,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, t
           )}
 
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Notes
             </label>
             <textarea

@@ -31,6 +31,7 @@ import {
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
 import { DashboardPerformanceParBien } from '@/features/dashboard/components/DashboardPerformanceParBien';
+import { cn } from '@/utils/cn';
 
 export interface PatrimoinePageCoreProps {
   mode: 'normal' | 'app-shell';
@@ -230,22 +231,6 @@ export function PatrimoinePageCore({
 
   const [activeSection, setActiveSection] = useState<string>(sectionNavItems[0].id);
 
-  useEffect(() => {
-    if (!data) return;
-    const ids = ['section-situation', 'section-analyse', 'section-evolution', 'section-performance', 'section-repartition'];
-    const scrollOffset = 120;
-    const updateActive = () => {
-      const tops = ids
-        .map((id) => ({ id, top: document.getElementById(id)?.getBoundingClientRect().top ?? Infinity }))
-        .filter(({ top }) => top <= scrollOffset);
-      const current = tops.length ? tops.reduce((a, b) => (a.top >= b.top ? a : b)).id : ids[0];
-      setActiveSection((prev) => (prev !== current ? current : prev));
-    };
-    updateActive();
-    window.addEventListener('scroll', updateActive, { passive: true });
-    return () => window.removeEventListener('scroll', updateActive);
-  }, [data]);
-
   return (
     <div className="space-y-6">
       {/* Header avec Hamburger + Titre + Actions */}
@@ -411,12 +396,13 @@ export function PatrimoinePageCore({
         </div>
       )}
 
-      {/* Navigation interne sticky (scroll spy) */}
+      {/* Navigation interne sticky — style dashboard : actif = bleu + blanc, inactif = gris clair (CSS dédié pour éviter les overrides globaux) */}
       {data && (
-        <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-gray-200 -mx-2 px-2 py-2 sm:-mx-4 sm:px-4">
+        <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-slate-100 -mx-2 px-2 py-2 sm:-mx-4 sm:px-4">
           <nav
-            className="flex flex-wrap items-center gap-1 p-1.5 rounded-xl bg-slate-200 border border-slate-300 max-w-fit"
+            className="flex flex-wrap gap-1 patrimoine-section-tabs"
             aria-label="Navigation dans la page"
+            data-patrimoine-section-tabs
           >
             {sectionNavItems.map(({ id, label }) => {
               const isActive = activeSection === id;
@@ -424,22 +410,11 @@ export function PatrimoinePageCore({
                 <button
                   key={id}
                   type="button"
-                  onClick={() => {
-                    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }}
-                  className={`
-                    relative px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200
-                    focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-1
-                    ${isActive
-                      ? 'bg-white text-gray-900 shadow-md border border-slate-200'
-                      : 'bg-transparent text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-sm'
-                    }
-                  `}
+                  onClick={() => setActiveSection(id)}
+                  className="rounded-lg px-3 py-2 text-sm font-medium border-0 cursor-pointer patrimoine-section-tab"
+                  data-active={isActive ? 'true' : 'false'}
                 >
                   {label}
-                  {isActive && (
-                    <span className="absolute inset-x-2 bottom-1 h-0.5 bg-primary-500 rounded-full" aria-hidden />
-                  )}
                 </button>
               );
             })}
@@ -448,92 +423,93 @@ export function PatrimoinePageCore({
       )}
 
       {data && (
-        <>
-          {/* Synthèse du portefeuille (lecture rapide) */}
-          <div className="mt-6">
-            <PatrimoineSynthèse
-              kpis={data.kpis}
-              repartitionParBienLoyers={data.repartitionParBienLoyers}
-              performanceParBien={data.performanceParBien}
-            />
-          </div>
-
-          {/* 1. Situation patrimoniale */}
-          <section className="mt-8 pt-2 scroll-mt-4" aria-labelledby="section-situation" id="section-situation">
-            <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Situation patrimoniale</h2>
-            <p className="mt-1 text-sm text-gray-500">Vision synthétique de votre portefeuille sur la période</p>
-            <div className="mt-4">
-              <PatrimoineKPIs kpis={data.kpis} isLoading={isLoading} />
-            </div>
-          </section>
-
-          {/* 2. Analyse rapide du portefeuille */}
-          <section className="mt-10 pt-2 scroll-mt-4" aria-labelledby="section-analyse" id="section-analyse">
-            <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Analyse rapide du portefeuille</h2>
-            <p className="mt-1 text-sm text-gray-500">Résumé exécutif : cashflow, rendement et endettement</p>
-            <div className="mt-4">
-              <PatrimoineInsights
-                kpis={data.kpis}
-                cashflow={data.series.cashflow}
-                agenda={data.agenda}
-                mode={modeState}
-              />
-            </div>
-          </section>
-
-          {/* 3. Évolution financière */}
-          <section className="mt-10 pt-2 scroll-mt-4" aria-labelledby="section-evolution" id="section-evolution">
-            <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Évolution financière</h2>
-            <p className="mt-1 text-sm text-gray-500">Lecture des flux et de la trésorerie</p>
-            <div className="mt-4">
-              <PatrimoineCharts
-                loyers={data.series.loyers}
-                charges={data.series.charges}
-                cashflow={data.series.cashflow}
-                repartitionParBien={data.repartitionParBien}
-                repartitionParBienLoyers={data.repartitionParBienLoyers}
-                repartitionParBienCharges={data.repartitionParBienCharges}
-                repartitionParBienCashflow={data.repartitionParBienCashflow}
-                isLoading={isLoading}
-                variant="evolution"
-                mode={modeState}
-              />
-            </div>
-          </section>
-
-          {/* 4. Performance du portefeuille */}
-          <section className="mt-10 pt-2 scroll-mt-4" aria-labelledby="section-performance" id="section-performance">
-            <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Performance du portefeuille</h2>
-            <p className="mt-1 text-sm text-gray-500">Détail par bien, triable par rendement</p>
-            <div className="mt-4">
-              <DashboardPerformanceParBien
-                items={data.performanceParBien ?? []}
-                loading={false}
-                mode={mode}
-              />
-            </div>
-          </section>
-
-          {/* 5. Répartition du portefeuille */}
-          <section className="mt-10 pt-2 scroll-mt-4" aria-labelledby="section-repartition" id="section-repartition">
-            <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Répartition du portefeuille</h2>
-            <p className="mt-1 text-sm text-gray-500">Répartition des flux par bien</p>
-            <div className="mt-4">
-              <PatrimoineCharts
-                loyers={data.series.loyers}
-                charges={data.series.charges}
-                cashflow={data.series.cashflow}
-                repartitionParBien={data.repartitionParBien}
-                repartitionParBienLoyers={data.repartitionParBienLoyers}
-                repartitionParBienCharges={data.repartitionParBienCharges}
-                repartitionParBienCashflow={data.repartitionParBienCashflow}
-                isLoading={isLoading}
-                variant="repartition"
-                mode={modeState}
-              />
-            </div>
-          </section>
-        </>
+        <div className="mt-6">
+          {activeSection === 'section-situation' && (
+            <>
+              <div className="mb-6">
+                <PatrimoineSynthèse
+                  kpis={data.kpis}
+                  repartitionParBienLoyers={data.repartitionParBienLoyers}
+                  performanceParBien={data.performanceParBien}
+                />
+              </div>
+              <section aria-labelledby="section-situation" id="section-situation">
+                <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Situation patrimoniale</h2>
+                <p className="mt-1 text-sm text-gray-500">Vision synthétique de votre portefeuille sur la période</p>
+                <div className="mt-4">
+                  <PatrimoineKPIs kpis={data.kpis} isLoading={isLoading} />
+                </div>
+              </section>
+            </>
+          )}
+          {activeSection === 'section-analyse' && (
+            <section aria-labelledby="section-analyse" id="section-analyse">
+              <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Analyse rapide du portefeuille</h2>
+              <p className="mt-1 text-sm text-gray-500">Résumé exécutif : cashflow, rendement et endettement</p>
+              <div className="mt-4">
+                <PatrimoineInsights
+                  kpis={data.kpis}
+                  cashflow={data.series.cashflow}
+                  agenda={data.agenda}
+                  mode={modeState}
+                />
+              </div>
+            </section>
+          )}
+          {activeSection === 'section-evolution' && (
+            <section aria-labelledby="section-evolution" id="section-evolution">
+              <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Évolution financière</h2>
+              <p className="mt-1 text-sm text-gray-500">Lecture des flux et de la trésorerie</p>
+              <div className="mt-4">
+                <PatrimoineCharts
+                  loyers={data.series.loyers}
+                  charges={data.series.charges}
+                  cashflow={data.series.cashflow}
+                  repartitionParBien={data.repartitionParBien}
+                  repartitionParBienLoyers={data.repartitionParBienLoyers}
+                  repartitionParBienCharges={data.repartitionParBienCharges}
+                  repartitionParBienCashflow={data.repartitionParBienCashflow}
+                  isLoading={isLoading}
+                  variant="evolution"
+                  mode={modeState}
+                />
+              </div>
+            </section>
+          )}
+          {activeSection === 'section-performance' && (
+            <section aria-labelledby="section-performance" id="section-performance">
+              <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Performance du portefeuille</h2>
+              <p className="mt-1 text-sm text-gray-500">Détail par bien, triable par rendement</p>
+              <div className="mt-4">
+                <DashboardPerformanceParBien
+                  items={data.performanceParBien ?? []}
+                  loading={false}
+                  mode={mode}
+                />
+              </div>
+            </section>
+          )}
+          {activeSection === 'section-repartition' && (
+            <section aria-labelledby="section-repartition" id="section-repartition">
+              <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Répartition du portefeuille</h2>
+              <p className="mt-1 text-sm text-gray-500">Répartition des flux par bien</p>
+              <div className="mt-4">
+                <PatrimoineCharts
+                  loyers={data.series.loyers}
+                  charges={data.series.charges}
+                  cashflow={data.series.cashflow}
+                  repartitionParBien={data.repartitionParBien}
+                  repartitionParBienLoyers={data.repartitionParBienLoyers}
+                  repartitionParBienCharges={data.repartitionParBienCharges}
+                  repartitionParBienCashflow={data.repartitionParBienCashflow}
+                  isLoading={isLoading}
+                  variant="repartition"
+                  mode={modeState}
+                />
+              </div>
+            </section>
+          )}
+        </div>
       )}
 
       {/* État de chargement initial */}

@@ -168,6 +168,14 @@ export function ConfirmDeleteDocumentModal({
     return labels[type] || type;
   };
 
+  const isTechnicalId = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) || /^[a-z0-9]{20,}$/i.test(value);
+  const getDisplayName = (link: DocumentLink) => {
+    const name = link.displayName?.trim() || '';
+    if (!name) return '(entité liée)';
+    if (isTechnicalId(name)) return '(entité liée)';
+    return name;
+  };
+
   return (
     <Modal
       isOpen={isOpen}
@@ -219,8 +227,8 @@ export function ConfirmDeleteDocumentModal({
                           <span className={`inline-block w-2 h-2 rounded-full mt-1.5 mr-2 flex-shrink-0 ${isCurrentEntityLink ? 'bg-orange-500' : 'bg-blue-500'}`} />
                           <span>
                             <span className="font-medium">{getLinkedTypeLabel(link.type)}</span>
-                            {' : '}
-                            {link.displayName}
+                            {' — '}
+                            {getDisplayName(link)}
                             {isCurrentEntityLink && (
                               <span className="ml-2 text-xs text-orange-600 font-medium">({entityLabel})</span>
                             )}

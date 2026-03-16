@@ -162,11 +162,12 @@ export interface TableCellProps {
   compact?: boolean;
   className?: string;
   useUI2?: boolean;
+  colSpan?: number;
 }
 
-export function TableCell({ children, compact = false, className, useUI2 = false }: TableCellProps) {
+export function TableCell({ children, compact = false, className, useUI2 = false, colSpan }: TableCellProps) {
   return (
-    <td className={cn(
+    <td colSpan={colSpan} className={cn(
       "px-6 py-4 whitespace-nowrap text-sm text-gray-900",
       compact ? "py-2" : "py-4",
       useUI2 && "ui2-table-cell",

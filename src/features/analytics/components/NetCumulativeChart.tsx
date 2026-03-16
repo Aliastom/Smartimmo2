@@ -2,8 +2,6 @@
 
 import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Select } from '@/components/ui/Select';
-import { Badge } from '@/components/ui/Badge';
 import {
   ResponsiveContainer,
   LineChart,
@@ -17,7 +15,7 @@ import {
 import { useMonthlyNet } from '../hooks/useMonthlyNet';
 import { usePropertyFilters } from '@/features/properties/store/usePropertyFilters';
 import type { Transaction, Property } from '../types';
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 
 interface NetCumulativeChartProps {
   transactions: Transaction[];
@@ -79,19 +77,17 @@ export function NetCumulativeChart({ transactions, properties }: NetCumulativeCh
     return yearsArray;
   }, [transactions]);
 
-  const [selectedYear, setSelectedYear] = useState<string | number>('all');
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState<string | number>(currentYear);
 
-  // Déterminer si on affiche toutes les années ou une année spécifique
-  const showAllYears = selectedYear === 'all';
-
-  // Calculer les données mensuelles
+  // Calculer les données mensuelles (année sélectionnée uniquement)
   const { months, monthly, cumulative, totals } = useMonthlyNet({
     transactions,
-    year: showAllYears ? new Date().getFullYear() : selectedYear as number,
+    year: selectedYear as number,
     selectedPropertyIds,
     statusFilter,
     properties,
-    showAllYears,
+    showAllYears: false,
   });
 
   // Préparer les données pour Recharts
@@ -103,77 +99,34 @@ export function NetCumulativeChart({ transactions, properties }: NetCumulativeCh
     net: monthly[index].net,
   }));
 
-  // Calculer la variation vs année précédente (optionnel)
-  const previousYearData = useMonthlyNet({
-    transactions,
-    year: selectedYear - 1,
-    selectedPropertyIds,
-    statusFilter,
-    properties,
-  });
-
-  const deltaVsPrevious = totals.net - previousYearData.totals.net;
-  const deltaPercentage =
-    previousYearData.totals.net !== 0
-      ? ((deltaVsPrevious / Math.abs(previousYearData.totals.net)) * 100).toFixed(1)
-      : null;
-
-  const getTrendIcon = () => {
-    if (deltaVsPrevious > 0) return <TrendingUp className="h-3 w-3" />;
-    if (deltaVsPrevious < 0) return <TrendingDown className="h-3 w-3" />;
-    return <Minus className="h-3 w-3" />;
-  };
-
-  const getTrendColor = () => {
-    if (deltaVsPrevious > 0) return 'text-green-600 bg-green-50 border-green-200';
-    if (deltaVsPrevious < 0) return 'text-red-600 bg-red-50 border-red-200';
-    return 'text-gray-600 bg-gray-50 border-gray-200';
-  };
-
   return (
     <Card className="w-full">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <CardTitle className="text-base font-semibold">Bénéfice net cumulé</CardTitle>
-            <p className="text-sm text-gray-600">
-              {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(totals.net)}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {deltaPercentage && !showAllYears && (
-              <Badge variant="secondary" className={`${getTrendColor()} flex items-center gap-1 text-xs`}>
-                {getTrendIcon()}
-                {deltaVsPrevious > 0 ? '+' : ''}{deltaPercentage}% vs {selectedYear - 1}
-              </Badge>
-            )}
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-              className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              aria-label="Sélectionner l'année"
-            >
-              <option value="all">Tout</option>
-              {availableYears.map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-            </select>
-          </div>
+      <CardHeader className="py-2 pb-1">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm font-semibold text-gray-900">Bénéfice net cumulé</CardTitle>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(Number(e.target.value))}
+            className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+            aria-label="Année"
+          >
+            {availableYears.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
         </div>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 pb-2">
         {chartData.every((d) => d.cumulative === 0) ? (
-          <div className="flex flex-col items-center justify-center h-32 text-gray-400">
-            <TrendingUp className="h-8 w-8 mb-2 opacity-30" />
-            <p className="text-sm">
-              {showAllYears ? 'Aucune transaction' : `Aucune transaction pour ${selectedYear}`}
-            </p>
+          <div className="flex flex-col items-center justify-center h-24 text-gray-400">
+            <TrendingUp className="h-6 w-6 mb-1 opacity-30" />
+            <p className="text-xs">Aucune transaction pour {selectedYear}</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+          <ResponsiveContainer width="100%" height={126}>
+            <LineChart data={chartData} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis
                 dataKey="month"

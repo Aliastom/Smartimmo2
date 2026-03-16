@@ -4,10 +4,10 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { notify2 } from '@/lib/notify2';
 import { Upload as UploadIcon, Plus, Home } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { DocumentsKpiBar } from '@/components/documents/DocumentsKpiBar';
 import { DocumentsMonthlyChart } from '@/components/documents/DocumentsMonthlyChart';
 import { DocumentsByTypeChart } from '@/components/documents/DocumentsByTypeChart';
 import { DocumentsLinksDistributionChart } from '@/components/documents/DocumentsLinksDistributionChart';
-import { DocumentsKpiBar } from '@/components/documents/DocumentsKpiBar';
 import { DocumentTable, DocumentTableRow } from '@/components/documents/unified/DocumentTable';
 import { useDocumentsData } from '@/features/documents/hooks/useDocumentsData';
 import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
@@ -586,166 +586,116 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
     };
   }, [headerActions]); // ✅ Seulement headerActions comme dépendance
 
+  const showCharts = allDocuments.length > 100;
+
   return (
     <div className="space-y-6">
-      {/* Graphiques - Mobile: empilés, Desktop: grille */}
-      <div className="grid gap-4 grid-cols-1 lg:grid-cols-4">
-        {/* Graphique 1 : Évolution mensuelle (2 colonnes) */}
-        <div className="lg:col-span-2 min-w-0">
-          <DocumentsMonthlyChart
-            data={chartsData.monthly}
-            isLoading={chartsLoading}
-          />
-        </div>
-        
-        {/* Graphique 2 : Répartition par type (1 colonne) */}
-        <div className="lg:col-span-1 min-w-0">
-          <DocumentsByTypeChart
-            data={chartsData.byType}
-            isLoading={chartsLoading}
-          />
-        </div>
-        
-        {/* Graphique 3 : Répartition des liaisons (1 colonne) */}
-        <div className="lg:col-span-1 min-w-0">
-          <DocumentsLinksDistributionChart
-            data={chartsData.linksDistribution}
-            isLoading={chartsLoading}
-          />
-        </div>
-      </div>
-
-      {/* Cartes KPI (APRÈS LES GRAPHIQUES) - Cartes filtrantes actives */}
+      {/* 4 KPI compacts */}
       <DocumentsKpiBar
         kpis={kpis}
         activeFilter={activeKpiFilter}
         onFilterChange={handleKpiFilterChange}
         isLoading={kpisLoading}
-        hideOrphans={true} // Masquer "Orphelins" dans le contexte d'un bien
+        hideOrphans={true}
+        compact={true}
       />
 
-      {/* Filtres avancés */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CardTitle>Filtres</CardTitle>
-              {activeFiltersCount > 0 && (
-                <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded-full">
-                  {activeFiltersCount} actif{activeFiltersCount > 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-            >
-              <Filter className="h-4 w-4 mr-2" />
-              {showFilters ? 'Masquer' : 'Afficher'}
+      {/* Barre recherche + filtres rapides */}
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <Input
+            type="text"
+            placeholder="Rechercher par nom, tags, type..."
+            value={filters.query}
+            onChange={(e) => setFilters({ ...filters, query: e.target.value })}
+            className="flex-1"
+          />
+          {activeFiltersCount > 0 && (
+            <Button type="button" variant="outline" size="sm" onClick={handleResetFilters}>
+              Réinitialiser
             </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {/* Recherche principale - Recherche directe */}
-            <div className="flex gap-2">
-              <Input
-                type="text"
-                placeholder="Rechercher par nom, texte, tags, type..."
-                value={filters.query}
-                onChange={(e) => setFilters({ ...filters, query: e.target.value })}
-                className="flex-1"
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <SmartSelect
+            value={filters.type}
+            onChange={(value) => setFilters({ ...filters, type: value })}
+            options={[
+              { value: '', label: 'Type document' },
+              ...(Array.isArray(documentTypes) ? documentTypes.map((type: { code: string; label: string }) => ({
+                value: type.code,
+                label: type.label
+              })) : [])
+            ]}
+            placeholder="Type"
+            className="min-w-[140px]"
+          />
+          <SmartSelect
+            value={filters.ocrStatus}
+            onChange={(value) => setFilters({ ...filters, ocrStatus: value })}
+            options={[
+              { value: '', label: 'Statut OCR' },
+              { value: 'processed', label: 'Traité' },
+              { value: 'failed', label: 'Échoué' },
+              { value: 'pending', label: 'En attente' }
+            ]}
+            placeholder="OCR"
+            className="min-w-[120px]"
+          />
+          <SmartSelect
+            value={filters.linkedTo}
+            onChange={(value) => setFilters({ ...filters, linkedTo: value })}
+            options={[
+              { value: '', label: 'Lié à' },
+              { value: 'property', label: 'Bien' },
+              { value: 'lease', label: 'Bail' },
+              { value: 'transaction', label: 'Transaction' },
+              { value: 'tenant', label: 'Locataire' },
+              { value: 'none', label: 'Aucune liaison' }
+            ]}
+            placeholder="Liaison"
+            className="min-w-[130px]"
+          />
+          {showFilters && (
+            <>
+              <SmartDatePicker
+                value={filters.dateFrom}
+                onChange={(value) => setFilters({ ...filters, dateFrom: value })}
+                placeholder="Du"
               />
-              {activeFiltersCount > 0 && (
-                <Button type="button" variant="outline" onClick={handleResetFilters}>
-                  Réinitialiser
-                </Button>
-              )}
-            </div>
+              <SmartDatePicker
+                value={filters.dateTo}
+                onChange={(value) => setFilters({ ...filters, dateTo: value })}
+                placeholder="Au"
+              />
+            </>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowFilters(!showFilters)}
+            className="text-gray-500"
+          >
+            <Filter className="h-4 w-4 mr-1" />
+            {showFilters ? 'Moins' : 'Dates'}
+          </Button>
+        </div>
+      </div>
 
-            {/* Filtres avancés */}
-            {showFilters && (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-4 border-t">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Type de document
-                  </label>
-                  <SmartSelect
-                    value={filters.type}
-                    onChange={(value) => setFilters({ ...filters, type: value })}
-                    options={[
-                      { value: '', label: 'Tous les types' },
-                      ...(Array.isArray(documentTypes) ? documentTypes.map((type) => ({
-                        value: type.code,
-                        label: type.label
-                      })) : [])
-                    ]}
-                    placeholder="Sélectionner un type"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Statut OCR
-                  </label>
-                  <SmartSelect
-                    value={filters.ocrStatus}
-                    onChange={(value) => setFilters({ ...filters, ocrStatus: value })}
-                    options={[
-                      { value: '', label: 'Tous' },
-                      { value: 'processed', label: 'Traité' },
-                      { value: 'failed', label: 'Échoué' },
-                      { value: 'pending', label: 'En attente' }
-                    ]}
-                    placeholder="Sélectionner un statut"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Liaisons
-                  </label>
-                  <SmartSelect
-                    value={filters.linkedTo}
-                    onChange={(value) => setFilters({ ...filters, linkedTo: value })}
-                    options={[
-                      { value: '', label: 'Tous' },
-                      { value: 'lease', label: 'Lié à un Bail' },
-                      { value: 'transaction', label: 'Lié à une Transaction' },
-                      { value: 'tenant', label: 'Lié à un Locataire' },
-                      { value: 'global', label: 'Global' }
-                    ]}
-                    placeholder="Sélectionner une liaison"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Date début
-                  </label>
-                  <SmartDatePicker
-                    value={filters.dateFrom}
-                    onChange={(value) => setFilters({ ...filters, dateFrom: value })}
-                    placeholder="jj/mm/aaaa"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Date fin
-                  </label>
-                  <SmartDatePicker
-                    value={filters.dateTo}
-                    onChange={(value) => setFilters({ ...filters, dateTo: value })}
-                    placeholder="jj/mm/aaaa"
-                  />
-                </div>
-              </div>
-            )}
+      {/* Graphiques (uniquement si plus de 100 documents) */}
+      {showCharts && (
+        <div className="grid gap-4 grid-cols-1 lg:grid-cols-4">
+          <div className="lg:col-span-2 min-w-0">
+            <DocumentsMonthlyChart data={chartsData.monthly} isLoading={chartsLoading} />
           </div>
-        </CardContent>
-      </Card>
+          <div className="lg:col-span-1 min-w-0">
+            <DocumentsByTypeChart data={chartsData.byType} isLoading={chartsLoading} />
+          </div>
+          <div className="lg:col-span-1 min-w-0">
+            <DocumentsLinksDistributionChart data={chartsData.linksDistribution} isLoading={chartsLoading} />
+          </div>
+        </div>
+      )}
 
       {/* Actions groupées */}
       {selectedIds.size > 0 && (
@@ -824,7 +774,7 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
             onSelectAll={handleSelectAll}
             selectedIds={selectedIds}
             showSelection={true}
-            showLinkedTo={false}
+            showLinkedTo={true}
             loading={isLoading}
           />
 

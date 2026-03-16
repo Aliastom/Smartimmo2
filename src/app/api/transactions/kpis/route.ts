@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     });
     const natureMap = new Map(natures.map(n => [n.code, n]));
 
-    // Récupérer toutes les transactions correspondant aux filtres
+    // Récupérer toutes les transactions correspondant aux filtres (accounting_month pour le cashflow mensuel)
     const transactions = await prisma.transaction.findMany({
       where,
       select: {
@@ -70,6 +70,8 @@ export async function GET(request: NextRequest) {
         amount: true,
         nature: true,
         rapprochementStatus: true,
+        accounting_month: true,
+        date: true,
       },
     });
 
@@ -105,11 +107,28 @@ export async function GET(request: NextRequest) {
 
     const soldeNet = recettesTotales + depensesTotales; // depensesTotales est déjà négatif
 
+    // Cashflow mensuel moyen = total des soldes mensuels / nombre de mois avec transactions (cohérent avec les séparateurs du tableau)
+    const monthlyTotals: Record<string, number> = {};
+    for (const t of transactions) {
+      const month = t.accounting_month ?? (t.date ? `${new Date(t.date).getFullYear()}-${String(new Date(t.date).getMonth() + 1).padStart(2, '0')}` : null);
+      if (!month) continue;
+      const amount = t.amount;
+      const nd = t.nature ? natureMap.get(t.nature) : null;
+      const signed = nd?.flow === 'EXPENSE' ? -Math.abs(amount) : Math.abs(amount);
+      monthlyTotals[month] = (monthlyTotals[month] ?? 0) + signed;
+    }
+    const monthsCount = Object.keys(monthlyTotals).length;
+    const cashflowTotal = Object.values(monthlyTotals).reduce((a, b) => a + b, 0);
+    const cashflowMensuelMoyen = monthsCount > 0 ? cashflowTotal / monthsCount : null;
+    const cashflowMoisCount = monthsCount;
+
     return NextResponse.json({
       recettesTotales,
       depensesTotales,
       soldeNet,
       nonRapprochees,
+      cashflowMensuelMoyen: cashflowMensuelMoyen ?? 0,
+      cashflowMoisCount,
     });
   } catch (error) {
     console.error('Erreur lors du calcul des KPI:', error);

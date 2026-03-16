@@ -9,6 +9,7 @@ import { SkeletonTable, EmptyState, useLoadingDelay } from '@/components/ui';
 import { Edit, Trash2, CheckCircle, AlertTriangle, FileText, X, ArrowUpDown, ArrowUp, ArrowDown, Loader2, Eye } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useUI2 } from '@/hooks/useUI2';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/Tooltip';
 
 interface Transaction {
   id: string;
@@ -18,9 +19,14 @@ interface Transaction {
   Property: {
     id: string;
     name: string;
-    address: string;
+    address?: string;
   };
   tenant?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+  };
+  Tenant?: {
     id: string;
     firstName: string;
     lastName: string;
@@ -65,6 +71,10 @@ interface TransactionsTableProps {
   sortField?: SortField;
   sortOrder?: SortOrder;
   onSortChange?: (field: SortField, order: SortOrder) => void;
+  /** Ouverture du drawer avec scroll vers la section Documents (clic sur 📎) */
+  onOpenDrawerForDocuments?: (transaction: Transaction) => void;
+  /** Afficher un séparateur visuel par mois (ex. MARS 2026) */
+  groupByMonth?: boolean;
 }
 
 const NATURE_COLORS = {
@@ -96,7 +106,9 @@ export default function TransactionsTable({
   loadingTransactionId = null,
   sortField: sortFieldProp,
   sortOrder: sortOrderProp,
-  onSortChange
+  onSortChange,
+  onOpenDrawerForDocuments,
+  groupByMonth = false,
 }: TransactionsTableProps) {
   const [sortFieldInternal, setSortFieldInternal] = useState<SortField>('accountingMonth');
   const [sortOrderInternal, setSortOrderInternal] = useState<SortOrder>('desc');
@@ -163,14 +175,52 @@ export default function TransactionsTable({
   };
 
   const formatAmount = (amount: number, type: 'RECETTE' | 'DEPENSE'): string => {
-    // Pour les recettes, s'assurer que le montant est positif
-    // Pour les dépenses, s'assurer que le montant est négatif
-    const adjustedAmount = type === 'RECETTE' ? Math.abs(amount) : -Math.abs(amount);
-    
-    return new Intl.NumberFormat('fr-FR', {
+    const absFormatted = new Intl.NumberFormat('fr-FR', {
       style: 'currency',
-      currency: 'EUR'
-    }).format(adjustedAmount);
+      currency: 'EUR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(Math.abs(amount));
+    return type === 'RECETTE' ? `+${absFormatted}` : `-${absFormatted}`;
+  };
+
+  const getTenantName = (t: Transaction): string => {
+    const tenant = t.Tenant || t.tenant;
+    return tenant ? `${tenant.firstName} ${tenant.lastName}`.trim() : '';
+  };
+
+  /** Icône type de transaction (petite, neutre) — Loyer 🏠, Commission 🔁, Taxe 🏛, Frais 🧾 */
+  const getTransactionIcon = (t: Transaction): string => {
+    if (t.isAuto === true && t.autoSource === 'gestion') return '🔁';
+    const nat = (t.nature?.label || '').toLowerCase();
+    const cat = (t.Category?.label || '').toLowerCase();
+    const combined = `${nat} ${cat}`;
+    if (combined.includes('loyer')) return '🏠';
+    if (combined.includes('commission')) return '🔁';
+    if (combined.includes('taxe') || combined.includes('impôt') || combined.includes('impot')) return '🏛';
+    if (combined.includes('frais') || combined.includes('divers')) return '🧾';
+    return '📄';
+  };
+
+  /** Titre court + sous-titre pour la colonne Transaction (libellés courts, commission liée au loyer) */
+  const getTransactionTitleSubtitle = (t: Transaction): { title: string; subtitle: string } => {
+    const isCommission = t.isAuto === true && t.autoSource === 'gestion' && t.parentTransactionId;
+    const monthLabel = t.accountingMonth ? formatAccountingMonth(t.accountingMonth) : formatDate(t.date);
+
+    if (isCommission) {
+      const parent = transactions.find((x) => x.id === t.parentTransactionId);
+      const parentMonth = parent?.accountingMonth ? formatAccountingMonth(parent.accountingMonth) : parent?.date ? formatDate(parent.date) : '';
+      const parentShort = parent ? `${parent.nature?.label || 'Loyer'} ${parentMonth}`.trim() : monthLabel;
+      const parentTenant = parent ? getTenantName(parent) : '';
+      return {
+        title: 'Commission gestion',
+        subtitle: parentTenant || parentShort || monthLabel,
+      };
+    }
+    return {
+      title: `${t.nature?.label || 'Transaction'} ${monthLabel}`.trim(),
+      subtitle: getTenantName(t),
+    };
   };
 
   const getAmountColor = (type: 'RECETTE' | 'DEPENSE'): string => {
@@ -255,8 +305,75 @@ export default function TransactionsTable({
 
     return result;
   }, [transactions, sortField, sortOrder, groupByParent]);
-  
+
+  const isLoyer = (tx: Transaction) =>
+    tx.nature?.type === 'RECETTE' && (tx.nature?.label?.toLowerCase().includes('loyer') ?? false);
+
+  /** Groupement par mois pour séparateurs visuels + détection d'anomalies */
+  const groupedByMonth = useMemo(() => {
+    if (!groupByMonth || groupedTransactions.length === 0) return null;
+    const sorted = groupedTransactions;
+    const map = new Map<string, (Transaction & { isChild?: boolean })[]>();
+    sorted.forEach((t) => {
+      const key = t.accountingMonth || (t.date || '').slice(0, 7) || 'sans-mois';
+      const list = map.get(key) || [];
+      list.push(t);
+      map.set(key, list);
+    });
+    const raw = Array.from(map.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([key, items]) => {
+        const first = items[0];
+        const monthLabel = first?.accountingMonth
+          ? formatAccountingMonth(first.accountingMonth).toUpperCase()
+          : first?.date
+            ? formatDate(first.date).toUpperCase()
+            : key;
+        const balance = items.reduce((sum, tx) => {
+          const amt = tx.amount ?? 0;
+          const signed = tx.nature?.type === 'DEPENSE' ? -Math.abs(amt) : Math.abs(amt);
+          return sum + signed;
+        }, 0);
+        const recettesCount = items.filter((tx) => tx.nature?.type === 'RECETTE').length;
+        const depensesCount = items.filter((tx) => tx.nature?.type === 'DEPENSE').length;
+        const hasRent = items.some((tx) => isLoyer(tx));
+        const rentAmount = items.filter((tx) => isLoyer(tx)).reduce((s, tx) => s + Math.abs(tx.amount ?? 0), 0);
+        return { monthLabel, items, balance, transactionsCount: items.length, recettesCount, depensesCount, hasRent, rentAmount };
+      });
+    const rentAmounts = raw.map((r) => r.rentAmount).filter((a) => a > 0);
+    const medianRent = rentAmounts.length > 0
+      ? (() => {
+          const sorted = [...rentAmounts].sort((a, b) => a - b);
+          const mid = Math.floor(sorted.length / 2);
+          return sorted.length % 2 !== 0 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+        })()
+      : 0;
+    return raw.map((r, i) => {
+      const prevCount = i < raw.length - 1 ? raw[i + 1]!.transactionsCount : null;
+      const rentDiffOk = medianRent <= 0 || r.rentAmount <= 0 || (r.rentAmount >= medianRent * 0.9 && r.rentAmount <= medianRent * 1.1);
+      const anomalyReasons: string[] = [];
+      if (!r.hasRent) anomalyReasons.push('Pas de transaction de loyer');
+      if (!rentDiffOk && r.rentAmount > 0 && medianRent > 0) anomalyReasons.push('Montant de loyer différent de plus de 10 % de l’habituel');
+      if (r.balance < 0) anomalyReasons.push('Total mensuel négatif');
+      const dropCount = prevCount != null ? prevCount - r.transactionsCount : 0;
+      if (dropCount >= 2) anomalyReasons.push('Moins de transactions que le mois précédent');
+      return { ...r, anomalyReasons };
+    });
+  }, [groupByMonth, groupedTransactions]);
+
+  /** Liste unifiée pour le body : soit lignes seules, soit [séparateur mois + solde, ...lignes] par mois */
+  const rowsForBody = useMemo(() => {
+    if (groupByMonth && groupedByMonth) {
+      return groupedByMonth.flatMap(({ monthLabel, items, balance, transactionsCount, recettesCount, depensesCount, anomalyReasons }) => [
+        { kind: 'month' as const, monthLabel, balance, transactionsCount, recettesCount, depensesCount, anomalyReasons: anomalyReasons ?? [] },
+        ...items.map((t) => ({ kind: 'row' as const, transaction: t })),
+      ]);
+    }
+    return groupedTransactions.map((t) => ({ kind: 'row' as const, transaction: t }));
+  }, [groupByMonth, groupedByMonth, groupedTransactions]);
+
   const sortedTransactions = groupedTransactions;
+  const colCount = hidePropertyColumn ? 7 : 8;
 
   const handleSort = (field: SortField) => {
     const newOrder = sortField === field ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc';
@@ -283,20 +400,10 @@ export default function TransactionsTable({
     return null;
   };
 
-  // Helper pour générer les actions hover
+  // Helper pour générer les actions hover (Modifier, Voir détail, Documents)
   const getHoverActions = (transaction: Transaction) => {
     return (
       <div className="flex items-center gap-4">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onRowClick(transaction);
-          }}
-          className="flex items-center gap-1 text-[#ff6b35] hover:text-[#e55a2b] transition-colors underline text-sm font-medium"
-        >
-          <Eye className="h-4 w-4" />
-          <span>CONSULTER</span>
-        </button>
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -305,17 +412,27 @@ export default function TransactionsTable({
           className="flex items-center gap-1 text-[#ff6b35] hover:text-[#e55a2b] transition-colors underline text-sm font-medium"
         >
           <Edit className="h-4 w-4" />
-          <span>MODIFIER</span>
+          <span>Modifier</span>
         </button>
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onDelete(transaction);
+            onRowClick(transaction);
           }}
-          className="flex items-center gap-1 text-red-600 hover:text-red-700 transition-colors underline text-sm font-medium"
+          className="flex items-center gap-1 text-[#ff6b35] hover:text-[#e55a2b] transition-colors underline text-sm font-medium"
         >
-          <Trash2 className="h-4 w-4" />
-          <span>SUPPRIMER</span>
+          <Eye className="h-4 w-4" />
+          <span>Voir détail</span>
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            (onOpenDrawerForDocuments || onRowClick)(transaction);
+          }}
+          className="flex items-center gap-1 text-[#ff6b35] hover:text-[#e55a2b] transition-colors underline text-sm font-medium"
+        >
+          <span aria-hidden>📎</span>
+          <span>Documents</span>
         </button>
       </div>
     );
@@ -351,8 +468,8 @@ export default function TransactionsTable({
       {/* Compteur et tri rapide - Style Documents (fond blanc) */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 pb-3 border-b">
         <p className="text-sm text-gray-700">
-          <span className="font-semibold">{transactions.length}</span> transaction{transactions.length > 1 ? 's' : ''} affichée{transactions.length > 1 ? 's' : ''}
-          {totalCount && totalCount !== transactions.length && (
+          <span className="font-semibold">{transactions.length}</span> transaction{transactions.length > 1 ? 's' : ''}
+          {totalCount != null && totalCount !== transactions.length && (
             <span className="text-gray-500"> / {totalCount} au total</span>
           )}
         </p>
@@ -463,15 +580,27 @@ export default function TransactionsTable({
                         )}
                         title={isAutoComm ? "Commission auto supprimée automatiquement avec son parent" : undefined}
                       />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate" title={transaction.label}>
-                          {transaction.label}
-                        </p>
-                        {transaction.reference && (
-                          <p className="text-xs text-gray-500 truncate" title={transaction.reference}>
-                            Ref: {transaction.reference}
-                          </p>
-                        )}
+                      <div className="flex-1 min-w-0 flex items-start gap-1.5">
+                        <span className="text-sm opacity-70 shrink-0" aria-hidden>
+                          {getTransactionIcon(transaction)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          {(() => {
+                            const { title, subtitle } = getTransactionTitleSubtitle(transaction);
+                            return (
+                              <>
+                                <p className="font-medium text-gray-900 truncate" title={transaction.label}>
+                                  {title}
+                                </p>
+                                {subtitle && (
+                                  <p className="text-xs text-gray-500 truncate" title={subtitle}>
+                                    {subtitle}
+                                  </p>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
                       </div>
                     </div>
                     <span className={`font-bold text-lg flex-shrink-0 ${getAmountColor(transaction.nature.type)}`}>
@@ -485,8 +614,8 @@ export default function TransactionsTable({
                       <span className="text-red-600 font-bold text-sm">↳</span>
                     )}
                     {transaction.isAuto && transaction.autoSource === 'gestion' && (
-                      <Badge variant="danger" className="text-xs font-semibold">
-                        A
+                      <Badge variant="secondary" className="text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                        Commission
                       </Badge>
                     )}
                     <Badge variant={NATURE_COLORS[transaction.nature.type]} className="text-xs">
@@ -523,18 +652,14 @@ export default function TransactionsTable({
                   </div>
                   
                   {/* Documents */}
-                  <div className="flex items-center gap-2 mt-2">
-                    {transaction.hasDocument ? (
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                    )}
-                    {transaction.documentsCount > 0 && (
+                  {(transaction.hasDocument || (transaction.documentsCount ?? 0) > 0) && (
+                    <div className="flex items-center gap-2 mt-2" title={(transaction.documentsCount ?? 0) === 1 ? '1 document lié' : `${transaction.documentsCount ?? 1} documents liés`}>
+                      <span aria-hidden>📎</span>
                       <span className="text-xs text-gray-600">
-                        {transaction.documentsCount} document{transaction.documentsCount > 1 ? 's' : ''}
+                        {(transaction.documentsCount ?? 0) || 1}
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
                 
                 {/* Actions rapides */}
@@ -612,26 +737,75 @@ export default function TransactionsTable({
                   />
                 </TableHeaderCellV2>
                 <TableHeaderCellV2>Mois comptable</TableHeaderCellV2>
-                <TableHeaderCellV2>Encaissement</TableHeaderCellV2>
-                <TableHeaderCellV2>Libellé</TableHeaderCellV2>
+                <TableHeaderCellV2>Transaction</TableHeaderCellV2>
                 {!hidePropertyColumn && <TableHeaderCellV2>Bien</TableHeaderCellV2>}
-                <TableHeaderCellV2>Nature</TableHeaderCellV2>
                 <TableHeaderCellV2>Catégorie</TableHeaderCellV2>
                 <TableHeaderCellV2 className="text-right">Montant</TableHeaderCellV2>
-                <TableHeaderCellV2 className="text-center">Doc</TableHeaderCellV2>
+                <TableHeaderCellV2>Statut</TableHeaderCellV2>
                 <TableHeaderCellV2 className="text-center">Actions</TableHeaderCellV2>
               </tr>
             </TableHeaderV2>
             <TableBodyV2>
-              {sortedTransactions.map((transaction) => {
-                const isLoading = loadingTransactionId === transaction.id;
-                return (
-                  <TableRowV2
-                    key={transaction.id}
-                    className={cn(
-                      (transaction as any).isChild && "bg-gray-50/50"
-                    )}
-                    onClick={() => onRowClick(transaction)}
+              {rowsForBody.map((row) =>
+                row.kind === 'month' ? (
+                  <tr key={`sep-${row.monthLabel}`}>
+                    <td colSpan={colCount} className="bg-gray-100 font-semibold text-gray-700 uppercase text-xs py-2 px-4 border-b border-gray-200">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-col gap-0.5">
+                          <span>{row.monthLabel}</span>
+                          {'transactionsCount' in row && (
+                            <span className="text-[11px] font-normal normal-case text-gray-500">
+                              {row.transactionsCount} transaction{(row.transactionsCount ?? 0) > 1 ? 's' : ''}
+                              {' • '}
+                              {(row.recettesCount ?? 0)} recette{((row.recettesCount ?? 0) > 1) ? 's' : ''}
+                              {' • '}
+                              {(row.depensesCount ?? 0)} dépense{((row.depensesCount ?? 0) > 1) ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {'balance' in row && (
+                            <span className={cn(
+                              'text-xs font-medium tabular-nums',
+                              (row.balance ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                            )}>
+                              {(row.balance ?? 0) >= 0 ? '+' : ''}{new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(row.balance ?? 0)}
+                            </span>
+                          )}
+                          {'anomalyReasons' in row && (row.anomalyReasons?.length ?? 0) > 0 && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-200/80 cursor-help">
+                                  <AlertTriangle className="h-3 w-3 flex-shrink-0" aria-hidden />
+                                  anomalie
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" className="max-w-xs">
+                                <p className="font-medium text-gray-900 mb-1">Anomalies détectées :</p>
+                                <ul className="list-disc list-inside text-gray-700 space-y-0.5">
+                                  {(row.anomalyReasons ?? []).map((reason, idx) => (
+                                    <li key={idx}>{reason}</li>
+                                  ))}
+                                </ul>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  (() => {
+                    const transaction = row.transaction;
+                    const isLoading = loadingTransactionId === transaction.id;
+                    return (
+                      <TableRowV2
+                        key={transaction.id}
+                        className={cn(
+                          (transaction as any).isChild && "bg-gray-50/50",
+                          "hover:bg-[#f7f7f7] transition-colors duration-150"
+                        )}
+                        onClick={() => onRowClick(transaction)}
                     onHoverInfo={getHoverInfo(transaction)}
                   >
                     <TableCellV2 onClick={(e) => e.stopPropagation()}>
@@ -662,56 +836,78 @@ export default function TransactionsTable({
                       </div>
                     </TableCellV2>
                     <TableCellV2>
-                      <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out text-sm text-gray-600">
-                        {transaction.paidAt ? formatDate(transaction.paidAt) : '–'}
-                      </div>
-                    </TableCellV2>
-                    
-                    <TableCellV2>
                       <div className={`max-w-xs ${(transaction as any).isChild ? 'pl-8' : ''}`}>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {(transaction as any).isChild && (
                             <span className="text-red-600 font-bold" style={{ fontSize: '16px' }}>↳</span>
                           )}
                           {transaction.isAuto && transaction.autoSource === 'gestion' && (
-                            <Badge variant="danger" className="text-xs font-semibold">
-                              A
+                            <Badge variant="secondary" className="text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                              Commission
                             </Badge>
                           )}
-                          <p className="truncate font-medium" title={transaction.label}>
-                            {transaction.label}
-                          </p>
+                          <div className="flex-1 min-w-0 flex items-start gap-1.5">
+                            <span className="text-sm opacity-70 shrink-0 leading-tight" aria-hidden>
+                              {getTransactionIcon(transaction)}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              {(() => {
+                                const { title, subtitle } = getTransactionTitleSubtitle(transaction);
+                                return (
+                                  <>
+                                    <p className="truncate font-medium" title={transaction.label}>
+                                      {title}
+                                    </p>
+                                    {subtitle && (
+                                      <p className="text-xs text-gray-500 truncate" title={subtitle}>
+                                        {subtitle}
+                                      </p>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                          {(transaction.hasDocument || (transaction.documentsCount ?? 0) > 0) && (() => {
+                            const count = (transaction.documentsCount ?? 0) || 1;
+                            const tooltip = count === 1 ? '1 document lié' : `${count} documents liés`;
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenDrawerForDocuments?.(transaction) || onRowClick(transaction);
+                                }}
+                                className="flex items-center gap-0.5 text-gray-500 hover:text-orange-600 transition-colors shrink-0"
+                                title={tooltip}
+                              >
+                                <span aria-hidden>📎</span>
+                                <span className="text-xs font-medium">{count}</span>
+                              </button>
+                            );
+                          })()}
                         </div>
                       </div>
                     </TableCellV2>
-                    
                     {!hidePropertyColumn && (
                       <TableCellV2>
-                        <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out max-w-xs">
+                        <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out max-w-[10rem]">
                           <p className="font-medium truncate" title={transaction.Property.name}>
                             {transaction.Property.name}
                           </p>
+                          {transaction.Property.address && (
+                            <p className="text-xs text-gray-500 truncate" title={transaction.Property.address}>
+                              {transaction.Property.address}
+                            </p>
+                          )}
                         </div>
                       </TableCellV2>
                     )}
-                    
                     <TableCellV2>
                       <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out">
-                        <Badge
-                          variant={NATURE_COLORS[transaction.nature.type]}
-                          className="text-xs"
-                        >
-                          {transaction.nature.label}
-                        </Badge>
+                        <span className="text-sm">{transaction.Category?.label || transaction.nature?.label || 'Non classé'}</span>
                       </div>
                     </TableCellV2>
-                    
-                    <TableCellV2>
-                      <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out">
-                        <span className="text-sm">{transaction.Category?.label || 'Non classé'}</span>
-                      </div>
-                    </TableCellV2>
-                    
                     <TableCellV2 className="text-right">
                       <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out">
                         <span className={`font-medium ${getAmountColor(transaction.nature.type)}`}>
@@ -719,18 +915,12 @@ export default function TransactionsTable({
                         </span>
                       </div>
                     </TableCellV2>
-                    
-                    <TableCellV2 className="text-center">
-                      <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out flex items-center justify-center gap-1">
-                        {transaction.hasDocument ? (
-                          <CheckCircle className="h-5 w-5 text-green-500" />
+                    <TableCellV2>
+                      <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out text-sm">
+                        {transaction.status === 'rapprochee' ? (
+                          <span className="text-green-600">✔ Rapproché</span>
                         ) : (
-                          <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                        )}
-                        {transaction.documentsCount > 0 && (
-                          <span className="text-xs text-gray-600 font-medium">
-                            {transaction.documentsCount}
-                          </span>
+                          <span className="text-amber-600">⚠ Non rapproché</span>
                         )}
                       </div>
                     </TableCellV2>
@@ -761,8 +951,10 @@ export default function TransactionsTable({
                       </div>
                     </TableCellV2>
                   </TableRowV2>
-                );
-              })}
+                    );
+                  })()
+                )
+              )}
             </TableBodyV2>
           </TableV2>
         ) : (
@@ -796,27 +988,76 @@ export default function TransactionsTable({
                 />
               </TableHeaderCell>
               <TableHeaderCell>Mois comptable</TableHeaderCell>
-              <TableHeaderCell>Encaissement</TableHeaderCell>
-              <TableHeaderCell>Libellé</TableHeaderCell>
+              <TableHeaderCell>Transaction</TableHeaderCell>
               {!hidePropertyColumn && <TableHeaderCell>Bien</TableHeaderCell>}
-              <TableHeaderCell>Nature</TableHeaderCell>
               <TableHeaderCell>Catégorie</TableHeaderCell>
               <TableHeaderCell className="text-right">Montant</TableHeaderCell>
-              <TableHeaderCell className="text-center">Doc</TableHeaderCell>
+              <TableHeaderCell>Statut</TableHeaderCell>
               <TableHeaderCell className="text-center">Actions</TableHeaderCell>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedTransactions.map((transaction) => {
-              const isLoading = loadingTransactionId === transaction.id;
-              return (
-              <TableRow
-                key={transaction.id}
-                className={cn(
-                  (transaction as any).isChild && "bg-gray-50/50"
-                )}
-                onClick={() => onRowClick(transaction)}
-              >
+            {rowsForBody.map((row) =>
+              row.kind === 'month' ? (
+                <TableRow key={`sep-${row.monthLabel}`}>
+                  <TableCell colSpan={colCount} className="bg-gray-100 font-semibold text-gray-700 uppercase text-xs py-2 px-4 border-b border-gray-200">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <span>{row.monthLabel}</span>
+                        {'transactionsCount' in row && (
+                          <span className="text-[11px] font-normal normal-case text-gray-500">
+                            {row.transactionsCount} transaction{(row.transactionsCount ?? 0) > 1 ? 's' : ''}
+                            {' • '}
+                            {(row.recettesCount ?? 0)} recette{((row.recettesCount ?? 0) > 1) ? 's' : ''}
+                            {' • '}
+                            {(row.depensesCount ?? 0)} dépense{((row.depensesCount ?? 0) > 1) ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {'balance' in row && (
+                          <span className={cn(
+                            'text-xs font-medium tabular-nums',
+                            (row.balance ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                          )}>
+                            {(row.balance ?? 0) >= 0 ? '+' : ''}{new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(row.balance ?? 0)}
+                          </span>
+                        )}
+                        {'anomalyReasons' in row && (row.anomalyReasons?.length ?? 0) > 0 && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-200/80 cursor-help">
+                                <AlertTriangle className="h-3 w-3 flex-shrink-0" aria-hidden />
+                                anomalie
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-xs">
+                              <p className="font-medium text-gray-900 mb-1">Anomalies détectées :</p>
+                              <ul className="list-disc list-inside text-gray-700 space-y-0.5">
+                                {(row.anomalyReasons ?? []).map((reason, idx) => (
+                                  <li key={idx}>{reason}</li>
+                                ))}
+                              </ul>
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                (() => {
+                  const transaction = row.transaction;
+                  const isLoading = loadingTransactionId === transaction.id;
+                  return (
+                    <TableRow
+                      key={transaction.id}
+                      className={cn(
+                        (transaction as any).isChild && "bg-gray-50/50",
+                        "hover:bg-[#f7f7f7] transition-colors duration-150"
+                      )}
+                      onClick={() => onRowClick(transaction)}
+                    >
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center gap-2">
                     {isLoading ? (
@@ -842,77 +1083,91 @@ export default function TransactionsTable({
                 <TableCell className="font-medium">
                   {transaction.accountingMonth ? formatAccountingMonth(transaction.accountingMonth) : formatDate(transaction.date)}
                 </TableCell>
-                <TableCell className="text-sm text-gray-600">
-                  {transaction.paidAt ? formatDate(transaction.paidAt) : '–'}
-                </TableCell>
-                
                 <TableCell>
                   <div className={`max-w-xs ${(transaction as any).isChild ? 'pl-8' : ''}`}>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       {(transaction as any).isChild && (
                         <span className="text-red-600 font-bold" style={{ fontSize: '16px' }}>↳</span>
                       )}
                       {transaction.isAuto && transaction.autoSource === 'gestion' && (
-                        <Badge variant="danger" className="text-xs font-semibold">
-                          A
+                        <Badge variant="secondary" className="text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                          Commission
                         </Badge>
                       )}
-                      <p className="truncate" title={transaction.label}>
-                        {transaction.label}
-                      </p>
+                      <div className="flex-1 min-w-0 flex items-start gap-1.5">
+                        <span className="text-sm opacity-70 shrink-0 leading-tight" aria-hidden>
+                          {getTransactionIcon(transaction)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          {(() => {
+                            const { title, subtitle } = getTransactionTitleSubtitle(transaction);
+                            return (
+                              <>
+                                <p className="truncate font-medium" title={transaction.label}>
+                                  {title}
+                                </p>
+                                {subtitle && (
+                                  <p className="text-xs text-gray-500 truncate" title={subtitle}>
+                                    {subtitle}
+                                  </p>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                      {(transaction.hasDocument || (transaction.documentsCount ?? 0) > 0) && (() => {
+                        const count = (transaction.documentsCount ?? 0) || 1;
+                        const tooltip = count === 1 ? '1 document lié' : `${count} documents liés`;
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenDrawerForDocuments?.(transaction) || onRowClick(transaction);
+                            }}
+                            className="flex items-center gap-0.5 text-gray-500 hover:text-orange-600 transition-colors shrink-0"
+                            title={tooltip}
+                          >
+                            <span aria-hidden>📎</span>
+                            <span className="text-xs font-medium">{count}</span>
+                          </button>
+                        );
+                      })()}
                     </div>
-                    {transaction.reference && (
-                      <p className="text-sm text-gray-500 truncate" title={transaction.reference}>
-                        Ref: {transaction.reference}
-                      </p>
-                    )}
                   </div>
                 </TableCell>
-                
                 {!hidePropertyColumn && (
                   <TableCell>
-                    <div className="max-w-xs">
+                    <div className="max-w-[10rem]">
                       <p className="font-medium truncate" title={transaction.Property.name}>
                         {transaction.Property.name}
                       </p>
+                      {transaction.Property.address && (
+                        <p className="text-xs text-gray-500 truncate" title={transaction.Property.address}>
+                          {transaction.Property.address}
+                        </p>
+                      )}
                     </div>
                   </TableCell>
                 )}
-                
                 <TableCell>
-                  <Badge
-                    variant={NATURE_COLORS[transaction.nature.type]}
-                    className="text-xs"
-                  >
-                    {transaction.nature.label}
-                  </Badge>
+                  <span className="text-sm">{transaction.Category?.label || transaction.nature?.label || 'Non classé'}</span>
                 </TableCell>
-                
-                <TableCell>
-                  <span className="text-sm">{transaction.Category?.label || 'Non classé'}</span>
-                </TableCell>
-                
                 <TableCell className="text-right">
                   <span className={`font-medium ${getAmountColor(transaction.nature.type)}`}>
                     {formatAmount(transaction.amount, transaction.nature.type)}
                   </span>
                 </TableCell>
-                
-                <TableCell className="text-center">
-                  <div className="flex items-center justify-center gap-1">
-                    {transaction.hasDocument ? (
-                      <CheckCircle className="h-5 w-5 text-green-500" />
+                <TableCell>
+                  <span className="text-sm">
+                    {transaction.status === 'rapprochee' ? (
+                      <span className="text-green-600">✔ Rapproché</span>
                     ) : (
-                      <AlertTriangle className="h-5 w-5 text-yellow-500" />
+                      <span className="text-amber-600">⚠ Non rapproché</span>
                     )}
-                    {transaction.documentsCount > 0 && (
-                      <span className="text-xs text-gray-600 font-medium">
-                        {transaction.documentsCount}
-                      </span>
-                    )}
-                  </div>
+                  </span>
                 </TableCell>
-                
                 <TableCell className="text-center">
                   <div className="flex items-center justify-center gap-1">
                     <Button
@@ -940,8 +1195,10 @@ export default function TransactionsTable({
                   </div>
                 </TableCell>
               </TableRow>
-            );
-            })}
+                  );
+                })()
+              )
+            )}
           </TableBody>
         </Table>
         )}

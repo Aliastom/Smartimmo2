@@ -751,49 +751,34 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     const propertyId = watch('propertyId');
     const monthsCovered = watch('monthsCovered');
 
-    let labelParts = [];
-
-    // 1. Catégorie (ou nature si pas de catégorie)
+    // Libellé court : "Loyer Mars 2026" (nature + mois) — détails dans référence si besoin
+    const monthNames = [
+      'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+      'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+    ];
+    let natureLabel = '';
     if (categoryId) {
       const selectedCategory = categories.find(cat => cat.id === categoryId);
-      if (selectedCategory) {
-        labelParts.push(selectedCategory.label);
-      }
-    } else if (natureValue) {
-      const selectedNature = natures.find(nature => nature.key === natureValue);
-      if (selectedNature) {
-        labelParts.push(selectedNature.label);
-      }
+      if (selectedCategory) natureLabel = selectedCategory.label;
     }
-
-    // 2. Période - depuis accountingMonth (YYYY-MM) ou periodMonth/periodYear
+    if (!natureLabel && natureValue) {
+      const selectedNature = natures.find(nature => nature.key === natureValue);
+      if (selectedNature) natureLabel = selectedNature.label;
+    }
+    let monthYear = '';
     if (mode === 'edit' || !monthsCovered || monthsCovered === 1) {
-      const monthNames = [
-        'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-        'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
-      ];
       if (accountingMonth && /^\d{4}-\d{2}$/.test(accountingMonth)) {
         const [, y, m] = accountingMonth.match(/^(\d{4})-(\d{2})$/) || [];
-        if (y && m) {
-          const monthName = monthNames[parseInt(m, 10) - 1] || m;
-          labelParts.push(`${monthName} ${y}`);
-        }
+        if (y && m) monthYear = `${monthNames[parseInt(m, 10) - 1] || m} ${y}`;
       } else if (periodMonth && periodYear) {
-        const monthName = monthNames[parseInt(periodMonth) - 1] || periodMonth;
-        labelParts.push(`${monthName} ${periodYear}`);
+        monthYear = `${monthNames[parseInt(periodMonth) - 1] || periodMonth} ${periodYear}`;
       }
     }
-
-    // 3. Bien
-    if (propertyId) {
-      const selectedProperty = properties.find(prop => prop.id === propertyId);
-      if (selectedProperty) {
-        labelParts.push(selectedProperty.name);
-      }
-    }
-
-    return labelParts.join(' - ');
-  }, [watch, categories, natures, properties, mode]);
+    if (natureLabel && monthYear) return `${natureLabel} ${monthYear}`;
+    if (natureLabel) return natureLabel;
+    if (monthYear) return monthYear;
+    return '';
+  }, [watch, categories, natures, mode]);
 
   // Synchroniser les états locaux avec les valeurs du formulaire
   useEffect(() => {
@@ -1249,6 +1234,20 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           if (displayAmount) setValue('amount', displayAmount);
           if (transactionData.label) setValue('label', transactionData.label);
           if (transactionData.reference) setValue('reference', transactionData.reference);
+          // Simplification du libellé en édition : si libellé long (ancien format), remplacer par "Nature Mois Année"
+          const rawLabel = transactionData.label || '';
+          const accMonth = transactionData.accounting_month || transactionData.accountingMonth || '';
+          const natureLabel = typeof transactionData.nature === 'object' && transactionData.nature?.label
+            ? transactionData.nature.label
+            : (Array.isArray(natures) && natures.find((n: { key?: string; label?: string }) => n.key === (transactionData.nature?.key ?? transactionData.nature?.id))?.label) || '';
+          if (rawLabel.length > 28 || rawLabel.includes(' – ')) {
+            const monthNames = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+            const shortMonth = accMonth && /^\d{4}-\d{2}$/.test(accMonth)
+              ? (() => { const [, y, m] = accMonth.match(/^(\d{4})-(\d{2})$/) || []; return y && m ? `${monthNames[parseInt(m, 10) - 1] || m} ${y}` : ''; })()
+              : '';
+            const shortLabel = natureLabel && shortMonth ? `${natureLabel} ${shortMonth}` : '';
+            if (shortLabel) setValue('label', shortLabel);
+          }
           // Champs de paiement
           // ⚙️ NORMALISATION: Dans IndexedDB/Supabase:
           // - Le champ s'appelle "paidAt" (pas "paymentDate")
@@ -2634,8 +2633,29 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   );
                 }
                 
+                const totalPaye = (watch('montantLoyer') || 0) + (watch('chargesRecup') || 0);
+                const loyerHC = watch('montantLoyer') || 0;
+                const chargesRecup = watch('chargesRecup') || 0;
+
                 return (
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-3">
+                    {/* Résumé financier clair */}
+                    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-2">
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-sm font-medium text-gray-700">Total payé par le locataire</span>
+                        <span className="text-lg font-bold text-gray-900">{totalPaye.toFixed(2)} €</span>
+                      </div>
+                      <div className="text-xs text-gray-500 border-t pt-2 mt-2">
+                        <p className="font-medium text-gray-600 mb-1">dont :</p>
+                        <p>Loyer HC — {loyerHC.toFixed(2)} €</p>
+                        <p>Charges récupérables — {chargesRecup.toFixed(2)} €</p>
+                      </div>
+                      <div className="flex justify-between items-baseline pt-2 border-t">
+                        <span className="text-sm font-medium text-gray-700">Revenu propriétaire</span>
+                        <span className="font-semibold text-gray-900">{loyerHC.toFixed(2)} €</span>
+                      </div>
+                    </div>
+
                     <div className="flex items-center justify-between">
                       <h4 className="text-sm font-medium text-gray-900">
                         Détail du loyer (optionnel)
@@ -2733,21 +2753,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       />
                     </div>
                   </div>
-                  
-                  {/* Total payé par le locataire (hors charges non récup) */}
-                  <div className="bg-white rounded p-2 border border-gray-200">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-700">
-                        Total payé par le locataire:
-                      </span>
-                      <span className="text-lg font-bold text-gray-900">
-                        {((watch('montantLoyer') || 0) + (watch('chargesRecup') || 0)).toFixed(2)} €
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      = Loyer HC + Charges récupérables (hors charges non récup.)
-                    </p>
-                  </div>
                 </div>
               );
               })()}
@@ -2798,7 +2803,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 const commissionTTC = commissionBaseTTC + montantFactures;
                 
                 return (
-                  <Accordion title="Commission de gestion estimée" defaultOpen={false}>
+                  <Accordion title={`Commission estimée — ${commissionTTC.toFixed(2)} €`} defaultOpen={false}>
                     <div className="p-3">
                       <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
                         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">

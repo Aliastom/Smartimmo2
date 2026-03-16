@@ -47,7 +47,6 @@ const DuplicateDetectedModal = dynamic(
 );
 import { TransactionsKpiBar } from '@/components/transactions/TransactionsKpiBar';
 import { TransactionsCumulativeChart } from '@/components/transactions/TransactionsCumulativeChart';
-import { TransactionsByCategoryChart } from '@/components/transactions/TransactionsByCategoryChart';
 import { TransactionsIncomeExpenseChart } from '@/components/transactions/TransactionsIncomeExpenseChart';
 import { useTransactionsKpis } from '@/hooks/useTransactionsKpis';
 import { useTransactionsCharts } from '@/hooks/useTransactionsCharts';
@@ -765,26 +764,15 @@ export default function TransactionsClient() {
         }
       />
 
-      {/* Graphiques - TOUS sur la même ligne (AU DESSUS DES CARTES) */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
-        {/* Graphique 1 : Évolution cumulée (2 colonnes) */}
-        <div className="md:col-span-2">
+      {/* Graphiques : Évolution cumulée + Recettes vs Dépenses (Répartition par catégorie supprimée) */}
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+        <div className="min-w-0">
           <TransactionsCumulativeChart
             data={chartsData.timeline}
             isLoading={chartsLoading}
           />
         </div>
-        
-        {/* Graphique 2 : Répartition par catégorie (1 colonne) */}
-        <div className="md:col-span-1">
-          <TransactionsByCategoryChart
-            data={chartsData.byCategory}
-            isLoading={chartsLoading}
-          />
-        </div>
-        
-        {/* Graphique 3 : Recettes vs Dépenses (1 colonne) */}
-        <div className="md:col-span-1">
+        <div className="min-w-0">
           <TransactionsIncomeExpenseChart
             data={chartsData.incomeExpense}
             isLoading={chartsLoading}

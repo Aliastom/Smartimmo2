@@ -88,6 +88,9 @@ export interface StatCardProps {
   progressValue?: number; // 0-100 pour rightIndicator="progress"
   badgeContent?: string; // Contenu du badge
   
+  /** Ligne secondaire sous la valeur (ex. "Projection annuelle +7 896 €") */
+  subtitle?: string;
+  
   color?: 'primary' | 'success' | 'warning' | 'danger' | 'gray' | 'green' | 'red' | 'blue' | 'amber' | 'indigo' | 'emerald' | 'rose' | 'slate' | 'yellow';
   
   onClick?: () => void;
@@ -255,6 +258,7 @@ export const StatCard = React.memo(function StatCard({
   rightIndicator = 'none',
   progressValue,
   badgeContent,
+  subtitle,
   color = 'primary',
   onClick,
   isActive = false,
@@ -379,6 +383,11 @@ export const StatCard = React.memo(function StatCard({
           <p className="text-xl md:text-2xl font-semibold text-gray-900 mt-1 truncate text-left">
             {value}
           </p>
+          {subtitle != null && subtitle !== '' && (
+            <p className="text-xs text-gray-500 mt-0.5 text-left whitespace-pre-line">
+              {subtitle}
+            </p>
+          )}
         </div>
 
         {/* Pastille icône */}

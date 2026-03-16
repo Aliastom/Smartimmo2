@@ -29,6 +29,11 @@ interface Transaction {
     firstName: string;
     lastName: string;
   };
+  Tenant?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+  };
   nature: {
     id: string;
     label: string;
@@ -79,6 +84,9 @@ interface TransactionDrawerProps {
   onViewDocument?: (documentId: string, documentName: string) => void;
   onRefresh?: () => void;
   mode?: 'normal' | 'app-shell'; // Mode pour le rapprochement offline-first
+  /** Ouvrir avec scroll vers la section Documents liés (clic 📎 dans la table) */
+  initialScrollToDocuments?: boolean;
+  onScrollToDocumentsDone?: () => void;
 }
 
 const PAYMENT_METHODS = {
@@ -97,7 +105,9 @@ export default function TransactionDrawer({
   onDelete,
   onViewDocument,
   onRefresh,
-  mode = 'normal'
+  mode = 'normal',
+  initialScrollToDocuments = false,
+  onScrollToDocumentsDone,
 }: TransactionDrawerProps) {
   const { mutate: toggleRapprochement, isPending: isTogglingRapprochement } = useToggleRapprochement(mode);
   const { organizationId } = useCurrentOrganization();
@@ -105,6 +115,19 @@ export default function TransactionDrawer({
     transaction?.rapprochementStatus === 'rapprochee' ? 'rapprochee' : 'non_rapprochee'
   );
   
+  // Scroll vers la section Documents quand ouvert via clic 📎
+  React.useEffect(() => {
+    if (!isOpen || !initialScrollToDocuments || !transaction) return;
+    const timer = setTimeout(() => {
+      const el = document.getElementById('transaction-drawer-documents');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        onScrollToDocumentsDone?.();
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [isOpen, initialScrollToDocuments, transaction?.id, onScrollToDocumentsDone]);
+
   // En mode app-shell, utiliser le hook pour charger les documents depuis IndexedDB
   const { 
     documents: linkedDocuments, 
@@ -229,60 +252,54 @@ export default function TransactionDrawer({
       {/* Drawer - Mobile: plein écran, Desktop: side panel */}
       <div className="fixed right-0 top-0 h-screen w-full lg:w-auto lg:max-w-2xl bg-white shadow-xl transform transition-transform">
         <div className="flex flex-col h-full">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                Détail de la transaction
-              </h2>
-              <p className="text-sm text-gray-600 mt-1">
-                {transaction.label}
-              </p>
+          {/* Header : MONTANT puis Titre (nature – bien – mois) */}
+          <div className="p-4 border-b space-y-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Montant</p>
+                <p className={`text-2xl font-bold mt-0.5 ${getAmountColor(transaction.nature.type)}`}>
+                  {formatAmount(transaction.amount, transaction.nature.type)}
+                </p>
+              </div>
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-600 transition-colors p-1"
+                aria-label="Fermer"
+              >
+                <X className="h-6 w-6" />
+              </button>
             </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <X className="h-6 w-6" />
-            </button>
+            <p className="text-sm font-medium text-gray-900 leading-snug">
+              {transaction.nature?.label || transaction.label}
+              {transaction.Property?.name && ` – ${transaction.Property.name}`}
+              {transaction.accountingMonth && ` – ${formatAccountingMonth(transaction.accountingMonth)}`}
+            </p>
           </div>
 
-          {/* Content */}
+          {/* Content : sections espacées, titres visibles */}
           <div className="flex-1 overflow-y-auto p-4">
-            {/* Informations principales */}
-            <div className="space-y-4">
-              {/* Montant et statut */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className={`text-3xl font-bold ${getAmountColor(transaction.nature.type)}`}>
-                    {formatAmount(transaction.amount, transaction.nature.type)}
-                  </span>
-                  <div className="flex items-center gap-2 mt-2">
-                    <Badge
-                      variant={transaction.nature.type === 'RECETTE' ? 'success' : 'danger'}
-                    >
-                      {transaction.nature.label}
+            <div className="space-y-6">
+              {/* Statut */}
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Statut</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant={transaction.nature.type === 'RECETTE' ? 'success' : 'danger'}
+                  >
+                    {transaction.nature.label}
+                  </Badge>
+                  <Badge
+                    variant={localRapprochementStatus === 'rapprochee' ? 'success' : 'warning'}
+                  >
+                    {localRapprochementStatus === 'rapprochee' ? 'Rapprochée' : 'Non rapprochée'}
+                  </Badge>
+                  {transaction.isAuto && transaction.autoSource === 'gestion' && (
+                    <Badge variant="secondary" className="text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                      Commission
                     </Badge>
-                    <Badge
-                      variant={localRapprochementStatus === 'rapprochee' ? 'success' : 'warning'}
-                    >
-                      {localRapprochementStatus === 'rapprochee' ? 'Rapprochée' : 'Non rapprochée'}
-                    </Badge>
-                    {transaction.isAuto && transaction.autoSource === 'gestion' && (
-                      <Badge variant="danger" className="text-xs font-semibold">
-                        A
-                      </Badge>
-                    )}
-                  </div>
+                  )}
                 </div>
-                <div className="text-right">
-                  <p className="text-sm text-gray-600">Date</p>
-                  <p className="font-medium">{formatDate(transaction.date)}</p>
-                </div>
-              </div>
-
-              {/* Rapprochement bancaire (autosave) */}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="mt-3 bg-gray-50 border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center gap-3">
                   <Switch
                     checked={localRapprochementStatus === 'rapprochee'}
@@ -301,98 +318,59 @@ export default function TransactionDrawer({
                 <p className="text-xs text-gray-600 mt-2">
                   Cette modification est automatiquement sauvegardée.
                 </p>
-              </div>
-
-              {/* Détails */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Bien */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm font-medium text-gray-700">Bien</span>
-                  </div>
-                  <div>
-                    <p className="font-medium">{transaction.Property.name}</p>
-                    <p className="text-sm text-gray-600">{transaction.Property.address}</p>
-                  </div>
                 </div>
+              </section>
 
-                {/* Locataire */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm font-medium text-gray-700">Locataire</span>
-                  </div>
-                  {transaction.Tenant ? (
-                    <p className="font-medium">
-                      {transaction.Tenant.firstName} {transaction.Tenant.lastName}
-                    </p>
-                  ) : (
-                    <p className="text-gray-400">Aucun locataire</p>
-                  )}
-                </div>
-
-                {/* Nature */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm font-medium text-gray-700">Nature</span>
-                  </div>
-                  <p className="font-medium">{transaction.nature.label}</p>
-                </div>
-
-                {/* Catégorie */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm font-medium text-gray-700">Catégorie</span>
-                  </div>
-                  <p className="font-medium">{transaction.Category.label}</p>
-                </div>
-
-                {/* Référence */}
-                {transaction.reference && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-700">Référence</span>
-                    </div>
-                    <p className="font-medium">{transaction.reference}</p>
-                  </div>
+              {/* Bien */}
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Bien</h3>
+                <p className="font-medium text-gray-900">{transaction.Property.name}</p>
+                {transaction.Property.address && (
+                  <p className="text-sm text-gray-600 mt-0.5">{transaction.Property.address}</p>
                 )}
-              </div>
+              </section>
+
+              {/* Locataire */}
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Locataire</h3>
+                <p className="font-medium text-gray-900">
+                  {(transaction.Tenant || transaction.tenant)
+                    ? `${(transaction.Tenant || transaction.tenant)!.firstName} ${(transaction.Tenant || transaction.tenant)!.lastName}`
+                    : '—'}
+                </p>
+              </section>
 
               {/* Paiement */}
               {(transaction.paymentDate || transaction.paymentMethod || transaction.paidAt || transaction.method) && (
-                <div className="border-t pt-4">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center gap-2">
-                    <Euro className="h-5 w-5" />
-                    Informations de paiement
+                <section>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
+                    <Euro className="h-3.5 w-3.5" />
+                    Paiement
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     {(transaction.paymentDate || transaction.paidAt) && (
                       <div>
-                        <p className="text-sm text-gray-600">Date de paiement</p>
-                        <p className="font-medium">{formatDate(transaction.paymentDate || transaction.paidAt || '')}</p>
+                        <p className="text-gray-500">Date</p>
+                        <p className="font-medium text-gray-900">{formatDate(transaction.paymentDate || transaction.paidAt || '')}</p>
                       </div>
                     )}
                     {(transaction.paymentMethod || transaction.method) && (
                       <div>
-                        <p className="text-sm text-gray-600">Mode de paiement</p>
-                        <p className="font-medium">
+                        <p className="text-gray-500">Mode</p>
+                        <p className="font-medium text-gray-900">
                           {PAYMENT_METHODS[(transaction.paymentMethod || transaction.method) as keyof typeof PAYMENT_METHODS] || (transaction.paymentMethod || transaction.method)}
                         </p>
                       </div>
                     )}
                   </div>
-                </div>
+                </section>
               )}
 
-              {/* Période */}
+              {/* Période couverte */}
               {(transaction.accountingMonth || transaction.monthsCovered) && (
-                <div className="border-t pt-4">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center gap-2">
-                    <Calendar className="h-5 w-5" />
+                <section>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
+                    <Calendar className="h-3.5 w-3.5" />
                     Période couverte
                   </h3>
                   
@@ -439,21 +417,21 @@ export default function TransactionDrawer({
                       <Badge variant="primary">Distribution automatique</Badge>
                     </div>
                   )}
-                </div>
+                </section>
               )}
 
               {/* Notes */}
               {transaction.notes && (
-                <div className="border-t pt-4">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Notes</h3>
-                  <p className="text-gray-700 whitespace-pre-wrap">{transaction.notes}</p>
-                </div>
+                <section>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Notes</h3>
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{transaction.notes}</p>
+                </section>
               )}
 
-              {/* Métadonnées */}
-              <div className="border-t pt-4">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Informations système</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Informations système */}
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Informations système</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                   {transaction.accountingMonth && (
                     <div>
                       <p className="text-sm text-gray-600">Mois comptable</p>
@@ -473,17 +451,17 @@ export default function TransactionDrawer({
                     </div>
                   )}
                   <div>
-                    <p className="text-sm text-gray-600">ID Transaction</p>
-                    <p className="font-mono text-xs text-gray-500">{transaction.id}</p>
+                    <p className="text-xs text-gray-500">ID</p>
+                    <p className="font-mono text-xs text-gray-400">{transaction.id}</p>
                   </div>
                 </div>
-              </div>
+              </section>
 
-              {/* Documents liés */}
-              <div className="border-t pt-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
-                    <FileText className="h-5 w-5" />
+              {/* Documents liés (id pour scroll depuis la table) */}
+              <section id="transaction-drawer-documents" className="scroll-mt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+                    <FileText className="h-3.5 w-3.5" />
                     Documents liés
                   </h3>
                   <Button
@@ -534,7 +512,7 @@ export default function TransactionDrawer({
                     <p>Aucun document lié</p>
                   </div>
                 )}
-              </div>
+              </section>
             </div>
           </div>
 

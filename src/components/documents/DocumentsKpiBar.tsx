@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { StatCard } from '@/components/ui/StatCard';
+import { cn } from '@/utils/cn';
 
 export interface DocumentKpis {
   total: number;
@@ -17,6 +18,7 @@ interface DocumentsKpiBarProps {
   onFilterChange: (filter: string | null) => void;
   isLoading?: boolean;
   hideOrphans?: boolean; // Masquer la carte Orphelins (n'a pas de sens dans le contexte d'un bien)
+  compact?: boolean; // Cartes petites et compactes
 }
 
 export function DocumentsKpiBar({
@@ -25,6 +27,7 @@ export function DocumentsKpiBar({
   onFilterChange,
   isLoading = false,
   hideOrphans = false,
+  compact = false,
 }: DocumentsKpiBarProps) {
   const allCards = [
     {
@@ -36,7 +39,7 @@ export function DocumentsKpiBar({
     },
     {
       id: 'pending',
-      title: 'En attente OCR / classification',
+      title: 'En attente OCR',
       value: kpis.pending.toString(),
       iconName: 'Clock',
       color: 'amber' as const,
@@ -82,14 +85,17 @@ export function DocumentsKpiBar({
 
   if (isLoading) {
     return (
-      <div className={`grid gap-4 ${gridColsClass}`}>
+      <div className={`grid gap-3 ${gridColsClass} ${compact ? 'grid-cols-2 sm:grid-cols-4' : ''}`}>
         {Array.from({ length: numberOfCards }).map((_, i) => (
           <div
             key={i}
-            className="bg-white rounded-xl border border-gray-200 p-5 animate-pulse"
+            className={cn(
+              'bg-white rounded-lg border border-gray-200 animate-pulse',
+              compact ? 'p-3' : 'p-5'
+            )}
           >
-            <div className="h-5 bg-gray-200 rounded w-1/2 mb-2"></div>
-            <div className="h-8 bg-gray-200 rounded w-3/4"></div>
+            <div className={cn('bg-gray-200 rounded', compact ? 'h-3 w-1/2 mb-1.5' : 'h-5 w-1/2 mb-2')}></div>
+            <div className={cn('bg-gray-200 rounded', compact ? 'h-5 w-3/4' : 'h-8 w-3/4')}></div>
           </div>
         ))}
       </div>
@@ -97,7 +103,7 @@ export function DocumentsKpiBar({
   }
 
   return (
-    <div className={`grid gap-4 ${gridColsClass}`}>
+    <div className={cn('grid gap-3', gridColsClass, compact && 'grid-cols-2 sm:grid-cols-4')}>
       {cards.map((card) => (
         <StatCard
           key={card.id}
@@ -107,10 +113,11 @@ export function DocumentsKpiBar({
           color={card.color}
           onClick={() => handleCardClick(card.id)}
           isActive={activeFilter === card.id}
-          rightIndicator="chevron"
-          trendValue={0}
-          trendLabel="% vs mois dernier"
-          trendDirection="flat"
+          rightIndicator={compact ? 'none' : 'chevron'}
+          trendValue={compact ? undefined : 0}
+          trendLabel={compact ? undefined : '% vs mois dernier'}
+          trendDirection={compact ? undefined : 'flat'}
+          className={compact ? 'p-3 text-sm' : undefined}
         />
       ))}
     </div>

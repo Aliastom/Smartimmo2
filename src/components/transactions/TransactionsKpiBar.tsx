@@ -9,6 +9,10 @@ export interface TransactionKpis {
   depensesTotales: number;
   soldeNet: number;
   nonRapprochees: number;
+  /** Cashflow mensuel moyen (total soldes mensuels / nombre de mois) */
+  cashflowMensuelMoyen?: number;
+  /** Nombre de mois utilisés pour le calcul */
+  cashflowMoisCount?: number;
 }
 
 interface TransactionsKpiBarProps {
@@ -33,6 +37,17 @@ export function TransactionsKpiBar({
     }).format(amount);
   };
 
+  const cashflowMoisCount = kpis.cashflowMoisCount ?? 0;
+  const cashflowMoyen = kpis.cashflowMensuelMoyen ?? 0;
+  const projectionAnnuelle = cashflowMoyen * 12;
+  const formatCashflow = (amount: number) =>
+    (amount >= 0 ? '+' : '') + formatCurrency(amount);
+  const hasCashflowData = cashflowMoisCount > 0;
+  const cashflowValue = hasCashflowData ? formatCashflow(cashflowMoyen) : '—';
+  const cashflowSubtitle = hasCashflowData
+    ? `calculé sur ${cashflowMoisCount} mois\nProjection annuelle ${formatCashflow(projectionAnnuelle)}`
+    : undefined;
+
   const cards = [
     {
       id: 'recettes',
@@ -40,6 +55,7 @@ export function TransactionsKpiBar({
       value: formatCurrency(kpis.recettesTotales),
       iconName: 'TrendingUp',
       color: 'green' as const,
+      subtitle: undefined as string | undefined,
     },
     {
       id: 'depenses',
@@ -47,6 +63,7 @@ export function TransactionsKpiBar({
       value: formatCurrency(Math.abs(kpis.depensesTotales)),
       iconName: 'TrendingDown',
       color: 'red' as const,
+      subtitle: undefined as string | undefined,
     },
     {
       id: 'solde',
@@ -54,6 +71,15 @@ export function TransactionsKpiBar({
       value: formatCurrency(kpis.soldeNet),
       iconName: 'Activity',
       color: kpis.soldeNet >= 0 ? ('blue' as const) : ('red' as const),
+      subtitle: undefined as string | undefined,
+    },
+    {
+      id: 'cashflow',
+      title: 'Cashflow mensuel moyen',
+      value: cashflowValue,
+      iconName: 'Euro',
+      color: hasCashflowData ? (cashflowMoyen >= 0 ? ('green' as const) : ('red' as const)) : ('gray' as const),
+      subtitle: cashflowSubtitle,
     },
     {
       id: 'nonRapprochees',
@@ -61,6 +87,7 @@ export function TransactionsKpiBar({
       value: kpis.nonRapprochees.toString(),
       iconName: 'Clock',
       color: 'yellow' as const,
+      subtitle: undefined as string | undefined,
     },
   ];
 
@@ -72,8 +99,8 @@ export function TransactionsKpiBar({
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        {[1, 2, 3, 4].map((i) => (
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+        {[1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
             className="bg-white rounded-xl border border-gray-200 p-5 animate-pulse"
@@ -87,7 +114,7 @@ export function TransactionsKpiBar({
   }
 
   return (
-    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
       {cards.map((card) => (
         <StatCard
           key={card.id}
@@ -95,6 +122,7 @@ export function TransactionsKpiBar({
           value={card.value}
           iconName={card.iconName}
           color={card.color}
+          subtitle={card.subtitle}
           onClick={() => handleCardClick(card.id)}
           isActive={activeFilter === card.id}
           rightIndicator="none"

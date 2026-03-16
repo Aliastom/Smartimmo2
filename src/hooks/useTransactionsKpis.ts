@@ -17,6 +17,10 @@ export interface TransactionKpis {
   depensesTotales: number;
   soldeNet: number;
   nonRapprochees: number;
+  /** Cashflow mensuel moyen = total des soldes mensuels / nombre de mois avec transactions */
+  cashflowMensuelMoyen?: number;
+  /** Nombre de mois utilisés pour le calcul (pour afficher "calculé sur X mois") */
+  cashflowMoisCount?: number;
 }
 
 export interface UseTransactionsKpisOptions {
@@ -57,6 +61,8 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
     depensesTotales: 0,
     soldeNet: 0,
     nonRapprochees: 0,
+    cashflowMensuelMoyen: 0,
+    cashflowMoisCount: 0,
   });
   const [isLoading, setIsLoading] = useState(mode === 'app-shell');
   const [error, setError] = useState<string | null>(null);
@@ -167,7 +173,7 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
         // Charger les natures depuis IndexedDB
         const naturesData = await db.NatureEntity.toArray();
         const natureMap = new Map<string, CachedNature>();
-        naturesData.forEach(nature => {
+        naturesData.forEach((nature: CachedNature) => {
           natureMap.set(nature.key, nature);
         });
 
@@ -222,11 +228,31 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
 
         const soldeNet = recettesTotales + depensesTotales; // depensesTotales est déjà négatif
 
+        // Cashflow mensuel moyen = total des soldes mensuels / nombre de mois avec transactions (cohérent avec les séparateurs du tableau)
+        const monthlyTotals: Record<string, number> = {};
+        for (const t of filteredTransactions) {
+          const acc = (t as any).accounting_month ?? (t as any).accountingMonth;
+          const month = acc ?? (t.date ? `${new Date(t.date).getFullYear()}-${String(new Date(t.date).getMonth() + 1).padStart(2, '0')}` : null);
+          if (!month) continue;
+          const amount = t.amount || 0;
+          const natureKey = t.nature || '';
+          const natureData = natureKey ? natureMap.get(natureKey) : null;
+          const flow = natureData?.flow?.toUpperCase() || (amount > 0 ? 'INCOME' : 'EXPENSE');
+          const signed = flow === 'EXPENSE' ? -Math.abs(amount) : Math.abs(amount);
+          monthlyTotals[month] = (monthlyTotals[month] ?? 0) + signed;
+        }
+        const monthsCount = Object.keys(monthlyTotals).length;
+        const cashflowTotal = Object.values(monthlyTotals).reduce((a, b) => a + b, 0);
+        const cashflowMensuelMoyen = monthsCount > 0 ? cashflowTotal / monthsCount : 0;
+        const cashflowMoisCount = monthsCount;
+
         console.log('[useTransactionsKpis] ✅ KPIs calculés:', {
           recettesTotales,
           depensesTotales,
           soldeNet,
           nonRapprochees,
+          cashflowMensuelMoyen,
+          cashflowMoisCount,
           transactionsCount: filteredTransactions.length,
           totalTransactions: transactions.length
         });
@@ -237,6 +263,8 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
             depensesTotales,
             soldeNet,
             nonRapprochees,
+            cashflowMensuelMoyen,
+            cashflowMoisCount,
           });
           setIsLoading(false);
         }
@@ -312,7 +340,7 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
         // Recalculer les KPIs (même logique que dans calculateKpis)
         const naturesData = await db.NatureEntity.toArray();
         const natureMap = new Map<string, CachedNature>();
-        naturesData.forEach(nature => {
+        naturesData.forEach((nature: CachedNature) => {
           natureMap.set(nature.key, nature);
         });
 
@@ -358,12 +386,30 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
 
         const soldeNet = recettesTotales + depensesTotales;
 
+        const monthlyTotals: Record<string, number> = {};
+        for (const t of filteredTransactions) {
+          const acc = (t as any).accounting_month ?? (t as any).accountingMonth;
+          const month = acc ?? (t.date ? `${new Date(t.date).getFullYear()}-${String(new Date(t.date).getMonth() + 1).padStart(2, '0')}` : null);
+          if (!month) continue;
+          const amount = t.amount || 0;
+          const natureKey = t.nature || '';
+          const natureData = natureKey ? natureMap.get(natureKey) : null;
+          const flow = natureData?.flow?.toUpperCase() || (amount > 0 ? 'INCOME' : 'EXPENSE');
+          const signed = flow === 'EXPENSE' ? -Math.abs(amount) : Math.abs(amount);
+          monthlyTotals[month] = (monthlyTotals[month] ?? 0) + signed;
+        }
+        const monthsCount = Object.keys(monthlyTotals).length;
+        const cashflowTotal = Object.values(monthlyTotals).reduce((a, b) => a + b, 0);
+        const cashflowMensuelMoyen = monthsCount > 0 ? cashflowTotal / monthsCount : 0;
+
         if (!cancelled) {
           setKpis({
             recettesTotales,
             depensesTotales,
             soldeNet,
             nonRapprochees,
+            cashflowMensuelMoyen,
+            cashflowMoisCount: monthsCount,
           });
         }
       } catch (error) {
@@ -388,6 +434,8 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
         depensesTotales: 0,
         soldeNet: 0,
         nonRapprochees: 0,
+        cashflowMensuelMoyen: 0,
+        cashflowMoisCount: 0,
       },
       isLoading: apiLoading,
       error: apiError ? (apiError as Error).message : null,

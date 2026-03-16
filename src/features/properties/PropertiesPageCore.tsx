@@ -19,10 +19,8 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/Pagination';
 import { PaginationV2 } from '@/components/ui2/PaginationV2';
-import { Loader2, Plus, Edit, Trash2, MapPin, Building2, Home, Warehouse, Store, Mountain, Archive, UserCheck, UserX, Eye, Download, CheckCircle, Menu, X } from 'lucide-react';
+import { Loader2, Plus, Edit, Trash2, MapPin, Building2, Archive, UserCheck, UserX, Eye, Download, CheckCircle, Menu, X, LayoutGrid, List } from 'lucide-react';
 import { NetCumulativeChart } from '@/features/analytics/components/NetCumulativeChart';
-import { RevenueExpenseCard } from '@/features/analytics/components/RevenueExpenseCard';
-import { OccupancyDonut } from '@/features/analytics/components/OccupancyDonut';
 import PropertyForm from '@/components/forms/PropertyForm';
 import type { PropertyWithRelations } from '@/lib/db/PropertyRepo';
 import type { Property, Transaction } from '@/features/analytics/types';
@@ -42,6 +40,16 @@ import { createPropertyServiceWithMode } from '@/domain/services/propertyService
 import { getGlobalSyncService } from '@/lib/offline/syncGlobal';
 import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/PropertyRepositoryOffline';
 import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
+import {
+  computePropertiesDashboard,
+  getCashflowIndicator,
+  getRendementIndicator,
+  getScoreLabelText,
+  getScoreDotColor,
+  groupAlertsByType,
+  getHealthHeatmap,
+  getPropertySortPriority,
+} from './utils/propertyDashboard';
 
 export interface PropertiesPageCoreProps {
   mode: 'normal' | 'app-shell';
@@ -214,23 +222,40 @@ export function PropertiesPageCore({
     return filtered;
   }, [mode, properties, statusFilter, search, includeArchived]);
 
-  // Pagination
-  // En mode normal : utiliser la pagination serveur
-  // En mode app-shell : pagination client
+  // Dashboard pilotage : alertes, KPIs, métriques par bien (calcul côté frontend)
+  const dashboard = useMemo(
+    () => computePropertiesDashboard(properties, transactionsForCharts),
+    [properties, transactionsForCharts]
+  );
+  const { alerts: parcelAlerts, kpis: dashboardKpis, metricsByProperty } = dashboard;
+
+  // Tri intelligent (app-shell) : alertes → cashflow négatif → vacance → autres
+  const sortedFilteredProperties = useMemo(() => {
+    if (mode === 'normal') return filteredProperties;
+    return [...filteredProperties].sort((a, b) => {
+      const propA = a as any;
+      const propB = b as any;
+      const occA = (propA.Lease?.length ?? 0) > 0 || propA.occupation === 'OCCUPIED';
+      const occB = (propB.Lease?.length ?? 0) > 0 || propB.occupation === 'OCCUPIED';
+      const prioA = getPropertySortPriority(a.id, metricsByProperty.get(a.id), occA);
+      const prioB = getPropertySortPriority(b.id, metricsByProperty.get(b.id), occB);
+      return prioA - prioB;
+    });
+  }, [mode, filteredProperties, metricsByProperty]);
+
   const totalPages = mode === 'normal' && initialData?.pagination
     ? initialData.pagination.pages
-    : Math.ceil(filteredProperties.length / itemsPerPage);
-  
+    : Math.ceil(sortedFilteredProperties.length / itemsPerPage);
+
   const paginatedProperties = useMemo(() => {
-    if (mode === 'normal') {
-      // En mode normal, les données sont déjà paginées par le serveur
-      return filteredProperties;
-    }
-    // Mode app-shell : paginer côté client
+    if (mode === 'normal') return filteredProperties;
     const start = (currentPage - 1) * itemsPerPage;
     const end = start + itemsPerPage;
-    return filteredProperties.slice(start, end);
-  }, [mode, filteredProperties, currentPage, itemsPerPage, initialData]);
+    return sortedFilteredProperties.slice(start, end);
+  }, [mode, filteredProperties, sortedFilteredProperties, currentPage, itemsPerPage, initialData]);
+
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [showAlertsDetail, setShowAlertsDetail] = useState(false);
 
   // Handlers de recherche et filtres
   const handleSearch = (value: string) => {
@@ -606,24 +631,21 @@ export function PropertiesPageCore({
   }, [mode, searchParamsHook, statusFilter, search, includeArchived, currentPage]);
 
 
-  // Helpers UI
-  const getPropertyTypeIcon = (type: string) => {
-    // En V2, toutes les icônes sont en noir
-    const iconColor = useUI2 ? 'text-black' : '';
+  // Helpers UI — icône type de bien (emoji pour lisibilité)
+  const getPropertyTypeEmoji = (type: string): string => {
     switch (type) {
-      case 'house':
-        return <Home className={cn("h-4 w-4", useUI2 ? "text-black" : "text-blue-600")} />;
-      case 'apartment':
-        return <Building2 className={cn("h-4 w-4", useUI2 ? "text-black" : "text-purple-600")} />;
-      case 'garage':
-        return <Warehouse className={cn("h-4 w-4", useUI2 ? "text-black" : "text-orange-600")} />;
-      case 'commercial':
-        return <Store className={cn("h-4 w-4", useUI2 ? "text-black" : "text-red-600")} />;
-      case 'land':
-        return <Mountain className={cn("h-4 w-4", useUI2 ? "text-black" : "text-green-600")} />;
-      default:
-        return <Home className={cn("h-4 w-4", useUI2 ? "text-black" : "text-gray-600")} />;
+      case 'house': return '🏠';
+      case 'apartment': return '🏢';
+      case 'garage': return '🚗';
+      case 'commercial': return '🏬';
+      case 'land': return '🌳';
+      default: return '🏠';
     }
+  };
+
+  const getPropertyShortAddress = (prop: any): string => {
+    const parts = [prop.address, prop.postalCode, prop.city].filter(Boolean);
+    return parts.length ? parts.join(', ') : '—';
   };
 
   const getStatusBadge = (property: PropertyWithRelations) => {
@@ -821,72 +843,174 @@ export function PropertiesPageCore({
         </div>
         
         {/* Ligne 2 : Description */}
-        <p className="text-sm sm:text-base text-gray-600">Gestion de votre patrimoine immobilier</p>
+        <p className="text-sm sm:text-base text-gray-600">Pilotage de votre parc immobilier</p>
       </div>
 
-      {/* Rangée 1 - Graphiques dynamiques */}
-      {(transactionsForCharts.length > 0 || propertiesForCharts.length > 0) && (
-        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
-          <div className="md:col-span-2">
-            <NetCumulativeChart 
-              transactions={transactionsForCharts} 
-              properties={propertiesForCharts} 
-            />
-          </div>
-          <RevenueExpenseCard 
-            transactions={transactionsForCharts} 
-            properties={propertiesForCharts} 
-            year={new Date().getFullYear()} 
-          />
-          <OccupancyDonut properties={propertiesForCharts} />
-        </div>
+      {/* 1️⃣ Alertes du parc — résumé groupé + détail au clic */}
+      {parcelAlerts.length > 0 && (
+        <Card className="border-gray-200 bg-gray-50/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2 text-gray-900">
+              <span className="text-amber-600" aria-hidden>⚠️</span>
+              Actions à traiter
+            </CardTitle>
+            <CardDescription>Résumé des alertes sur le parc</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!showAlertsDetail ? (
+              <>
+                <ul className="space-y-1.5 text-sm text-gray-700">
+                  {groupAlertsByType(parcelAlerts).map((g) => (
+                    <li key={g.type}>
+                      {g.label} ({g.count})
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAlertsDetail(true)}
+                  className="mt-2"
+                >
+                  Voir les biens concernés
+                </Button>
+              </>
+            ) : (
+              <>
+                <ul className="space-y-2">
+                  {parcelAlerts.map((alert) => (
+                    <li
+                      key={`${alert.propertyId}-${alert.type}-${alert.label}`}
+                      className="flex items-center justify-between gap-3 py-2 px-3 rounded-lg bg-white border border-gray-100 text-sm"
+                    >
+                      <span className="text-gray-900">
+                        {alert.propertyName} — {alert.label}
+                        {alert.detail && <span className="text-gray-500"> ({alert.detail})</span>}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handlePropertyClick(alert.propertyId)}
+                        className="shrink-0 text-gray-600"
+                      >
+                        Voir le bien
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowAlertsDetail(false)}
+                  className="mt-2 text-gray-600"
+                >
+                  Replier le détail
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
       )}
 
-      {/* Rangée 2 - Cartes filtrantes */}
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 auto-rows-fr">
+      {/* 2️⃣ KPIs du parc (4 cartes très compactes — ~20 % padding en moins, icônes et titres réduits) */}
+      <div className="grid gap-1.5 grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Biens totaux"
-          value={stats.total.toString()}
+          value={dashboardKpis.biensTotaux.toString()}
           iconName="Home"
           color="indigo"
           trendValue={0}
-          trendLabel="% vs mois dernier"
+          trendLabel=""
           trendDirection="flat"
           rightIndicator="chevron"
           onClick={() => handleStatusFilter('total')}
           isActive={statusFilter === 'total'}
+          className="!p-2.5 !gap-1.5 [&_.flex-1_p:first-child]:!text-[0.65rem] [&_.flex-1_p:last-child]:!text-base"
         />
         <StatCard
-          title="Occupés"
-          value={stats.occupied.toString()}
-          iconName="UserCheck"
+          title="Rentabilité moyenne"
+          value={`${dashboardKpis.rentabiliteMoyennePct.toFixed(1)} %`}
+          iconName="TrendingUp"
           color="green"
           trendValue={0}
-          trendLabel="% vs mois dernier"
+          trendLabel=""
           trendDirection="flat"
-          rightIndicator="chevron"
-          onClick={() => handleStatusFilter('occupied')}
-          isActive={statusFilter === 'occupied'}
+          rightIndicator="none"
+          className="!p-2.5 !gap-1.5 [&_.flex-1_p:first-child]:!text-[0.65rem] [&_.flex-1_p:last-child]:!text-base"
         />
         <StatCard
-          title="Vacants"
-          value={stats.vacant.toString()}
+          title="Cashflow mensuel"
+          value={
+            dashboardKpis.cashflowMensuelTotal >= 0
+              ? `+${dashboardKpis.cashflowMensuelTotal.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €`
+              : `${dashboardKpis.cashflowMensuelTotal.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €`
+          }
+          iconName="Euro"
+          color={dashboardKpis.cashflowMensuelTotal >= 0 ? 'green' : 'danger'}
+          trendValue={0}
+          trendLabel=""
+          trendDirection="flat"
+          rightIndicator="none"
+          className="!p-2.5 !gap-1.5 [&_.flex-1_p:first-child]:!text-[0.65rem] [&_.flex-1_p:last-child]:!text-base"
+        />
+        <StatCard
+          title="Taux de vacance"
+          value={`${dashboardKpis.tauxVacancePct.toFixed(1)} %`}
           iconName="UserX"
           color="amber"
           trendValue={0}
-          trendLabel="% vs mois dernier"
+          trendLabel=""
           trendDirection="flat"
           rightIndicator="chevron"
           onClick={() => handleStatusFilter('vacant')}
           isActive={statusFilter === 'vacant'}
+          className="!p-2.5 !gap-1.5 [&_.flex-1_p:first-child]:!text-[0.65rem] [&_.flex-1_p:last-child]:!text-base"
         />
       </div>
 
-      {/* Liste des biens */}
+      {/* 3️⃣ Graphique bénéfice net cumulé (seul graphique conservé) */}
+      {(transactionsForCharts.length > 0 || propertiesForCharts.length > 0) && (
+        <div className="w-full">
+          <NetCumulativeChart
+            transactions={transactionsForCharts}
+            properties={propertiesForCharts}
+          />
+        </div>
+      )}
+
+      {/* 4️⃣ Liste des biens */}
       <Card>
         <CardHeader>
-          <CardTitle>Liste des Biens</CardTitle>
-          <CardDescription>Recherchez et gérez vos biens immobiliers</CardDescription>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle>Liste des Biens</CardTitle>
+              <CardDescription>Recherchez et gérez vos biens immobiliers</CardDescription>
+            </div>
+            <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                  viewMode === 'table' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                )}
+              >
+                <List className="h-4 w-4" />
+                Vue tableau
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('cards')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                  viewMode === 'cards' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                )}
+              >
+                <LayoutGrid className="h-4 w-4" />
+                Vue cartes
+              </button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="mb-6 space-y-4">
@@ -916,7 +1040,7 @@ export function PropertiesPageCore({
             </div>
           </div>
 
-          {/* Table */}
+          {/* Vue cartes ou tableau */}
           {paginatedProperties.length === 0 ? (
             <EmptyState
               icon={Building2}
@@ -925,23 +1049,142 @@ export function PropertiesPageCore({
                 ? "Essayez de modifier vos critères de recherche ou vos filtres."
                 : "Commencez par ajouter votre premier bien immobilier."}
             />
+          ) : viewMode === 'cards' ? (
+            <>
+            {/* 7️⃣ Vue cartes des biens */}
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+              {paginatedProperties.map((property) => {
+                const prop = property as any;
+                const metrics = metricsByProperty.get(property.id);
+                const loyer = (prop.Lease?.length || 0) > 0 ? prop.Lease[0].rentAmount : null;
+                const cashflow = metrics?.cashflowMensuel ?? 0;
+                const rendement = metrics?.rendementPct ?? 0;
+                const score = metrics?.score ?? 0;
+                const tenant = (prop.Lease?.length || 0) > 0 ? prop.Lease[0].Tenant : null;
+                const city = [prop.address, prop.postalCode, prop.city].filter(Boolean).join(', ') || '—';
+                return (
+                  <Card
+                    key={property.id}
+                    className="cursor-pointer hover:shadow-md transition-shadow border-gray-200"
+                    onClick={() => handlePropertyClick(property.id)}
+                  >
+                    <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-lg leading-none" aria-hidden>{getPropertyTypeEmoji(prop.type || 'apartment')}</span>
+                          <CardTitle className="text-base truncate">{property.name}</CardTitle>
+                        </div>
+                        <div className="shrink-0 flex flex-col items-end">
+                          <span className={cn('text-sm font-medium', getScoreDotColor(score))}>● {score}</span>
+                          <span className="text-xs text-gray-500">{getScoreLabelText(metrics?.scoreLabel ?? 'faible')}</span>
+                        </div>
+                      </div>
+                      <CardDescription className="flex items-center gap-1 text-xs">
+                        <MapPin className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{city}</span>
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <span className="text-gray-500">Loyer</span>
+                          <p className="font-medium">{loyer != null ? `${loyer.toLocaleString('fr-FR')} €` : '—'}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Cashflow</span>
+                          <p className={cn('font-medium', cashflow >= 0 ? 'text-green-600' : 'text-red-600')}>
+                            {cashflow >= 0 ? '+' : ''}{cashflow.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Rendement</span>
+                          <p className="font-medium">{rendement.toFixed(1)} %</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Score</span>
+                          <p className="font-medium">{getScoreLabelText(metrics?.scoreLabel ?? 'faible')}</p>
+                        </div>
+                      </div>
+                      {tenant && (
+                        <p className="text-xs text-gray-600">
+                          👤 Locataire : {tenant.firstName} {tenant.lastName}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 pt-1">
+                        {getStatusBadge(property)}
+                        {(metrics?.alerts?.length ?? 0) > 0 && (
+                          <span
+                            className="text-amber-600 text-xs font-medium"
+                            title={metrics!.alerts.map((a) => a.label).join('\n')}
+                          >
+                            ⚠ {metrics!.alerts.length} alerte{metrics!.alerts.length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-2 pt-2 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
+                        <Button variant="outline" size="sm" onClick={() => handlePropertyClick(property.id)}>
+                          Voir
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingProperty(property);
+                            setPropertyFormOpen(true);
+                          }}
+                        >
+                          Modifier
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+            {/* Pagination pour la vue cartes */}
+            {mode === 'normal' && initialData?.pagination && initialData.pagination.pages > 1 && (
+              <div className="mt-6">
+                <PaginationV2
+                  currentPage={initialData.pagination.page}
+                  totalPages={initialData.pagination.pages}
+                  onPageChange={handlePageChange}
+                />
+              </div>
+            )}
+            {mode === 'app-shell' && totalPages > 1 && (
+              <div className="mt-6">
+                <PaginationV2
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={handlePageChange}
+                />
+              </div>
+            )}
+            </>
           ) : useUI2 ? (
-            // Version V2 du tableau
+            // Version V2 du tableau — colonnes: Bien, Loyer, Cashflow, Rendement, Score, Statut, Alerte, Actions
             <>
               <TableV2>
                 <TableHeaderV2>
                   <tr>
                     <TableHeaderCellV2>Bien</TableHeaderCellV2>
-                    <TableHeaderCellV2>Surface</TableHeaderCellV2>
                     <TableHeaderCellV2>Loyer</TableHeaderCellV2>
-                    <TableHeaderCellV2>Locataire</TableHeaderCellV2>
+                    <TableHeaderCellV2>Cashflow</TableHeaderCellV2>
+                    <TableHeaderCellV2>Rendement</TableHeaderCellV2>
+                    <TableHeaderCellV2>Score</TableHeaderCellV2>
                     <TableHeaderCellV2>Statut</TableHeaderCellV2>
+                    <TableHeaderCellV2>Alerte</TableHeaderCellV2>
                     <TableHeaderCellV2 className="text-center">Actions</TableHeaderCellV2>
                   </tr>
                 </TableHeaderV2>
                 <TableBodyV2>
                   {paginatedProperties.map((property) => {
                     const prop = property as any;
+                    const metrics = metricsByProperty.get(property.id);
+                    const loyer = (prop.Lease?.length || 0) > 0 ? prop.Lease[0].rentAmount : null;
+                    const cashflow = metrics?.cashflowMensuel ?? 0;
+                    const rendement = metrics?.rendementPct ?? 0;
+                    const score = metrics?.score ?? 0;
                     return (
                       <TableRowV2
                         key={property.id}
@@ -950,70 +1193,16 @@ export function PropertiesPageCore({
                         onHoverInfo={getHoverInfo(property)}
                       >
                         <TableCellV2>
-                          <div>
+                          <div className="flex flex-col gap-0.5">
                             <div className="flex items-center gap-2 flex-wrap">
                               {loadingPropertyId === property.id ? (
                                 <Loader2 className="h-4 w-4 animate-spin sidebar-loader-orange" />
                               ) : (
-                                getPropertyTypeIcon(prop.type || 'apartment')
+                                <span className="text-base leading-none" aria-hidden>{getPropertyTypeEmoji(prop.type || 'apartment')}</span>
                               )}
                               <span className={cn(prop.isArchived ? 'font-medium text-gray-500 line-through' : 'font-medium text-gray-900')}>
                                 {property.name}
                               </span>
-                              {(() => {
-                                // Chercher dans transactionsWithLabel d'abord (contient le label), sinon dans transactionsForCharts
-                                let propertyTransactions: Array<{ id: string; propertyId: string; date: string; amount: number; label?: string }> = [];
-                                
-                                if (transactionsWithLabel.length > 0) {
-                                  // Utiliser transactionsWithLabel qui contient le label
-                                  propertyTransactions = transactionsWithLabel.filter(t => {
-                                    // Comparaison stricte des IDs de propriété
-                                    return t.propertyId === property.id || t.propertyId === String(property.id);
-                                  });
-                                } else {
-                                  // Fallback : utiliser transactionsForCharts (mais pas de label disponible)
-                                  propertyTransactions = transactionsForCharts
-                                    .filter(t => t.propertyId === property.id || t.propertyId === String(property.id))
-                                    .map(t => ({ ...t, label: undefined }));
-                                }
-                                
-                                if (propertyTransactions.length === 0) {
-                                  return null;
-                                }
-                                
-                                // Trier par date décroissante
-                                const sortedTransactions = propertyTransactions.sort((a, b) => {
-                                  try {
-                                    const dateA = typeof a.date === 'string' 
-                                      ? new Date(a.date).getTime() 
-                                      : (a.date as any)?.getTime?.() || (a.date as any) || 0;
-                                    const dateB = typeof b.date === 'string' 
-                                      ? new Date(b.date).getTime() 
-                                      : (b.date as any)?.getTime?.() || (b.date as any) || 0;
-                                    return dateB - dateA;
-                                  } catch (e) {
-                                    return 0;
-                                  }
-                                });
-                                
-                                const lastTransaction = sortedTransactions[0];
-                                
-                                // Afficher seulement si on a un label (sinon on ne peut pas afficher le nom de la transaction)
-                                if (!lastTransaction || !lastTransaction.label || lastTransaction.label.trim() === '') {
-                                  return null;
-                                }
-                                
-                                return (
-                                  <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-in-out ml-2">
-                                    <CheckCircle className="h-3.5 w-3.5 text-green-600 flex-shrink-0" />
-                                    <span className="text-xs font-medium text-gray-700">
-                                      {lastTransaction.amount > 0 ? '+' : ''}€{Math.abs(lastTransaction.amount).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </span>
-                                    <span className="text-xs text-gray-600">•</span>
-                                    <span className="text-xs text-gray-600 truncate max-w-[200px]">{lastTransaction.label}</span>
-                                  </div>
-                                );
-                              })()}
                               {prop.isArchived && (
                                 <Badge variant="warning" size="sm" className="bg-orange-100 text-orange-800 border-orange-300">
                                   <Archive className="h-3 w-3 mr-1" />
@@ -1021,53 +1210,75 @@ export function PropertiesPageCore({
                                 </Badge>
                               )}
                             </div>
+                            <div className="text-xs text-gray-500 flex items-center gap-1">
+                              <span aria-hidden>📍</span>
+                              <span className="truncate max-w-[180px]">{getPropertyShortAddress(prop)}</span>
+                            </div>
                           </div>
                         </TableCellV2>
                         <TableCellV2>
-                          <div className="text-sm ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out">
-                            <div className="font-medium text-gray-900">{prop.surface || 'N/A'} m²</div>
-                            {prop.rooms && (
-                              <div className="text-gray-500">{prop.rooms} pièce{prop.rooms > 1 ? 's' : ''}</div>
-                            )}
+                          <div className="ui2-table-cell-content">
+                            {loyer != null ? `€${loyer.toLocaleString('fr-FR')}` : '—'}
                           </div>
                         </TableCellV2>
-                        <TableCellV2>
-                          <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out">
-                            {(prop.Lease?.length || 0) > 0 ? (
-                              <div className="font-medium text-gray-900">
-                                €{prop.Lease[0].rentAmount.toLocaleString('fr-FR')}/mois
-                              </div>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
+                        <TableCellV2 className="ui2-table-cell-content">
+                          <span className="text-gray-900">
+                            {cashflow >= 0 ? '+' : ''}{cashflow.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €
+                          </span>
+                          <span className="ml-1" aria-hidden>{getCashflowIndicator(cashflow)}</span>
+                        </TableCellV2>
+                        <TableCellV2 className="ui2-table-cell-content">
+                          {rendement > 0 ? (
+                            <>
+                              <span className="text-gray-900">{rendement.toFixed(1)} %</span>
+                              <span className="ml-1" aria-hidden>{getRendementIndicator(rendement)}</span>
+                            </>
+                          ) : (
+                            '—'
+                          )}
+                        </TableCellV2>
+                        <TableCellV2 className="ui2-table-cell-content">
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className={cn('text-sm font-medium', getScoreDotColor(score))}>● {score}</span>
+                              <span className="text-xs text-gray-500">{getScoreLabelText(metrics?.scoreLabel ?? 'faible')}</span>
+                            </div>
+                            <div className="flex gap-0.5" title="Rentabilité · Cashflow · Occupation · Alertes">
+                              {getHealthHeatmap(metrics, !!(prop.Lease?.length || 0) || prop.occupation === 'OCCUPIED').map((level, i) => (
+                                <span
+                                  key={i}
+                                  className={cn(
+                                    'w-2 h-2 rounded-sm flex-shrink-0',
+                                    level === 'green' && 'bg-emerald-500',
+                                    level === 'orange' && 'bg-amber-500',
+                                    level === 'red' && 'bg-red-500'
+                                  )}
+                                  aria-hidden
+                                />
+                              ))}
+                            </div>
                           </div>
                         </TableCellV2>
-                        <TableCellV2>
-                          <div className="text-sm ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out">
-                            {(prop.Lease?.length || 0) > 0 ? (
-                              <div className="text-gray-900">
-                                {prop.Lease[0].Tenant.firstName} {prop.Lease[0].Tenant.lastName}
-                              </div>
-                            ) : (
-                              <span className="text-gray-400">Aucun</span>
-                            )}
-                          </div>
-                        </TableCellV2>
-                        <TableCellV2>
-                          <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out">
-                            {getStatusBadge(property)}
-                          </div>
+                        <TableCellV2>{getStatusBadge(property)}</TableCellV2>
+                        <TableCellV2 className="ui2-table-cell-content">
+                          {(metrics?.alerts?.length ?? 0) > 0 ? (
+                            <span
+                              className="text-amber-600 text-xs font-medium"
+                              title={metrics!.alerts.map((a) => a.label).join('\n')}
+                            >
+                              ⚠ {metrics!.alerts.length} alerte{metrics!.alerts.length > 1 ? 's' : ''}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
                         </TableCellV2>
                         <TableCellV2 className="text-center" onClick={(e) => e.stopPropagation()}>
-                          <div 
-                            className="flex items-center justify-center gap-1"
-                            onClick={(e) => e.stopPropagation()} // ✅ Empêcher la propagation depuis le div aussi
-                          >
+                          <div className="flex items-center justify-center gap-1">
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={(e) => {
-                                e.stopPropagation(); // ✅ Empêcher la propagation vers le TableRowV2
+                                e.stopPropagation();
                                 setEditingProperty(property);
                                 setPropertyFormOpen(true);
                               }}
@@ -1079,7 +1290,7 @@ export function PropertiesPageCore({
                               variant="outline"
                               size="sm"
                               onClick={(e) => {
-                                e.stopPropagation(); // ✅ Empêcher la propagation vers le TableRowV2
+                                e.stopPropagation();
                                 handleDeleteProperty(property);
                               }}
                               className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
@@ -1115,102 +1326,118 @@ export function PropertiesPageCore({
               )}
             </>
           ) : (
-            // Version normale du tableau
+            // Version normale du tableau — colonnes: Bien, Loyer, Cashflow, Rendement, Score, Statut, Alerte, Actions
             <>
               <Table hover>
                 <TableHeader>
                   <TableRow>
                     <TableHeaderCell>Bien</TableHeaderCell>
-                    <TableHeaderCell>Surface</TableHeaderCell>
                     <TableHeaderCell>Loyer</TableHeaderCell>
-                    <TableHeaderCell>Locataire</TableHeaderCell>
+                    <TableHeaderCell>Cashflow</TableHeaderCell>
+                    <TableHeaderCell>Rendement</TableHeaderCell>
+                    <TableHeaderCell>Score</TableHeaderCell>
                     <TableHeaderCell>Statut</TableHeaderCell>
+                    <TableHeaderCell>Alerte</TableHeaderCell>
                     <TableHeaderCell>Actions</TableHeaderCell>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {paginatedProperties.map((property) => {
                     const prop = property as any;
+                    const metrics = metricsByProperty.get(property.id);
+                    const loyer = (prop.Lease?.length || 0) > 0 ? prop.Lease[0].rentAmount : null;
+                    const cashflow = metrics?.cashflowMensuel ?? 0;
+                    const rendement = metrics?.rendementPct ?? 0;
+                    const score = metrics?.score ?? 0;
                     return (
-                      <TableRow 
+                      <TableRow
                         key={property.id}
                         className={cn('cursor-pointer', prop.isArchived && 'bg-gray-50 opacity-70 border-l-4 border-l-gray-400')}
                         onClick={() => handlePropertyClick(property.id)}
                       >
                         <TableCell>
-                          <div>
+                          <div className="flex flex-col gap-0.5">
                             <div className="flex items-center gap-2">
                               {loadingPropertyId === property.id ? (
                                 <Loader2 className="h-4 w-4 animate-spin sidebar-loader-orange" />
                               ) : (
-                                getPropertyTypeIcon(prop.type || 'apartment')
+                                <span className="text-base leading-none" aria-hidden>{getPropertyTypeEmoji(prop.type || 'apartment')}</span>
                               )}
                               <span className={cn(prop.isArchived ? 'font-medium text-gray-500 line-through' : 'font-medium text-gray-900')}>
                                 {property.name}
                               </span>
                               {prop.isArchived && (
                                 <Badge variant="warning" size="sm" className="bg-orange-100 text-orange-800 border-orange-300">
-                                  <Archive className="h-3 w-3 mr-1" />
                                   Archivé
                                 </Badge>
                               )}
                             </div>
-                            <div className="text-sm text-gray-500 flex items-center gap-1">
-                              <MapPin className="h-3 w-3" />
-                              {prop.address || ''}, {prop.postalCode || ''} {prop.city || ''}
+                            <div className="text-xs text-gray-500 flex items-center gap-1">
+                              <span aria-hidden>📍</span>
+                              <span className="truncate max-w-[180px]">{getPropertyShortAddress(prop)}</span>
                             </div>
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="text-sm">
-                            <div className="font-medium text-gray-900">{prop.surface || 'N/A'} m²</div>
-                            {prop.rooms && (
-                              <div className="text-gray-500">{prop.rooms} pièce{prop.rooms > 1 ? 's' : ''}</div>
-                            )}
+                          {loyer != null ? `€${loyer.toLocaleString('fr-FR')}` : '—'}
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-gray-900">
+                            {cashflow >= 0 ? '+' : ''}{cashflow.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €
+                          </span>
+                          <span className="ml-1" aria-hidden>{getCashflowIndicator(cashflow)}</span>
+                        </TableCell>
+                        <TableCell>
+                          {rendement > 0 ? (
+                            <>
+                              <span className="text-gray-900">{rendement.toFixed(1)} %</span>
+                              <span className="ml-1" aria-hidden>{getRendementIndicator(rendement)}</span>
+                            </>
+                          ) : (
+                            '—'
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className={cn('text-sm font-medium', getScoreDotColor(score))}>● {score}</span>
+                              <span className="text-xs text-gray-500">{getScoreLabelText(metrics?.scoreLabel ?? 'faible')}</span>
+                            </div>
+                            <div className="flex gap-0.5" title="Rentabilité · Cashflow · Occupation · Alertes">
+                              {getHealthHeatmap(metrics, !!(prop.Lease?.length || 0) || prop.occupation === 'OCCUPIED').map((level, i) => (
+                                <span
+                                  key={i}
+                                  className={cn(
+                                    'w-2 h-2 rounded-sm flex-shrink-0',
+                                    level === 'green' && 'bg-emerald-500',
+                                    level === 'orange' && 'bg-amber-500',
+                                    level === 'red' && 'bg-red-500'
+                                  )}
+                                  aria-hidden
+                                />
+                              ))}
+                            </div>
                           </div>
                         </TableCell>
+                        <TableCell>{getStatusBadge(property)}</TableCell>
                         <TableCell>
-                          {(prop.Lease?.length || 0) > 0 ? (
-                            <div className="font-medium text-gray-900">
-                              €{prop.Lease[0].rentAmount.toLocaleString('fr-FR')}/mois
-                            </div>
+                          {(metrics?.alerts?.length ?? 0) > 0 ? (
+                            <span
+                              className="text-amber-600 text-xs font-medium"
+                              title={metrics!.alerts.map((a) => a.label).join('\n')}
+                            >
+                              ⚠ {metrics!.alerts.length} alerte{metrics!.alerts.length > 1 ? 's' : ''}
+                            </span>
                           ) : (
-                            <span className="text-gray-400">-</span>
+                            <span className="text-gray-400">—</span>
                           )}
-                        </TableCell>
-                        <TableCell>
-                          {(prop.Lease?.length || 0) > 0 ? (
-                            <div className="text-sm text-gray-900">
-                              {prop.Lease[0].Tenant.firstName} {prop.Lease[0].Tenant.lastName}
-                            </div>
-                          ) : (
-                            <span className="text-gray-400">Aucun</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {getStatusBadge(property)}
                         </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation(); // ✅ Empêcher la propagation vers le TableRow
-                                setEditingProperty(property);
-                                setPropertyFormOpen(true);
-                              }}
-                            >
+                          <div className="flex items-center gap-2">
+                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditingProperty(property); setPropertyFormOpen(true); }}>
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation(); // ✅ Empêcher la propagation vers le TableRow
-                                handleDeleteProperty(property);
-                              }}
-                            >
+                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); handleDeleteProperty(property); }}>
                               <Trash2 className="h-4 w-4 text-red-600" />
                             </Button>
                           </div>
@@ -1254,6 +1481,7 @@ export function PropertiesPageCore({
         }}
         onSubmit={handlePropertySubmit}
         initialData={editingProperty || undefined}
+        summaryMetrics={editingProperty ? metricsByProperty.get(editingProperty.id) : undefined}
         title={editingProperty ? 'Modifier le Bien' : 'Nouveau Bien'}
       />
 

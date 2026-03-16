@@ -287,6 +287,8 @@ export function usePropertiesData(options: UsePropertiesDataOptions) {
             id: lease.id,
             status: lease.status,
             rentAmount: lease.rentAmount,
+            startDate: lease.startDate,
+            endDate: lease.endDate ?? undefined,
             Tenant: {
               firstName: tenant?.firstName || '',
               lastName: tenant?.lastName || '',
