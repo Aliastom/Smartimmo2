@@ -23,6 +23,10 @@ export interface SmartSelectProps {
   id?: string;
   name?: string;
   'aria-label'?: string;
+  /** Min width of dropdown panel (e.g. '260px') */
+  menuMinWidth?: string;
+  /** Allow option labels to wrap on 2 lines */
+  wrapOptions?: boolean;
 }
 
 export function SmartSelect({
@@ -36,6 +40,8 @@ export function SmartSelect({
   id,
   name,
   'aria-label': ariaLabel,
+  menuMinWidth,
+  wrapOptions = false,
 }: SmartSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -250,9 +256,9 @@ export function SmartSelect({
         <div
             ref={menuRef}
             className={cn(
-              'bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-hidden',
+              'bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-hidden overflow-x-hidden',
               usePortal && menuPosition
-                ? 'fixed z-[9999]' // z-index très élevé pour être au-dessus de la modale (z-50)
+                ? 'fixed z-[9999]'
                 : 'absolute z-50 w-full mt-1'
             )}
             style={
@@ -260,9 +266,13 @@ export function SmartSelect({
                 ? {
                     top: `${menuPosition.top}px`,
                     left: `${menuPosition.left}px`,
-                    width: `${menuPosition.width}px`,
+                    width: menuMinWidth
+                      ? `max(${menuPosition.width}px, ${menuMinWidth})`
+                      : `${menuPosition.width}px`,
                   }
-                : undefined
+                : menuMinWidth
+                  ? { minWidth: menuMinWidth }
+                  : undefined
             }
           role="listbox"
         >
@@ -319,14 +329,15 @@ export function SmartSelect({
                     </div>
 
                     {/* Contenu de l'option */}
-                    <div className="relative flex items-center gap-2">
+                    <div className={cn('relative flex items-start gap-2', wrapOptions && 'min-w-0')}>
                       {option.icon && (
-                        <span className="text-gray-400 text-xs flex-shrink-0">
+                        <span className="text-gray-400 flex-shrink-0 mt-0.5">
                           {option.icon}
                         </span>
                       )}
                       <span className={cn(
-                        'flex-1 text-sm',
+                        'flex-1 text-sm min-w-0',
+                        wrapOptions && 'whitespace-normal break-words',
                         isSelected ? 'text-gray-900 font-medium' : 'text-gray-700'
                       )}>
                         {option.label}

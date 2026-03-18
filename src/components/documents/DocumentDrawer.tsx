@@ -1,11 +1,12 @@
 'use client';
 
-import React from 'react';
-import { X, Trash2, FileText, Download, Link as LinkIcon, CheckCircle, AlertCircle, Image as ImageIcon, File, Home, DollarSign, User } from 'lucide-react';
+import React, { useMemo, useRef, useEffect } from 'react';
+import { X, Trash2, FileText, Download, Link as LinkIcon, CheckCircle, AlertCircle, Image as ImageIcon, File, Home, DollarSign, User, HardDrive, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { cn } from '@/utils/cn';
 
 interface DocumentDrawerProps {
   document: {
@@ -46,6 +47,9 @@ interface DocumentDrawerProps {
     deletedAt?: Date | string | null;
     userReason?: string;
   } | null;
+  onOpenEntity?: (linkedType: string, linkedId: string | undefined) => void;
+  /** Section à mettre en évidence à l'ouverture (scroll) */
+  scrollToSection?: 'impact' | null;
   isOpen: boolean;
   onClose: () => void;
   onDelete: (document: any) => void;
@@ -57,8 +61,51 @@ export default function DocumentDrawer({
   isOpen,
   onClose,
   onDelete,
-  onDownload
+  onDownload,
+  onOpenEntity,
+  scrollToSection,
 }: DocumentDrawerProps) {
+  const impactSectionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen && scrollToSection === 'impact' && impactSectionRef.current) {
+      const t = setTimeout(() => {
+        impactSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+      return () => clearTimeout(t);
+    }
+  }, [isOpen, scrollToSection]);
+
+  const getEntityLabelForGroup = (linkedType: string) => {
+    const t = (linkedType || '').toLowerCase();
+    switch (t) {
+      case 'property': return 'Bien';
+      case 'lease': return 'Bail';
+      case 'tenant': return 'Locataire';
+      case 'transaction': return 'Transaction';
+      case 'global': return 'Global';
+      default: return linkedType;
+    }
+  };
+
+  const groupedLinks = useMemo(() => {
+    if (!document) return [];
+    const links = document.DocumentLink || document.links || [];
+    if (links.length === 0) return [];
+    const byType: Record<string, Array<{ entityName?: string; linkedId?: string; id?: string; index: number }>> = {};
+    links.forEach((link: { linkedType?: string; linkedId?: string; entityName?: string; id?: string }, index: number) => {
+      const t = (link.linkedType || 'global').toLowerCase();
+      if (!byType[t]) byType[t] = [];
+      byType[t].push({ entityName: link.entityName, linkedId: link.linkedId, id: link.id, index });
+    });
+    const order = ['property', 'lease', 'tenant', 'transaction', 'global'];
+    return order.filter((t) => byType[t]?.length).map((t) => ({
+      type: t,
+      items: byType[t],
+      label: getEntityLabelForGroup(t),
+    }));
+  }, [document?.DocumentLink, document?.links]);
+
   if (!isOpen || !document) return null;
 
   const formatDate = (dateString: string | Date): string => {
@@ -173,22 +220,53 @@ export default function DocumentDrawer({
     }
   };
 
-  const getLinkedToLabel = () => {
-    if (document.DocumentLink && document.DocumentLink.length > 0) {
-      return document.DocumentLink.map((link, index) => (
-        <div key={link.id || index} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-gray-50 border border-gray-100">
-          {getLinkIcon(link.linkedType)}
-          <div>
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{getEntityLabel(link.linkedType)}</span>
-            <p className="font-medium text-gray-900">{link.entityName || '(entité liée)'}</p>
-          </div>
+  const renderGroupedLinks = () => {
+    if (groupedLinks.length === 0) {
+      return (
+        <div className="flex items-center gap-2 text-sm text-gray-500 py-1.5">
+          <LinkIcon className="h-4 w-4" />
+          <span>Aucune liaison</span>
         </div>
-      ));
+      );
     }
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
-        <LinkIcon className="h-4 w-4" />
-        <span>Aucune liaison</span>
+      <div className="space-y-1.5">
+        {groupedLinks.map((group) => {
+          const byName: Record<string, { count: number; linkedId?: string }> = {};
+          group.items.forEach((item) => {
+            const name = item.entityName?.trim() || '(sans nom)';
+            if (!byName[name]) byName[name] = { count: 0, linkedId: item.linkedId };
+            byName[name].count += 1;
+          });
+          const entries = Object.entries(byName);
+          return (
+            <div key={group.type} className="space-y-1">
+              {entries.map(([name, { count, linkedId }]) => {
+                const label = count > 1 ? `${name} (${count})` : name;
+                const canOpen = onOpenEntity && linkedId;
+                const Wrapper = canOpen ? 'button' : 'div';
+                return (
+                  <Wrapper
+                    key={name}
+                    type={canOpen ? 'button' : undefined}
+                    onClick={canOpen ? () => onOpenEntity(group.type, linkedId) : undefined}
+                    className={cn(
+                      'flex w-full items-center gap-3 py-1.5 px-3 rounded-lg border text-left transition-colors',
+                      'bg-gray-50 border-gray-100',
+                      canOpen && 'hover:bg-gray-100 hover:border-gray-200 cursor-pointer'
+                    )}
+                  >
+                    {getLinkIcon(group.type)}
+                    <div className="min-w-0 flex-1">
+                      <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{group.label}</span>
+                      <p className="font-medium text-gray-900 truncate">{label}</p>
+                    </div>
+                  </Wrapper>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -197,22 +275,19 @@ export default function DocumentDrawer({
     <div className="fixed inset-0 z-50">
       {/* Overlay */}
       <div 
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-in fade-in-0 duration-200"
         onClick={onClose}
       />
       
-      {/* Drawer - Mobile: plein écran, Desktop: side panel */}
-      <div className="fixed right-0 top-0 h-screen w-full max-w-full sm:max-w-2xl bg-white shadow-xl transform transition-transform">
+      {/* Drawer - slide from right */}
+      <div className="fixed right-0 top-0 h-screen w-full max-w-full sm:max-w-2xl bg-white shadow-xl animate-in slide-in-from-right duration-300 ease-out">
         <div className="flex flex-col h-full">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <div className="flex-1 min-w-0">
               <h2 className="text-xl font-semibold text-gray-900 truncate">
                 {document.filenameOriginal}
               </h2>
-              <p className="text-sm text-gray-600 mt-1">
-                Informations du document
-              </p>
             </div>
             <button
               onClick={onClose}
@@ -223,11 +298,11 @@ export default function DocumentDrawer({
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="space-y-6">
-              {/* Section Document */}
-              <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+          <div className="flex-1 overflow-y-auto px-4 py-3">
+            <div className="space-y-4">
+              {/* Section 1 : Document */}
+              <section className="pb-4 border-b border-gray-100">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
                   <FileText className="h-3.5 w-3.5" />
                   Document
                 </h3>
@@ -242,21 +317,24 @@ export default function DocumentDrawer({
                         <Badge variant="secondary">Non classé</Badge>
                       )}
                     </div>
-                    <div className="mt-2">Statut OCR : {getOcrBadge()}</div>
+                    <div className="mt-2">{getOcrBadge()}</div>
                   </div>
                 </div>
               </section>
 
-              {/* Section Fichier */}
-              <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Fichier</h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
+              {/* Section 2 : Fichier */}
+              <section className="pb-4 border-b border-gray-100">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
+                  <HardDrive className="h-3.5 w-3.5" />
+                  Fichier
+                </h3>
+                <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <p className="text-gray-500">Taille</p>
                     <p className="font-medium text-gray-900">{formatFileSize(document.size)}</p>
                   </div>
                   <div>
-                    <p className="text-gray-500">Date d'upload</p>
+                    <p className="text-gray-500">Date</p>
                     <p className="font-medium text-gray-900">{formatDate(document.createdAt)}</p>
                   </div>
                   <div>
@@ -266,21 +344,89 @@ export default function DocumentDrawer({
                 </div>
               </section>
 
-              {/* Section Liaisons */}
+              {/* Section Impact patrimonial (détaillé) */}
+              <div ref={impactSectionRef}>
+              {(() => {
+                const links = document.DocumentLink || document.links || [];
+                let rentsCount = 0;
+                let hasLease = false;
+                let hasProperty = false;
+                let propertyName: string | null = null;
+                links.forEach((l: { linkedType?: string; entityName?: string }) => {
+                  const t = (l.linkedType || '').toLowerCase();
+                  if (t === 'transaction') rentsCount += 1;
+                  if (t === 'lease') hasLease = true;
+                  if (t === 'property') {
+                    hasProperty = true;
+                    if (l.entityName) propertyName = l.entityName;
+                  }
+                });
+                const hasType = !!(document.DocumentType || (document as { documentType?: unknown }).documentType);
+                const hasLinks = links.length > 0;
+                const ocrFailed = document.ocrStatus === 'failed';
+                const statut = !hasType && !hasLinks ? 'probleme' : ocrFailed ? 'partiel' : hasType && hasLinks ? 'ok' : 'partiel';
+                const statutLabels: Record<string, string> = {
+                  ok: '✔ Données cohérentes',
+                  partiel: '⚠ Données partielles',
+                  probleme: '✖ Écart détecté',
+                };
+                const niveau = rentsCount >= 3 ? 'eleve' : rentsCount >= 1 || hasLease || hasProperty ? 'moyen' : 'faible';
+                const niveauLabels: Record<string, string> = { eleve: 'Critique', moyen: 'Important', faible: 'Secondaire' };
+                return (
+                  <section className="pb-4 border-b border-gray-100">
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
+                      <TrendingUp className="h-3.5 w-3.5" />
+                      Impact patrimonial
+                    </h3>
+                    <div className="grid gap-2 text-sm">
+                      <div className="flex justify-between items-center py-1.5 border-b border-gray-50">
+                        <span className="text-gray-500">Statut métier</span>
+                        <span className={cn(
+                          'inline-flex rounded px-2 py-0.5 text-xs font-medium',
+                          statut === 'ok' && 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+                          statut === 'partiel' && 'bg-amber-100 text-amber-800 border border-amber-200',
+                          statut === 'probleme' && 'bg-red-100 text-red-700 border border-red-200'
+                        )}>
+                          {statutLabels[statut] ?? statut}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center py-1.5 border-b border-gray-50">
+                        <span className="text-gray-500">Priorisation</span>
+                        <span className="font-medium text-gray-900">{niveauLabels[niveau] ?? niveau}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-1.5 border-b border-gray-50">
+                        <span className="text-gray-500">Transactions liées</span>
+                        <span className="font-medium text-gray-900">{rentsCount > 0 ? rentsCount : 'Aucune'}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-1.5 border-b border-gray-50">
+                        <span className="text-gray-500">Bail lié</span>
+                        <span className="font-medium text-gray-900">{hasLease ? 'Oui' : 'Non'}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-1.5">
+                        <span className="text-gray-500">Lien avec bien</span>
+                        <span className="font-medium text-gray-900 truncate max-w-[180px]" title={propertyName || undefined}>
+                          {hasProperty ? (propertyName || 'Oui') : 'Non'}
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+                );
+              })()}
+              </div>
+
+              {/* Section 3 : Liaisons (icônes + noms lisibles, groupées, cliquables) */}
               <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
                   <LinkIcon className="h-3.5 w-3.5" />
                   Liaisons
                 </h3>
-                <div className="space-y-2">
-                  {getLinkedToLabel()}
-                </div>
+                {renderGroupedLinks()}
               </section>
 
               {/* Texte extrait */}
               {document.extractedText && (
-                <section>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Texte extrait (aperçu)</h3>
+                <section className="pt-4 border-t border-gray-100">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Texte extrait (aperçu)</h3>
                   <div className="bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
                     <p className="text-sm text-gray-700 whitespace-pre-wrap">
                       {document.extractedText.length > 500 
@@ -294,7 +440,7 @@ export default function DocumentDrawer({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 p-4 border-t">
+          <div className="flex items-center justify-end gap-3 px-4 py-3 border-t border-gray-100">
             <Button
               variant="outline"
               onClick={() => onDownload(document)}

@@ -107,7 +107,8 @@ export async function GET(request: NextRequest) {
 
     const soldeNet = recettesTotales + depensesTotales; // depensesTotales est déjà négatif
 
-    // Cashflow mensuel moyen = total des soldes mensuels / nombre de mois avec transactions (cohérent avec les séparateurs du tableau)
+    // Cashflow mensuel moyen = même règle que sidebar/page Biens : 12 derniers mois à partir d'aujourd'hui (une seule source de vérité)
+    const CASHFLOW_PERIOD_MONTHS = 12;
     const monthlyTotals: Record<string, number> = {};
     for (const t of transactions) {
       const month = t.accounting_month ?? (t.date ? `${new Date(t.date).getFullYear()}-${String(new Date(t.date).getMonth() + 1).padStart(2, '0')}` : null);
@@ -117,18 +118,22 @@ export async function GET(request: NextRequest) {
       const signed = nd?.flow === 'EXPENSE' ? -Math.abs(amount) : Math.abs(amount);
       monthlyTotals[month] = (monthlyTotals[month] ?? 0) + signed;
     }
-    const monthsCount = Object.keys(monthlyTotals).length;
-    const cashflowTotal = Object.values(monthlyTotals).reduce((a, b) => a + b, 0);
-    const cashflowMensuelMoyen = monthsCount > 0 ? cashflowTotal / monthsCount : null;
-    const cashflowMoisCount = monthsCount;
+    const now = new Date();
+    const last12MonthKeys: string[] = [];
+    for (let i = CASHFLOW_PERIOD_MONTHS - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      last12MonthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    const cashflowTotal = last12MonthKeys.reduce((sum, m) => sum + (monthlyTotals[m] ?? 0), 0);
+    const cashflowMensuelMoyen = cashflowTotal / CASHFLOW_PERIOD_MONTHS;
 
     return NextResponse.json({
       recettesTotales,
       depensesTotales,
       soldeNet,
       nonRapprochees,
-      cashflowMensuelMoyen: cashflowMensuelMoyen ?? 0,
-      cashflowMoisCount,
+      cashflowMensuelMoyen,
+      cashflowMoisCount: CASHFLOW_PERIOD_MONTHS,
     });
   } catch (error) {
     console.error('Erreur lors du calcul des KPI:', error);

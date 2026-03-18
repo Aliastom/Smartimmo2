@@ -6,6 +6,7 @@ import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/Propert
 import { getLeaseRepositoryOffline } from '@/lib/offline/repositories/LeaseRepositoryOffline';
 import { getLoanRepositoryOffline } from '@/lib/offline/repositories/LoanRepositoryOffline';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { usePropertyCashflow } from '@/features/properties/hooks/usePropertyCashflow';
 import type { LocalProperty, LocalLease, LocalLoan } from '@/lib/offline/db';
 import { cn } from '@/utils/cn';
 import { Badge } from '@/components/ui/Badge';
@@ -155,7 +156,9 @@ export function PropertyContextCard({
 
     load();
     return () => { cancelled = true; };
-  }, [propertyId, organizationId]);
+   }, [propertyId, organizationId]);
+
+  const { cashflow: cashflowFromTransactions, loading: cashflowLoading } = usePropertyCashflow(propertyId, organizationId ?? null);
 
   const hasActiveLease = leases.some((l) => l.status === 'ACTIF');
   const activeLeases = leases.filter((l) => l.status === 'ACTIF');
@@ -165,9 +168,17 @@ export function PropertyContextCard({
     (s, loan) => s + monthlyPayment(loan.principal, loan.annualRatePct || 0, loan.durationMonths || 1),
     0
   );
-  const cashflowMonthly = monthlyRent - monthlyLoanTotal;
+  const cashflowPrevisionnel = monthlyRent - monthlyLoanTotal;
   const value = (property?.currentValue ?? property?.acquisitionPrice ?? 0) || 1;
   const rendementBrut = value > 0 ? (monthlyRent * 12 / value) * 100 : 0;
+
+  const cashflowMonthly = cashflowFromTransactions !== null ? cashflowFromTransactions : cashflowPrevisionnel;
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development' && cashflowFromTransactions !== null && Math.abs(cashflowPrevisionnel) > 1) {
+    const diffPct = Math.abs(cashflowFromTransactions - cashflowPrevisionnel) / Math.max(Math.abs(cashflowPrevisionnel), 1);
+    if (diffPct > 0.05) {
+      console.warn(`[PropertyContextCard] Écart cashflow > 5% pour ${propertyId}: transactions (12 mois) = ${cashflowFromTransactions.toFixed(0)} €, prévisionnel (loyer-crédit) = ${cashflowPrevisionnel.toFixed(0)} €`);
+    }
+  }
 
   if (loading) {
     return (
@@ -217,17 +228,23 @@ export function PropertyContextCard({
         </div>
       )}
 
-      {/* Indicateurs : lots, cashflow, rendement */}
+      {/* Indicateurs : lots, cashflow (même source que page Biens), rendement */}
       <div className="space-y-1 mb-2 pl-5.5 text-xs text-gray-600">
         {lotsCount > 0 && (
           <div>{lotsCount} lot{lotsCount > 1 ? 's' : ''}</div>
         )}
-        {monthlyRent > 0 && (
+        {(monthlyRent > 0 || cashflowFromTransactions !== null) && (
           <div>
-            Cashflow :{' '}
-            <span className={cashflowMonthly >= 0 ? 'text-emerald-600 font-medium' : 'text-red-600 font-medium'}>
-              {cashflowMonthly >= 0 ? '+' : ''}{Math.round(cashflowMonthly).toLocaleString('fr-FR')} €
-            </span>
+            {cashflowLoading ? (
+              <span className="text-gray-400">Cashflow…</span>
+            ) : (
+              <>
+                Cashflow mensuel moyen (12 mois) :{' '}
+                <span className={cashflowMonthly >= 0 ? 'text-emerald-600 font-medium' : 'text-red-600 font-medium'}>
+                  {cashflowMonthly >= 0 ? '+' : ''}{Math.round(cashflowMonthly).toLocaleString('fr-FR')} €
+                </span>
+              </>
+            )}
           </div>
         )}
         {rendementBrut > 0 && value > 0 && (

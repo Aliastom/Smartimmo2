@@ -75,6 +75,8 @@ interface TransactionsTableProps {
   onOpenDrawerForDocuments?: (transaction: Transaction) => void;
   /** Afficher un séparateur visuel par mois (ex. MARS 2026) */
   groupByMonth?: boolean;
+  /** IDs des transactions liées à une échéance (badge discret "Échéance liée") */
+  transactionIdsWithEcheanceLink?: string[];
 }
 
 const NATURE_COLORS = {
@@ -109,7 +111,12 @@ export default function TransactionsTable({
   onSortChange,
   onOpenDrawerForDocuments,
   groupByMonth = false,
+  transactionIdsWithEcheanceLink,
 }: TransactionsTableProps) {
+  const echeanceLinkSet = useMemo(
+    () => new Set(transactionIdsWithEcheanceLink ?? []),
+    [transactionIdsWithEcheanceLink]
+  );
   const [sortFieldInternal, setSortFieldInternal] = useState<SortField>('accountingMonth');
   const [sortOrderInternal, setSortOrderInternal] = useState<SortOrder>('desc');
   const isControlled = sortFieldProp !== undefined && sortOrderProp !== undefined;
@@ -596,6 +603,9 @@ export default function TransactionsTable({
                                   <p className="text-xs text-gray-500 truncate" title={subtitle}>
                                     {subtitle}
                                   </p>
+                                )}
+                                {echeanceLinkSet.has(transaction.id) && (
+                                  <p className="text-[10px] text-orange-600 mt-0.5">Échéance liée</p>
                                 )}
                               </>
                             );
@@ -1110,6 +1120,9 @@ export default function TransactionsTable({
                                   <p className="text-xs text-gray-500 truncate" title={subtitle}>
                                     {subtitle}
                                   </p>
+                                )}
+                                {echeanceLinkSet.has(transaction.id) && (
+                                  <p className="text-[10px] text-orange-600 mt-0.5">Échéance liée</p>
                                 )}
                               </>
                             );

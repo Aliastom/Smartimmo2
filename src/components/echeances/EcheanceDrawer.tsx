@@ -1,7 +1,24 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Edit, Trash2, Copy, Calendar, Euro, Building2, FileText, Tag, Info, CheckCircle, XCircle } from 'lucide-react';
+import {
+  X,
+  Edit,
+  Trash2,
+  Copy,
+  Calendar,
+  Euro,
+  Building2,
+  FileText,
+  Tag,
+  Info,
+  CheckCircle,
+  XCircle,
+  Link2,
+  Unlink,
+  PlusCircle,
+  Loader2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Switch } from '@/components/ui/Switch';
@@ -9,17 +26,136 @@ import {
   EcheanceRecurrente,
   ECHEANCE_TYPE_LABELS,
   PERIODICITE_LABELS,
-  SENS_LABELS,
   TYPE_COLORS,
 } from '@/types/echeance';
 import Link from 'next/link';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { createEcheanceServiceWithMode } from '@/domain/services/echeanceServiceFactory';
 import { notify2 } from '@/lib/notify2';
+import { cn } from '@/utils/cn';
 import { getEcheanceRepositoryOffline } from '@/lib/offline/repositories/EcheanceRepositoryOffline';
 import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/PropertyRepositoryOffline';
 import { getLeaseRepositoryOffline } from '@/lib/offline/repositories/LeaseRepositoryOffline';
 import { getTenantRepositoryOffline } from '@/lib/offline/repositories/TenantRepositoryOffline';
+import {
+  getNextOccurrenceInfo,
+  temporalBadgeMeta,
+  generationBadgeMeta,
+  getStatutGeneration,
+} from '@/lib/echeances/echeanceCashflowHelpers';
+import {
+  getLinksByEcheanceIds,
+  addEcheanceTransactionLink,
+  removeEcheanceTransactionLink,
+  getLinkByTransactionId,
+} from '@/lib/echeances/echeanceTransactionLinkClient';
+import {
+  computeCoverage,
+  transactionToCoverageInput,
+  type CoverageResult,
+} from '@/lib/echeances/echeanceCoverage';
+import {
+  suggestTransactionsForEcheance,
+  getVisibleSuggestions,
+  type TransactionForScoring,
+  type ScoredSuggestion,
+} from '@/lib/echeances/echeanceSuggestionScoring';
+import { SUGGESTION_LEVEL_LABELS } from '@/types/echeance';
+import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
+import { getLocalDB } from '@/lib/offline/db';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
+import { Input } from '@/components/ui/Input';
+
+function SuggestionRow({
+  suggestion,
+  echeanceId,
+  onLink,
+  onIgnore,
+  formatCurrency,
+  formatDateShort,
+  linking,
+  checkLinkedElsewhere,
+}: {
+  suggestion: ScoredSuggestion<TransactionForScoring>;
+  echeanceId: string;
+  onLink: (txId: string) => void;
+  onIgnore: () => void;
+  formatCurrency: (n: number) => string;
+  formatDateShort: (d: string) => string;
+  linking: boolean;
+  checkLinkedElsewhere: (txId: string) => Promise<{ echeanceId: string } | undefined>;
+}) {
+  const [linkedElsewhere, setLinkedElsewhere] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    checkLinkedElsewhere(suggestion.item.id).then((link) => {
+      if (!cancelled && link && link.echeanceId !== echeanceId) setLinkedElsewhere(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [suggestion.item.id, echeanceId, checkLinkedElsewhere]);
+
+  const reasonLabel = suggestion.reasons.map((r) => r.label).join(' + ');
+  const levelLabel = SUGGESTION_LEVEL_LABELS[suggestion.level];
+
+  return (
+    <li className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-gray-100 p-2 bg-gray-50/50 text-sm">
+      <div className="min-w-0 flex-1">
+        <p className="font-medium text-gray-900 truncate">{suggestion.item.label}</p>
+        <p className="text-xs text-gray-600 tabular-nums mt-0.5">
+          {formatDateShort(suggestion.item.date)} · {formatCurrency(suggestion.item.amount)}
+        </p>
+        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+          <span
+            className={cn(
+              'text-[10px] font-medium rounded px-1.5 py-0.5',
+              suggestion.level === 'FORT' ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'
+            )}
+          >
+            {levelLabel}
+          </span>
+          <span className="text-[10px] text-gray-500 truncate max-w-[200px]" title={reasonLabel}>
+            {reasonLabel}
+          </span>
+        </div>
+        {linkedElsewhere && (
+          <p className="text-[10px] text-amber-700 mt-1">Déjà liée à une autre échéance</p>
+        )}
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        {!linkedElsewhere && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => onLink(suggestion.item.id)}
+            disabled={linking}
+          >
+            Lier
+          </Button>
+        )}
+        <Button type="button" size="sm" variant="ghost" className="h-7 text-xs text-gray-500" onClick={onIgnore}>
+          Ignorer
+        </Button>
+      </div>
+    </li>
+  );
+}
+
+function toAnnualAmount(montant: number, periodicite: string): number {
+  switch (periodicite) {
+    case 'MONTHLY':
+      return montant * 12;
+    case 'QUARTERLY':
+      return montant * 4;
+    case 'YEARLY':
+      return montant;
+    default:
+      return montant;
+  }
+}
 
 interface EcheanceDrawerProps {
   echeance: EcheanceRecurrente | null;
@@ -39,6 +175,7 @@ export function EcheanceDrawer({
   onDuplicate,
   onDelete,
   propertyId,
+  onCreateTransaction,
 }: EcheanceDrawerProps) {
   const { organizationId } = useCurrentOrganization();
   
@@ -136,8 +273,222 @@ export function EcheanceDrawer({
       window.removeEventListener('echeances:refresh', handleRefresh);
     };
   }, [isOpen, echeance?.id, organizationId, propertyId]);
+
+  const [linkedRows, setLinkedRows] = useState<
+    Array<{
+      linkId: string;
+      transactionId: string;
+      date: string;
+      amount: number;
+      label: string;
+      nature?: string | null;
+    }>
+  >([]);
+  const [loadingLinked, setLoadingLinked] = useState(false);
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+  const [linkSearch, setLinkSearch] = useState('');
+  const [linkCandidates, setLinkCandidates] = useState<
+    Array<{ id: string; date: string; amount: number; label: string }>
+  >([]);
+  const [linking, setLinking] = useState(false);
+  const [suggestions, setSuggestions] = useState<ScoredSuggestion<TransactionForScoring>[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [showAllSuggestions, setShowAllSuggestions] = useState(false);
+  const [ignoredSuggestionIds, setIgnoredSuggestionIds] = useState<Set<string>>(new Set());
+
+  const reloadLinkedTransactions = React.useCallback(async () => {
+    if (!organizationId || !echeance?.id) return;
+    setLoadingLinked(true);
+    try {
+      const map = await getLinksByEcheanceIds([echeance.id]);
+      const links = map.get(echeance.id) || [];
+      const txRepo = getTransactionRepositoryOffline();
+      const rows: Array<{
+        linkId: string;
+        transactionId: string;
+        date: string;
+        amount: number;
+        label: string;
+        nature?: string | null;
+      }> = [];
+      for (const l of links) {
+        const t = await txRepo.getById(l.transactionId, organizationId);
+        if (t) {
+          rows.push({
+            linkId: l.id,
+            transactionId: l.transactionId,
+            date: typeof t.date === 'string' ? t.date : (t.date as Date).toISOString().slice(0, 10),
+            amount: Number(t.amount),
+            label: t.label || '—',
+            nature: t.nature ?? null,
+          });
+        }
+      }
+      setLinkedRows(rows);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingLinked(false);
+    }
+  }, [organizationId, echeance?.id]);
+
+  React.useEffect(() => {
+    if (!isOpen || !echeance || !organizationId) return;
+    reloadLinkedTransactions();
+  }, [isOpen, echeance?.id, organizationId, reloadLinkedTransactions]);
+
+  React.useEffect(() => {
+    const onLinksRefresh = (ev: Event) => {
+      const d = (ev as CustomEvent).detail as { propertyId?: string } | undefined;
+      if (d?.propertyId && propertyId && d.propertyId !== propertyId) return;
+      reloadLinkedTransactions();
+    };
+    window.addEventListener('echeanceLinks:refresh', onLinksRefresh);
+    return () => window.removeEventListener('echeanceLinks:refresh', onLinksRefresh);
+  }, [propertyId, reloadLinkedTransactions]);
+
+  const coverageInDrawer = React.useMemo((): CoverageResult | undefined => {
+    if (!echeance || linkedRows.length === 0) return undefined;
+    const inputs = linkedRows.map((r) => transactionToCoverageInput(r.amount, r.nature));
+    return computeCoverage(
+      echeance.montant,
+      echeance.sens as 'CREDIT' | 'DEBIT',
+      inputs,
+      undefined,
+      echeance.type
+    );
+  }, [echeance, linkedRows]);
+
+  React.useEffect(() => {
+    if (!isOpen || !echeance || !propertyId || !organizationId) return;
+    setLoadingSuggestions(true);
+    (async () => {
+      try {
+        const txRepo = getTransactionRepositoryOffline();
+        const txs = await txRepo.getAll(organizationId, { propertyId });
+        const linkedToThis = new Set(linkedRows.map((r) => r.transactionId));
+        const candidates: TransactionForScoring[] = txs
+          .filter((t) => !linkedToThis.has(t.id))
+          .map((t) => ({
+            id: t.id,
+            propertyId: t.propertyId,
+            leaseId: t.leaseId ?? null,
+            amount: Number(t.amount),
+            date: typeof t.date === 'string' ? t.date : (t.date as Date).toISOString().slice(0, 10),
+            label: t.label || '—',
+            nature: t.nature ?? null,
+          }));
+        const nextOcc = getNextOccurrenceInfo(echeance);
+        const echForScoring = {
+          id: echeance.id,
+          propertyId: echeance.propertyId ?? null,
+          leaseId: echeance.leaseId ?? null,
+          montant: echeance.montant,
+          sens: echeance.sens,
+          label: echeance.label,
+          type: echeance.type,
+          nextOccurrenceDate: nextOcc?.displayDate ?? nextOcc?.nextDate ?? null,
+        };
+        const scored = suggestTransactionsForEcheance(echForScoring, candidates, { includeFaible: false });
+        setSuggestions(scored);
+      } catch (e) {
+        console.error(e);
+        setSuggestions([]);
+      } finally {
+        setLoadingSuggestions(false);
+      }
+    })();
+  }, [isOpen, echeance?.id, echeance?.propertyId, echeance?.leaseId, echeance?.montant, echeance?.sens, echeance?.label, echeance?.type, propertyId, organizationId, linkedRows.length]);
+
+  const openLinkPicker = async () => {
+    if (!organizationId || !propertyId || !echeance) return;
+    setLinkPickerOpen(true);
+    setLinkSearch('');
+    try {
+      const db = await getLocalDB();
+      const allLinks = db ? await db.EcheanceTransactionLink.where('organizationId').equals(organizationId).toArray() : [];
+      const linkedTxIds = new Set(allLinks.map((x) => x.transactionId));
+      const txRepo = getTransactionRepositoryOffline();
+      const txs = await txRepo.getAll(organizationId, { propertyId });
+      const candidates = txs
+        .filter((t) => !linkedTxIds.has(t.id))
+        .map((t) => ({
+          id: t.id,
+          date: typeof t.date === 'string' ? t.date : (t.date as Date).toISOString().slice(0, 10),
+          amount: Number(t.amount),
+          label: t.label || '—',
+        }))
+        .sort((a, b) => b.date.localeCompare(a.date));
+      setLinkCandidates(candidates);
+    } catch (e) {
+      console.error(e);
+      notify2.error('Impossible de charger les transactions');
+    }
+  };
+
+  const handleLinkTransaction = async (transactionId: string) => {
+    if (!organizationId || !echeance) return;
+    const existing = await getLinkByTransactionId(transactionId);
+    if (existing && existing.echeanceId !== echeance.id) {
+      const ok = window.confirm(
+        'Cette transaction est déjà liée à une autre échéance. Voulez-vous la lier à cette échéance à la place ?'
+      );
+      if (!ok) return;
+      await removeEcheanceTransactionLink(existing.id);
+    }
+    const nextInfo = getNextOccurrenceInfo(echeance);
+    const occ = nextInfo?.displayDate || nextInfo?.nextDate || null;
+    setLinking(true);
+    try {
+      await addEcheanceTransactionLink({
+        organizationId,
+        echeanceId: echeance.id,
+        transactionId,
+        occurrenceDate: occ,
+      });
+      notify2.success('Transaction liée');
+      setLinkPickerOpen(false);
+      await reloadLinkedTransactions();
+      if (propertyId) {
+        window.dispatchEvent(new CustomEvent('echeanceLinks:refresh', { detail: { propertyId } }));
+      }
+    } catch (err: any) {
+      notify2.error(err?.message || 'Liaison impossible');
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  const handleUnlink = async (linkId: string) => {
+    try {
+      await removeEcheanceTransactionLink(linkId);
+      notify2.success('Lien supprimé');
+      await reloadLinkedTransactions();
+      if (propertyId) {
+        window.dispatchEvent(new CustomEvent('echeanceLinks:refresh', { detail: { propertyId } }));
+      }
+    } catch (err: any) {
+      notify2.error(err?.message || 'Erreur');
+    }
+  };
   
   if (!isOpen || !echeance) return null;
+
+  const nextInfo = getNextOccurrenceInfo(echeance);
+  const urg = nextInfo ? temporalBadgeMeta(nextInfo.temporalStatus) : temporalBadgeMeta('desactive');
+  const chargeAnnuelleEstimee =
+    echeance.sens === 'DEBIT' ? toAnnualAmount(echeance.montant, echeance.periodicite) : null;
+
+  const messagesMetier: string[] = [];
+  if (echeance.sens === 'DEBIT') {
+    messagesMetier.push('Cette échéance impacte les charges du bien sur la période.');
+  }
+  if (echeance.recuperable && echeance.sens === 'DEBIT') {
+    messagesMetier.push('Charge récupérable, refacturable au locataire selon le bail.');
+  }
+  if (!echeance.endAt) {
+    messagesMetier.push('Aucune date de fin : récurrence jusqu’à modification ou désactivation.');
+  }
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
@@ -175,19 +526,53 @@ export function EcheanceDrawer({
       <div className="fixed right-0 top-0 h-screen w-full lg:w-auto lg:max-w-2xl bg-white shadow-xl transform transition-transform">
         <div className="flex flex-col h-full">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                Détail de l'échéance
-              </h2>
-              <p className="text-sm text-gray-600 mt-1">
-                {echeance.label}
-              </p>
+          <div className="flex items-start justify-between p-4 border-b border-gray-100 bg-gray-50/50">
+            <div className="min-w-0 flex-1 pr-3">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Échéance</p>
+              <h2 className="text-lg font-semibold text-gray-900 truncate mt-0.5">{echeance.label}</h2>
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                <span className={`text-2xl font-bold tabular-nums ${getAmountColor()}`}>
+                  {echeance.sens === 'DEBIT' ? '' : '+'}{formatCurrency(echeance.montant)}
+                </span>
+                <span className="text-xs text-gray-500">par occurrence</span>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                <Badge className={TYPE_COLORS[echeance.type]}>{ECHEANCE_TYPE_LABELS[echeance.type]}</Badge>
+                <span
+                  className={
+                    echeance.sens === 'DEBIT'
+                      ? 'text-xs rounded-md px-2 py-0.5 bg-red-50 text-red-800 border border-red-100'
+                      : 'text-xs rounded-md px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-100'
+                  }
+                >
+                  {echeance.sens === 'DEBIT' ? 'Charge' : 'Revenu'}
+                </span>
+                <Badge variant={echeance.isActive ? 'success' : 'secondary'}>
+                  {echeance.isActive ? (
+                    <>
+                      <CheckCircle className="h-3 w-3 mr-1" /> Active
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-3 w-3 mr-1" /> Inactive
+                    </>
+                  )}
+                </Badge>
+              </div>
+              {nextInfo && nextInfo.temporalStatus !== 'desactive' && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border', urg.className)}>
+                    <span>{urg.emoji}</span> {nextInfo.message}
+                  </span>
+                  {nextInfo.displayDate && (
+                    <span className="text-sm text-gray-600">
+                      Prochaine occurrence : <strong className="text-gray-900">{formatDateShort(new Date(nextInfo.displayDate + 'T12:00:00'))}</strong>
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
+            <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 shrink-0 p-1">
               <X className="h-6 w-6" />
             </button>
           </div>
@@ -195,33 +580,195 @@ export function EcheanceDrawer({
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-4">
             <div className="space-y-4">
-              {/* Montant et statut */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className={`text-3xl font-bold ${getAmountColor()}`}>
-                    {echeance.sens === 'DEBIT' ? '-' : '+'}{formatCurrency(echeance.montant)}
-                  </span>
-                  <div className="flex items-center gap-2 mt-2">
-                    <Badge className={TYPE_COLORS[echeance.type]}>
-                      {ECHEANCE_TYPE_LABELS[echeance.type]}
-                    </Badge>
-                    <Badge className={echeance.sens === 'DEBIT' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}>
-                      {SENS_LABELS[echeance.sens]}
-                    </Badge>
-                    <Badge variant={echeance.isActive ? 'success' : 'secondary'}>
-                      {echeance.isActive ? (
-                        <><CheckCircle className="h-3 w-3 mr-1" /> Actif</>
-                      ) : (
-                        <><XCircle className="h-3 w-3 mr-1" /> Inactif</>
-                      )}
-                    </Badge>
+              {/* Impact prévisionnel */}
+              <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Impact prévisionnel</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  {chargeAnnuelleEstimee != null && (
+                    <div>
+                      <p className="text-gray-500 text-xs">Charge annuelle estimée</p>
+                      <p className="font-semibold text-gray-900">{formatCurrency(chargeAnnuelleEstimee)}</p>
+                    </div>
+                  )}
+                  {echeance.sens === 'CREDIT' && (
+                    <div>
+                      <p className="text-gray-500 text-xs">Revenu annuel estimé</p>
+                      <p className="font-semibold text-emerald-700">{formatCurrency(toAnnualAmount(echeance.montant, echeance.periodicite))}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-gray-500 text-xs">Prochaine occurrence</p>
+                    <p className="font-medium text-gray-900">
+                      {nextInfo?.displayDate
+                        ? formatDateShort(new Date(nextInfo.displayDate + 'T12:00:00'))
+                        : '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">Récurrence</p>
+                    <p className="font-medium text-gray-900">{PERIODICITE_LABELS[echeance.periodicite]}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">Charge récupérable</p>
+                    <p className="font-medium text-gray-900">{echeance.recuperable ? 'Oui' : 'Non'}</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm text-gray-600">Date de début</p>
-                  <p className="font-medium">{formatDateShort(echeance.startAt)}</p>
+                {messagesMetier.length > 0 && (
+                  <ul className="mt-3 pt-3 border-t border-gray-100 space-y-1.5 text-xs text-gray-600">
+                    {messagesMetier.map((msg, i) => (
+                      <li key={i} className="flex gap-2">
+                        <Info className="h-3.5 w-3.5 text-gray-400 shrink-0 mt-0.5" />
+                        {msg}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              {/* Transactions liées */}
+              <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Transactions liées</h3>
+                  {(() => {
+                    const gen = getStatutGeneration(linkedRows.length, coverageInDrawer);
+                    const overRatio =
+                      coverageInDrawer?.statut === 'montant_superieur' &&
+                      coverageInDrawer.expectedAmount != null &&
+                      coverageInDrawer.expectedAmount > 0
+                        ? coverageInDrawer.totalLinked / coverageInDrawer.expectedAmount
+                        : undefined;
+                    const gm = generationBadgeMeta(gen, {
+                      overRatio,
+                      overRatioCritical: 2,
+                    });
+                    return (
+                      <span className={cn('text-[11px] font-medium rounded-md px-2 py-0.5 border', gm.className)}>
+                        {gm.label}
+                      </span>
+                    );
+                  })()}
                 </div>
-              </div>
+                {loadingLinked ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
+                  </div>
+                ) : linkedRows.length === 0 ? (
+                  <p className="text-sm text-gray-600 mb-3">Aucune transaction liée</p>
+                ) : (
+                  <ul className="space-y-2 mb-3">
+                    {linkedRows.map((row) => (
+                      <li
+                        key={row.linkId}
+                        className="flex items-start justify-between gap-2 text-sm border border-gray-100 rounded-lg p-2 bg-gray-50/50"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-900 truncate">{row.label}</p>
+                          <p className="text-xs text-gray-600 tabular-nums">
+                            {formatDateShort(row.date)} · {formatCurrency(row.amount)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleUnlink(row.linkId)}
+                          className="shrink-0 p-1.5 text-gray-500 hover:text-red-600 rounded-md hover:bg-red-50"
+                          title="Retirer le lien"
+                          aria-label="Retirer le lien"
+                        >
+                          <Unlink className="h-4 w-4" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                  {onCreateTransaction && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1"
+                      onClick={() => onCreateTransaction(echeance)}
+                    >
+                      <PlusCircle className="h-4 w-4" />
+                      Créer la transaction
+                    </Button>
+                  )}
+                  <Button type="button" size="sm" variant="outline" className="gap-1" onClick={openLinkPicker}>
+                    <Link2 className="h-4 w-4" />
+                    Lier une transaction
+                  </Button>
+                </div>
+                {/* Timeline échéance ↔ transaction (phase 4) */}
+                {echeance && (linkedRows.length > 0 || getNextOccurrenceInfo(echeance)?.nextDate) && (
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Timeline</p>
+                    {(() => {
+                      const nextOcc = getNextOccurrenceInfo(echeance)?.nextDate ?? getNextOccurrenceInfo(echeance)?.displayDate;
+                      const entries: { date: string; label: string; type: 'echeance' | 'transaction' }[] = [];
+                      if (nextOcc) entries.push({ date: nextOcc, label: 'Échéance prévue', type: 'echeance' });
+                      linkedRows.forEach((r) => entries.push({ date: r.date.slice(0, 10), label: `Transaction : ${r.label || '—'}`, type: 'transaction' }));
+                      entries.sort((a, b) => a.date.localeCompare(b.date));
+                      return (
+                        <ul className="space-y-1 text-xs text-gray-600">
+                          {entries.map((ent, i) => (
+                            <li key={i} className="flex gap-2">
+                              <span className="tabular-nums text-gray-500 shrink-0">{formatDateShort(ent.date)}</span>
+                              <span className={ent.type === 'echeance' ? 'text-primary-600' : ''}>→ {ent.label}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      );
+                    })()}
+                  </div>
+                )}
+              </section>
+
+              {/* Suggestions de transactions (phase 3) */}
+              <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                  Suggestions de transactions
+                </h3>
+                {loadingSuggestions ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
+                  </div>
+                ) : (() => {
+                  const filtered = suggestions.filter((s) => s.level !== 'FAIBLE' && !ignoredSuggestionIds.has(s.item.id));
+                  if (filtered.length === 0) return <p className="text-sm text-gray-600">Aucune suggestion pour le moment</p>;
+                  const { visible, hasMore } = getVisibleSuggestions(filtered);
+                  const toShow = showAllSuggestions ? filtered : visible;
+                  return (
+                    <>
+                      <ul className="space-y-2">
+                        {toShow.map((s) => (
+                          <SuggestionRow
+                            key={s.item.id}
+                            suggestion={s}
+                            echeanceId={echeance.id}
+                            onLink={handleLinkTransaction}
+                            onIgnore={() => setIgnoredSuggestionIds((prev) => new Set(prev).add(s.item.id))}
+                            formatCurrency={formatCurrency}
+                            formatDateShort={formatDateShort}
+                            linking={linking}
+                            checkLinkedElsewhere={getLinkByTransactionId}
+                          />
+                        ))}
+                      </ul>
+                      {hasMore && !showAllSuggestions && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="mt-2 text-primary-600"
+                          onClick={() => setShowAllSuggestions(true)}
+                        >
+                          Voir plus
+                        </Button>
+                      )}
+                    </>
+                  );
+                })()}
+              </section>
 
               {/* Statut Actif (autosave) */}
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
@@ -264,9 +811,7 @@ export function EcheanceDrawer({
                     }}
                   />
                   <div className="flex-1">
-                    <span className="text-sm font-medium text-gray-900">
-                      Marquer comme active
-                    </span>
+                    <span className="text-sm font-medium text-gray-900">Échéance active</span>
                   </div>
                 </div>
                 <p className="text-xs text-gray-600 mt-2">
@@ -372,29 +917,78 @@ export function EcheanceDrawer({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 p-4 border-t">
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 p-4 border-t border-gray-100 bg-gray-50/30">
             <Button
-              variant="outline"
+              variant="ghost"
               onClick={() => onDelete(echeance)}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              className="text-red-600 hover:text-red-700 hover:bg-red-50 sm:mr-auto"
             >
               <Trash2 className="h-4 w-4 mr-2" />
               Supprimer
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => onDuplicate(echeance)}
-            >
+            <Button variant="outline" onClick={() => onDuplicate(echeance)}>
               <Copy className="h-4 w-4 mr-2" />
               Dupliquer
             </Button>
-            <Button onClick={() => onEdit(echeance)}>
+            <Button className="bg-orange-600 hover:bg-orange-700 text-white" onClick={() => onEdit(echeance)}>
               <Edit className="h-4 w-4 mr-2" />
               Éditer
             </Button>
           </div>
         </div>
       </div>
+
+      <Dialog open={linkPickerOpen} onOpenChange={setLinkPickerOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Lier une transaction existante</DialogTitle>
+            <p className="text-sm text-gray-600 font-normal">
+              Transactions du bien non encore liées à une échéance.
+            </p>
+          </DialogHeader>
+          <Input
+            placeholder="Rechercher (libellé, montant…)"
+            value={linkSearch}
+            onChange={(e) => setLinkSearch(e.target.value)}
+            className="mb-2"
+          />
+          <div className="overflow-y-auto flex-1 min-h-[200px] space-y-1 pr-1">
+            {linking && (
+              <div className="flex justify-center py-8 text-gray-500">
+                <Loader2 className="h-6 w-6 animate-spin" />
+              </div>
+            )}
+            {!linking &&
+              linkCandidates
+                .filter((c) => {
+                  if (!linkSearch.trim()) return true;
+                  const q = linkSearch.toLowerCase();
+                  return (
+                    c.label.toLowerCase().includes(q) ||
+                    String(c.amount).includes(q) ||
+                    c.date.includes(q)
+                  );
+                })
+                .map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    disabled={linking}
+                    onClick={() => handleLinkTransaction(c.id)}
+                    className="w-full text-left rounded-lg border border-gray-200 p-3 hover:bg-orange-50/50 hover:border-orange-200 transition-colors"
+                  >
+                    <p className="font-medium text-gray-900 truncate">{c.label}</p>
+                    <p className="text-xs text-gray-600 tabular-nums mt-0.5">
+                      {formatDateShort(c.date)} · {formatCurrency(c.amount)}
+                    </p>
+                  </button>
+                ))}
+            {!linking && linkCandidates.length === 0 && (
+              <p className="text-sm text-gray-500 text-center py-8">Aucune transaction disponible à lier.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

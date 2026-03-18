@@ -39,6 +39,7 @@ import { useToggleRapprochement } from '@/hooks/useToggleRapprochement';
 import { useQueryClient } from '@tanstack/react-query';
 import { TransactionReconciliationLoadingOverlay } from '@/components/dashboard/TransactionReconciliationLoadingOverlay';
 import { getAlertSeverity } from '@/features/dashboard/utils/alertSeverity';
+import { getLateRentsSectionLabel, getDueInMonthFilterLabel } from '@/features/dashboard/utils/lateRentAlerts';
 
 export interface TasksPanelProps {
   loyersNonEncaisses: LoyerNonEncaisse[];
@@ -92,8 +93,8 @@ export function TasksPanel({
       window.dispatchEvent(new PopStateEvent('popstate'));
     }
   };
-  // État pour la case à cocher "mois sélectionné" (loyers en retard)
-  const [filterByCurrentMonth, setFilterByCurrentMonth] = useState(true);
+  // Par défaut : afficher tous les impayés ouverts (même liste que le résumé). Option : filtrer aux échéances du mois uniquement.
+  const [filterByCurrentMonth, setFilterByCurrentMonth] = useState(false);
   
   // État pour la case à cocher "mois sélectionné" (transactions non rapprochées)
   const [filterTransactionsByCurrentMonth, setFilterTransactionsByCurrentMonth] = useState(false);
@@ -114,10 +115,19 @@ export function TasksPanel({
   const queryClient = useQueryClient();
   const toggleRapprochement = useToggleRapprochement(mode);
   
-  // Filtrer les relances par mois sélectionné si la case est cochée
   const filteredRelances = filterByCurrentMonth && currentMonth
     ? relances.filter(r => r.accountingMonth === currentMonth)
     : relances;
+
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development' && relances.length > 0) {
+    const summaryIds = relances.map(r => r.id).sort();
+    const detailIds = filteredRelances.map(r => r.id).sort();
+    console.log('[late-rents][summary]', { count: relances.length, ids: summaryIds });
+    console.log('[late-rents][detail]', { filterByCurrentMonth, count: filteredRelances.length, ids: detailIds });
+    if (filterByCurrentMonth && summaryIds.length !== detailIds.length) {
+      console.warn('[late-rents] Résumé et détail divergent: résumé=', summaryIds.length, 'détail=', detailIds.length);
+    }
+  }
   
   // Filtrer les transactions non rapprochées par mois sélectionné si la case est cochée
   const filteredTransactionsNonRapprochees = filterTransactionsByCurrentMonth && currentMonth
@@ -1409,7 +1419,7 @@ export function TasksPanel({
   return (
     <>
       <div className="space-y-6">
-        {/* Loyers en retard */}
+        {/* Loyers en retard : même source que le résumé (impayés ouverts à fin du mois) */}
         {relances.length > 0 && (
           <Card id="loyers-retard" className="scroll-mt-6">
             <CardHeader>
@@ -1417,15 +1427,13 @@ export function TasksPanel({
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <AlertCircle className="h-5 w-5 text-red-500" />
-                    Loyers en retard
+                    {currentMonth ? getLateRentsSectionLabel(currentMonth, relances.length).replace(` (${relances.length})`, '') : 'Loyers en retard'}
                   </CardTitle>
                   <CardDescription>
-                    {filteredRelances.length} loyer{filteredRelances.length > 1 ? 's' : ''} en retard
-                    {filterByCurrentMonth && currentMonth && (
-                      <span className="ml-2 text-xs text-gray-500">
-                        ({formatAccountingMonth(currentMonth)})
-                      </span>
-                    )}
+                    {filterByCurrentMonth && currentMonth
+                      ? `${filteredRelances.length} échéance${filteredRelances.length !== 1 ? 's' : ''} impayée${filteredRelances.length !== 1 ? 's' : ''} sur ${getDueInMonthFilterLabel(currentMonth)}`
+                      : `${filteredRelances.length} impayé${filteredRelances.length !== 1 ? 's' : ''} ouvert${filteredRelances.length !== 1 ? 's' : ''} à fin ${currentMonth ? getDueInMonthFilterLabel(currentMonth) : '—'}`
+                    }
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1448,18 +1456,21 @@ export function TasksPanel({
                 </div>
               </div>
               {currentMonth && (
-                <div className="mt-3 flex items-center gap-2">
-                  <Checkbox
-                    id="filter-month-relances"
-                    checked={filterByCurrentMonth}
-                    onCheckedChange={(checked) => setFilterByCurrentMonth(checked === true)}
-                  />
-                  <label
-                    htmlFor="filter-month-relances"
-                    className="text-sm text-gray-700 cursor-pointer"
+                <div className="mt-3 flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setFilterByCurrentMonth(false)}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${!filterByCurrentMonth ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
                   >
-                    Mois sélectionné ({formatAccountingMonth(currentMonth)})
-                  </label>
+                    Impayés ouverts
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterByCurrentMonth(true)}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${filterByCurrentMonth ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                  >
+                    Échéances du mois
+                  </button>
                 </div>
               )}
             </CardHeader>

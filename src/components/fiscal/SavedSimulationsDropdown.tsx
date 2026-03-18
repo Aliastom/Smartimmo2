@@ -24,6 +24,7 @@ interface SavedSimulationsDropdownProps {
   currentSimulationId: string | null;
   onLoad: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
+  loading?: boolean;
 }
 
 export function SavedSimulationsDropdown({
@@ -31,6 +32,7 @@ export function SavedSimulationsDropdown({
   currentSimulationId,
   onLoad,
   onDelete,
+  loading = false,
 }: SavedSimulationsDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -87,8 +89,9 @@ export function SavedSimulationsDropdown({
     <div className="relative" ref={dropdownRef}>
       {/* Bouton trigger */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-violet-300 transition-colors"
+        onClick={() => !loading && setIsOpen(!isOpen)}
+        disabled={loading}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-violet-300 transition-colors disabled:opacity-60 disabled:pointer-events-none"
       >
         <Folder className="h-3.5 w-3.5 text-violet-600" />
         <span className="hidden sm:inline">Sauvegardes</span>

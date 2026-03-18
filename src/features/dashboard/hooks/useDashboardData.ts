@@ -31,6 +31,7 @@ import {
   type NormalizedLease,
   type NormalizedNature,
 } from '../utils/dashboardCalculations';
+import { getLateRentAlerts, type LeaseForRelances } from '../utils/lateRentAlerts';
 
 export interface DashboardFilters {
   month: string; // Format: 'YYYY-MM'
@@ -489,175 +490,66 @@ export function useDashboardData(options: UseDashboardDataOptions) {
       );
 
       // ========================================================================
-      // CALCUL DES LISTES ACTIONNABLES
+      // CALCUL DES LISTES ACTIONNABLES (une seule source : getLateRentAlerts)
       // ========================================================================
 
-      const today = new Date();
-      const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-
-      // Relances : loyers en retard
-      // IMPORTANT: Logique identique à l'API - Pour chaque bien, vérifier TOUS ses baux (actifs ou pas)
-      const relances: LoyerNonEncaisse[] = [];
-      
-      // Récupérer TOUS les baux (actifs ou pas) pour les biens/locataires concernés (comme l'API)
-      // L'API récupère tous les baux avec whereAllLeases (sans filtre status)
       let allLeases = leases;
-      
-      // Appliquer les filtres bienIds et locataireIds (comme l'API)
       if (filters.bienIds.length > 0) {
-        allLeases = allLeases.filter(l => 
-          l.propertyId && filters.bienIds.includes(l.propertyId)
-        );
+        allLeases = allLeases.filter(l => l.propertyId && filters.bienIds.includes(l.propertyId));
+      }
+      if (filters.locataireIds.length > 0) {
+        allLeases = allLeases.filter(l => l.tenantId && filters.locataireIds.includes(l.tenantId));
       }
 
-      if (filters.locataireIds.length > 0) {
-        allLeases = allLeases.filter(l => 
-          l.tenantId && filters.locataireIds.includes(l.tenantId)
-        );
-      }
-      
-      // Récupérer TOUTES les transactions avec nature ET category = codes système (comme l'API)
-      // IMPORTANT: L'API ne filtre PAS par accounting_month dans la requête initiale (ligne 546-576)
-      // On récupère toutes les transactions de loyer, puis on vérifie accounting_month dans le Set
-      // ⚠️ CRITIQUE: Utiliser normalizedTransactions (pas transactions brutes) pour avoir les bons noms de champs
       let allRentTransactions = normalizedTransactions.filter(t => {
-        // Filtrer par nature (comme l'API ligne 547)
-        if (t.nature !== gestionCodes.rentNature) {
-          return false;
-        }
-        // Filtrer par categoryId si défini (comme l'API ligne 552-554)
-        if (gestionCodes.rentCategoryId && t.categoryId !== gestionCodes.rentCategoryId) {
-          return false;
-        }
-        // IMPORTANT: Ne PAS filtrer par accounting_month ici (l'API ne le fait pas non plus)
-        // On vérifiera accounting_month dans le Set paidMonths
+        if (t.nature !== gestionCodes.rentNature) return false;
+        if (gestionCodes.rentCategoryId && t.categoryId !== gestionCodes.rentCategoryId) return false;
         return true;
       });
-
-      // Appliquer les filtres bienIds et locataireIds (comme l'API lignes 556-564)
       if (filters.bienIds.length > 0) {
-        allRentTransactions = allRentTransactions.filter(t => 
-          t.propertyId && filters.bienIds.includes(t.propertyId)
-        );
+        allRentTransactions = allRentTransactions.filter(t => t.propertyId && filters.bienIds.includes(t.propertyId));
       }
-
       if (filters.locataireIds.length > 0) {
-        // L'API filtre par tenantId via la relation Lease (ligne 561-563)
-        const relatedLeaseIds = allLeases
-          .filter(l => l.tenantId && filters.locataireIds.includes(l.tenantId))
-          .map(l => l.id);
-        allRentTransactions = allRentTransactions.filter(t => 
-          t.leaseId && relatedLeaseIds.includes(t.leaseId)
-        );
+        const relatedLeaseIds = allLeases.filter(l => l.tenantId && filters.locataireIds.includes(l.tenantId)).map(l => l.id);
+        allRentTransactions = allRentTransactions.filter(t => t.leaseId && relatedLeaseIds.includes(t.leaseId));
       }
 
-      // Créer un Set pour vérifier les mois payés par bail
-      // IMPORTANT: Re-vérifier nature ET category (comme l'API) pour être strictement identique
       const paidMonths = new Set<string>();
       allRentTransactions.forEach(tx => {
-        // Vérifier que la transaction a bien la nature ET la catégorie système (comme l'API)
         const hasCorrectNature = tx.nature === gestionCodes.rentNature;
         const hasCorrectCategory = gestionCodes.rentCategoryId ? tx.categoryId === gestionCodes.rentCategoryId : true;
-        
         if (tx.accounting_month && tx.leaseId && hasCorrectNature && hasCorrectCategory) {
           paidMonths.add(`${tx.leaseId}-${tx.accounting_month}`);
         }
       });
 
-      // Grouper les baux par bien (comme l'API)
-      const leasesByProperty = new Map<string, typeof allLeases>();
-      for (const lease of allLeases) {
-        const propertyId = lease.propertyId || 'unknown';
-        if (!leasesByProperty.has(propertyId)) {
-          leasesByProperty.set(propertyId, []);
-        }
-        leasesByProperty.get(propertyId)!.push(lease);
+      const propertyNameById = new Map(properties.map(p => [p.id, p.name || '']));
+      const tenantNameById = new Map(tenants.map(t => [t.id, `${t.firstName} ${t.lastName}`]));
+      const acquisitionDateByPropertyId = new Map(properties.map(p => [p.id, p.acquisitionDate ?? null]));
+      const leasesForRelances: LeaseForRelances[] = allLeases.map(l => ({
+        id: l.id,
+        propertyId: l.propertyId || null,
+        tenantId: l.tenantId || null,
+        rentAmount: l.rentAmount || 0,
+        startDate: l.startDate,
+        endDate: l.endDate ?? null,
+        status: l.status,
+      }));
+
+      const relances = getLateRentAlerts({
+        leases: leasesForRelances,
+        paidMonths,
+        selectedMonth: filters.month,
+        mode: 'open_arrears_as_of_month',
+        propertyNameById,
+        tenantNameById,
+        acquisitionDateByPropertyId,
+      });
+
+      if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
+        const summaryIds = relances.map(r => r.id).sort();
+        console.log('[late-rents][summary]', { count: relances.length, selectedMonth: filters.month, ids: summaryIds });
       }
-
-      // Pour chaque bien, vérifier tous ses baux (comme l'API)
-      for (const [propertyId, propertyLeases] of leasesByProperty.entries()) {
-        if (propertyLeases.length === 0) continue;
-
-        // IMPORTANT: Trouver le bien par ID (comme l'API ligne 608)
-        const property = properties.find(p => p.id === propertyId);
-
-        for (const lease of propertyLeases) {
-          const leaseStartDate = new Date(lease.startDate);
-          const leaseEndDate = lease.endDate ? new Date(lease.endDate) : null;
-          const propertyAcquisitionDate = property?.acquisitionDate ? new Date(property.acquisitionDate) : null;
-
-          // Date de début effective
-          let effectiveStartDate = leaseStartDate;
-          if (propertyAcquisitionDate && propertyAcquisitionDate > leaseStartDate) {
-            effectiveStartDate = propertyAcquisitionDate;
-          }
-
-          // Générer tous les mois entre effectiveStartDate et endDate
-          const startMonth = new Date(effectiveStartDate.getFullYear(), effectiveStartDate.getMonth(), 1);
-          const endMonth = leaseEndDate 
-            ? new Date(leaseEndDate.getFullYear(), leaseEndDate.getMonth(), 1)
-            : new Date(today.getFullYear(), today.getMonth(), 1);
-
-          const currentMonthDate = new Date(startMonth);
-
-          while (currentMonthDate <= endMonth) {
-            const accountingMonth = `${currentMonthDate.getFullYear()}-${String(currentMonthDate.getMonth() + 1).padStart(2, '0')}`;
-            
-            // Vérifier les mois passés ET le mois en cours (si on est déjà dans le mois)
-            // Pour le mois en cours, on considère qu'il est en retard si pas de transaction rapprochée
-            // Le filtrage par mois sélectionné se fait côté client dans TasksPanel
-            const isPastMonth = accountingMonth < currentMonthStr;
-            const isCurrentMonth = accountingMonth === currentMonthStr;
-
-            if (isPastMonth || isCurrentMonth) {
-              // Vérifier si ce mois a une transaction RAPPROCHÉE avec nature ET category = codes système pour ce bail
-              const isPaid = paidMonths.has(`${lease.id}-${accountingMonth}`);
-
-              if (!isPaid) {
-                // Calculer le nombre de jours de retard
-                // Pour le mois en cours, on calcule depuis le 1er du mois
-                // Pour les mois passés, on calcule depuis la fin du mois
-                let retardJours = 0;
-                if (isCurrentMonth) {
-                  // Mois en cours : retard depuis le 1er du mois
-                  const firstOfMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth(), 1);
-                  retardJours = Math.floor((today.getTime() - firstOfMonth.getTime()) / (1000 * 60 * 60 * 24));
-                } else {
-                  // Mois passé : retard depuis la fin du mois
-                  const endOfMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0);
-                  retardJours = Math.floor((today.getTime() - endOfMonth.getTime()) / (1000 * 60 * 60 * 24));
-                }
-
-                // Date d'échéance : fin du mois pour l'affichage (comme l'API ligne 664)
-                const endOfMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0);
-                
-                // Récupérer le tenant (comme l'API ligne 671-673)
-                const tenant = tenants.find(t => t.id === lease.tenantId);
-                const tenantName = tenant 
-                  ? `${tenant.firstName} ${tenant.lastName}`
-                  : '';
-
-                relances.push({
-                  id: `${lease.id}-${accountingMonth}`, // ID virtuel unique (comme l'API ligne 667)
-                  leaseId: lease.id,
-                  propertyId: property?.id || propertyId,
-                  propertyName: property?.name || '', // Vérifier que property est bien trouvé
-                  tenantName: tenantName,
-                  montant: lease.rentAmount || 0,
-                  dateEcheance: endOfMonth.toISOString().split('T')[0],
-                  accountingMonth: accountingMonth,
-                  retardJours,
-                  statut: 'en_retard' as const,
-                });
-              }
-            }
-
-            currentMonthDate.setMonth(currentMonthDate.getMonth() + 1);
-          }
-        }
-      }
-
-      relances.sort((a, b) => b.retardJours - a.retardJours);
 
       // Indexations à traiter
       const indexations: IndexationATraiter[] = [];
@@ -788,6 +680,7 @@ export function useDashboardData(options: UseDashboardDataOptions) {
       }
 
       // Baux arrivant à échéance (dans les 90 jours)
+      const today = new Date();
       const bauxAEcheance: BailAEcheance[] = [];
       const echeanceLimit = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
 

@@ -78,6 +78,34 @@ export const SENS_LABELS: Record<SensEcheance, string> = {
   CREDIT: 'Crédit (Revenu)',
 };
 
+/** Statut temporel (projection) : à venir / échue / désactivée. Pas de notion de "retard" paiement. */
+export type EcheanceStatutTemporel = 'desactive' | 'a_venir' | 'echue';
+
+/** Statut de génération : la projection a-t-elle été matérialisée par une transaction ? (phase 3+) */
+export type EcheanceStatutGeneration = 'a_generer' | 'partielle' | 'generee' | 'montant_superieur';
+
+/** Alias legacy pour compat (à terme supprimé) */
+export type EcheanceStatutGenerationLegacy = EcheanceStatutGeneration | 'sur_liee';
+
+export const STATUT_TEMPOREL_LABELS: Record<EcheanceStatutTemporel, string> = {
+  desactive: 'Désactivée',
+  a_venir: 'À venir',
+  echue: 'Échue',
+};
+
+export const STATUT_GENERATION_LABELS: Record<EcheanceStatutGeneration, string> = {
+  a_generer: 'À générer',
+  partielle: 'Partielle',
+  generee: 'Générée',
+  montant_superieur: 'Montant supérieur',
+};
+
+export const SUGGESTION_LEVEL_LABELS: Record<EcheanceSuggestionLevel, string> = {
+  FORT: 'Fort',
+  PROBABLE: 'Probable',
+  FAIBLE: 'Faible',
+};
+
 // Couleurs pour les badges
 export const TYPE_COLORS: Record<EcheanceType, string> = {
   PRET: 'bg-purple-100 text-purple-800',

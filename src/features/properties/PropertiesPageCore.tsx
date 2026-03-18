@@ -49,6 +49,7 @@ import {
   groupAlertsByType,
   getHealthHeatmap,
   getPropertySortPriority,
+  CASHFLOW_LABEL,
 } from './utils/propertyDashboard';
 
 export interface PropertiesPageCoreProps {
@@ -939,7 +940,7 @@ export function PropertiesPageCore({
           className="!p-2.5 !gap-1.5 [&_.flex-1_p:first-child]:!text-[0.65rem] [&_.flex-1_p:last-child]:!text-base"
         />
         <StatCard
-          title="Cashflow mensuel"
+          title={CASHFLOW_LABEL}
           value={
             dashboardKpis.cashflowMensuelTotal >= 0
               ? `+${dashboardKpis.cashflowMensuelTotal.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €`
@@ -1091,7 +1092,7 @@ export function PropertiesPageCore({
                           <p className="font-medium">{loyer != null ? `${loyer.toLocaleString('fr-FR')} €` : '—'}</p>
                         </div>
                         <div>
-                          <span className="text-gray-500">Cashflow</span>
+                          <span className="text-gray-500">{CASHFLOW_LABEL}</span>
                           <p className={cn('font-medium', cashflow >= 0 ? 'text-green-600' : 'text-red-600')}>
                             {cashflow >= 0 ? '+' : ''}{cashflow.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €
                           </p>

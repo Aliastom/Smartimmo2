@@ -1,7 +1,24 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Edit, Trash2, FileText, Plus, Calendar, Euro, Building2, Users, Tag, Info, AlertCircle } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import {
+  X,
+  Edit,
+  Trash2,
+  FileText,
+  Plus,
+  Calendar,
+  Euro,
+  Building2,
+  Users,
+  Tag,
+  Info,
+  AlertCircle,
+  Link2,
+  Loader2,
+  Unlink,
+} from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Switch } from '@/components/ui/Switch';
@@ -10,6 +27,22 @@ import { notify2 } from '@/lib/notify2';
 import { useTransactionDocuments } from '@/hooks/offline/useTransactionDocuments';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
+import { getEcheanceRepositoryOffline } from '@/lib/offline/repositories/EcheanceRepositoryOffline';
+import {
+  getLinkByTransactionId,
+  addEcheanceTransactionLink,
+  removeEcheanceTransactionLink,
+} from '@/lib/echeances/echeanceTransactionLinkClient';
+import { getNextOccurrenceInfo } from '@/lib/echeances/echeanceCashflowHelpers';
+import {
+  suggestEcheancesForTransaction,
+  getVisibleSuggestions,
+  type EcheanceForScoring,
+  type ScoredSuggestion,
+} from '@/lib/echeances/echeanceSuggestionScoring';
+import { SUGGESTION_LEVEL_LABELS, type EcheanceRecurrente } from '@/types/echeance';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
+import Link from 'next/link';
 
 interface Transaction {
   id: string;
@@ -109,6 +142,7 @@ export default function TransactionDrawer({
   initialScrollToDocuments = false,
   onScrollToDocumentsDone,
 }: TransactionDrawerProps) {
+  const pathname = usePathname();
   const { mutate: toggleRapprochement, isPending: isTogglingRapprochement } = useToggleRapprochement(mode);
   const { organizationId } = useCurrentOrganization();
   const [localRapprochementStatus, setLocalRapprochementStatus] = useState<RapprochementStatus>(
@@ -180,7 +214,244 @@ export default function TransactionDrawer({
     syncStatus();
   }, [isOpen, transaction?.id, mode, organizationId]);
 
+  const [echeanceLinked, setEcheanceLinked] = useState<{
+    linkId: string;
+    echeanceId: string;
+    label: string;
+  } | null>(null);
+  const [loadingEcheanceLink, setLoadingEcheanceLink] = useState(false);
+  const [pickEcheanceOpen, setPickEcheanceOpen] = useState(false);
+  const [echeanceCandidates, setEcheanceCandidates] = useState<{ id: string; label: string }[]>([]);
+  const [linkingEcheance, setLinkingEcheance] = useState(false);
+  const [suggestedEcheances, setSuggestedEcheances] = useState<ScoredSuggestion<EcheanceForScoring>[]>([]);
+  const [showAllSuggestedEcheances, setShowAllSuggestedEcheances] = useState(false);
+  const [loadingSuggestedEcheances, setLoadingSuggestedEcheances] = useState(false);
+
+  React.useEffect(() => {
+    if (!isOpen || !transaction) {
+      setEcheanceLinked(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoadingEcheanceLink(true);
+      try {
+        if (mode === 'app-shell' && organizationId) {
+          const link = await getLinkByTransactionId(transaction.id);
+          if (cancelled) return;
+          if (!link) {
+            setEcheanceLinked(null);
+            return;
+          }
+          const ech = await getEcheanceRepositoryOffline().getById(link.echeanceId, organizationId);
+          if (cancelled) return;
+          setEcheanceLinked(
+            ech ? { linkId: link.id, echeanceId: ech.id, label: ech.label } : null
+          );
+        } else {
+          const res = await fetch(
+            `/api/echeance-transaction-links?transactionId=${encodeURIComponent(transaction.id)}`,
+            { credentials: 'include' }
+          );
+          const j = await res.json();
+          if (cancelled) return;
+          const item = j.item;
+          if (item?.Echeance) {
+            setEcheanceLinked({
+              linkId: item.id,
+              echeanceId: item.Echeance.id,
+              label: item.Echeance.label,
+            });
+          } else {
+            setEcheanceLinked(null);
+          }
+        }
+      } catch {
+        if (!cancelled) setEcheanceLinked(null);
+      } finally {
+        if (!cancelled) setLoadingEcheanceLink(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, transaction?.id, mode, organizationId]);
+
+  React.useEffect(() => {
+    if (!isOpen || !transaction?.Property?.id || !organizationId || echeanceLinked) return;
+    setLoadingSuggestedEcheances(true);
+    (async () => {
+      try {
+        const pid = transaction.Property.id;
+        const echRepo = getEcheanceRepositoryOffline();
+        const all = await echRepo.getAll(organizationId, { propertyId: pid });
+        const echForScoring: EcheanceForScoring[] = all.map((e) => {
+          const next = getNextOccurrenceInfo(e as unknown as EcheanceRecurrente);
+          return {
+            id: e.id,
+            propertyId: e.propertyId ?? null,
+            leaseId: e.leaseId ?? null,
+            montant: e.montant,
+            sens: e.sens,
+            label: e.label,
+            type: e.type,
+            nextOccurrenceDate: next?.displayDate ?? next?.nextDate ?? null,
+          };
+        });
+        const txForScoring = {
+          id: transaction.id,
+          propertyId: transaction.Property.id,
+          leaseId: transaction.lease?.id ?? transaction.Lease?.id ?? null,
+          amount: transaction.amount,
+          date: transaction.date || transaction.paymentDate || transaction.paidAt || '',
+          label: transaction.label || '—',
+          nature: transaction.nature?.type === 'RECETTE' ? 'RECETTE_LOYER' : 'DEPENSE_ENTRETIEN',
+        };
+        const scored = suggestEcheancesForTransaction(txForScoring, echForScoring, { includeFaible: false });
+        setSuggestedEcheances(scored);
+      } catch (e) {
+        console.error(e);
+        setSuggestedEcheances([]);
+      } finally {
+        setLoadingSuggestedEcheances(false);
+      }
+    })();
+  }, [isOpen, transaction?.id, transaction?.Property?.id, transaction?.amount, transaction?.date, transaction?.label, transaction?.lease?.id, transaction?.nature?.type, organizationId, echeanceLinked]);
+
+  const openPickEcheance = async () => {
+    if (!transaction?.Property?.id || !organizationId) return;
+    const pid = transaction.Property.id;
+    setPickEcheanceOpen(true);
+    try {
+      if (mode === 'app-shell') {
+        const all = await getEcheanceRepositoryOffline().getAll(organizationId, { propertyId: pid });
+        setEcheanceCandidates(
+          all.filter((e) => e.isActive).map((e) => ({ id: e.id, label: e.label }))
+        );
+      } else {
+        const res = await fetch(
+          `/api/echeances/list?propertyId=${encodeURIComponent(pid)}&pageSize=100&active=1`,
+          { credentials: 'include' }
+        );
+        const j = await res.json();
+        const rows = j.items || j.data || [];
+        setEcheanceCandidates(
+          (Array.isArray(rows) ? rows : []).map((r: { id: string; label: string }) => ({
+            id: r.id,
+            label: r.label,
+          }))
+        );
+      }
+    } catch {
+      notify2.error('Impossible de charger les échéances');
+      setEcheanceCandidates([]);
+    }
+  };
+
+  const handleLinkToEcheance = async (echeanceId: string) => {
+    if (!organizationId || !transaction) return;
+    const existing = await getLinkByTransactionId(transaction.id);
+    if (existing && existing.echeanceId !== echeanceId) {
+      const ok = window.confirm(
+        'Cette transaction est déjà liée à une autre échéance. Voulez-vous la lier à cette échéance à la place ?'
+      );
+      if (!ok) return;
+      if (mode === 'app-shell') {
+        await removeEcheanceTransactionLink(existing.id);
+      } else {
+        await fetch(`/api/echeance-transaction-links/${encodeURIComponent(existing.id)}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+      }
+    }
+    setLinkingEcheance(true);
+    try {
+      if (mode === 'app-shell') {
+        await addEcheanceTransactionLink({
+          organizationId,
+          echeanceId,
+          transactionId: transaction.id,
+          occurrenceDate: null,
+        });
+      } else {
+        const res = await fetch('/api/echeance-transaction-links', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            echeanceId,
+            transactionId: transaction.id,
+            matchType: 'manual',
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Liaison impossible');
+        }
+        const j = await res.json();
+        const item = j.item;
+        const label =
+          echeanceCandidates.find((c) => c.id === echeanceId)?.label || 'Échéance';
+        if (item?.id) {
+          setEcheanceLinked({ linkId: item.id, echeanceId, label });
+        }
+      }
+      const label =
+        echeanceCandidates.find((c) => c.id === echeanceId)?.label || 'Échéance';
+      if (mode === 'app-shell') {
+        const dbLink = await getLinkByTransactionId(transaction.id);
+        if (dbLink) {
+          setEcheanceLinked({
+            linkId: dbLink.id,
+            echeanceId,
+            label,
+          });
+        }
+      }
+      notify2.success('Échéance liée');
+      setPickEcheanceOpen(false);
+      window.dispatchEvent(
+        new CustomEvent('echeanceLinks:refresh', {
+          detail: { propertyId: transaction.Property?.id },
+        })
+      );
+    } catch (e: any) {
+      notify2.error(e?.message || 'Erreur');
+    } finally {
+      setLinkingEcheance(false);
+    }
+  };
+
+  const handleUnlinkEcheance = async () => {
+    if (!echeanceLinked) return;
+    try {
+      if (mode === 'app-shell') {
+        await removeEcheanceTransactionLink(echeanceLinked.linkId);
+      } else {
+        await fetch(
+          `/api/echeance-transaction-links/${encodeURIComponent(echeanceLinked.linkId)}`,
+          { method: 'DELETE', credentials: 'include' }
+        );
+      }
+      setEcheanceLinked(null);
+      notify2.success('Lien retiré');
+      window.dispatchEvent(
+        new CustomEvent('echeanceLinks:refresh', {
+          detail: { propertyId: transaction?.Property?.id },
+        })
+      );
+    } catch (e: any) {
+      notify2.error(e?.message || 'Erreur');
+    }
+  };
+
   if (!isOpen || !transaction) return null;
+
+  const echeancesHref =
+    pathname?.startsWith('/app')
+      ? `/app?view=property&propertyId=${transaction.Property.id}&tab=deadlines`
+      : `/biens/${transaction.Property.id}/echeances`;
 
   const handleToggleRapprochement = (checked: boolean) => {
     const newStatus: RapprochementStatus = checked ? 'rapprochee' : 'non_rapprochee';
@@ -242,6 +513,7 @@ export default function TransactionDrawer({
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-50">
       {/* Overlay */}
       <div 
@@ -319,6 +591,119 @@ export default function TransactionDrawer({
                   Cette modification est automatiquement sauvegardée.
                 </p>
                 </div>
+              </section>
+
+              {/* Échéance liée */}
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                  Échéance liée
+                </h3>
+                {loadingEcheanceLink ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Chargement…
+                  </div>
+                ) : echeanceLinked ? (
+                  <div className="flex flex-wrap items-center gap-3 justify-between">
+                    <Link
+                      href={echeancesHref}
+                      className="text-sm font-medium text-orange-600 hover:underline"
+                    >
+                      {echeanceLinked.label}
+                    </Link>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleUnlinkEcheance}
+                      className="text-gray-600 shrink-0"
+                    >
+                      <Unlink className="h-4 w-4 mr-1" />
+                      Retirer le lien
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-600">Aucune échéance liée</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={openPickEcheance}
+                      className="gap-1"
+                    >
+                      <Link2 className="h-4 w-4" />
+                      Lier à une échéance
+                    </Button>
+                    {loadingSuggestedEcheances ? (
+                      <div className="flex items-center gap-2 text-sm text-gray-500 pt-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Suggestions…
+                      </div>
+                    ) : suggestedEcheances.length > 0 ? (
+                      <div className="pt-2 border-t border-gray-100">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                          Échéances suggérées
+                        </p>
+                        {(() => {
+                          const { visible, hasMore } = getVisibleSuggestions(suggestedEcheances);
+                          const toShow = showAllSuggestedEcheances ? suggestedEcheances : visible;
+                          return (
+                            <>
+                              <ul className="space-y-1.5">
+                                {toShow.map((s) => (
+                                  <li
+                                    key={s.item.id}
+                                    className="flex flex-wrap items-center justify-between gap-2 rounded border border-gray-100 p-2 text-sm bg-gray-50/50"
+                                  >
+                                    <div>
+                                      <p className="font-medium text-gray-900">{s.item.label}</p>
+                                      <p className="text-xs text-gray-600">
+                                        {formatAmount(Math.abs(s.item.montant), transaction.nature.type)} ·{' '}
+                                        {s.item.nextOccurrenceDate
+                                          ? formatDate(s.item.nextOccurrenceDate)
+                                          : '—'}
+                                      </p>
+                                      <span
+                                        className={cn(
+                                          'text-[10px] font-medium rounded px-1.5 py-0.5 mt-1 inline-block',
+                                          s.level === 'FORT' ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'
+                                        )}
+                                      >
+                                        {SUGGESTION_LEVEL_LABELS[s.level]}
+                                      </span>
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs"
+                                      onClick={() => handleLinkToEcheance(s.item.id)}
+                                      disabled={linkingEcheance}
+                                    >
+                                      Lier
+                                    </Button>
+                                  </li>
+                                ))}
+                              </ul>
+                              {hasMore && !showAllSuggestedEcheances && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="mt-2 text-primary-600"
+                                  onClick={() => setShowAllSuggestedEcheances(true)}
+                                >
+                                  Voir plus
+                                </Button>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
               </section>
 
               {/* Bien */}
@@ -543,5 +928,37 @@ export default function TransactionDrawer({
         </div>
       </div>
     </div>
+
+    <Dialog open={pickEcheanceOpen} onOpenChange={setPickEcheanceOpen}>
+      <DialogContent className="max-w-md max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Choisir une échéance</DialogTitle>
+          <p className="text-sm text-gray-600 font-normal">Échéances actives du bien.</p>
+        </DialogHeader>
+        <div className="overflow-y-auto space-y-1 min-h-[160px]">
+          {linkingEcheance ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+            </div>
+          ) : (
+            echeanceCandidates.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                disabled={linkingEcheance}
+                onClick={() => handleLinkToEcheance(c.id)}
+                className="w-full text-left rounded-lg border border-gray-200 p-3 hover:bg-orange-50/50 text-sm font-medium"
+              >
+                {c.label}
+              </button>
+            ))
+          )}
+          {!linkingEcheance && echeanceCandidates.length === 0 && (
+            <p className="text-sm text-gray-500 text-center py-6">Aucune échéance à afficher.</p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

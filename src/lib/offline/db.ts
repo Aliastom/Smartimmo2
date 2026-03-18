@@ -270,6 +270,20 @@ export interface LocalEcheanceRecurrente {
   _syncedAt?: string;
 }
 
+/** Liaison échéance (projection) ↔ transaction (réalisation) */
+export interface LocalEcheanceTransactionLink {
+  id: string;
+  organizationId: string;
+  echeanceId: string;
+  transactionId: string;
+  matchType: string;
+  confidenceScore?: number | null;
+  occurrenceDate?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  _syncedAt?: string;
+}
+
 export interface LocalDocument {
   id: string;
   organizationId: string;
@@ -858,6 +872,7 @@ export async function getLocalDB(): Promise<any> {
   Loan!: Table<LocalLoan, string>;
   Transaction!: Table<LocalTransaction, string>;
   EcheanceRecurrente!: Table<LocalEcheanceRecurrente, string>;
+  EcheanceTransactionLink!: Table<LocalEcheanceTransactionLink, string>;
   Document!: Table<LocalDocument, string>;
         DocumentLink!: Table<LocalDocumentLink, [string, string, string]>;
   Photo!: Table<LocalPhoto, string>;
@@ -1384,6 +1399,13 @@ export async function getLocalDB(): Promise<any> {
       FiscalSessionCache: 'organizationId, updatedAt',
     }).upgrade(async () => {
       console.log('[Migration v16] Table FiscalSessionCache ajoutée (session fiscale offline)');
+    });
+
+    this.version(17).stores({
+      EcheanceTransactionLink:
+        'id, echeanceId, transactionId, organizationId, [echeanceId+transactionId]',
+    }).upgrade(async () => {
+      console.log('[Migration v17] Table EcheanceTransactionLink (liaison échéance-transaction)');
     });
   }
       };

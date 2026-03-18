@@ -47,6 +47,7 @@ import { DetailsTab } from '@/components/fiscal/results/tabs/DetailsTab';
 import { DeclarationTab } from '@/components/fiscal/results/tabs/DeclarationTab';
 import { ProjectionsTab } from '@/components/fiscal/results/tabs/ProjectionsTab';
 import { OptimisationsTab } from '@/components/fiscal/results/tabs/OptimisationsTab';
+import { useToast } from '@/hooks/use-toast';
 
 export interface FiscalPageCoreProps {
   mode: 'normal' | 'app-shell';
@@ -114,9 +115,11 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
   const [optimizationCount, setOptimizationCount] = useState(0);
   const [optimizationSuggestions, setOptimizationSuggestions] = useState<any[]>([]);
   const [isOptimizationLoading, setIsOptimizationLoading] = useState(false);
+  const [loadingSimulationId, setLoadingSimulationId] = useState<string | null>(null);
   const optimizationAbortControllerRef = useRef<AbortController | null>(null);
   const optimizationLoadedRef = useRef<string | null>(null);
   const optimizationJustLoadedInCalculateRef = useRef<boolean>(false);
+  const { toast } = useToast();
   
   // États pour le suivi de progression du calcul
   const [calculatingProgress, setCalculatingProgress] = useState({
@@ -244,28 +247,46 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
   };
 
   const handleLoadSimulation = async (simulationId: string) => {
+    setLoadingSimulationId(simulationId);
     try {
       optimizationJustLoadedInCalculateRef.current = false;
-      
+
       const response = await fetch(`/api/fiscal/simulations/${simulationId}`);
-      
+
       if (!response.ok) {
         throw new Error('Simulation introuvable');
       }
-      
+
       const data = await response.json();
-      const { result, inputs } = data.simulation;
-      
-      if (inputs) {
-        updateDraft(inputs);
+      const simulationData = data?.simulation;
+      const result = simulationData?.result;
+      const inputs = simulationData?.inputs;
+
+      console.log('Loaded simulation:', { id: simulationId, hasResult: !!result, hasInputs: !!inputs, inputsKeys: inputs ? Object.keys(inputs) : [] });
+
+      if (!result || !inputs) {
+        if (toast?.error) toast.error('Erreur de chargement de la sauvegarde');
+        else alert('Erreur de chargement de la sauvegarde');
+        return;
       }
+
+      // Mise à jour du draft (fusion pour ne pas écraser par des undefined)
+      updateDraft({
+        ...inputs,
+        foyer: inputs.foyer ? { ...inputs.foyer } : undefined,
+        options: inputs.options ? { ...inputs.options } : undefined,
+        _uiMetadata: inputs._uiMetadata ? { ...(inputs._uiMetadata as object) } : undefined,
+      });
       setResult(result);
       setSavedSimulationId(simulationId);
-      
+
       setActiveTab('synthese');
     } catch (error) {
       console.error('Erreur chargement simulation:', error);
-      alert('Erreur lors du chargement de la simulation');
+      if (toast?.error) toast.error('Erreur lors du chargement de la simulation');
+      else alert('Erreur lors du chargement de la simulation');
+    } finally {
+      setLoadingSimulationId(null);
     }
   };
 
@@ -536,7 +557,19 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
         currentStep={calculatingProgress.currentStep}
         estimatedTime={estimatedTimeRemaining}
       />
-      
+
+      {/* Garde chargement sauvegarde : éviter écran vide / overwrite par état vide */}
+      {loadingSimulationId && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+          <Card className="p-6 max-w-sm">
+            <CardContent className="flex flex-col items-center gap-3 pt-6">
+              <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
+              <p className="text-sm font-medium text-gray-700">Chargement de la sauvegarde...</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       <div className="min-h-screen bg-gray-50">
       {/* Header sticky avec fond glassy/transparent */}
       <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-md shadow-sm border-b border-gray-200/50">
@@ -566,6 +599,7 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
                 currentSimulationId={savedSimulationId}
                 onLoad={handleLoadSimulation}
                 onDelete={handleDeleteSimulation}
+                loading={!!loadingSimulationId}
               />
             </div>
 

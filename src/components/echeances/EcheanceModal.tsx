@@ -16,10 +16,32 @@ import {
   EcheanceRecurrente,
   ECHEANCE_TYPE_LABELS,
   PERIODICITE_LABELS,
-  SENS_LABELS,
 } from '@/types/echeance';
 import { EcheanceType, Periodicite, SensEcheance } from '@prisma/client';
 import { X } from 'lucide-react';
+
+const TYPE_SELECT_GROUPS: { title: string; types: EcheanceType[] }[] = [
+  { title: 'Financier', types: [EcheanceType.PRET, EcheanceType.ASSURANCE, EcheanceType.PNO, EcheanceType.CFE] },
+  { title: 'Immobilier', types: [EcheanceType.COPRO, EcheanceType.ENTRETIEN, EcheanceType.IMPOT] },
+  { title: 'Revenus & charges locatives', types: [EcheanceType.LOYER_ATTENDU, EcheanceType.CHARGE_RECUP] },
+  { title: 'Autre', types: [EcheanceType.AUTRE] },
+];
+
+function buildGroupedTypeOptions(): SmartSelectOption[] {
+  const out: SmartSelectOption[] = [];
+  for (const g of TYPE_SELECT_GROUPS) {
+    out.push({ value: `__group_${g.title}`, label: `— ${g.title} —`, disabled: true });
+    for (const t of g.types) {
+      out.push({ value: t, label: ECHEANCE_TYPE_LABELS[t] });
+    }
+  }
+  return out;
+}
+
+const SENS_OPTIONS: SmartSelectOption[] = [
+  { value: SensEcheance.DEBIT, label: 'Charge' },
+  { value: SensEcheance.CREDIT, label: 'Revenu' },
+];
 
 interface EcheanceModalProps {
   isOpen: boolean;
@@ -194,10 +216,7 @@ export function EcheanceModal({
                     <SmartSelect
                       value={field.value}
                       onChange={field.onChange}
-                      options={Object.entries(ECHEANCE_TYPE_LABELS).map(([key, label]) => ({
-                        value: key,
-                        label,
-                      }))}
+                      options={buildGroupedTypeOptions()}
                       placeholder="Sélectionner un type"
                       error={!!errors.type}
                       id="type"
@@ -217,10 +236,7 @@ export function EcheanceModal({
                     <SmartSelect
                       value={field.value}
                       onChange={field.onChange}
-                      options={Object.entries(SENS_LABELS).map(([key, label]) => ({
-                        value: key,
-                        label,
-                      }))}
+                      options={SENS_OPTIONS}
                       placeholder="Sélectionner"
                       error={!!errors.sens}
                       id="sens"
@@ -234,7 +250,7 @@ export function EcheanceModal({
 
             {/* Montant */}
           <div>
-            <Label htmlFor="montant">Montant (€) *</Label>
+            <Label htmlFor="montant">Montant par occurrence (€) *</Label>
             <Input
               id="montant"
               type="number"
@@ -243,6 +259,9 @@ export function EcheanceModal({
               placeholder="0.00"
               className={errors.montant ? 'border-red-500' : ''}
             />
+            <p className="text-xs text-gray-500 mt-1">
+              Montant pour chaque occurrence ; la périodicité définit la répétition (mensuel, annuel, etc.).
+            </p>
             {errors.montant && <p className="text-sm text-red-500 mt-1">{errors.montant.message}</p>}
           </div>
         </div>
@@ -332,53 +351,24 @@ export function EcheanceModal({
             </div>
         </div>
 
-        {/* Section Options (Accordion) */}
-        <div>
-          <h3 className="text-sm font-semibold text-gray-900 mb-3 md:hidden">Options</h3>
-          <Accordion title="Options" defaultOpen={false} className="md:border md:border-gray-200 md:rounded-lg">
-            <div className="p-3 space-y-4">
-        {/* Bien et Bail */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="propertyId">Bien</Label>
-            <Controller
-              name="propertyId"
-              control={control}
-              render={({ field }) => {
-                // ✅ CORRECTION: Ne pas afficher "Chargement..." comme option, attendre que le nom soit chargé
-                const validProperties = properties.filter(p => p.name && p.name !== 'Chargement...');
-                const isLoading = properties.length > 0 && properties.some(p => !p.name || p.name === 'Chargement...');
-                
-                return (
-                  <SmartSelect
-                    value={field.value || ''} 
-                    onChange={(value) => field.onChange(value || null)}
-                    options={[
-                      { value: '', label: 'Aucun bien' },
-                      ...validProperties.map((property) => ({
-                        value: property.id,
-                        label: property.name,
-                      })),
-                    ]}
-                    placeholder={isLoading ? 'Chargement...' : 'Aucun bien'}
-                    disabled={!!defaultPropertyId || isLoading}
-                    id="propertyId"
-                    aria-label="Bien"
-                  />
-                );
-              }}
-            />
-            {defaultPropertyId && (
-              <p className="text-xs text-gray-500 mt-1">Le bien est verrouillé car vous êtes dans un contexte de bien</p>
-            )}
-          </div>
-
-          <div>
-            <Label htmlFor="leaseId">Bail</Label>
-            <Controller
-              name="leaseId"
-              control={control}
-                      render={({ field }) => (
+        {/* Contexte bien / bail : toujours visible si onglet bien */}
+        {defaultPropertyId ? (
+          <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4 space-y-4">
+            <h3 className="text-sm font-semibold text-gray-900">Bien et bail</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Bien</Label>
+                <p className="mt-1.5 text-sm font-medium text-gray-900 py-2 px-3 rounded-lg bg-white border border-gray-200">
+                  {properties.find((p) => p.id === defaultPropertyId)?.name || 'Ce bien'}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">Contexte verrouillé sur ce bien.</p>
+              </div>
+              <div>
+                <Label htmlFor="leaseId">Bail lié</Label>
+                <Controller
+                  name="leaseId"
+                  control={control}
+                  render={({ field }) => (
                     <SmartSelect
                       value={field.value || ''}
                       onChange={(value) => field.onChange(value || null)}
@@ -386,54 +376,117 @@ export function EcheanceModal({
                         { value: '', label: 'Aucun bail' },
                         ...filteredLeases.map((lease) => ({
                           value: lease.id,
-                          label: lease.tenantName || `${lease.type} - ${lease.status}`,
+                          label: lease.tenantName || `${lease.type} — ${lease.status}`,
                         })),
                       ]}
-                      placeholder="Aucun bail"
+                      placeholder={filteredLeases.length ? 'Associer un bail' : 'Aucun bail'}
                       id="leaseId"
                       aria-label="Bail"
                     />
+                  )}
+                />
+                {filteredLeases.length === 0 ? (
+                  <p className="text-xs text-amber-700 mt-1.5">Aucun bail enregistré sur ce bien pour l’instant.</p>
+                ) : (
+                  <p className="text-xs text-gray-500 mt-1">Optionnel : lie l’échéance à un bail précis.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Section Options */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 md:hidden">Options</h3>
+          <Accordion
+            title={defaultPropertyId ? 'Autres options' : 'Options'}
+            defaultOpen={!defaultPropertyId}
+            className="md:border md:border-gray-200 md:rounded-lg"
+          >
+            <div className="p-3 space-y-4">
+              {!defaultPropertyId && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="propertyId">Bien</Label>
+                    <Controller
+                      name="propertyId"
+                      control={control}
+                      render={({ field }) => {
+                        const validProperties = properties.filter((p) => p.name && p.name !== 'Chargement...');
+                        const isLoading =
+                          properties.length > 0 && properties.some((p) => !p.name || p.name === 'Chargement...');
+                        return (
+                          <SmartSelect
+                            value={field.value || ''}
+                            onChange={(value) => field.onChange(value || null)}
+                            options={[
+                              { value: '', label: 'Aucun bien' },
+                              ...validProperties.map((property) => ({
+                                value: property.id,
+                                label: property.name,
+                              })),
+                            ]}
+                            placeholder={isLoading ? 'Chargement...' : 'Aucun bien'}
+                            disabled={isLoading}
+                            id="propertyId"
+                            aria-label="Bien"
+                          />
+                        );
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="leaseId-global">Bail</Label>
+                    <Controller
+                      name="leaseId"
+                      control={control}
+                      render={({ field }) => (
+                        <SmartSelect
+                          value={field.value || ''}
+                          onChange={(value) => field.onChange(value || null)}
+                          options={[
+                            { value: '', label: 'Aucun bail' },
+                            ...filteredLeases.map((lease) => ({
+                              value: lease.id,
+                              label: lease.tenantName || `${lease.type} — ${lease.status}`,
+                            })),
+                          ]}
+                          placeholder="Aucun bail"
+                          id="leaseId-global"
+                          aria-label="Bail"
+                        />
                       )}
-            />
-          </div>
-        </div>
-
-        {/* Récupérable et Actif */}
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pt-2">
-          <div className="flex items-center gap-3">
-            <Controller
-              name="recuperable"
-              control={control}
-              render={({ field }) => (
-                <Switch
-                  id="recuperable"
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                />
-              )}
-            />
-            <Label htmlFor="recuperable" className="cursor-pointer">
-              Charge récupérable
-            </Label>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <Controller
-              name="isActive"
-              control={control}
-              render={({ field }) => (
-                <Switch
-                  id="isActive"
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                />
-              )}
-            />
-            <Label htmlFor="isActive" className="cursor-pointer">
-              Actif
-            </Label>
-          </div>
+                    />
+                  </div>
                 </div>
+              )}
+
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pt-2">
+                <div className="flex items-center gap-3">
+                  <Controller
+                    name="recuperable"
+                    control={control}
+                    render={({ field }) => (
+                      <Switch id="recuperable" checked={field.value} onCheckedChange={field.onChange} />
+                    )}
+                  />
+                  <Label htmlFor="recuperable" className="cursor-pointer">
+                    Charge récupérable
+                  </Label>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Controller
+                    name="isActive"
+                    control={control}
+                    render={({ field }) => (
+                      <Switch id="isActive" checked={field.value} onCheckedChange={field.onChange} />
+                    )}
+                  />
+                  <Label htmlFor="isActive" className="cursor-pointer">
+                    Échéance active
+                  </Label>
+                </div>
+              </div>
             </div>
           </Accordion>
         </div>

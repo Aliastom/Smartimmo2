@@ -1965,10 +1965,10 @@ export function UploadReviewModal({
                 </>
               )}
               {currentPreview.status === 'ready' && (
-                <>
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <span className="text-sm text-gray-600">Prêt à enregistrer</span>
-                </>
+                <div className="inline-flex items-center gap-2 rounded-lg bg-green-100 border border-green-300 px-3 py-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-green-700" />
+                  <span className="text-sm font-medium text-green-800">Prêt à enregistrer</span>
+                </div>
               )}
               {currentPreview.status === 'error' && (
                 <>
@@ -2253,45 +2253,28 @@ export function UploadReviewModal({
               </div>
             )}
 
-            {/* Prédictions - Afficher seulement le meilleur score */}
+            {/* Suggestion OCR (une ligne claire) */}
             {(() => {
-              // Validation robuste des prédictions
-              const predictions = Array.isArray(currentPreview.predictions) 
-                ? currentPreview.predictions 
-                : [];
-              
-              // Vérifier si le type est verrouillé
+              const predictions = Array.isArray(currentPreview.predictions) ? currentPreview.predictions : [];
               const isTypeLocked = autoLinkingDocumentType && !documentTypeEditable;
-              
-              // Prendre seulement la meilleure prédiction
               const bestPrediction = predictions.length > 0 ? predictions[0] : null;
-              
-              return bestPrediction && (
-                <div>
-                  <Label>Prédiction suggérée</Label>
-                  {isTypeLocked && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Les prédictions sont désactivées car le type de document est verrouillé
-                    </p>
-                  )}
-                  <div className="flex gap-2 mt-2">
-                    <Badge
-                      key={bestPrediction.typeCode || 'pred-0'}
-                      variant="default"
-                      className={
-                        isTypeLocked 
-                          ? 'opacity-50 cursor-not-allowed' 
-                          : 'cursor-pointer hover:bg-blue-600'
-                      }
-                      onClick={() => {
-                        if (!isTypeLocked) {
-                          setSelectedType(bestPrediction.typeCode);
-                        }
-                      }}
+              if (!bestPrediction) return null;
+              const pct = Math.round((bestPrediction.score || 0) * 100);
+              return (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+                  <span className="text-sm font-medium text-blue-900">
+                    Suggestion :{' '}
+                    <button
+                      type="button"
+                      onClick={() => !isTypeLocked && setSelectedType(bestPrediction.typeCode)}
+                      className={isTypeLocked ? 'cursor-not-allowed opacity-70' : 'underline hover:text-blue-700'}
                     >
-                      {bestPrediction.label}: {Math.round((bestPrediction.score || 0) * 100)}%
-                    </Badge>
-                  </div>
+                      {bestPrediction.label} ({pct}%)
+                    </button>
+                  </span>
+                  {isTypeLocked && (
+                    <p className="text-xs text-gray-500 mt-1">Type verrouillé</p>
+                  )}
                 </div>
               );
             })()}
@@ -2304,7 +2287,7 @@ export function UploadReviewModal({
               </TabsList>
 
               <TabsContent value="preview" className="mt-4">
-                <div className="border rounded-lg p-4 bg-gray-50 max-h-96 overflow-auto">
+                <div className="border rounded-lg p-3 bg-gray-50 max-h-56 overflow-auto">
                   {isPDF && currentPreview.tempId && (
                     <div className="flex flex-col items-center justify-center py-12 text-gray-500">
                       <FileText className="h-12 w-12 mb-2 text-red-500" />
@@ -2492,7 +2475,7 @@ export function UploadReviewModal({
                 ) : (
                   <>
                     <CheckCircle2 className="h-4 w-4 mr-1" />
-                    {currentIndex < previews.length - 1 ? 'Enregistrer et suivant' : 'Enregistrer'}
+                    {currentIndex < previews.length - 1 ? 'Enregistrer et suivant' : 'Valider et enregistrer'}
                   </>
                 )}
               </Button>

@@ -45,13 +45,47 @@ const BAIL_EXPIRE_JOURS = 60;
 /** Mois en cours : si pas de loyer reçu et bien occupé → retard possible */
 const LOYER_RETARD_MOIS_SANS_RECETTE = 1;
 
+/** Période par défaut pour le cashflow (nombre de mois glissants) */
+export const CASHFLOW_DEFAULT_PERIOD_MONTHS = 12;
+
+/** Libellé UI pour le cashflow (une seule source de vérité) */
+export const CASHFLOW_LABEL = 'Cashflow mensuel moyen (12 mois)';
+
+export type CashflowPeriod = 'monthly_avg_12' | 'annual';
+
+export interface GetCashflowOptions {
+  /** Nombre de mois pour la moyenne (défaut 12) */
+  periodMonths?: number;
+  period?: CashflowPeriod;
+}
+
 /**
- * Calcule le cashflow mensuel moyen sur les 12 derniers mois pour un bien.
+ * Source unique de vérité pour le cashflow d'un bien.
+ * Calcule le cashflow mensuel moyen sur les N derniers mois (entrées - sorties) / N.
+ * À utiliser partout (menu, card, dashboard) pour garantir la cohérence.
+ */
+export function getCashflow(
+  propertyId: string,
+  transactions: Transaction[],
+  options: GetCashflowOptions = {}
+): number {
+  const periodMonths = options.periodMonths ?? CASHFLOW_DEFAULT_PERIOD_MONTHS;
+  const value = computePropertyCashflow(propertyId, transactions, periodMonths);
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development' && typeof window !== 'undefined' && (window as any).__SMARTIMMO_DEBUG_CASHFLOW__) {
+    const count = transactions.filter((t) => t.propertyId === propertyId).length;
+    console.log(`[getCashflow] ${propertyId}: calcul basé sur ${periodMonths} mois, ${count} transactions → ${value.toFixed(0)} €/mois`);
+  }
+  return value;
+}
+
+/**
+ * Calcule le cashflow mensuel moyen sur les N derniers mois pour un bien.
+ * @deprecated Préférer getCashflow() pour une source unique.
  */
 export function computePropertyCashflow(
   propertyId: string,
   transactions: Transaction[],
-  months: number = 12
+  months: number = CASHFLOW_DEFAULT_PERIOD_MONTHS
 ): number {
   const now = new Date();
   const cutoff = new Date(now.getFullYear(), now.getMonth() - months, 1);
@@ -326,7 +360,7 @@ export function computePropertiesDashboard(
       countRentabilite += 1;
     }
 
-    const cashflowMensuel = computePropertyCashflow(prop.id, transactions);
+    const cashflowMensuel = getCashflow(prop.id, transactions, { periodMonths: CASHFLOW_DEFAULT_PERIOD_MONTHS });
     cashflowTotal += cashflowMensuel;
 
     const hasRentThisMonth = transactions.some(

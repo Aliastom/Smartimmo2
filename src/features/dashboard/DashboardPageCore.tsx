@@ -54,6 +54,7 @@ import { PortfolioHeatmap } from './components/PortfolioHeatmap';
 import { ProgressionMoisCard } from './components/ProgressionMoisCard';
 import { cn } from '@/utils/cn';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useSelectedPeriod } from '@/contexts/SelectedPeriodContext';
 
 export type DashboardTabId = 'vue-generale' | 'actions' | 'timeline' | 'finances' | 'analyse';
 
@@ -123,14 +124,18 @@ export function DashboardPageCore({
     }
   }, [mode]);
 
-  // États pour les filtres
-  const [month, setMonth] = useState(() => {
+  // Contexte période partagée (App Shell) : Dashboard + Alertes utilisent le même mois
+  const selectedPeriod = useSelectedPeriod();
+  // États pour les filtres (mode normal = état local + URL ; app-shell = contexte global)
+  const [monthLocal, setMonthLocal] = useState(() => {
     const now = new Date();
     if (mode === 'normal' && searchParamsHook) {
       return searchParamsHook.get('month') || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     }
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  const month = mode === 'app-shell' ? selectedPeriod.month : monthLocal;
+  const setMonth = mode === 'app-shell' ? selectedPeriod.setMonth : setMonthLocal;
   const [bienIds, setBienIds] = useState<string[]>([]);
   const [locataireIds, setLocataireIds] = useState<string[]>([]);
   const [type, setType] = useState<'INCOME' | 'EXPENSE' | 'ALL'>('ALL');

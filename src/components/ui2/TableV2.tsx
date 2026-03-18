@@ -126,8 +126,8 @@ export function TableRowV2({
   return (
     <tr
       className={cn(
-        "ui2-table-row group",
-        onClick && "cursor-pointer",
+        "ui2-table-row group transition-colors",
+        onClick && "cursor-pointer hover:bg-gray-50 active:bg-gray-100",
         isMobile && isExpanded && "ui2-table-row-mobile-expanded",
         className
       )}
@@ -188,7 +188,7 @@ export interface TableCellV2Props {
 export function TableCellV2({ children, className }: TableCellV2Props) {
   return (
     <td className={cn(
-      "px-6 py-4 whitespace-nowrap text-sm text-gray-900 ui2-table-cell",
+      "px-6 py-4 whitespace-nowrap text-sm text-gray-900 ui2-table-cell align-middle",
       className
     )}>
       {children}

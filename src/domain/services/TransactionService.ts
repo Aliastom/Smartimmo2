@@ -14,6 +14,7 @@ import type { IDocumentLinkRepository } from '../repositories/interfaces/IDocume
 import type { INatureRepository } from '../repositories/interfaces/INatureRepository';
 import { calcCommission, type ModeCalcul } from '@/lib/gestion/calcCommission';
 import { addMonthsYYYYMM, formatMonthlyLabel, extractBaseLabel } from '@/lib/utils/monthUtils';
+import { removeEcheanceLinksForTransactionId } from '@/lib/echeances/echeanceTransactionLinkClient';
 
 export interface TransactionServiceDependencies {
   transactionRepo: ITransactionRepository;
@@ -984,6 +985,13 @@ export class TransactionService {
           });
         }
       }
+    }
+
+    // Liaisons échéance ↔ transaction : sinon le lien orphelin bloque « Créer la transaction » (linkedCount > 0)
+    try {
+      await removeEcheanceLinksForTransactionId(id);
+    } catch {
+      /* hors App Shell / pas d’IDB */
     }
 
     // Supprimer la transaction

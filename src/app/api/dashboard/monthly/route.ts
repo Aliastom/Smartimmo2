@@ -15,6 +15,7 @@ import type {
   BailAEcheance,
   DocumentAValider,
 } from '@/types/dashboard';
+import { getLateRentAlerts, type LeaseForRelances } from '@/features/dashboard/utils/lateRentAlerts';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
@@ -579,119 +580,48 @@ export async function GET(request: NextRequest) {
       },
     });
     
-    // Créer un Set pour une recherche rapide : "leaseId-accountingMonth"
-    // On vérifie par bail (leaseId + accounting_month) avec nature ET category = codes système
+    // Créer un Set pour une recherche rapide : "leaseId-accountingMonth" (même logique que getLateRentAlerts)
     const paidMonths = new Set<string>();
     allRentTransactions.forEach(tx => {
-      // Vérifier que la transaction a bien la nature ET la catégorie système
       const hasCorrectNature = tx.nature === rentNature;
       const hasCorrectCategory = rentCategoryId ? tx.categoryId === rentCategoryId : true;
-      
       if (tx.accounting_month && tx.leaseId && hasCorrectNature && hasCorrectCategory) {
         paidMonths.add(`${tx.leaseId}-${tx.accounting_month}`);
       }
     });
-    
-    // Grouper les baux par bien
-    const leasesByProperty = new Map<string, typeof allLeases>();
+
+    const propertyNameById = new Map<string, string>();
+    const tenantNameById = new Map<string, string>();
+    const acquisitionDateByPropertyId = new Map<string, string | null>();
     for (const lease of allLeases) {
-      const propertyId = lease.propertyId || 'unknown';
-      if (!leasesByProperty.has(propertyId)) {
-        leasesByProperty.set(propertyId, []);
+      const pid = lease.propertyId || 'unknown';
+      if (lease.Property) {
+        propertyNameById.set(pid, lease.Property.name || '');
+        acquisitionDateByPropertyId.set(pid, lease.Property.acquisitionDate ?? null);
       }
-      leasesByProperty.get(propertyId)!.push(lease);
-    }
-    
-    const relances: LoyerNonEncaisse[] = [];
-    const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-    
-    // Pour chaque bien, vérifier tous ses baux
-    for (const [propertyId, leases] of leasesByProperty.entries()) {
-      if (leases.length === 0) continue;
-      
-      const property = leases[0].Property;
-      
-      // Pour chaque bail de ce bien
-      for (const lease of leases) {
-        const leaseStartDate = new Date(lease.startDate);
-        const leaseEndDate = lease.endDate ? new Date(lease.endDate) : null;
-        
-        // Date d'acquisition du bien (héritage) - ne pas compter les retards avant cette date
-        const propertyAcquisitionDate = property?.acquisitionDate 
-          ? new Date(property.acquisitionDate) 
-          : null;
-        
-        // Date de début de vérification : maximum entre début du bail et date d'acquisition
-        // Si le bail a commencé avant l'héritage, on ne vérifie qu'à partir de l'héritage
-        let effectiveStartDate = leaseStartDate;
-        if (propertyAcquisitionDate && propertyAcquisitionDate > leaseStartDate) {
-          effectiveStartDate = propertyAcquisitionDate;
-        }
-        
-        // Générer tous les mois entre effectiveStartDate et endDate (ou aujourd'hui si pas de fin)
-        const startMonth = new Date(effectiveStartDate.getFullYear(), effectiveStartDate.getMonth(), 1);
-        const endMonth = leaseEndDate 
-          ? new Date(leaseEndDate.getFullYear(), leaseEndDate.getMonth(), 1)
-          : new Date(today.getFullYear(), today.getMonth(), 1);
-        
-        const currentMonthDate = new Date(startMonth);
-        
-        while (currentMonthDate <= endMonth) {
-          const accountingMonth = `${currentMonthDate.getFullYear()}-${String(currentMonthDate.getMonth() + 1).padStart(2, '0')}`;
-          
-          // Vérifier les mois passés ET le mois en cours (si on est déjà dans le mois)
-          // Pour le mois en cours, on considère qu'il est en retard si pas de transaction
-          const isPastMonth = accountingMonth < currentMonthStr;
-          const isCurrentMonth = accountingMonth === currentMonthStr;
-          
-          if (isPastMonth || isCurrentMonth) {
-            // Vérifier si ce mois a une transaction avec nature ET category = codes système pour ce bail
-            const isPaid = paidMonths.has(`${lease.id}-${accountingMonth}`);
-            
-            // Si pas de transaction = loyer en retard
-            if (!isPaid) {
-              // Calculer le nombre de jours de retard
-              // Pour le mois en cours, on calcule depuis le 1er du mois
-              // Pour les mois passés, on calcule depuis la fin du mois
-              let retardJours = 0;
-              if (isCurrentMonth) {
-                // Mois en cours : retard depuis le 1er du mois
-                const firstOfMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth(), 1);
-                retardJours = Math.floor((today.getTime() - firstOfMonth.getTime()) / (1000 * 60 * 60 * 24));
-              } else {
-                // Mois passé : retard depuis la fin du mois
-                const endOfMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0);
-                retardJours = Math.floor((today.getTime() - endOfMonth.getTime()) / (1000 * 60 * 60 * 24));
-              }
-              
-              // Date d'échéance : fin du mois pour l'affichage
-              const endOfMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0);
-              
-              relances.push({
-                id: `${lease.id}-${accountingMonth}`, // ID virtuel unique
-                leaseId: lease.id,
-                propertyId: property?.id || propertyId,
-                propertyName: property?.name || '',
-                tenantName: lease.Tenant
-                  ? `${lease.Tenant.firstName} ${lease.Tenant.lastName}`
-                  : '',
-                montant: lease.rentAmount,
-                dateEcheance: endOfMonth.toISOString().split('T')[0],
-                accountingMonth: accountingMonth,
-                retardJours,
-                statut: 'en_retard' as const,
-              });
-            }
-          }
-          
-          // Passer au mois suivant
-          currentMonthDate.setMonth(currentMonthDate.getMonth() + 1);
-        }
+      if (lease.Tenant && lease.tenantId) {
+        tenantNameById.set(lease.tenantId, `${lease.Tenant.firstName} ${lease.Tenant.lastName}`);
       }
     }
-    
-    // Trier les relances par nombre de jours de retard (les plus anciennes en premier)
-    relances.sort((a, b) => b.retardJours - a.retardJours);
+    const leasesForRelances: LeaseForRelances[] = allLeases.map(l => ({
+      id: l.id,
+      propertyId: l.propertyId ?? null,
+      tenantId: l.tenantId ?? null,
+      rentAmount: l.rentAmount ?? 0,
+      startDate: l.startDate,
+      endDate: l.endDate ?? null,
+      status: undefined,
+    }));
+
+    const relances = getLateRentAlerts({
+      leases: leasesForRelances,
+      paidMonths,
+      selectedMonth: month,
+      mode: 'open_arrears_as_of_month',
+      propertyNameById,
+      tenantNameById,
+      acquisitionDateByPropertyId,
+    });
     
     // Indexations à traiter (anniversaires de baux dans le mois ± 15j)
     const indexationStart = new Date(firstDay.getTime() - 15 * 24 * 60 * 60 * 1000);

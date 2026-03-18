@@ -43,6 +43,7 @@ import { AppShellContent } from './components/AppShellContent';
 import { SidebarProvider } from '@/contexts/SidebarContext';
 import { navigateToView, type ViewType } from '@/utils/appShellNavigation';
 import { LocalDbStatusProvider, useLocalDbStatus } from '@/contexts/LocalDbStatusContext';
+import { SelectedPeriodProvider } from '@/contexts/SelectedPeriodContext';
 import { LocalDbUnavailableScreen } from '@/components/offline/LocalDbUnavailableScreen';
 
 // ⚠️ GUARD DEV-ONLY : Protection anti-régression pour les onglets property offline
@@ -668,6 +669,7 @@ function AppShellClientContent() {
     <UI2Provider>
     <AppShellContextResolverProvider>
       <SidebarProvider>
+        <SelectedPeriodProvider>
         <AppShellAuthGuard>
           <AppShell
             customSidebar={customSidebar}
@@ -679,6 +681,7 @@ function AppShellClientContent() {
             </AppShellContent>
           </AppShell>
         </AppShellAuthGuard>
+        </SelectedPeriodProvider>
       </SidebarProvider>
     </AppShellContextResolverProvider>
     </UI2Provider>

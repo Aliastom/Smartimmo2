@@ -228,7 +228,8 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
 
         const soldeNet = recettesTotales + depensesTotales; // depensesTotales est déjà négatif
 
-        // Cashflow mensuel moyen = total des soldes mensuels / nombre de mois avec transactions (cohérent avec les séparateurs du tableau)
+        // Cashflow mensuel moyen = même règle que sidebar/page Biens : 12 derniers mois à partir d'aujourd'hui (une seule source de vérité)
+        const CASHFLOW_PERIOD_MONTHS = 12;
         const monthlyTotals: Record<string, number> = {};
         for (const t of filteredTransactions) {
           const acc = (t as any).accounting_month ?? (t as any).accountingMonth;
@@ -241,10 +242,15 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
           const signed = flow === 'EXPENSE' ? -Math.abs(amount) : Math.abs(amount);
           monthlyTotals[month] = (monthlyTotals[month] ?? 0) + signed;
         }
-        const monthsCount = Object.keys(monthlyTotals).length;
-        const cashflowTotal = Object.values(monthlyTotals).reduce((a, b) => a + b, 0);
-        const cashflowMensuelMoyen = monthsCount > 0 ? cashflowTotal / monthsCount : 0;
-        const cashflowMoisCount = monthsCount;
+        const now = new Date();
+        const last12MonthKeys: string[] = [];
+        for (let i = CASHFLOW_PERIOD_MONTHS - 1; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          last12MonthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+        }
+        const cashflowTotal = last12MonthKeys.reduce((sum, m) => sum + (monthlyTotals[m] ?? 0), 0);
+        const cashflowMensuelMoyen = cashflowTotal / CASHFLOW_PERIOD_MONTHS;
+        const cashflowMoisCount = CASHFLOW_PERIOD_MONTHS;
 
         console.log('[useTransactionsKpis] ✅ KPIs calculés:', {
           recettesTotales,
@@ -386,6 +392,7 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
 
         const soldeNet = recettesTotales + depensesTotales;
 
+        const CASHFLOW_PERIOD_MONTHS = 12;
         const monthlyTotals: Record<string, number> = {};
         for (const t of filteredTransactions) {
           const acc = (t as any).accounting_month ?? (t as any).accountingMonth;
@@ -398,9 +405,14 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
           const signed = flow === 'EXPENSE' ? -Math.abs(amount) : Math.abs(amount);
           monthlyTotals[month] = (monthlyTotals[month] ?? 0) + signed;
         }
-        const monthsCount = Object.keys(monthlyTotals).length;
-        const cashflowTotal = Object.values(monthlyTotals).reduce((a, b) => a + b, 0);
-        const cashflowMensuelMoyen = monthsCount > 0 ? cashflowTotal / monthsCount : 0;
+        const now = new Date();
+        const last12MonthKeys: string[] = [];
+        for (let i = CASHFLOW_PERIOD_MONTHS - 1; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          last12MonthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+        }
+        const cashflowTotal = last12MonthKeys.reduce((sum, m) => sum + (monthlyTotals[m] ?? 0), 0);
+        const cashflowMensuelMoyen = cashflowTotal / CASHFLOW_PERIOD_MONTHS;
 
         if (!cancelled) {
           setKpis({
@@ -409,7 +421,7 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
             soldeNet,
             nonRapprochees,
             cashflowMensuelMoyen,
-            cashflowMoisCount: monthsCount,
+            cashflowMoisCount: CASHFLOW_PERIOD_MONTHS,
           });
         }
       } catch (error) {

@@ -3,6 +3,7 @@
 import React from 'react';
 import { StatCard } from '@/components/ui/StatCard';
 import { cn } from '@/utils/cn';
+import { FileText, Clock, AlertCircle, FileX } from 'lucide-react';
 
 export interface DocumentKpis {
   total: number;
@@ -102,8 +103,45 @@ export function DocumentsKpiBar({
     );
   }
 
+  if (compact) {
+    const iconMap = { FileText, Clock, AlertCircle, FileX };
+    return (
+      <div className={cn('grid gap-2', gridColsClass, 'grid-cols-2 sm:grid-cols-4')}>
+        {cards.map((card) => {
+          const Icon = iconMap[card.iconName as keyof typeof iconMap] || FileText;
+          const isActive = activeFilter === card.id;
+          return (
+            <button
+              key={card.id}
+              type="button"
+              onClick={() => handleCardClick(card.id)}
+              className={cn(
+                'flex items-center gap-2 rounded-lg border p-2 text-left transition-colors',
+                isActive ? 'border-orange-400 bg-orange-50 shadow-sm' : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+              )}
+            >
+              <div className={cn(
+                'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full',
+                card.color === 'blue' && 'bg-blue-100 text-blue-600',
+                card.color === 'amber' && 'bg-amber-100 text-amber-600',
+                card.color === 'yellow' && 'bg-yellow-100 text-yellow-600',
+                card.color === 'red' && 'bg-red-100 text-red-600'
+              )}>
+                <Icon className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-gray-500 truncate">{card.title}</p>
+                <p className="text-base font-semibold text-gray-900 truncate">{card.value}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
-    <div className={cn('grid gap-3', gridColsClass, compact && 'grid-cols-2 sm:grid-cols-4')}>
+    <div className={cn('grid gap-3', gridColsClass)}>
       {cards.map((card) => (
         <StatCard
           key={card.id}
@@ -113,11 +151,10 @@ export function DocumentsKpiBar({
           color={card.color}
           onClick={() => handleCardClick(card.id)}
           isActive={activeFilter === card.id}
-          rightIndicator={compact ? 'none' : 'chevron'}
-          trendValue={compact ? undefined : 0}
-          trendLabel={compact ? undefined : '% vs mois dernier'}
-          trendDirection={compact ? undefined : 'flat'}
-          className={compact ? 'p-3 text-sm' : undefined}
+          rightIndicator="chevron"
+          trendValue={0}
+          trendLabel="% vs mois dernier"
+          trendDirection="flat"
         />
       ))}
     </div>

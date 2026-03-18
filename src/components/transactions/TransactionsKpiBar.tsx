@@ -75,7 +75,7 @@ export function TransactionsKpiBar({
     },
     {
       id: 'cashflow',
-      title: 'Cashflow mensuel moyen',
+      title: 'Cashflow mensuel moyen (12 mois)',
       value: cashflowValue,
       iconName: 'Euro',
       color: hasCashflowData ? (cashflowMoyen >= 0 ? ('green' as const) : ('red' as const)) : ('gray' as const),

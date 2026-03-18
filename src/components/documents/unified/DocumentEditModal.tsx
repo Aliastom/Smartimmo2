@@ -28,11 +28,13 @@ interface DocumentEditModalProps {
     typeAlternatives?: string; // JSON string of predictions
   };
   onUpdate?: () => void;
-  mode?: 'normal' | 'app-shell'; // Mode pour déterminer si utiliser DocumentService ou API directe
-  organizationId?: string; // Nécessaire en mode app-shell pour DocumentService
+  mode?: 'normal' | 'app-shell';
+  organizationId?: string;
+  /** Onglet à afficher à l'ouverture (rename | reclassify | link) */
+  initialTab?: 'rename' | 'reclassify' | 'link';
 }
 
-export function DocumentEditModal({ isOpen, onClose, document, onUpdate, mode = 'normal', organizationId: organizationIdProp }: DocumentEditModalProps) {
+export function DocumentEditModal({ isOpen, onClose, document, onUpdate, mode = 'normal', organizationId: organizationIdProp, initialTab }: DocumentEditModalProps) {
   // ⚠️ Récupérer organizationId depuis le hook si non fourni en prop
   const { organizationId: organizationIdFromHook } = useCurrentOrganization();
   const organizationId = organizationIdProp || organizationIdFromHook || '';
@@ -50,7 +52,7 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate, mode = 
   useEffect(() => {
     if (isOpen) {
       setNewFilename(document.filenameOriginal);
-      setActiveTab('rename');
+      setActiveTab(initialTab || 'rename');
       setSelectedPredictionType(document.DocumentType?.code || null);
       // Load predictions if available
       if (document.typeAlternatives) {
@@ -65,7 +67,7 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate, mode = 
         setPredictions([]);
       }
     }
-  }, [isOpen, document]);
+  }, [isOpen, document, initialTab]);
 
   // Load all document types for the select dropdown
   useEffect(() => {
@@ -431,72 +433,48 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate, mode = 
           </TabsContent>
 
           <TabsContent value="reclassify" className="mt-4 space-y-4">
-            <p className="text-sm text-gray-500">Changer le type de document (bail, quittance, etc.).</p>
-            <div className="border rounded-lg p-4 bg-gray-50">
-              <h4 className="font-semibold mb-2">Analyse de classification</h4>
-              <p className="text-sm text-gray-700 mb-3">
-                Choisissez entre récupérer les prédictions existantes (rapide) ou relancer une analyse complète.
-              </p>
-              <div className="flex gap-2">
-                <Button 
-                  onClick={() => handleAnalyzeClassification(false)} 
-                  loading={isAnalyzing}
-                  variant="outline"
-                >
-                  <RefreshCw className="h-4 w-4 mr-2" /> Voir les prédictions existantes
-                </Button>
-                <Button 
-                  onClick={() => handleAnalyzeClassification(true)} 
-                  loading={isAnalyzing}
-                >
-                  <RefreshCw className="h-4 w-4 mr-2" /> Re-analyse complète
-                </Button>
+            <h3 className="font-semibold text-gray-900">Changer le type du document</h3>
+            <div>
+              <Label htmlFor="documentType">Type</Label>
+              <div className="mt-1">
+                <SmartSelect
+                  id="documentType"
+                  value={selectedPredictionType || ''}
+                  onChange={(value) => setSelectedPredictionType(value || null)}
+                  options={documentTypes.map((type) => ({
+                    value: type.code,
+                    label: type.label,
+                  })) as SmartSelectOption[]}
+                  placeholder="Choisir un type"
+                  aria-label="Type de document"
+                />
               </div>
             </div>
-
             {predictions.length > 0 && (
-              <div className="space-y-3">
-                <h4 className="font-semibold">Prédictions (scores de confiance)</h4>
-                <div className="flex flex-wrap gap-2">
-                  {predictions.map((p) => (
-                    <Badge
-                      key={p.typeCode}
-                      variant={p.score >= p.threshold ? 'default' : 'secondary'}
-                      className="flex items-center gap-1"
-                    >
-                      {p.score >= p.threshold ? <CheckCircle className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-                      {p.label}: {(p.score * 100).toFixed(0)}% (Seuil: {(p.threshold * 100).toFixed(0)}%)
-                    </Badge>
-                  ))}
-                </div>
-
-                <div>
-                  <Label htmlFor="documentType">Type de document</Label>
-                  <div className="mt-1">
-                    <SmartSelect
-                    id="documentType"
-                    value={selectedPredictionType || ''}
-                      onChange={(value) => setSelectedPredictionType(value || null)}
-                      options={documentTypes.map((type) => ({
-                        value: type.code,
-                        label: type.label,
-                      })) as SmartSelectOption[]}
-                      placeholder="Sélectionner un type"
-                      aria-label="Type de document"
-                    />
-                  </div>
-                </div>
+              <div className="flex flex-wrap gap-2">
+                {predictions.map((p) => (
+                  <Badge
+                    key={p.typeCode}
+                    variant={p.score >= p.threshold ? 'default' : 'secondary'}
+                    className="flex items-center gap-1"
+                  >
+                    {p.score >= p.threshold ? <CheckCircle className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                    {p.label} ({(p.score * 100).toFixed(0)}%)
+                  </Badge>
+                ))}
               </div>
             )}
-            
-            <DialogFooter>
-              <Button variant="outline" onClick={onClose}>Annuler</Button>
-              <Button onClick={handleSaveReclassify} loading={isSaving} disabled={!selectedPredictionType}>Sauvegarder</Button>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => handleAnalyzeClassification(true)} loading={isAnalyzing}>
+                <RefreshCw className="h-4 w-4 mr-2" /> Relancer OCR
+              </Button>
+              <Button onClick={handleSaveReclassify} loading={isSaving} disabled={!selectedPredictionType}>
+                Appliquer classification
+              </Button>
             </DialogFooter>
           </TabsContent>
 
-          <TabsContent value="link" className="mt-4 space-y-4">
-            <p className="text-sm text-gray-500">Associer ce document à un bien, un bail, une transaction ou un locataire.</p>
+          <TabsContent value="link" className="mt-4 space-y-4 max-h-[65vh] overflow-y-auto">
             <div className="space-y-4">
               <div>
                 <h4 className="font-semibold mb-2">Liaisons actuelles</h4>
@@ -546,9 +524,12 @@ export function DocumentEditModal({ isOpen, onClose, document, onUpdate, mode = 
               </div>
 
               <div className="border-t pt-4">
-                <h4 className="font-semibold mb-2">Ajouter une nouvelle liaison</h4>
+                <h4 className="font-semibold mb-2">Ajouter une liaison</h4>
                 <DocumentLinkSelector
-                  onSelect={handleLinkDocument}
+                  onSelect={(linkedTo, linkedIds) => {
+                    if (linkedTo === 'global') handleLinkDocument('global');
+                    else if (linkedIds?.length) linkedIds.forEach((id) => handleLinkDocument(linkedTo, id));
+                  }}
                 />
                 
                 {/* Bouton rapide pour rendre global */}

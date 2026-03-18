@@ -2,24 +2,48 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { notify2 } from '@/lib/notify2';
-import { Plus, Edit, Trash2, CheckCircle, Home } from 'lucide-react';
+import { Plus, Edit, Trash2, CheckCircle, Home, ArrowUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Switch } from '@/components/ui/Switch';
 import { Pagination } from '@/components/ui/Pagination';
 import { usePropertyHeaderActions } from '@/app/biens/[id]/PropertyHeaderActionsContext';
-import { EcheancesKpiBar } from '@/components/echeances/EcheancesKpiBar';
-import { EcheancesCumulativeChart } from '@/components/echeances/EcheancesCumulativeChart';
-import { EcheancesByTypeChart } from '@/components/echeances/EcheancesByTypeChart';
-import { EcheancesRecuperablesChart } from '@/components/echeances/EcheancesRecuperablesChart';
+import { PropertyEcheancesHero } from '@/components/echeances/PropertyEcheancesHero';
 import EcheancesFilters from '@/components/echeances/EcheancesFilters';
 import { EcheanceModal } from '@/components/echeances/EcheanceModal';
 import { EcheanceDrawer } from '@/components/echeances/EcheanceDrawer';
 import { ConfirmDeleteEcheanceModal } from '@/components/echeances/ConfirmDeleteEcheanceModal';
 import { ConfirmDeleteMultipleEcheancesModal } from '@/components/echeances/ConfirmDeleteMultipleEcheancesModal';
 import { useEcheancesData } from '@/features/echeances/hooks/useEcheancesData';
-import { useEcheancesKpis } from '@/features/echeances/hooks/useEcheancesKpis';
-import { useEcheancesCharts } from '@/features/echeances/hooks/useEcheancesCharts';
+import {
+  getNextOccurrenceInfo,
+  pickPrimaryEcheance,
+  sumProjected12Months,
+  countEcheancesEchues,
+  temporalBadgeMeta,
+  generationBadgeMeta,
+  getStatutGeneration,
+} from '@/lib/echeances/echeanceCashflowHelpers';
+import {
+  computeCoverage,
+  transactionToCoverageInput,
+  type CoverageResult,
+} from '@/lib/echeances/echeanceCoverage';
+import {
+  computeQualityScore,
+  computeAlerts,
+  computeSuggestions,
+  computePropertyManagementScore,
+} from '@/lib/echeances/echeanceInsights';
+import { getLinkedTransactions } from '@/lib/echeances/echeanceTransactionLinkClient';
+import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
+import {
+  SUGGESTION_DATE_TOLERANCE_DAYS,
+  SUGGESTION_AMOUNT_TOLERANCE_PERCENT,
+  COVERAGE_ECART_DISPLAY_THRESHOLD_EUR,
+  COVERAGE_OVER_LINKED_RATIO_CRITICAL,
+} from '@/lib/echeances/echeanceLinkConfig';
+import { cn } from '@/utils/cn';
 import { getLeaseRepositoryOffline } from '@/lib/offline/repositories/LeaseRepositoryOffline';
 import { getTenantRepositoryOffline } from '@/lib/offline/repositories/TenantRepositoryOffline';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
@@ -29,11 +53,21 @@ import {
   EcheanceRecurrente,
   ECHEANCE_TYPE_LABELS,
   PERIODICITE_LABELS,
-  SENS_LABELS,
   TYPE_COLORS,
 } from '@/types/echeance';
 import { EcheanceFormSchema } from '@/lib/validations/echeance';
 import Link from 'next/link';
+import { TransactionModal } from '@/components/transactions/TransactionModalV2';
+import { createTransactionServiceWithMode } from '@/domain/services/transactionServiceFactory';
+import {
+  fetchAndMergeLinksForProperty,
+  getLinksByEcheanceIds,
+  pruneOrphanEcheanceLinksForEcheanceIds,
+  addEcheanceTransactionLink,
+  type EcheanceTransactionLinkRow,
+} from '@/lib/echeances/echeanceTransactionLinkClient';
+import { buildTransactionPrefillFromEcheance } from '@/lib/echeances/echeanceTransactionPrefill';
+import type { TransactionFormData } from '@/lib/validations/transaction';
 
 interface PropertyEcheancesClientProps {
   propertyId: string;
@@ -75,6 +109,12 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
   const [selectedEcheanceIds, setSelectedEcheanceIds] = useState<string[]>([]);
   const [showDeleteMultipleModal, setShowDeleteMultipleModal] = useState(false);
 
+  const [echeanceLinksById, setEcheanceLinksById] = useState<Map<string, EcheanceTransactionLinkRow[]>>(new Map());
+  const [coverageByEcheanceId, setCoverageByEcheanceId] = useState<Map<string, CoverageResult>>(new Map());
+  const [txModalOpen, setTxModalOpen] = useState(false);
+  const [echeanceForTx, setEcheanceForTx] = useState<EcheanceRecurrente | null>(null);
+  const [txModalPrefill, setTxModalPrefill] = useState<Awaited<ReturnType<typeof buildTransactionPrefillFromEcheance>> | null>(null);
+
   // États pour la période (format YYYY) - Par défaut : 5 années à venir
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -82,8 +122,12 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
   const [periodEnd, setPeriodEnd] = useState((currentYear + 4).toString());
   const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('yearly');
 
-  // État pour le filtre KPI actif
-  const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
+  /** Filtres rapides tableau */
+  const [quickScope, setQuickScope] = useState<
+    '' | 'active' | 'inactive' | 'upcoming' | 'overdue' | 'charges' | 'revenus' | 'recuperables'
+  >('');
+  const [sortKey, setSortKey] = useState<'date' | 'montant' | 'type' | 'actif'>('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   // États des filtres (sans propertyId car fixe)
   const [filters, setFilters] = useState<Filters>({
@@ -122,14 +166,13 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
     properties,
     leases: allLeases,
     totalCount,
-    pagination: dataPagination,
     loading: isLoading,
   } = useEcheancesData({
     mode: 'app-shell',
     scope: 'property', // ✅ Scope property pour filtrer les events
     propertyId, // ✅ Passer propertyId pour filtrer les events
     filters: filtersForHook,
-    activeKpiFilter: null, // ✅ Ne pas appliquer le filtre KPI ici, on le fait en mémoire
+    activeKpiFilter: null,
     page: 1, // ✅ Pas de pagination côté hook, on fait tout en mémoire
     pageSize: 10000, // ✅ Charger toutes les échéances
   });
@@ -178,17 +221,65 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
       return true;
     });
 
-    // Appliquer le filtre KPI actif
-    if (activeKpiFilter === 'revenus') {
-      filtered = filtered.filter(e => e.sens === 'CREDIT');
-    } else if (activeKpiFilter === 'charges') {
-      filtered = filtered.filter(e => e.sens === 'DEBIT');
-    } else if (activeKpiFilter === 'actives') {
-      filtered = filtered.filter(e => e.isActive);
-    }
-
     return filtered;
-  }, [allEcheances, filters, activeKpiFilter]);
+  }, [allEcheances, filters]);
+
+  const metaById = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof getNextOccurrenceInfo>>();
+    for (const e of allEcheances || []) {
+      m.set(e.id, getNextOccurrenceInfo(e));
+    }
+    return m;
+  }, [allEcheances]);
+
+  const filteredWithQuick = useMemo(() => {
+    let list = filteredEcheances;
+    if (quickScope === 'active') list = list.filter((e) => e.isActive);
+    else if (quickScope === 'inactive') list = list.filter((e) => !e.isActive);
+    else if (quickScope === 'charges') list = list.filter((e) => e.sens === 'DEBIT');
+    else if (quickScope === 'revenus') list = list.filter((e) => e.sens === 'CREDIT');
+    else if (quickScope === 'recuperables') list = list.filter((e) => e.recuperable && e.sens === 'DEBIT');
+    else if (quickScope === 'overdue') {
+      list = list.filter((e) => {
+        const info = metaById.get(e.id);
+        return e.isActive && info?.temporalStatus === 'echue';
+      });
+    } else if (quickScope === 'upcoming') {
+      list = list.filter((e) => {
+        const info = metaById.get(e.id);
+        if (!e.isActive || !info) return false;
+        return info.temporalStatus === 'a_venir';
+      });
+    }
+    return list;
+  }, [filteredEcheances, quickScope, metaById]);
+
+  const sortedForTable = useMemo(() => {
+    const arr = [...filteredWithQuick];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const dateKey = (e: EcheanceRecurrente) => {
+      const info = metaById.get(e.id);
+      if (!e.isActive) return '9999-12-31';
+      if (!info || info.temporalStatus === 'desactive') return '9999-12-30';
+      return info.nextDate || info.displayDate || '9999-12-29';
+    };
+    arr.sort((a, b) => {
+      let c = 0;
+      if (sortKey === 'date') c = dateKey(a).localeCompare(dateKey(b));
+      else if (sortKey === 'montant') c = a.montant - b.montant;
+      else if (sortKey === 'type') c = a.type.localeCompare(b.type);
+      else c = (a.isActive === b.isActive ? 0 : a.isActive ? -1 : 1);
+      return c * dir;
+    });
+    return arr;
+  }, [filteredWithQuick, sortKey, sortDir, metaById]);
+
+  const tableTotal = sortedForTable.length;
+  const tablePages = Math.max(1, Math.ceil(tableTotal / pagination.limit));
+  const pagedRows = useMemo(() => {
+    const start = (pagination.page - 1) * pagination.limit;
+    return sortedForTable.slice(start, start + pagination.limit);
+  }, [sortedForTable, pagination.page, pagination.limit]);
 
   // ✅ APP-SHELL: Charger les baux depuis IndexedDB avec les informations des locataires
   const [leases, setLeases] = useState<Array<{ id: string; propertyId: string; type: string; status: string; tenantName?: string }>>([]);
@@ -237,60 +328,191 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
     loadLeases();
   }, [organizationId, propertyId]); // ✅ Chargé une seule fois, pas rechargé à chaque filtre
 
-  // ✅ APP-SHELL: Charger les KPIs en mode app-shell (filtrés par propertyId)
-  const { data: kpisData, isLoading: kpisLoading } = useEcheancesKpis({ 
-    mode: 'app-shell',
-    scope: 'property', // ✅ Scope property pour filtrer les events
-    propertyId, // Filtré par bien
-  });
-
-  // ✅ APP-SHELL: Charger les graphiques en mode app-shell (filtrés par propertyId)
-  const { data: chartsData, isLoading: chartsLoading } = useEcheancesCharts({
-    mode: 'app-shell',
-    scope: 'property', // ✅ Scope property pour filtrer les events
-    periodStart,
-    periodEnd,
-    viewMode,
-    propertyId, // Filtré par bien
-  });
-
-  const kpis = kpisData || { revenusAnnuels: 0, chargesAnnuelles: 0, totalEcheances: 0, echeancesActives: 0 };
-  const charts = chartsData || { cumulative: [], byType: [], recuperables: { recuperables: 0, nonRecuperables: 0 } };
-
-  // ✅ Synchroniser la pagination (sans créer de boucle)
-  useEffect(() => {
-    if (dataPagination) {
-      setPagination(prev => {
-        const newTotal = dataPagination.total || filteredEcheances.length;
-        const newPages = dataPagination.pages || Math.ceil(filteredEcheances.length / prev.limit);
-        // Ne mettre à jour que si les valeurs ont vraiment changé
-        if (prev.total === newTotal && prev.pages === newPages) {
-          return prev;
-        }
-        return {
-          ...prev,
-          total: newTotal,
-          pages: newPages,
-        };
-      });
+  const projected = useMemo(() => sumProjected12Months(allEcheances || []), [allEcheances]);
+  const echuesCount = useMemo(() => countEcheancesEchues(allEcheances || []), [allEcheances]);
+  const primaryPick = useMemo(() => pickPrimaryEcheance(allEcheances || []), [allEcheances]);
+  const reloadEcheanceLinks = useCallback(async () => {
+    if (!organizationId || !propertyId || !(allEcheances?.length ?? 0)) {
+      setEcheanceLinksById(new Map());
+      setCoverageByEcheanceId(new Map());
+      return;
     }
-  }, [dataPagination?.total, dataPagination?.pages, filteredEcheances.length]);
+    await fetchAndMergeLinksForProperty(organizationId, propertyId);
+    const ids = (allEcheances || []).map((e) => e.id);
+    await pruneOrphanEcheanceLinksForEcheanceIds(ids, organizationId);
+    const m = await getLinksByEcheanceIds(ids);
+    setEcheanceLinksById(m);
+
+    const coverageMap = new Map<string, CoverageResult>();
+    for (const e of allEcheances || []) {
+      const links = m.get(e.id);
+      if (!links?.length) continue;
+      const txs = await getLinkedTransactions(e.id, organizationId);
+      const inputs = txs.map((t) => transactionToCoverageInput(t.amount, t.nature));
+      const cov = computeCoverage(e.montant, e.sens as 'CREDIT' | 'DEBIT', inputs, undefined, e.type);
+      coverageMap.set(e.id, cov);
+    }
+    setCoverageByEcheanceId(coverageMap);
+  }, [organizationId, propertyId, allEcheances]);
+
+  useEffect(() => {
+    reloadEcheanceLinks();
+  }, [reloadEcheanceLinks]);
+
+  useEffect(() => {
+    const onRefresh = () => {
+      reloadEcheanceLinks();
+    };
+    window.addEventListener('echeanceLinks:refresh', onRefresh);
+    window.addEventListener('sync:refresh', onRefresh);
+    return () => {
+      window.removeEventListener('echeanceLinks:refresh', onRefresh);
+      window.removeEventListener('sync:refresh', onRefresh);
+    };
+  }, [reloadEcheanceLinks]);
+
+  const countAGenerer = useMemo(() => {
+    return (allEcheances || []).filter(
+      (e) => e.isActive && (echeanceLinksById.get(e.id)?.length ?? 0) === 0
+    ).length;
+  }, [allEcheances, echeanceLinksById]);
+
+  const qualityScore = useMemo(() => {
+    const active = (allEcheances || []).filter((e) => e.isActive);
+    const items = active.map((e) => ({
+      statut: coverageByEcheanceId.get(e.id)?.statut ?? (echeanceLinksById.get(e.id)?.length ? 'generee' : 'a_generer'),
+    }));
+    return computeQualityScore(items);
+  }, [allEcheances, coverageByEcheanceId, echeanceLinksById]);
+
+  const echeancesWithCoverage = useMemo(() => {
+    return (allEcheances || []).map((e) => {
+      const info = getNextOccurrenceInfo(e);
+      const linkedCount = echeanceLinksById.get(e.id)?.length ?? 0;
+      const coverage = coverageByEcheanceId.get(e.id);
+      return {
+        id: e.id,
+        type: e.type,
+        label: e.label,
+        montant: e.montant,
+        sens: e.sens,
+        isActive: e.isActive,
+        nextOccurrenceDate: info?.displayDate ?? info?.nextDate ?? null,
+        coverage,
+        linkedCount,
+      };
+    });
+  }, [allEcheances, coverageByEcheanceId, echeanceLinksById]);
+
+  const alerts = useMemo(() => computeAlerts(echeancesWithCoverage), [echeancesWithCoverage]);
+  const proactiveSuggestions = useMemo(() => computeSuggestions(echeancesWithCoverage), [echeancesWithCoverage]);
+  const propertyScore = useMemo(() => {
+    const items = (allEcheances || []).filter((e) => e.isActive).map((e) => ({
+      statut: coverageByEcheanceId.get(e.id)?.statut ?? (echeanceLinksById.get(e.id)?.length ? 'generee' : 'a_generer'),
+    }));
+    return computePropertyManagementScore(items);
+  }, [allEcheances, coverageByEcheanceId, echeanceLinksById]);
+
+  const openCreateTxFromEcheance = useCallback(
+    async (e: EcheanceRecurrente) => {
+      const info = getNextOccurrenceInfo(e);
+      const ymd = info?.displayDate || info?.nextDate || new Date().toISOString().slice(0, 10);
+      if (organizationId && e.propertyId && ymd) {
+        try {
+          const txRepo = getTransactionRepositoryOffline();
+          const txs = await txRepo.getAll(organizationId, { propertyId: e.propertyId });
+          const refDate = new Date(ymd + 'T12:00:00').getTime();
+          const dayMs = 24 * 60 * 60 * 1000;
+          const amountMin = Math.abs(e.montant) * (1 - SUGGESTION_AMOUNT_TOLERANCE_PERCENT);
+          const amountMax = Math.abs(e.montant) * (1 + SUGGESTION_AMOUNT_TOLERANCE_PERCENT);
+          const similar = txs.filter((t) => {
+            const am = Math.abs(Number(t.amount));
+            if (am < amountMin || am > amountMax) return false;
+            const txDate = typeof t.date === 'string' ? new Date(t.date + 'T12:00:00').getTime() : new Date(t.date).getTime();
+            const days = Math.abs((txDate - refDate) / dayMs);
+            return days <= SUGGESTION_DATE_TOLERANCE_DAYS;
+          });
+          if (similar.length > 0) {
+            const ok = window.confirm(
+              'Une ou plusieurs transactions similaires (montant et date proches) existent peut-être déjà. Créer quand même une nouvelle transaction ?'
+            );
+            if (!ok) return;
+          }
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      const prefill = await buildTransactionPrefillFromEcheance(e, ymd);
+      setEcheanceForTx(e);
+      setTxModalPrefill(prefill);
+      setTxModalOpen(true);
+    },
+    [organizationId]
+  );
+
+  const handleTxModalSubmit = useCallback(
+    async (data: TransactionFormData & Record<string, unknown>) => {
+      if (!organizationId || !echeanceForTx) throw new Error('Données manquantes');
+      const svc = createTransactionServiceWithMode('app-shell');
+      const paidAt = (data.paidAt as string) || (data.paymentDate as string);
+      if (!paidAt?.trim()) throw new Error('La date de paiement est obligatoire.');
+      const d = new Date(data.date as string);
+      const accountingMonth =
+        (data.accountingMonth as string) ||
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const pm = data.periodMonth != null ? String(data.periodMonth).padStart(2, '0') : String(d.getMonth() + 1).padStart(2, '0');
+      const py = (data.periodYear as number) || d.getFullYear();
+      const result = await svc.createTransaction({
+        organizationId,
+        propertyId: data.propertyId,
+        leaseId: (data.leaseId as string) || null,
+        categoryId: data.categoryId as string,
+        nature: (data.nature as string) || undefined,
+        label: (data.label as string) || echeanceForTx.label,
+        amount: Number(data.amount),
+        date: data.date as string,
+        paidAt,
+        accountingMonth,
+        periodMonth: parseInt(pm, 10),
+        periodYear: py,
+        monthsCovered: (data.monthsCovered as number) || 1,
+        skipAutoCommissions: true,
+        method: (data.method as string) || (data.paymentMethod as string) || 'virement',
+      });
+      const nextInfo = getNextOccurrenceInfo(echeanceForTx);
+      const occ = nextInfo?.displayDate || nextInfo?.nextDate || null;
+      await addEcheanceTransactionLink({
+        organizationId,
+        echeanceId: echeanceForTx.id,
+        transactionId: result.transaction.id,
+        occurrenceDate: occ,
+      });
+      window.dispatchEvent(new CustomEvent('echeanceLinks:refresh', { detail: { propertyId } }));
+      window.dispatchEvent(
+        new CustomEvent('deadlines:refresh', { detail: { scope: 'property', propertyId, reason: 'tx-link' } })
+      );
+      return {
+        totalCreated: result.totalCreated,
+        successMessage: 'Transaction créée et liée à l’échéance',
+      };
+    },
+    [organizationId, echeanceForTx, propertyId]
+  );
+
+  useEffect(() => {
+    setPagination((prev) => ({
+      ...prev,
+      total: tableTotal,
+      pages: tablePages,
+      page: Math.min(prev.page, tablePages),
+    }));
+  }, [tableTotal, tablePages]);
 
   // ✅ APP-SHELL: Gestion des filtres (en mémoire uniquement, pas de fetch)
   const handleFiltersChange = useCallback((newFilters: Filters) => {
     setFilters(newFilters);
     setPagination((prev) => ({ ...prev, page: 1 }));
   }, []);
-
-  // ✅ APP-SHELL: Gestion du filtre KPI (en mémoire uniquement)
-  const handleKpiFilterChange = useCallback((filterKey: string | null) => {
-    if (filterKey === activeKpiFilter) {
-      setActiveKpiFilter(null);
-    } else {
-      setActiveKpiFilter(filterKey);
-    }
-    setPagination((prev) => ({ ...prev, page: 1 }));
-  }, [activeKpiFilter]);
 
   const handleResetFilters = useCallback(() => {
     setFilters({
@@ -300,11 +522,20 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
       periodicite: '',
       leaseId: '',
       recuperable: '',
-      isActive: '', // ✅ Réinitialiser le filtre actif/inactif
+      isActive: '',
     });
-    setActiveKpiFilter(null);
+    setQuickScope('');
     setPagination((prev) => ({ ...prev, page: 1 }));
   }, []);
+
+  const toggleSort = (key: typeof sortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortKey(key);
+      setSortDir(key === 'date' || key === 'actif' ? 'asc' : 'desc');
+    }
+    setPagination((p) => ({ ...p, page: 1 }));
+  };
 
   // Handlers de période
   const handlePeriodChange = (start: string, end: string) => {
@@ -581,19 +812,51 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
   };
 
   const handleSelectAll = (checked: boolean) => {
-    setSelectedEcheanceIds(checked ? filteredEcheances.map((e) => e.id) : []);
+    setSelectedEcheanceIds(checked ? sortedForTable.map((e) => e.id) : []);
   };
 
-  // Formatage
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
-  };
-
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
   const formatDate = (date: Date | string | null) => {
     if (!date) return '—';
     const d = typeof date === 'string' ? new Date(date) : date;
     return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
   };
+  const formatYmdFr = (ymd: string) =>
+    new Date(ymd + 'T12:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+  const heroToggleActive = async (e: EcheanceRecurrente) => {
+    if (!organizationId) return;
+    try {
+      const echeanceService = createEcheanceServiceWithMode('app-shell');
+      await echeanceService.updateEcheance(e.id, organizationId, { isActive: !e.isActive });
+      window.dispatchEvent(
+        new CustomEvent('deadlines:refresh', { detail: { scope: 'property', propertyId, reason: 'update' } })
+      );
+      notify2.success(!e.isActive ? 'Échéance activée' : 'Échéance désactivée');
+    } catch (err: any) {
+      notify2.error('Erreur', err?.message || 'Mise à jour impossible');
+    }
+  };
+
+  const quickChip = (id: typeof quickScope, label: string) => (
+    <button
+      key={id || 'all'}
+      type="button"
+      onClick={() => {
+        setQuickScope(id);
+        setPagination((p) => ({ ...p, page: 1 }));
+      }}
+      className={cn(
+        'rounded-full px-3 py-1 text-xs font-medium transition-colors border',
+        quickScope === id
+          ? 'bg-orange-50 border-orange-300 text-orange-900'
+          : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+      )}
+    >
+      {label}
+    </button>
+  );
 
   const { setActions } = usePropertyHeaderActions();
 
@@ -636,41 +899,187 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
 
   return (
     <div className="space-y-6">
+      <div className="space-y-5">
+        {/* Bloc principal : prochaine échéance */}
+        {isLoading ? (
+          <div className="h-36 rounded-xl bg-gray-100 animate-pulse" />
+        ) : primaryPick ? (
+          <div className="space-y-3">
+            {propertyScore.score > 0 && (
+              <div className="flex justify-end">
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium border',
+                    propertyScore.color === 'green' && 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                    propertyScore.color === 'orange' && 'bg-amber-50 text-amber-800 border-amber-200',
+                    propertyScore.color === 'red' && 'bg-red-50 text-red-800 border-red-200'
+                  )}
+                >
+                  Score de gestion du bien : {propertyScore.score}/100
+                </span>
+              </div>
+            )}
+            <PropertyEcheancesHero
+              echeance={primaryPick.echeance}
+              info={primaryPick.info}
+              linkedCount={echeanceLinksById.get(primaryPick.echeance.id)?.length ?? 0}
+              coverage={coverageByEcheanceId.get(primaryPick.echeance.id)}
+              onViewDetail={() => {
+                setSelectedEcheance(primaryPick.echeance);
+                setIsDrawerOpen(true);
+              }}
+              onEdit={() => handleEdit(primaryPick.echeance)}
+              onToggleActive={() => heroToggleActive(primaryPick.echeance)}
+              onCreateTransaction={() => openCreateTxFromEcheance(primaryPick.echeance)}
+              formatCurrency={formatCurrency}
+              formatDateShort={formatYmdFr}
+            />
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/50 px-5 py-8 text-center">
+            <p className="text-gray-600 text-sm mb-3">Aucune échéance active à piloter pour ce bien.</p>
+            <Button size="sm" onClick={handleCreate} className="bg-orange-600 hover:bg-orange-700">
+              Créer une échéance
+            </Button>
+          </div>
+        )}
 
-      <div className="space-y-6">
-        {/* Graphiques - Ligne 1 : 2+1+1 colonnes */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="min-w-0 lg:col-span-2">
-          <EcheancesCumulativeChart
-            data={charts.cumulative}
-            isLoading={chartsLoading}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-          />
+        {/* KPI pilotage (5 indicateurs) */}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Charges à venir (12 mois)</p>
+            <p className="text-xl font-semibold text-gray-900 tabular-nums mt-1">{formatCurrency(projected.chargesTotal)}</p>
           </div>
-          <div className="min-w-0">
-          <EcheancesByTypeChart
-            data={charts.byType}
-            isLoading={chartsLoading}
-          />
+          <div
+            className={cn(
+              'rounded-xl border p-4 shadow-sm',
+              projected.revenusTotal <= 0 ? 'border-gray-100 bg-gray-50/80' : 'border-gray-200 bg-white'
+            )}
+          >
+            <p className={cn('text-xs font-medium uppercase tracking-wide', projected.revenusTotal <= 0 ? 'text-gray-400' : 'text-gray-500')}>
+              Revenus à venir (12 mois)
+            </p>
+            <p
+              className={cn(
+                'text-xl font-semibold tabular-nums mt-1',
+                projected.revenusTotal <= 0 ? 'text-gray-400' : 'text-emerald-700'
+              )}
+            >
+              {formatCurrency(projected.revenusTotal)}
+            </p>
           </div>
-          <div className="min-w-0">
-          <EcheancesRecuperablesChart
-            data={charts.recuperables}
-            isLoading={chartsLoading}
-          />
+          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Échues</p>
+            <p
+              className={cn(
+                'text-xl font-semibold tabular-nums mt-1',
+                echuesCount === 0 ? 'text-gray-400' : 'text-amber-600'
+              )}
+            >
+              {echuesCount}
+            </p>
+          </div>
+          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">À générer</p>
+            <p
+              className={cn(
+                'text-xl font-semibold tabular-nums mt-1',
+                countAGenerer === 0 ? 'text-gray-400' : 'text-amber-700'
+              )}
+            >
+              {countAGenerer}
+            </p>
+            <p className="text-[10px] text-gray-500 mt-1 leading-tight">Actives sans transaction liée</p>
+          </div>
+          <div
+            className={cn(
+              'rounded-xl border p-4 shadow-sm',
+              qualityScore.color === 'green' && 'border-emerald-200 bg-emerald-50/50',
+              qualityScore.color === 'orange' && 'border-amber-200 bg-amber-50/50',
+              qualityScore.color === 'red' && 'border-red-200 bg-red-50/50',
+              qualityScore.count === 0 && 'border-gray-100 bg-gray-50/80'
+            )}
+          >
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Qualité de suivi</p>
+            <p
+              className={cn(
+                'text-xl font-semibold tabular-nums mt-1',
+                qualityScore.count === 0 && 'text-gray-400',
+                qualityScore.color === 'green' && qualityScore.count > 0 && 'text-emerald-700',
+                qualityScore.color === 'orange' && 'text-amber-700',
+                qualityScore.color === 'red' && qualityScore.count > 0 && 'text-red-700'
+              )}
+            >
+              {qualityScore.count === 0 ? '—' : `${qualityScore.scorePercent} %`}
+            </p>
+            <p className="text-[10px] text-gray-500 mt-1 leading-tight">
+              {qualityScore.count === 0 ? 'Aucune échéance active' : 'Échéances bien suivies'}
+            </p>
           </div>
         </div>
 
-        {/* KPIs - Cartes filtrantes */}
-        <EcheancesKpiBar
-          kpis={kpis}
-          activeFilter={activeKpiFilter}
-          onFilterChange={handleKpiFilterChange}
-          isLoading={kpisLoading}
-        />
+        {alerts.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-2">
+            <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Alertes</p>
+            <ul className="space-y-1 text-sm text-amber-900">
+              {alerts.map((a, i) => (
+                <li key={i}>⚠ {a.label}{a.detail ? ` — ${a.detail}` : ''}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-        {/* Filtres - Tout dans le même panel (sans filtre Bien car déjà fixé) */}
+        {proactiveSuggestions.length > 0 && (
+          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Actions suggérées</p>
+            <ul className="space-y-2">
+              {proactiveSuggestions.map((s) => (
+                <li key={s.id} className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm text-gray-700">{s.label}</span>
+                  {s.action === 'create_transaction' && s.echeanceId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const e = (allEcheances || []).find((x) => x.id === s.echeanceId);
+                        if (e) openCreateTxFromEcheance(e);
+                      }}
+                    >
+                      Créer
+                    </Button>
+                  )}
+                  {s.action === 'check_ecart' && s.echeanceId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const e = (allEcheances || []).find((x) => x.id === s.echeanceId);
+                        if (e) {
+                          setSelectedEcheance(e);
+                          setIsDrawerOpen(true);
+                        }
+                      }}
+                    >
+                      Vérifier
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2 items-center">
+          {quickChip('', 'Toutes')}
+          {quickChip('active', 'Actives')}
+          {quickChip('inactive', 'Inactives')}
+          {quickChip('upcoming', 'À venir')}
+          {quickChip('overdue', 'Échues')}
+          {quickChip('charges', 'Charges')}
+          {quickChip('revenus', 'Revenus')}
+          {quickChip('recuperables', 'Récupérables')}
+        </div>
+
         <EcheancesFilters
           filters={filters}
           onFiltersChange={handleFiltersChange}
@@ -692,7 +1101,7 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-semibold text-gray-900">Échéances de ce bien</h3>
               <div className="text-sm text-gray-600">
-                {filteredEcheances.length} échéance{filteredEcheances.length > 1 ? 's' : ''}
+                {sortedForTable.length} échéance{sortedForTable.length > 1 ? 's' : ''}
               </div>
             </div>
 
@@ -745,21 +1154,27 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                   <div className="h-12 bg-gray-100 rounded animate-pulse"></div>
                 </div>
               ))
-            ) : filteredEcheances.length === 0 ? (
+            ) : sortedForTable.length === 0 ? (
               <div className="text-center text-gray-500 py-12">
                 Aucune échéance pour ce bien
               </div>
             ) : (
               <>
-                {filteredEcheances.slice(0, mobileLimit).map((echeance) => (
+                {sortedForTable.slice(0, mobileLimit).map((echeance) => {
+                  const info = metaById.get(echeance.id);
+                  const urg = info ? temporalBadgeMeta(info.temporalStatus) : temporalBadgeMeta('desactive');
+                  return (
                   <div
                     key={echeance.id}
                     onClick={() => handleRowClick(echeance)}
-                    className="bg-white border rounded-lg p-4 shadow-sm transition-all hover:shadow-md cursor-pointer"
+                    className={cn(
+                      'bg-white border rounded-lg p-4 shadow-sm transition-all hover:shadow-md cursor-pointer',
+                      !echeance.isActive && 'opacity-60 bg-gray-50/50'
+                    )}
                   >
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <input
                             type="checkbox"
                             checked={selectedEcheanceIds.includes(echeance.id)}
@@ -770,21 +1185,24 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                             onClick={(e) => e.stopPropagation()}
                             className="rounded border-gray-300 flex-shrink-0"
                           />
+                          <span className={cn('text-xs rounded-full px-2 py-0.5 border', urg.className)}>
+                            {urg.emoji} {info?.message || urg.label}
+                          </span>
                           <h4 className="text-sm font-semibold text-gray-900 truncate">{echeance.label}</h4>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                           <Badge className={TYPE_COLORS[echeance.type]}>
                             {ECHEANCE_TYPE_LABELS[echeance.type]}
                           </Badge>
-                          <Badge
+                          <span
                             className={
                               echeance.sens === 'DEBIT'
-                                ? 'bg-red-100 text-red-800'
-                                : 'bg-green-100 text-green-800'
+                                ? 'text-xs rounded-md px-2 py-0.5 bg-red-50 text-red-800 border border-red-100'
+                                : 'text-xs rounded-md px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-100'
                             }
                           >
-                            {SENS_LABELS[echeance.sens]}
-                          </Badge>
+                            {echeance.sens === 'DEBIT' ? 'Charge' : 'Revenu'}
+                          </span>
                           <span className="text-xs text-gray-500">
                             {PERIODICITE_LABELS[echeance.periodicite]}
                           </span>
@@ -793,8 +1211,10 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                           {formatCurrency(echeance.montant)}
                         </div>
                         <div className="text-xs text-gray-600">
-                          {formatDate(echeance.startAt)}
-                          {echeance.endAt && ` → ${formatDate(echeance.endAt)}`}
+                          {info?.displayDate ? formatYmdFr(info.displayDate) : formatDate(echeance.startAt)}
+                          {info?.message && (
+                            <span className="block text-gray-500 mt-0.5">{info.message}</span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -848,13 +1268,14 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                       </div>
                     </div>
                   </div>
-                ))}
-                {filteredEcheances.length > mobileLimit && (
+                  );
+                })}
+                {sortedForTable.length > mobileLimit && (
                   <button
                     onClick={() => setMobileLimit(prev => prev + 10)}
                     className="w-full py-2 text-sm font-medium text-orange-600 hover:text-orange-700 hover:bg-orange-50 rounded-lg border border-orange-200 transition-colors"
                   >
-                    Voir plus ({filteredEcheances.length - mobileLimit} restantes)
+                    Voir plus ({sortedForTable.length - mobileLimit} restantes)
                   </button>
                 )}
               </>
@@ -866,47 +1287,87 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="px-4 py-3 text-left">
+                  <th className="px-3 py-3 text-left w-10">
                     <input
                       type="checkbox"
-                      checked={selectedEcheanceIds.length === filteredEcheances.length && filteredEcheances.length > 0}
+                      checked={
+                        sortedForTable.length > 0 &&
+                        selectedEcheanceIds.length === sortedForTable.length
+                      }
                       onChange={(e) => handleSelectAll(e.target.checked)}
                       className="rounded border-gray-300"
                     />
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Libellé</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Périodicité</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Montant</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sens</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dates</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actif</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut projection</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Libellé</th>
+                  <th
+                    className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none"
+                    onClick={() => toggleSort('type')}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      Type <ArrowUpDown className="h-3 w-3 opacity-40" />
+                    </span>
+                  </th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Périodicité</th>
+                  <th
+                    className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase cursor-pointer select-none"
+                    onClick={() => toggleSort('montant')}
+                  >
+                    <span className="inline-flex items-center gap-1 justify-end w-full">
+                      Montant <ArrowUpDown className="h-3 w-3 opacity-40" />
+                    </span>
+                  </th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sens</th>
+                  <th
+                    className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none min-w-[140px]"
+                    onClick={() => toggleSort('date')}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      Prochaine échéance <ArrowUpDown className="h-3 w-3 opacity-40" />
+                    </span>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Transactions</th>
+                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Statut génération</th>
+                  <th
+                    className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase cursor-pointer select-none"
+                    onClick={() => toggleSort('actif')}
+                  >
+                    <span className="inline-flex items-center gap-1 justify-center">
+                      Actif <ArrowUpDown className="h-3 w-3 opacity-40" />
+                    </span>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {isLoading ? (
                   [...Array(5)].map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={9} className="px-4 py-3">
+                      <td colSpan={13} className="px-4 py-3">
                         <div className="h-12 bg-gray-100 rounded animate-pulse"></div>
                       </td>
                     </tr>
                   ))
-                ) : filteredEcheances.length === 0 ? (
+                ) : sortedForTable.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={13} className="px-4 py-12 text-center text-gray-500">
                       Aucune échéance pour ce bien
                     </td>
                   </tr>
                 ) : (
-                  filteredEcheances.map((echeance) => (
+                  pagedRows.map((echeance) => {
+                    const info = metaById.get(echeance.id);
+                    const urg = info ? temporalBadgeMeta(info.temporalStatus) : temporalBadgeMeta('desactive');
+                    return (
                     <tr
                       key={echeance.id}
-                      className="hover:bg-gray-50 cursor-pointer"
+                      className={cn(
+                        'hover:bg-gray-50 cursor-pointer border-b border-gray-100',
+                        !echeance.isActive && 'bg-gray-50/60 opacity-80'
+                      )}
                       onClick={() => handleRowClick(echeance)}
                     >
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-3 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={selectedEcheanceIds.includes(echeance.id)}
@@ -914,65 +1375,134 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                           className="rounded border-gray-300"
                         />
                       </td>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{echeance.label}</td>
-                      <td className="px-4 py-3 text-sm">
-                        <Badge className={TYPE_COLORS[echeance.type]}>
+                      <td className="px-3 py-3 align-middle">
+                        <span className={cn('inline-flex items-center gap-0.5 rounded-md px-2 py-0.5 text-[11px] font-medium border whitespace-nowrap', urg.className)}>
+                          <span>{urg.emoji}</span>
+                          <span className="hidden xl:inline max-w-[88px] truncate">{info?.message || urg.label}</span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate">{echeance.label}</td>
+                      <td className="px-3 py-3 text-sm align-middle">
+                        <Badge className={cn(TYPE_COLORS[echeance.type], 'text-xs font-normal')}>
                           {ECHEANCE_TYPE_LABELS[echeance.type]}
                         </Badge>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
+                      <td className="px-3 py-3 text-sm text-gray-600">
                         {PERIODICITE_LABELS[echeance.periodicite]}
                       </td>
-                      <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
+                      <td className="px-3 py-3 text-sm text-right font-medium text-gray-900 tabular-nums">
                         {formatCurrency(echeance.montant)}
                       </td>
-                      <td className="px-4 py-3 text-sm">
-                        <Badge
+                      <td className="px-3 py-3 text-sm align-middle">
+                        <span
                           className={
                             echeance.sens === 'DEBIT'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-green-100 text-green-800'
+                              ? 'inline-flex rounded-md px-2 py-0.5 text-xs font-medium bg-red-50 text-red-800 border border-red-100'
+                              : 'inline-flex rounded-md px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-100'
                           }
                         >
-                          {SENS_LABELS[echeance.sens]}
-                        </Badge>
+                          {echeance.sens === 'DEBIT' ? 'Charge' : 'Revenu'}
+                        </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {formatDate(echeance.startAt)}
-                        {echeance.endAt && ` → ${formatDate(echeance.endAt)}`}
+                      <td className="px-3 py-3 text-sm text-gray-700">
+                        <div className="font-medium tabular-nums">
+                          {info?.displayDate ? formatYmdFr(info.displayDate) : formatDate(echeance.startAt)}
+                        </div>
+                        {info && info.temporalStatus !== 'desactive' && (
+                          <div className="text-xs text-gray-500 mt-0.5">{info.message}</div>
+                        )}
                       </td>
-                      <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                        <Switch
-                          checked={echeance.isActive}
-                          onCheckedChange={async (checked) => {
-                            if (!organizationId) {
-                              notify2.error('OrganizationId manquant');
-                              return;
-                            }
-
-                            try {
-                              const echeanceService = createEcheanceServiceWithMode('app-shell');
-                              
-                              // ✅ APP-SHELL: Mettre à jour uniquement isActive via service (écrit en IndexedDB + crée pendingOp)
-                              // La sync serveur est découplée et se fera plus tard (auto ou manuel)
-                              await echeanceService.updateEcheance(echeance.id, organizationId, {
-                                isActive: checked,
-                              });
-                              
-                              // ✅ Émettre UNIQUEMENT un événement ciblé (pas de sync immédiate, pas de fetch bloquant)
-                              window.dispatchEvent(new CustomEvent('deadlines:refresh', { 
-                                detail: { scope: 'property', propertyId, reason: 'update' } 
-                              }));
-                              
-                              notify2.success(checked ? 'Échéance activée' : 'Échéance désactivée');
-                            } catch (error: any) {
-                              console.error('Erreur lors de la mise à jour de l\'échéance:', error);
-                              notify2.error('Erreur', error.message || 'Erreur lors de la mise à jour');
-                            }
-                          }}
-                        />
+                      <td
+                        className="px-3 py-3 align-middle text-center text-sm text-primary-600 hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedEcheance(echeance);
+                          setIsDrawerOpen(true);
+                        }}
+                      >
+                        {(() => {
+                          const n = echeanceLinksById.get(echeance.id)?.length ?? 0;
+                          if (n === 0) return <span className="text-gray-500 no-underline">Aucune</span>;
+                          if (n === 1) return '1 transaction';
+                          return `${n} transactions`;
+                        })()}
                       </td>
-                      <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-3 py-3 align-middle text-center">
+                        {(() => {
+                          const linkedCount = echeanceLinksById.get(echeance.id)?.length ?? 0;
+                          const coverage = coverageByEcheanceId.get(echeance.id);
+                          const gen = getStatutGeneration(linkedCount, coverage);
+                          const overRatio =
+                            coverage?.expectedAmount != null &&
+                            coverage.expectedAmount > 0 &&
+                            gen === 'montant_superieur'
+                              ? coverage.totalLinked / coverage.expectedAmount
+                              : undefined;
+                          const genBadge = generationBadgeMeta(gen, {
+                            overRatio,
+                            overRatioCritical: COVERAGE_OVER_LINKED_RATIO_CRITICAL,
+                          });
+                          const ecart = coverage?.ecartAbsolu;
+                          const showEcart =
+                            ecart !== undefined &&
+                            ecart !== 0 &&
+                            Math.abs(ecart) > COVERAGE_ECART_DISPLAY_THRESHOLD_EUR;
+                          return (
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className={cn('inline-flex items-center gap-0.5 rounded-md px-2 py-0.5 text-[11px] font-medium border', genBadge.className)}>
+                                <span>{genBadge.emoji}</span>
+                                <span>{genBadge.label}</span>
+                              </span>
+                              {linkedCount > 0 && (
+                                <span className="text-[10px] text-gray-500">
+                                  {linkedCount} transaction{linkedCount > 1 ? 's' : ''}
+                                  {showEcart && (
+                                    <span className="tabular-nums">
+                                      {' '}
+                                      (écart {ecart! > 0 ? '+' : ''}
+                                      {formatCurrency(ecart!)})
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-3 py-3 text-center align-middle" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-col items-center gap-1">
+                          <span
+                            className={cn(
+                              'text-[10px] font-semibold uppercase tracking-wide',
+                              echeance.isActive ? 'text-emerald-700' : 'text-gray-400'
+                            )}
+                          >
+                            {echeance.isActive ? 'Active' : 'Inactive'}
+                          </span>
+                          <Switch
+                            checked={echeance.isActive}
+                            onCheckedChange={async (checked) => {
+                              if (!organizationId) {
+                                notify2.error('OrganizationId manquant');
+                                return;
+                              }
+                              try {
+                                const echeanceService = createEcheanceServiceWithMode('app-shell');
+                                await echeanceService.updateEcheance(echeance.id, organizationId, {
+                                  isActive: checked,
+                                });
+                                window.dispatchEvent(new CustomEvent('deadlines:refresh', {
+                                  detail: { scope: 'property', propertyId, reason: 'update' },
+                                }));
+                                notify2.success(checked ? 'Échéance activée' : 'Échéance désactivée');
+                              } catch (error: any) {
+                                notify2.error('Erreur', error.message || 'Erreur lors de la mise à jour');
+                              }
+                            }}
+                          />
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-center align-middle" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1">
                           <Button
                             variant="ghost"
@@ -1001,18 +1531,19 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
 
           {/* Pagination Desktop */}
-          {pagination.pages > 1 && (
+          {tablePages > 1 && (
             <div className="hidden lg:block p-4 border-t border-gray-200">
               <Pagination
                 currentPage={pagination.page}
-                totalPages={pagination.pages}
+                totalPages={tablePages}
                 onPageChange={(page) => setPagination((prev) => ({ ...prev, page }))}
               />
             </div>
@@ -1041,6 +1572,22 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
         propertyId={propertyId}
+        onCreateTransaction={openCreateTxFromEcheance}
+      />
+
+      <TransactionModal
+        key={echeanceForTx?.id || 'tx-echeance'}
+        isOpen={txModalOpen}
+        onClose={() => {
+          setTxModalOpen(false);
+          setEcheanceForTx(null);
+          setTxModalPrefill(null);
+        }}
+        onSubmit={handleTxModalSubmit as (data: TransactionFormData) => Promise<unknown>}
+        context={{ type: 'property', propertyId }}
+        mode="create"
+        title="Nouvelle transaction (échéance)"
+        prefill={txModalPrefill || undefined}
       />
 
       {/* Modal suppression simple */}

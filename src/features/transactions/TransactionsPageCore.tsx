@@ -37,6 +37,8 @@ import { createTransactionServiceWithMode } from '@/domain/services/transactionS
 import { getGlobalSyncService } from '@/lib/offline/syncGlobal';
 import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
 import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/PropertyRepositoryOffline';
+import { getEcheanceRepositoryOffline } from '@/lib/offline/repositories/EcheanceRepositoryOffline';
+import { getLocalDB } from '@/lib/offline/db';
 import { calcCommission } from '@/lib/gestion/calcCommission';
 import { logToServer } from '@/lib/utils/logger';
 import { navigateToView } from '@/utils/appShellNavigation';
@@ -155,6 +157,61 @@ export function TransactionsPageCore({
     total: 0,
     pages: 0
   });
+
+  const [transactionIdsWithEcheanceLink, setTransactionIdsWithEcheanceLink] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (mode !== 'app-shell' || !organizationId) return;
+    const pid = filters.propertyId || propPropertyId || initialPropertyId;
+    if (!pid) {
+      setTransactionIdsWithEcheanceLink([]);
+      return;
+    }
+    (async () => {
+      try {
+        const echRepo = getEcheanceRepositoryOffline();
+        const echeances = await echRepo.getAll(organizationId, { propertyId: pid });
+        const echeanceIds = new Set(echeances.map((e) => e.id));
+        const db = await getLocalDB();
+        if (!db) {
+          setTransactionIdsWithEcheanceLink([]);
+          return;
+        }
+        const allLinks = await db.EcheanceTransactionLink.where('organizationId').equals(organizationId).toArray();
+        const txIds = allLinks
+          .filter((l: { echeanceId: string }) => echeanceIds.has(l.echeanceId))
+          .map((l: { transactionId: string }) => l.transactionId);
+        setTransactionIdsWithEcheanceLink([...new Set(txIds)]);
+      } catch (e) {
+        console.error(e);
+        setTransactionIdsWithEcheanceLink([]);
+      }
+    })();
+  }, [mode, organizationId, filters.propertyId, propPropertyId, initialPropertyId]);
+
+  useEffect(() => {
+    const onRefresh = () => {
+      if (mode !== 'app-shell' || !organizationId) return;
+      const pid = filters.propertyId || propPropertyId || initialPropertyId;
+      if (!pid) return;
+      getEcheanceRepositoryOffline()
+        .getAll(organizationId, { propertyId: pid })
+        .then((echeances) => {
+          const echeanceIds = new Set(echeances.map((e) => e.id));
+          return getLocalDB().then((db) => {
+            if (!db) return [];
+            return db.EcheanceTransactionLink.where('organizationId').equals(organizationId).toArray();
+          }).then((allLinks: { echeanceId: string; transactionId: string }[]) =>
+            allLinks.filter((l) => echeanceIds.has(l.echeanceId)).map((l) => l.transactionId)
+          );
+        })
+        .then((txIds) => setTransactionIdsWithEcheanceLink([...new Set(txIds)]))
+        .catch(() => {});
+    };
+    window.addEventListener('echeanceLinks:refresh', onRefresh);
+    return () => window.removeEventListener('echeanceLinks:refresh', onRefresh);
+  }, [mode, organizationId, filters.propertyId, propPropertyId, initialPropertyId]);
+
   // Tri côté serveur (mode normal) : appliqué AVANT limit/offset pour cohérence pagination
   const [sortBy, setSortBy] = useState<'accounting_month' | 'accountingMonth' | 'date' | 'amount' | 'nature'>('accountingMonth');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -1719,6 +1776,7 @@ export function TransactionsPageCore({
               handleRowClick(t);
             }}
             groupByMonth={true}
+            transactionIdsWithEcheanceLink={mode === 'app-shell' ? transactionIdsWithEcheanceLink : undefined}
           />
         </CardContent>
       </Card>

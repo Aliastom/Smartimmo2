@@ -11,9 +11,11 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useDashboardData, type DashboardFilters } from '@/features/dashboard/hooks/useDashboardData';
 import { TasksPanel } from '@/components/dashboard/TasksPanel';
+import { useSelectedPeriod } from '@/contexts/SelectedPeriodContext';
 
 export interface AlertesPageCoreProps {
   mode: 'normal' | 'app-shell';
@@ -29,10 +31,12 @@ const TYPE_TO_ANCHOR: Record<string, string> = {
 export function AlertesPageCore({ mode }: AlertesPageCoreProps) {
   const { organizationId, isLoading: orgLoading } = useCurrentOrganization();
   const searchParams = useSearchParams();
-  const [month] = useState(() => {
+  const selectedPeriod = useSelectedPeriod();
+  // Aligner sur la même temporalité que le Dashboard : mois sélectionné ou temps réel
+  const month = mode === 'app-shell' ? selectedPeriod.effectiveMonth : (() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  })();
 
   const filters: DashboardFilters = useMemo(
     () => ({
@@ -133,10 +137,37 @@ export function AlertesPageCore({ mode }: AlertesPageCoreProps) {
   const totalTransactions = data.aTraiter.transactionsNonRapprochees.reduce((s, t) => s + t.montant, 0);
   const formatEur = (n: number) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
+  const periodLabel = selectedPeriod.formatMonthLabel(month);
+
   return (
     <div className="w-full space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Alertes</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-semibold text-gray-900">Alertes</h1>
+          {mode === 'app-shell' && (
+            <>
+              <Badge variant="secondary" className="text-xs font-medium">
+                Alertes du mois : {periodLabel}
+              </Badge>
+              <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => selectedPeriod.setUseRealtime(false)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${!selectedPeriod.useRealtime ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  Mois sélectionné
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectedPeriod.setUseRealtime(true)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${selectedPeriod.useRealtime ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  Temps réel
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         <p className="text-sm text-slate-500 mt-0.5">
           Loyers en retard, transactions à rapprocher, indexations à appliquer, baux proches expiration.
         </p>

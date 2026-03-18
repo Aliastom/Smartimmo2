@@ -36,6 +36,8 @@ export function DocumentLinkSelector({
   const [existingLinks, setExistingLinks] = useState<Set<string>>(new Set()); // IDs des entités liées à TOUS les documents
   const [partialLinks, setPartialLinks] = useState<Map<string, number>>(new Map()); // entityId -> nombre de documents liés (pour les liens partiels)
   const [loading, setLoading] = useState(false);
+  const [showMoreEntities, setShowMoreEntities] = useState(false);
+  const ENTITY_LIST_INITIAL = 5;
   const { organizationId } = useCurrentOrganization();
   
   // ✅ OFFLINE-FIRST: Détecter le mode app-shell/offline
@@ -208,6 +210,7 @@ export function DocumentLinkSelector({
   useEffect(() => {
     if (selectedType !== 'global') {
       loadEntities();
+      setShowMoreEntities(false);
     } else {
       setEntities([]);
       setSelectedEntityIds(new Set());
@@ -346,17 +349,26 @@ export function DocumentLinkSelector({
   const getEntityLabel = (entity: any) => {
     switch (selectedType) {
       case 'property':
-        return `${entity.name} - ${entity.address}`;
+        return `${entity.name} — ${entity.address || ''}`;
       case 'lease':
-        return `Bail ${entity.Property?.name || ''} - ${entity.Tenant?.firstName} ${entity.Tenant?.lastName}`;
+        return `Bail — ${entity.Property?.name || ''} — ${[entity.Tenant?.firstName, entity.Tenant?.lastName].filter(Boolean).join(' ')}`;
       case 'transaction':
-        return `${entity.label} - ${entity.amount}€`;
+        return `Transaction — ${entity.label || 'Sans libellé'} — ${entity.amount != null ? `${entity.amount} €` : '—'}`;
       case 'tenant':
-        return `${entity.firstName} ${entity.lastName}`;
+        return `${entity.firstName || ''} ${entity.lastName || ''}`.trim() || entity.id;
       default:
         return entity.id;
     }
   };
+
+  const uniqueEntities = (() => {
+    const seen = new Set<string>();
+    return entities.filter((e) => {
+      if (!e?.id || seen.has(e.id)) return false;
+      seen.add(e.id);
+      return true;
+    });
+  })();
 
   const handleSubmit = () => {
     if (selectedType === 'global') {
@@ -412,14 +424,14 @@ export function DocumentLinkSelector({
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Sélectionner
             </label>
-            <div className="border border-gray-300 rounded-lg max-h-64 overflow-y-auto">
+            <div className="border border-gray-300 rounded-lg max-h-56 overflow-y-auto">
               {loading ? (
                 <div className="p-4 text-center text-gray-500">Chargement...</div>
-              ) : entities.length === 0 ? (
+              ) : uniqueEntities.length === 0 ? (
                 <div className="p-4 text-center text-gray-500">Aucun résultat</div>
               ) : (
                 <div className="divide-y">
-                  {entities.map((entity) => {
+                  {(showMoreEntities ? uniqueEntities : uniqueEntities.slice(0, ENTITY_LIST_INITIAL)).map((entity) => {
                     const isSelected = selectedEntityIds.has(entity.id);
                     const isFullyLinked = existingLinks.has(entity.id); // Liée à TOUS les documents
                     const partialLinkCount = partialLinks.get(entity.id) || 0; // Nombre de documents liés (si partiel)
@@ -480,6 +492,19 @@ export function DocumentLinkSelector({
                       </div>
                     );
                   })}
+                </div>
+              )}
+              {!loading && uniqueEntities.length > ENTITY_LIST_INITIAL && (
+                <div className="p-2 border-t border-gray-200 bg-gray-50">
+                  <button
+                    type="button"
+                    onClick={() => setShowMoreEntities(!showMoreEntities)}
+                    className="text-sm text-orange-600 hover:text-orange-700 font-medium w-full text-center py-1"
+                  >
+                    {showMoreEntities
+                      ? 'Voir moins'
+                      : `Voir plus (${uniqueEntities.length - ENTITY_LIST_INITIAL} autre${uniqueEntities.length - ENTITY_LIST_INITIAL > 1 ? 's' : ''})`}
+                  </button>
                 </div>
               )}
             </div>

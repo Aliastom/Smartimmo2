@@ -19,7 +19,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
 import { SmartDatePicker } from '@/components/ui/SmartDatePicker';
-import { Filter, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Filter, ArrowUpDown, ArrowUp, ArrowDown, FileText } from 'lucide-react';
+import { cn } from '@/utils/cn';
 import { getLocalDB } from '@/lib/offline/db';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { getGlobalSyncService } from '@/lib/offline/syncGlobal';
@@ -49,8 +50,10 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
   // États des modals et drawer
   const [selectedDocument, setSelectedDocument] = useState<DocumentTableRow | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [drawerScrollToSection, setDrawerScrollToSection] = useState<'impact' | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [documentToEdit, setDocumentToEdit] = useState<DocumentTableRow | null>(null);
+  const [editModalInitialTab, setEditModalInitialTab] = useState<'rename' | 'reclassify' | 'link' | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<DocumentTableRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -86,7 +89,7 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
   const [showFilters, setShowFilters] = useState(false);
 
   // État pour le tri
-  const [sortField, setSortField] = useState<'type'>('type');
+  const [sortField, setSortField] = useState<'date' | 'type'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // État pour la pagination
@@ -129,13 +132,15 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
       // ✅ Note: Les documents sont déjà filtrés par propertyId via DocumentLink dans useDocumentsData
       // On n'a plus besoin de filtrer par propertyId ici, le hook l'a déjà fait
 
-      // Filtre de recherche
+      // Filtre de recherche (nom, type document, tags)
       if (filters.query) {
         const searchLower = filters.query.toLowerCase();
-        const matchesQuery = 
+        const typeLabel = (doc as { DocumentType?: { label?: string } }).DocumentType?.label ?? (doc as { documentType?: { label?: string } }).documentType?.label ?? '';
+        const matchesQuery =
           doc.filenameOriginal?.toLowerCase().includes(searchLower) ||
           doc.fileName?.toLowerCase().includes(searchLower) ||
-          doc.tags?.toLowerCase().includes(searchLower);
+          doc.tags?.toLowerCase().includes(searchLower) ||
+          typeLabel.toLowerCase().includes(searchLower);
         if (!matchesQuery) return false;
       }
 
@@ -355,6 +360,13 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
   // Gestion de la visualisation d'un document (ouvre le drawer)
   const handleViewDocument = useCallback((doc: DocumentTableRow) => {
     setSelectedDocument(doc);
+    setDrawerScrollToSection(null);
+    setIsDrawerOpen(true);
+  }, []);
+
+  const handleViewDocumentWithSection = useCallback((doc: DocumentTableRow, section: 'impact') => {
+    setSelectedDocument(doc);
+    setDrawerScrollToSection(section);
     setIsDrawerOpen(true);
   }, []);
 
@@ -509,38 +521,49 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
 
   const activeFiltersCount = Object.values(filters).filter(v => v && v !== '').length;
 
-  // Fonction de tri
-  const handleSort = (field: 'type') => {
+  // Fonction de tri (date = récents + actifs en priorité, type = par type de document)
+  const handleSort = (field: 'date' | 'type') => {
     if (sortField === field) {
-      // Toggle l'ordre si c'est le même champ
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
-      // Nouveau champ, ordre par défaut desc
       setSortField(field);
-      setSortOrder('desc');
+      setSortOrder(field === 'date' ? 'desc' : 'desc');
     }
   };
 
-  // ✅ APP-SHELL: Paginer et trier les documents filtrés en mémoire
+  // ✅ APP-SHELL: Paginer et trier les documents filtrés (récents + impact en priorité)
   const paginatedAndSortedDocuments = useMemo(() => {
-    // Trier d'abord
     const sorted = [...filteredDocuments];
-    
+    const linkCount = (d: typeof sorted[0]) => (d as { DocumentLink?: unknown[] }).DocumentLink?.length ?? 0;
+
     sorted.sort((a, b) => {
       let comparison = 0;
-      
       switch (sortField) {
-        case 'type':
+        case 'date': {
+          const dateA = new Date(a.uploadedAt || a.createdAt || 0).getTime();
+          const dateB = new Date(b.uploadedAt || b.createdAt || 0).getTime();
+          comparison = dateA - dateB;
+          if (comparison === 0) {
+            // Secondaire : documents avec liaisons (impact) en premier
+            comparison = linkCount(b) - linkCount(a);
+          }
+          break;
+        }
+        case 'type': {
           const typeA = a.DocumentType?.label || 'ZZZ';
           const typeB = b.DocumentType?.label || 'ZZZ';
           comparison = typeA.localeCompare(typeB);
+          if (comparison === 0) {
+            const dateA = new Date(a.uploadedAt || a.createdAt || 0).getTime();
+            const dateB = new Date(b.uploadedAt || b.createdAt || 0).getTime();
+            comparison = dateB - dateA;
+          }
           break;
+        }
       }
-      
       return sortOrder === 'asc' ? comparison : -comparison;
     });
-    
-    // Puis paginer
+
     const start = pagination.offset;
     const end = start + pagination.limit;
     return sorted.slice(start, end);
@@ -600,86 +623,117 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
         compact={true}
       />
 
-      {/* Barre recherche + filtres rapides */}
-      <div className="space-y-3">
-        <div className="flex gap-2">
+      {/* Filtres : une ligne, style uniforme, wrap 2 lignes si besoin, pas de scroll horizontal */}
+      <div className="flex flex-wrap items-center gap-2 overflow-hidden min-w-0">
+        {/* Recherche */}
+        <div className="relative flex-1 min-w-0 w-full sm:w-auto sm:min-w-[200px] sm:max-w-[320px]">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
           <Input
             type="text"
-            placeholder="Rechercher par nom, tags, type..."
+            placeholder="Recherche..."
             value={filters.query}
             onChange={(e) => setFilters({ ...filters, query: e.target.value })}
-            className="flex-1"
+            className={cn(
+              'h-9 pl-9 pr-3 py-2 rounded-lg border text-sm transition-colors',
+              filters.query ? 'border-orange-200 bg-orange-50' : 'border-gray-300'
+            )}
           />
-          {activeFiltersCount > 0 && (
-            <Button type="button" variant="outline" size="sm" onClick={handleResetFilters}>
-              Réinitialiser
-            </Button>
-          )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <SmartSelect
-            value={filters.type}
-            onChange={(value) => setFilters({ ...filters, type: value })}
-            options={[
-              { value: '', label: 'Type document' },
-              ...(Array.isArray(documentTypes) ? documentTypes.map((type: { code: string; label: string }) => ({
-                value: type.code,
-                label: type.label
-              })) : [])
-            ]}
-            placeholder="Type"
-            className="min-w-[140px]"
-          />
-          <SmartSelect
-            value={filters.ocrStatus}
-            onChange={(value) => setFilters({ ...filters, ocrStatus: value })}
-            options={[
-              { value: '', label: 'Statut OCR' },
-              { value: 'processed', label: 'Traité' },
-              { value: 'failed', label: 'Échoué' },
-              { value: 'pending', label: 'En attente' }
-            ]}
-            placeholder="OCR"
-            className="min-w-[120px]"
-          />
-          <SmartSelect
-            value={filters.linkedTo}
-            onChange={(value) => setFilters({ ...filters, linkedTo: value })}
-            options={[
-              { value: '', label: 'Lié à' },
-              { value: 'property', label: 'Bien' },
-              { value: 'lease', label: 'Bail' },
-              { value: 'transaction', label: 'Transaction' },
-              { value: 'tenant', label: 'Locataire' },
-              { value: 'none', label: 'Aucune liaison' }
-            ]}
-            placeholder="Liaison"
-            className="min-w-[130px]"
-          />
-          {showFilters && (
-            <>
-              <SmartDatePicker
-                value={filters.dateFrom}
-                onChange={(value) => setFilters({ ...filters, dateFrom: value })}
-                placeholder="Du"
-              />
-              <SmartDatePicker
-                value={filters.dateTo}
-                onChange={(value) => setFilters({ ...filters, dateTo: value })}
-                placeholder="Au"
-              />
-            </>
+        {/* Type ▼ */}
+        <SmartSelect
+          value={filters.type}
+          onChange={(value) => setFilters({ ...filters, type: value })}
+          options={[
+            { value: '', label: 'Type' },
+            ...(Array.isArray(documentTypes) ? documentTypes.map((type: { code: string; label: string }) => ({
+              value: type.code,
+              label: type.label,
+              icon: <FileText className="h-4 w-4" />,
+            })) : [])
+          ]}
+          placeholder="Type"
+          menuMinWidth="260px"
+          wrapOptions
+          className={cn(
+            'w-[130px] sm:w-[140px] [&_button]:h-9 [&_button]:rounded-lg [&_button]:px-3 [&_button]:py-2 [&_button]:text-sm [&_button]:border',
+            filters.type ? '[&_button]:bg-orange-50 [&_button]:border-orange-200' : '[&_button]:border-gray-300'
           )}
+        />
+        {/* OCR ▼ */}
+        <SmartSelect
+          value={filters.ocrStatus}
+          onChange={(value) => setFilters({ ...filters, ocrStatus: value })}
+          options={[
+            { value: '', label: 'OCR' },
+            { value: 'processed', label: 'Traité' },
+            { value: 'failed', label: 'Échoué' },
+            { value: 'pending', label: 'En attente' }
+          ]}
+          placeholder="OCR"
+          className={cn(
+            'w-[110px] [&_button]:h-9 [&_button]:rounded-lg [&_button]:px-3 [&_button]:py-2 [&_button]:text-sm [&_button]:border',
+            filters.ocrStatus ? '[&_button]:bg-orange-50 [&_button]:border-orange-200' : '[&_button]:border-gray-300'
+          )}
+        />
+        {/* Lié à ▼ */}
+        <SmartSelect
+          value={filters.linkedTo}
+          onChange={(value) => setFilters({ ...filters, linkedTo: value })}
+          options={[
+            { value: '', label: 'Lié à' },
+            { value: 'property', label: 'Bien' },
+            { value: 'lease', label: 'Bail' },
+            { value: 'transaction', label: 'Transaction' },
+            { value: 'tenant', label: 'Locataire' },
+            { value: 'none', label: 'Aucune liaison' }
+          ]}
+          placeholder="Lié à"
+          className={cn(
+            'w-[115px] sm:w-[120px] [&_button]:h-9 [&_button]:rounded-lg [&_button]:px-3 [&_button]:py-2 [&_button]:text-sm [&_button]:border',
+            filters.linkedTo ? '[&_button]:bg-orange-50 [&_button]:border-orange-200' : '[&_button]:border-gray-300'
+          )}
+        />
+        {/* Dates ▼ + champs Du/Au quand ouvert */}
+        <button
+          type="button"
+          onClick={() => setShowFilters(!showFilters)}
+          className={cn(
+            'inline-flex items-center justify-center gap-1.5 h-9 px-3 py-2 rounded-lg border text-sm font-medium transition-colors shrink-0',
+            showFilters || filters.dateFrom || filters.dateTo
+              ? 'border-orange-200 bg-orange-50 text-orange-700'
+              : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+          )}
+        >
+          <Filter className="h-4 w-4 shrink-0" />
+          Dates
+        </button>
+        {showFilters && (
+          <>
+            <SmartDatePicker
+              value={filters.dateFrom}
+              onChange={(v) => setFilters({ ...filters, dateFrom: v })}
+              placeholder="Du"
+              className="[&_button]:h-9 [&_button]:rounded-lg [&_button]:px-3 [&_button]:py-2 [&_button]:text-sm [&_button]:border [&_button]:min-w-[100px]"
+            />
+            <SmartDatePicker
+              value={filters.dateTo}
+              onChange={(v) => setFilters({ ...filters, dateTo: v })}
+              placeholder="Au"
+              className="[&_button]:h-9 [&_button]:rounded-lg [&_button]:px-3 [&_button]:py-2 [&_button]:text-sm [&_button]:border [&_button]:min-w-[100px]"
+            />
+          </>
+        )}
+        {activeFiltersCount > 0 && (
           <Button
+            type="button"
             variant="ghost"
             size="sm"
-            onClick={() => setShowFilters(!showFilters)}
-            className="text-gray-500"
+            onClick={handleResetFilters}
+            className="h-9 px-3 text-gray-500 shrink-0"
           >
-            <Filter className="h-4 w-4 mr-1" />
-            {showFilters ? 'Moins' : 'Dates'}
+            Réinitialiser
           </Button>
-        </div>
+        )}
       </div>
 
       {/* Graphiques (uniquement si plus de 100 documents) */}
@@ -706,7 +760,39 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
                 {selectedIds.size} document{selectedIds.size > 1 ? 's' : ''} sélectionné{selectedIds.size > 1 ? 's' : ''}
               </span>
               <div className="flex-1" />
-              <div className="flex gap-2 w-full sm:w-auto">
+              <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => {
+                    const first = allDocuments.find(d => selectedIds.has(d.id));
+                    if (first) {
+                      setDocumentToEdit(first);
+                      setEditModalInitialTab('link');
+                      setShowEditModal(true);
+                    }
+                  }}
+                  className="flex-1 sm:flex-initial"
+                  title="Relier le premier document sélectionné"
+                >
+                  Relier
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => {
+                    const first = allDocuments.find(d => selectedIds.has(d.id));
+                    if (first) {
+                      setDocumentToEdit(first);
+                      setEditModalInitialTab('reclassify');
+                      setShowEditModal(true);
+                    }
+                  }}
+                  className="flex-1 sm:flex-initial"
+                  title="Reclasser le premier document sélectionné"
+                >
+                  Reclasser
+                </Button>
                 <Button 
                   variant="outline" 
                   size="sm" 
@@ -714,7 +800,7 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
                     const docsToDelete = allDocuments.filter(d => selectedIds.has(d.id));
                     handleDeleteMultiple(docsToDelete);
                   }}
-                  className="flex-1 sm:flex-initial"
+                  className="flex-1 sm:flex-initial text-red-600 hover:text-red-700 hover:bg-red-50"
                 >
                   Supprimer
                 </Button>
@@ -749,15 +835,22 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
               <span className="font-semibold">{sortedDocuments.length}</span> document{sortedDocuments.length > 1 ? 's' : ''} affiché{sortedDocuments.length > 1 ? 's' : ''}
             </p>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Tri rapide:</span>
+              <span className="text-xs text-gray-500">Tri :</span>
+              <button
+                onClick={() => handleSort('date')}
+                className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors ${
+                  sortField === 'date' ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-white border-gray-300 hover:bg-gray-50'
+                }`}
+                title="Récents et actifs en premier"
+              >
+                Date {sortField === 'date' ? (sortOrder === 'desc' ? <ArrowDown className="h-3 w-3 text-orange-600" /> : <ArrowUp className="h-3 w-3 text-orange-600" />) : <ArrowUpDown className="h-3 w-3" />}
+              </button>
               <button
                 onClick={() => handleSort('type')}
                 className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors ${
-                  sortField === 'type' 
-                    ? 'bg-orange-50 border-orange-300 text-orange-700' 
-                    : 'bg-white border-gray-300 hover:bg-gray-50'
+                  sortField === 'type' ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-white border-gray-300 hover:bg-gray-50'
                 }`}
-                title="Trier par type"
+                title="Trier par type de document"
               >
                 Type {sortField === 'type' ? (sortOrder === 'desc' ? <ArrowDown className="h-3 w-3 text-orange-600" /> : <ArrowUp className="h-3 w-3 text-orange-600" />) : <ArrowUpDown className="h-3 w-3" />}
               </button>
@@ -767,6 +860,7 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
           <DocumentTable
             documents={sortedDocuments}
             onView={handleViewDocument}
+            onViewWithSection={handleViewDocumentWithSection}
             onEdit={handleEditDocument}
             onDownload={handleDownload}
             onDelete={handleDelete}
@@ -812,15 +906,24 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
       <DocumentDrawer
         document={selectedDocument}
         isOpen={isDrawerOpen}
+        scrollToSection={drawerScrollToSection}
         onClose={() => {
           setIsDrawerOpen(false);
           setSelectedDocument(null);
+          setDrawerScrollToSection(null);
         }}
         onDelete={(doc) => {
           setIsDrawerOpen(false);
           handleDelete(doc);
         }}
         onDownload={handleDownload}
+        onOpenEntity={(linkedType, _linkedId) => {
+          const view = linkedType === 'lease' ? 'baux' : linkedType === 'transaction' ? 'transactions' : linkedType === 'tenant' ? 'locataires' : null;
+          if (view) {
+            navigateToView(view);
+            setIsDrawerOpen(false);
+          }
+        }}
       />
 
       {/* Modal de modification d'un document */}
@@ -831,6 +934,7 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
           onClose={() => {
             setShowEditModal(false);
             setDocumentToEdit(null);
+            setEditModalInitialTab(null);
           }}
           onUpdate={() => {
             window.dispatchEvent(new CustomEvent('documents:refresh', { 
@@ -838,7 +942,9 @@ export default function PropertyDocumentsClient({ propertyId, propertyName }: Pr
             }));
             setShowEditModal(false);
             setDocumentToEdit(null);
+            setEditModalInitialTab(null);
           }}
+          initialTab={editModalInitialTab ?? undefined}
         />
       )}
 
