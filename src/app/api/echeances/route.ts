@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { expandEcheances } from '@/lib/echeances/expandEcheances';
+import { getLegacyTypeFromNatureCode } from '@/lib/echeances/echeanceNatureMapping';
 import { EcheanceType, Periodicite, SensEcheance } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
@@ -24,10 +25,14 @@ const EcheancesQuerySchema = z.object({
 
 /**
  * Schema de validation pour POST (création)
+ * Référentiel métier : natureCode + defaultCategoryId (type dérivé pour compat)
  */
 const CreateEcheanceSchema = z.object({
   label: z.string().min(1, 'Le libellé est requis'),
-  type: z.nativeEnum(EcheanceType, { required_error: 'Le type est requis' }),
+  natureCode: z.string().min(1, 'La nature est requise'),
+  categoryId: z.string().optional(),
+  defaultCategoryId: z.string().nullable().optional(),
+  type: z.nativeEnum(EcheanceType).optional(),
   periodicite: z.nativeEnum(Periodicite, { required_error: 'La périodicité est requise' }),
   montant: z.number().positive('Le montant doit être positif'),
   recuperable: z.boolean().default(false),
@@ -90,6 +95,8 @@ export async function GET(request: NextRequest) {
           leaseId: true,
           label: true,
           type: true,
+          natureCode: true,
+          defaultCategoryId: true,
           periodicite: true,
           montant: true,
           recuperable: true,
@@ -111,6 +118,8 @@ export async function GET(request: NextRequest) {
         leaseId: e.leaseId,
         label: e.label,
         type: e.type,
+        natureCode: (e as any).natureCode ?? null,
+        defaultCategoryId: (e as any).defaultCategoryId ?? null,
         periodicite: e.periodicite,
         montant: typeof e.montant === 'object' && 'toNumber' in e.montant 
           ? (e.montant as any).toNumber() 
@@ -201,6 +210,8 @@ export async function GET(request: NextRequest) {
         leaseId: true,
         label: true,
         type: true,
+        natureCode: true,
+        defaultCategoryId: true,
         periodicite: true,
         montant: true,
         recuperable: true,
@@ -280,10 +291,15 @@ export async function POST(request: NextRequest) {
     }
 
     const data = validation.data;
+    const sens = data.sens as 'DEBIT' | 'CREDIT';
+    const type = data.type || getLegacyTypeFromNatureCode(data.natureCode, sens);
+    const defaultCategoryId = data.defaultCategoryId ?? data.categoryId ?? null;
 
-    // Préparer les données pour Prisma
     const createData: any = {
       ...data,
+      type,
+      natureCode: data.natureCode,
+      defaultCategoryId,
       montant: new Decimal(data.montant),
       startAt: new Date(data.startAt),
       endAt: data.endAt ? new Date(data.endAt) : null,

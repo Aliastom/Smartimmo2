@@ -5,12 +5,13 @@ import { Search, Filter, X, ChevronDown, ChevronUp, Calendar } from 'lucide-reac
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
-import { ECHEANCE_TYPE_LABELS, PERIODICITE_LABELS, SENS_LABELS } from '@/types/echeance';
+import { NATURE_CODE_LABELS, PERIODICITE_LABELS, SENS_LABELS } from '@/types/echeance';
 
 interface EcheancesFiltersProps {
   filters: {
     search: string;
     type: string;
+    natureCode?: string; // Filtre métier par nature (remplace type dans l'UI)
     sens: string;
     periodicite: string;
     propertyId: string;
@@ -314,21 +315,21 @@ export default function EcheancesFilters({
       {isExpanded && (
         <div className="px-6 pb-4 pt-4 border-t space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Type */}
+            {/* Nature (référentiel métier, aligné avec les transactions) */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Nature</label>
               <SmartSelect
-                value={filters.type || ''}
-                onChange={(value) => handleFilterChange('type', value)}
+                value={filters.natureCode || ''}
+                onChange={(value) => handleFilterChange('natureCode', value)}
                 options={[
-                  { value: '', label: 'Tous les types' },
-                  ...Object.entries(ECHEANCE_TYPE_LABELS).map(([key, label]) => ({
+                  { value: '', label: 'Toutes les natures' },
+                  ...Object.entries(NATURE_CODE_LABELS).map(([key, label]) => ({
                     value: key,
                     label,
                   })),
                 ]}
-                placeholder="Tous les types"
-                aria-label="Filtrer par type"
+                placeholder="Toutes les natures"
+                aria-label="Filtrer par nature"
               />
             </div>
 

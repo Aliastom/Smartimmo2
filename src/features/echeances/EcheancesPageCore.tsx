@@ -35,17 +35,34 @@ import { useEcheancesKpis } from './hooks/useEcheancesKpis';
 import { useEcheancesCharts } from './hooks/useEcheancesCharts';
 import {
   EcheanceRecurrente,
-  ECHEANCE_TYPE_LABELS,
   PERIODICITE_LABELS,
   SENS_LABELS,
-  TYPE_COLORS,
+  getNatureBadgeClass,
+  getCategoryLabelForEcheance,
 } from '@/types/echeance';
+import { getNatureLabelForEcheance } from '@/lib/echeances/echeanceDisplayHelpers';
+import { useEcheanceReferential } from '@/features/echeances/hooks/useEcheanceReferential';
 import { EcheanceFormSchema } from '@/lib/validations/echeance';
 import Link from 'next/link';
 import { useEcheancesData, type EcheancesFilters } from './hooks/useEcheancesData';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { createEcheanceServiceWithMode } from '@/domain/services/echeanceServiceFactory';
+import { createTransactionServiceWithMode } from '@/domain/services/transactionServiceFactory';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
+import { TransactionModal } from '@/components/transactions/TransactionModalV2';
+import type { TransactionFormData } from '@/lib/validations/transaction';
+import { buildTransactionFromEcheance } from '@/lib/echeances/echeanceTransactionPrefill';
+import {
+  getNextUncoveredOccurrenceDate,
+  buildCoveredOccurrenceDates,
+  listTheoreticalOccurrenceDates,
+} from '@/lib/echeances/echeanceOccurrences';
+import { resolveNatureCodeForEcheance } from '@/lib/echeances/echeanceTypeMigration';
+import {
+  getLinksByEcheanceIds,
+  addEcheanceTransactionLink,
+} from '@/lib/echeances/echeanceTransactionLinkClient';
+import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
 
 export interface EcheancesPageCoreProps {
   mode: 'normal' | 'app-shell';
@@ -55,6 +72,7 @@ export function EcheancesPageCore({
   mode,
 }: EcheancesPageCoreProps) {
   const { organizationId } = useCurrentOrganization();
+  const { natures, categories, getDefaultCategoryId } = useEcheanceReferential(mode);
   const router = mode === 'normal' ? useRouter() : null;
   const queryClient = useQueryClient();
   const isUI2Active = useUI2();
@@ -74,6 +92,7 @@ export function EcheancesPageCore({
   const [filters, setFilters] = useState<EcheancesFilters>({
     search: '',
     type: '',
+    natureCode: '',
     sens: '',
     periodicite: '',
     propertyId: '',
@@ -94,6 +113,13 @@ export function EcheancesPageCore({
   const [selectedEcheanceIds, setSelectedEcheanceIds] = useState<string[]>([]);
   const [showDeleteMultipleModal, setShowDeleteMultipleModal] = useState(false);
 
+  // États pour la modal transaction (création depuis échéance)
+  const [txModalOpen, setTxModalOpen] = useState(false);
+  const [echeanceForTx, setEcheanceForTx] = useState<EcheanceRecurrente | null>(null);
+  const [txModalPrefill, setTxModalPrefill] = useState<Awaited<ReturnType<typeof buildTransactionFromEcheance>> | null>(null);
+  const [coveredOccurrenceByEcheanceId, setCoveredOccurrenceByEcheanceId] = useState<Map<string, Set<string>>>(new Map());
+  const pendingOccurrenceYmdRef = useRef<string | null>(null);
+
   // État pour forcer le rafraîchissement
   const [refreshKey, setRefreshKey] = useState(0);
   const [pagination, setPagination] = useState({
@@ -111,6 +137,42 @@ export function EcheancesPageCore({
   
   // ✅ Ref pour suivre les échéances en cours de mise à jour (évite les nettoyages prématurés)
   const updatingEcheancesRef = useRef<Set<string>>(new Set());
+
+  // Charger les occurrences couvertes pour l'échéance affichée dans le drawer
+  useEffect(() => {
+    if (!organizationId || !selectedEcheance || !isDrawerOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const links = await getLinksByEcheanceIds(organizationId, [selectedEcheance.id]);
+        const linkRows = links.get(selectedEcheance.id) || [];
+        if (linkRows.length === 0) {
+          if (!cancelled) setCoveredOccurrenceByEcheanceId((m) => new Map(m).set(selectedEcheance.id, new Set()));
+          return;
+        }
+        const txRepo = getTransactionRepositoryOffline();
+        const txIds = [...new Set(linkRows.map((r) => r.transactionId))];
+        const txDateById = new Map<string, string>();
+        for (const id of txIds) {
+          const tx = await txRepo.getById(id, organizationId);
+          if (tx?.date) txDateById.set(id, typeof tx.date === 'string' ? tx.date : (tx.date as Date).toISOString().slice(0, 10));
+        }
+        const theoretical = listTheoreticalOccurrenceDates(selectedEcheance, new Date());
+        const covered = buildCoveredOccurrenceDates(
+          theoretical,
+          linkRows.map((r) => ({ transactionId: r.transactionId, occurrenceDate: r.occurrenceDate })),
+          txDateById,
+          7
+        );
+        if (!cancelled) setCoveredOccurrenceByEcheanceId((m) => new Map(m).set(selectedEcheance.id, covered));
+      } catch {
+        if (!cancelled) setCoveredOccurrenceByEcheanceId((m) => new Map(m).set(selectedEcheance.id, new Set()));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, selectedEcheance?.id, isDrawerOpen]);
 
   // ✅ APP-SHELL: Charger les locataires pour afficher le contexte dans les cards mobile (page globale uniquement)
   const [tenantsMap, setTenantsMap] = useState<Map<string, { firstName: string; lastName: string }>>(new Map());
@@ -208,8 +270,13 @@ export function EcheancesPageCore({
         if (!echeance.label.toLowerCase().includes(searchLower)) return false;
       }
 
-      // Filtre de type
-      if (filters.type && echeance.type !== filters.type) return false;
+      // Filtre par nature (référentiel métier)
+      if (filters.natureCode) {
+        const effectiveNature = resolveNatureCodeForEcheance(echeance);
+        if (effectiveNature !== filters.natureCode) return false;
+      }
+      // Filtre de type (legacy, fallback si natureCode non utilisé)
+      if (filters.type && !filters.natureCode && echeance.type !== filters.type) return false;
 
       // Filtre de sens
       if (filters.sens && echeance.sens !== filters.sens) return false;
@@ -270,6 +337,7 @@ export function EcheancesPageCore({
     setFilters({
       search: '',
       type: '',
+      natureCode: '',
       sens: '',
       periodicite: '',
       propertyId: '',
@@ -280,6 +348,73 @@ export function EcheancesPageCore({
     setActiveKpiFilter(null);
     setPagination((prev) => ({ ...prev, page: 1 }));
   }, []);
+
+  const openCreateTxFromEcheance = useCallback(
+    async (e: EcheanceRecurrente) => {
+      if (!organizationId) return;
+      const covered = coveredOccurrenceByEcheanceId.get(e.id) ?? new Set<string>();
+      const ymd =
+        getNextUncoveredOccurrenceDate(e, covered, new Date()) ||
+        new Date().toISOString().slice(0, 10);
+      pendingOccurrenceYmdRef.current = ymd;
+      const prefill = await buildTransactionFromEcheance(e, ymd);
+      setEcheanceForTx(e);
+      setTxModalPrefill(prefill);
+      setTxModalOpen(true);
+    },
+    [organizationId, coveredOccurrenceByEcheanceId]
+  );
+
+  const handleTxModalSubmit = useCallback(
+    async (data: TransactionFormData & Record<string, unknown>) => {
+      if (!organizationId || !echeanceForTx) throw new Error('Données manquantes');
+      const svc = createTransactionServiceWithMode(mode);
+      const paidAt = (data.paidAt as string) || (data.paymentDate as string);
+      if (!paidAt?.trim()) throw new Error('La date de paiement est obligatoire.');
+      const d = new Date(data.date as string);
+      const accountingMonth =
+        (data.accountingMonth as string) ||
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const pm = data.periodMonth != null ? String(data.periodMonth).padStart(2, '0') : String(d.getMonth() + 1).padStart(2, '0');
+      const py = (data.periodYear as number) || d.getFullYear();
+      const result = await svc.createTransaction({
+        organizationId,
+        propertyId: data.propertyId,
+        leaseId: (data.leaseId as string) || null,
+        categoryId: data.categoryId as string,
+        nature: (data.nature as string) || undefined,
+        label: (data.label as string) || echeanceForTx.label,
+        amount: Number(data.amount),
+        date: data.date as string,
+        paidAt,
+        accountingMonth,
+        periodMonth: parseInt(pm, 10),
+        periodYear: py,
+        monthsCovered: (data.monthsCovered as number) || 1,
+        skipAutoCommissions: true,
+        method: (data.method as string) || (data.paymentMethod as string) || 'virement',
+      });
+      const occ =
+        pendingOccurrenceYmdRef.current ||
+        (typeof data.date === 'string' ? data.date.slice(0, 10) : null);
+      pendingOccurrenceYmdRef.current = null;
+      await addEcheanceTransactionLink({
+        organizationId,
+        echeanceId: echeanceForTx.id,
+        transactionId: result.transaction.id,
+        occurrenceDate: occ,
+      });
+      window.dispatchEvent(new CustomEvent('echeanceLinks:refresh', { detail: { scope: 'global', reason: 'tx-link' } }));
+      window.dispatchEvent(new CustomEvent('deadlines:refresh', { detail: { scope: 'global', reason: 'tx-link' } }));
+      setTxModalOpen(false);
+      setEcheanceForTx(null);
+      setTxModalPrefill(null);
+      setRefreshKey((k) => k + 1);
+      notify2.success('Transaction créée et liée à l\'échéance');
+      return { totalCreated: result.totalCreated, successMessage: 'Transaction créée et liée à l\'échéance' };
+    },
+    [organizationId, echeanceForTx, mode]
+  );
 
   // Handlers de période
   const handlePeriodChange = (start: string, end: string) => {
@@ -335,37 +470,24 @@ export function EcheancesPageCore({
 
         const echeanceService = createEcheanceServiceWithMode('app-shell');
         
+        const common = {
+          label: data.label,
+          natureCode: data.natureCode,
+          defaultCategoryId: data.categoryId || null,
+          periodicite: data.periodicite,
+          montant: data.montant,
+          sens: data.sens,
+          recuperable: data.recuperable,
+          propertyId: data.propertyId || null,
+          leaseId: data.leaseId || null,
+          startAt: new Date(data.startAt),
+          endAt: data.endAt ? new Date(data.endAt) : null,
+          isActive: data.isActive,
+        };
         if (modalMode === 'edit' && selectedEcheance?.id) {
-          // Mise à jour
-          await echeanceService.updateEcheance(selectedEcheance.id, organizationId, {
-            label: data.label,
-            type: data.type,
-            periodicite: data.periodicite,
-            montant: data.montant,
-            sens: data.sens,
-            recuperable: data.recuperable,
-            propertyId: data.propertyId || null,
-            leaseId: data.leaseId || null,
-            startAt: new Date(data.startAt),
-            endAt: data.endAt ? new Date(data.endAt) : null,
-            isActive: data.isActive,
-          });
+          await echeanceService.updateEcheance(selectedEcheance.id, organizationId, common);
         } else {
-          // Création ou duplication
-          await echeanceService.createEcheance({
-            organizationId,
-            label: data.label,
-            type: data.type,
-            periodicite: data.periodicite,
-            montant: data.montant,
-            sens: data.sens,
-            recuperable: data.recuperable,
-            propertyId: data.propertyId || null,
-            leaseId: data.leaseId || null,
-            startAt: new Date(data.startAt),
-            endAt: data.endAt ? new Date(data.endAt) : null,
-            isActive: data.isActive,
-          });
+          await echeanceService.createEcheance({ organizationId, ...common });
         }
         
         // ✅ Émettre UNIQUEMENT un événement ciblé (pas de sync immédiate, pas de fetch bloquant)
@@ -379,13 +501,13 @@ export function EcheancesPageCore({
       }
 
       // Mode normal online : utiliser l'API
+      const payload = {
+        ...data,
+        defaultCategoryId: data.categoryId,
+        startAt: new Date(data.startAt).toISOString(),
+        endAt: data.endAt ? new Date(data.endAt).toISOString() : null,
+      };
       if (modalMode === 'edit' && selectedEcheance) {
-        // Mise à jour
-        const payload = {
-          ...data,
-          startAt: new Date(data.startAt).toISOString(),
-          endAt: data.endAt ? new Date(data.endAt).toISOString() : null,
-        };
 
         const response = await fetch(`/api/echeances/${selectedEcheance.id}`, {
           method: 'PATCH',
@@ -400,13 +522,6 @@ export function EcheancesPageCore({
 
         notify2.success('Échéance modifiée avec succès');
       } else {
-        // Création ou duplication
-        const payload = {
-          ...data,
-          startAt: new Date(data.startAt).toISOString(),
-          endAt: data.endAt ? new Date(data.endAt).toISOString() : null,
-        };
-
         const response = await fetch('/api/echeances', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -770,8 +885,8 @@ export function EcheancesPageCore({
                             <h4 className="text-sm font-semibold text-gray-900 truncate">{echeance.label}</h4>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 mb-2">
-                            <Badge className={TYPE_COLORS[echeance.type]}>
-                              {ECHEANCE_TYPE_LABELS[echeance.type]}
+                            <Badge className={getNatureBadgeClass(resolveNatureCodeForEcheance(echeance))}>
+                              {getNatureLabelForEcheance(echeance, natures)}
                             </Badge>
                             <Badge
                               className={
@@ -953,7 +1068,8 @@ export function EcheancesPageCore({
                       />
                     </TableHeaderCellV2>
                     <TableHeaderCellV2>Libellé</TableHeaderCellV2>
-                    <TableHeaderCellV2>Type</TableHeaderCellV2>
+                    <TableHeaderCellV2>Nature</TableHeaderCellV2>
+                    <TableHeaderCellV2>Catégorie</TableHeaderCellV2>
                     <TableHeaderCellV2>Périodicité</TableHeaderCellV2>
                     <TableHeaderCellV2 className="text-right">Montant</TableHeaderCellV2>
                     <TableHeaderCellV2>Sens</TableHeaderCellV2>
@@ -966,14 +1082,14 @@ export function EcheancesPageCore({
                   {loading ? (
                     [...Array(5)].map((_, i) => (
                       <tr key={i}>
-                        <td colSpan={9} className="px-4 py-3">
+                        <td colSpan={11} className="px-4 py-3">
                           <div className="h-12 bg-gray-100 rounded animate-pulse"></div>
                         </td>
                       </tr>
                     ))
                   ) : echeances.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
                         Aucune échéance trouvée
                       </td>
                     </tr>
@@ -996,9 +1112,14 @@ export function EcheancesPageCore({
                         </TableCellV2>
                         <TableCellV2>
                           <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out">
-                            <Badge className={TYPE_COLORS[echeance.type]}>
-                              {ECHEANCE_TYPE_LABELS[echeance.type]}
+                            <Badge className={getNatureBadgeClass(resolveNatureCodeForEcheance(echeance))}>
+                              {getNatureLabelForEcheance(echeance, natures)}
                             </Badge>
+                          </div>
+                        </TableCellV2>
+                        <TableCellV2>
+                          <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out text-sm text-gray-700">
+                            {getCategoryLabelForEcheance(echeance, categories, resolveNatureCodeForEcheance, getDefaultCategoryId)}
                           </div>
                         </TableCellV2>
                         <TableCellV2>
@@ -1167,7 +1288,8 @@ export function EcheancesPageCore({
                     />
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Libellé</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nature</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Catégorie</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Périodicité</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Montant</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sens</th>
@@ -1180,14 +1302,14 @@ export function EcheancesPageCore({
                 {loading ? (
                   [...Array(5)].map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={9} className="px-4 py-3">
+                      <td colSpan={10} className="px-4 py-3">
                         <div className="h-12 bg-gray-100 rounded animate-pulse"></div>
                       </td>
                     </tr>
                   ))
                 ) : echeances.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
                       Aucune échéance trouvée
                     </td>
                   </tr>
@@ -1208,9 +1330,12 @@ export function EcheancesPageCore({
                       </td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">{echeance.label}</td>
                       <td className="px-4 py-3 text-sm">
-                        <Badge className={TYPE_COLORS[echeance.type]}>
-                          {ECHEANCE_TYPE_LABELS[echeance.type]}
+                        <Badge className={getNatureBadgeClass(resolveNatureCodeForEcheance(echeance))}>
+                          {getNatureLabelForEcheance(echeance, natures)}
                         </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {getCategoryLabelForEcheance(echeance, categories, resolveNatureCodeForEcheance, getDefaultCategoryId)}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         {PERIODICITE_LABELS[echeance.periodicite]}
@@ -1386,7 +1511,8 @@ export function EcheancesPageCore({
         properties={properties}
         leases={leases}
         mode={modalMode}
-        defaultPropertyId={null} // ✅ Page globale : pas de defaultPropertyId, l'utilisateur doit choisir
+        defaultPropertyId={null}
+        dataMode={mode}
       />
 
       {/* Drawer lecture seule */}
@@ -1398,6 +1524,27 @@ export function EcheancesPageCore({
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
         propertyId={selectedEcheance?.propertyId || undefined}
+        onCreateTransaction={openCreateTxFromEcheance}
+        coveredOccurrenceDates={
+          selectedEcheance ? coveredOccurrenceByEcheanceId.get(selectedEcheance.id) : undefined
+        }
+        dataMode={mode}
+      />
+
+      <TransactionModal
+        key={echeanceForTx?.id || 'tx-echeance'}
+        isOpen={txModalOpen}
+        onClose={() => {
+          pendingOccurrenceYmdRef.current = null;
+          setTxModalOpen(false);
+          setEcheanceForTx(null);
+          setTxModalPrefill(null);
+        }}
+        onSubmit={handleTxModalSubmit as (data: TransactionFormData) => Promise<unknown>}
+        context={{ type: 'global' }}
+        mode="create"
+        title="Nouvelle transaction (échéance)"
+        prefill={txModalPrefill || undefined}
       />
 
       {/* Modal suppression simple */}

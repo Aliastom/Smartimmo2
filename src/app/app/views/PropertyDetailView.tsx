@@ -18,6 +18,7 @@ interface PropertyDetailViewProps {
   propertyId: string;
   organizationId: string;
   tab?: string;
+  initialLeaseId?: string;
 }
 
 // Fonction helper pour normaliser et valider un tab
@@ -29,7 +30,7 @@ function normalizeAndValidateTab(tab: string): string {
   return validTabs.includes(normalizedTab) ? normalizedTab : 'transactions';
 }
 
-export function PropertyDetailView({ propertyId, organizationId, tab = 'transactions' }: PropertyDetailViewProps) {
+export function PropertyDetailView({ propertyId, organizationId, tab = 'transactions', initialLeaseId }: PropertyDetailViewProps) {
   // ✅ DEV SAFEGUARD: Détecter les remount loops (déplacé depuis PropertyLoansClient)
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
@@ -134,6 +135,7 @@ export function PropertyDetailView({ propertyId, organizationId, tab = 'transact
             key={`lease-${propertyId}`}
             propertyId={propertyId}
             propertyName={propertyBaseData.name || 'Chargement...'}
+            initialLeaseId={initialLeaseId}
           />
         );
       case 'loans':

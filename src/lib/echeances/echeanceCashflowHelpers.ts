@@ -53,6 +53,10 @@ export interface NextOccurrenceInfo {
   daysFromToday: number;
   /** Message affiché : "À venir dans X mois", "Échéance passée", "Prochaine occurrence aujourd'hui", etc. */
   message: string;
+  /** Occurrence passée (dans le passé) */
+  isPast?: boolean;
+  /** Occurrence couverte par des transactions (pour getNextUncoveredOccurrenceInfo, toujours false) */
+  isCovered?: boolean;
 }
 
 const SOON_DAYS = 7;

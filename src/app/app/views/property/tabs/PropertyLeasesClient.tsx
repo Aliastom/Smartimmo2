@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { notify2 } from '@/lib/notify2';
-import { Plus, FileText, Download, Receipt, Home } from 'lucide-react';
+import { Plus, FileText, Download, Receipt, Home, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { SectionTitle } from '@/components/ui/SectionTitle';
 import { BackToPropertyButton } from '@/components/shared/BackToPropertyButton';
@@ -18,10 +18,16 @@ import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { createLeaseServiceWithMode } from '@/domain/services/leaseServiceFactory';
 import LeasesFilters from '@/components/leases/LeasesFilters';
 import { LeasesTableNew } from '@/components/leases/LeasesTableNew';
-import LeaseDrawerNew from '@/components/leases/LeaseDrawerNew';
+import { LeasesActionBanner, type ActionFilterKey } from '@/features/leases/components/LeasesActionBanner';
+import { useLeasesActionCounts } from '@/features/leases/hooks/useLeasesActionCounts';
+import LeaseDetailView from '@/features/leases/components/LeaseDetailView';
 import LeaseFormComplete from '@/components/forms/LeaseFormComplete';
 import LeaseEditModal from '@/components/forms/LeaseEditModal';
 import LeaseActionsManager from '@/components/forms/LeaseActionsManager';
+import { TransactionModal } from '@/components/transactions/TransactionModalV2';
+import { createTransactionServiceWithMode } from '@/domain/services/transactionServiceFactory';
+import type { LeasePaymentsTimelineMonth } from '@/features/leases/hooks/useLeasePaymentsTimeline';
+import type { TransactionFormData } from '@/lib/validations/transaction';
 import CannotDeleteLeaseModal from '@/components/leases/CannotDeleteLeaseModal';
 import DeleteConfirmModal from '@/components/leases/DeleteConfirmModal';
 import type { LeaseWithDetails } from '@/lib/services/leasesService';
@@ -52,9 +58,10 @@ interface Filters {
 interface PropertyLeasesClientProps {
   propertyId: string;
   propertyName: string;
+  initialLeaseId?: string;
 }
 
-export default function PropertyLeasesClient({ propertyId, propertyName }: PropertyLeasesClientProps) {
+export default function PropertyLeasesClient({ propertyId, propertyName, initialLeaseId }: PropertyLeasesClientProps) {
   
   const { organizationId } = useCurrentOrganization();
   const { setActions } = usePropertyHeaderActions();
@@ -71,9 +78,9 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
   // ✅ Stabiliser selectedIds pour éviter les re-renders inutiles du tableau
   const stableSelectedIds = useMemo(() => selectedIds, [selectedIds.size, Array.from(selectedIds).sort().join(',')]);
   
-  // États de tri
-  const [sortField, setSortField] = useState<'startDate' | 'endDate' | 'rentAmount'>('startDate');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  // États de tri (tri métier par défaut : retards > partiels > expirations > ok)
+  const [sortField, setSortField] = useState<'business' | 'startDate' | 'endDate' | 'rentAmount'>('business');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // États des modals et drawer
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -90,9 +97,27 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
     tenantName: string;
     reason: string;
   }>>([]);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentPrefill, setPaymentPrefill] = useState<{
+    propertyId: string;
+    leaseId: string;
+    nature: string;
+    amount: number;
+    date: string;
+    periodMonth: string;
+    periodYear: number;
+    label: string;
+    montantLoyer?: number;
+    chargesRecup?: number;
+    paymentDate?: string;
+  } | null>(null);
   
   // État pour le filtre KPI actif
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
+  // État pour le bandeau "À traiter" (filtre le tableau)
+  const [actionFilter, setActionFilter] = useState<ActionFilterKey>(null);
+  // Analytics repliables
+  const [chartsExpanded, setChartsExpanded] = useState(true);
 
   // États des filtres (propertyId est toujours fixé)
   const [filters, setFilters] = useState<Filters>({
@@ -271,6 +296,13 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
     mode: 'app-shell',
   });
 
+  // Compteurs "À traiter" (partiels, retards, expirant, indexations) pour ce bien
+  const { counts: actionCounts, loading: actionCountsLoading } = useLeasesActionCounts(
+    organizationId ?? null,
+    allLeases,
+    'app-shell'
+  );
+
   // Gestion des filtres (en mémoire uniquement, pas de fetch)
   const handleFiltersChange = useCallback((newFilters: Filters) => {
     // S'assurer que propertyId reste fixé
@@ -286,7 +318,12 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
     }
   }, [activeKpiFilter]);
 
+  const handleActionFilterChange = useCallback((filter: ActionFilterKey) => {
+    setActionFilter(filter);
+  }, []);
+
   const handleResetFilters = useCallback(() => {
+    setActionFilter(null);
     const resetFilters: Filters = {
       search: '',
       propertyId: propertyId, // GARDER le bien
@@ -356,7 +393,15 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
   const handleViewLease = useCallback((lease: LeaseWithDetails) => {
     setSelectedLease(lease);
     setIsDrawerOpen(true);
-  }, []);
+    const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+    params.set('view', 'property');
+    params.set('propertyId', propertyId);
+    params.set('tab', 'lease');
+    params.set('leaseId', lease.id);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    }
+  }, [propertyId]);
 
   const handleEditLease = useCallback((lease: LeaseWithDetails) => {
     setSelectedLease(lease);
@@ -421,6 +466,16 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
     });
   }, []);
 
+  // ✅ Ouvrir automatiquement le bail si leaseId est dans l'URL (?leaseId=xxx)
+  useEffect(() => {
+    if (!initialLeaseId || filteredLeases.length === 0) return;
+    const lease = filteredLeases.find((l) => l.id === initialLeaseId);
+    if (lease) {
+      setSelectedLease(lease);
+      setIsDrawerOpen(true);
+    }
+  }, [initialLeaseId, filteredLeases]);
+
   // ✅ Mémoriser les IDs des leases filtrés pour handleSelectAll
   const filteredLeaseIds = useMemo(() => filteredLeases.map(l => l.id), [filteredLeases.length, filteredLeases.map(l => l.id).join(',')]);
   
@@ -435,59 +490,84 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
   }, [filteredLeaseIds]);
 
   // Gestion du tri
-  const handleSort = useCallback((field: 'startDate' | 'endDate' | 'rentAmount') => {
+  const handleSort = useCallback((field: 'business' | 'startDate' | 'endDate' | 'rentAmount') => {
     if (sortField === field) {
       setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
-      setSortOrder('desc');
+      setSortOrder(field === 'business' ? 'asc' : 'desc');
     }
   }, [sortField]);
 
-  // ✅ APP-SHELL: Trier les baux filtrés en mémoire
+  // Map leaseId -> santé pour surlignage et action rapide
+  const leaseHealthMap = useMemo(() => {
+    const map: Record<string, 'ok' | 'partiel' | 'retard'> = {};
+    for (const lease of filteredLeases) {
+      if (actionCounts.leaseIdsRetards.has(lease.id)) map[lease.id] = 'retard';
+      else if (actionCounts.leaseIdsPartiels.has(lease.id)) map[lease.id] = 'partiel';
+      else map[lease.id] = 'ok';
+    }
+    return map;
+  }, [filteredLeases, actionCounts]);
+
+  // ✅ APP-SHELL: Filtrer par actionFilter puis trier les baux
   const sortedLeases = useMemo(() => {
     if (!filteredLeases || filteredLeases.length === 0) {
       return [];
     }
-    
-    // ✅ [DEV-ONLY] Log avant tri (isolé derrière flag DEV)
-    if (process.env.NODE_ENV === 'development' && (window as any).__SMARTIMMO_DEBUG_LEASES__) {
-      console.log('[PropertyLeasesClient] [DEV] Avant tri sortedLeases:', {
-        filteredCount: filteredLeases.length,
-        filteredStatuses: filteredLeases.map(l => `${l.id.slice(0, 8)}:${l.status}`).join(', ')
-      });
+
+    // 1. Appliquer le filtre "À traiter" si actif
+    let toSort = [...filteredLeases];
+    if (actionFilter) {
+      const set =
+        actionFilter === 'partiels' ? actionCounts.leaseIdsPartiels :
+        actionFilter === 'retards' ? actionCounts.leaseIdsRetards :
+        actionFilter === 'expirant90' ? actionCounts.leaseIdsExpirant90 :
+        actionFilter === 'indexations' ? actionCounts.leaseIdsIndexations : null;
+      if (set && set.size > 0) {
+        toSort = toSort.filter((l) => set.has(l.id));
+      }
     }
-    
-    const sorted = [...filteredLeases].sort((a, b) => {
+
+    // 2. Trier
+    const getBusinessPriority = (lease: LeaseWithDetails): number => {
+      if (actionCounts.leaseIdsRetards.has(lease.id)) return 0;
+      if (actionCounts.leaseIdsPartiels.has(lease.id)) return 1;
+      if (actionCounts.leaseIdsExpirant90.has(lease.id)) return 2;
+      return 3;
+    };
+
+    return toSort.sort((a, b) => {
       let comparison = 0;
 
-      switch (sortField) {
-        case 'startDate':
-          comparison = new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
-          break;
-        case 'endDate':
-          const endA = a.endDate ? new Date(a.endDate).getTime() : 0;
-          const endB = b.endDate ? new Date(b.endDate).getTime() : 0;
+      if (sortField === 'business') {
+        const pa = getBusinessPriority(a);
+        const pb = getBusinessPriority(b);
+        comparison = pa - pb;
+        if (comparison === 0 && (pa === 2 || pb === 2)) {
+          const endA = a.endDate ? new Date(a.endDate).getTime() : Infinity;
+          const endB = b.endDate ? new Date(b.endDate).getTime() : Infinity;
           comparison = endA - endB;
-          break;
-        case 'rentAmount':
-          comparison = a.rentAmount - b.rentAmount;
-          break;
+        }
+      } else {
+        switch (sortField) {
+          case 'startDate':
+            comparison = new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+            break;
+          case 'endDate':
+            const endA = a.endDate ? new Date(a.endDate).getTime() : 0;
+            const endB = b.endDate ? new Date(b.endDate).getTime() : 0;
+            comparison = endA - endB;
+            break;
+          case 'rentAmount':
+            comparison = a.rentAmount - b.rentAmount;
+            break;
+        }
       }
 
       return sortOrder === 'asc' ? comparison : -comparison;
     });
-
-    // ✅ [DEV-ONLY] Log après tri (isolé derrière flag DEV)
-    if (process.env.NODE_ENV === 'development' && (window as any).__SMARTIMMO_DEBUG_LEASES__) {
-      console.log('[PropertyLeasesClient] [DEV] Après tri sortedLeases:', {
-        sortedCount: sorted.length,
-        sortedStatuses: sorted.map(l => `${l.id.slice(0, 8)}:${l.status}`).join(', ')
-      });
-    }
-
-    return sorted;
-  }, [filteredLeases, sortField, sortOrder]);
+  }, [filteredLeases, sortField, sortOrder, actionFilter, actionCounts]);
 
   // ✅ APP-SHELL: Soumission via LeaseService (local-first)
   const handleModalSubmit = async (data: any) => {
@@ -597,10 +677,64 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
     setSelectedLease(null);
   };
 
-  const handleCloseDrawer = () => {
+  const handleCloseDrawer = useCallback(() => {
     setIsDrawerOpen(false);
     setSelectedLease(null);
-  };
+    const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+    params.delete('leaseId');
+    if (typeof window !== 'undefined' && params.toString()) {
+      window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    }
+  }, []);
+
+  const handleEnregistrerPaiement = useCallback((lease: LeaseWithDetails, month: LeasePaymentsTimelineMonth) => {
+    const [y = '', m = '01'] = month.yearMonth.split('-');
+    const dueDate = month.dueDate || `${y}-${m}-15`;
+    setPaymentPrefill({
+      propertyId: lease.propertyId,
+      leaseId: lease.id,
+      nature: 'RECETTE_LOYER',
+      amount: month.expected,
+      date: `${y}-${m}-01`,
+      periodMonth: m,
+      periodYear: parseInt(y, 10) || new Date().getFullYear(),
+      label: `Loyer ${month.label}`,
+      montantLoyer: lease.rentAmount,
+      chargesRecup: lease.chargesRecupMensuelles ?? 0,
+      paymentDate: dueDate,
+    });
+    setShowPaymentModal(true);
+  }, []);
+
+  const handlePaymentModalSubmit = useCallback(async (data: TransactionFormData) => {
+    if (!organizationId) throw new Error('Organisation requise');
+    const svc = createTransactionServiceWithMode('app-shell');
+    const d = new Date(data.date);
+    const accountingMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    await svc.createTransaction({
+      organizationId,
+      propertyId: data.propertyId,
+      leaseId: data.leaseId || null,
+      categoryId: data.categoryId,
+      nature: data.nature,
+      label: data.label || 'Loyer',
+      amount: Number(data.amount),
+      date: data.date,
+      paidAt: (data as any).paidAt || (data as any).paymentDate || data.date,
+      method: (data as any).method || (data as any).paymentMethod || null,
+      accountingMonth,
+      periodMonth: data.periodMonth ? parseInt(data.periodMonth, 10) : d.getMonth() + 1,
+      periodYear: data.periodYear ?? d.getFullYear(),
+      monthsCovered: 1,
+      skipAutoCommissions: true,
+    });
+    setShowPaymentModal(false);
+    setPaymentPrefill(null);
+    notify2.success('Paiement enregistré');
+    const leaseId = data.leaseId || null;
+    window.dispatchEvent(new CustomEvent('leases:refresh', { detail: { scope: 'property', propertyId, leaseId, reason: 'tx' } }));
+    window.dispatchEvent(new CustomEvent('transactions:refresh', { detail: { scope: 'property', propertyId, leaseId } }));
+  }, [organizationId, propertyId]);
 
   // Gestion de la suppression multiple
   const handleDeleteMultiple = useCallback(() => {
@@ -619,41 +753,61 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
         </div>
       </div>
 
-      {/* Graphiques - TOUS sur la même ligne (AU DESSUS DES CARTES) */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
-        {/* Graphique 1 : Évolution des loyers (2 colonnes) */}
-        <div className="md:col-span-2">
-          <LeasesRentEvolutionChart
-            monthlyData={chartsData.rentEvolution.monthly}
-            yearlyData={chartsData.rentEvolution.yearly}
-            isLoading={chartsLoading}
-          />
-        </div>
-        
-        {/* Graphique 2 : Répartition par type de meublé (1 colonne) */}
-        <div className="md:col-span-1">
-          <LeasesByFurnishedChart
-            data={chartsData.byFurnished}
-            isLoading={chartsLoading}
-          />
-        </div>
-        
-        {/* Graphique 3 : Cautions & Loyers cumulés (1 colonne) */}
-        <div className="md:col-span-1">
-          <LeasesDepositsRentsChart
-            data={chartsData.depositsRents}
-            isLoading={chartsLoading}
-          />
-        </div>
-      </div>
+      {/* Bandeau À traiter - PRIORITÉ : avant les graphiques */}
+      <LeasesActionBanner
+        counts={actionCounts}
+        activeFilter={actionFilter}
+        onFilterChange={handleActionFilterChange}
+        isLoading={actionCountsLoading}
+      />
 
-      {/* Cartes KPI (APRÈS LES GRAPHIQUES) - Cartes filtrantes actives */}
+      {/* Analytics repliables */}
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setChartsExpanded((e) => !e)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          <span>Synthèse et graphiques</span>
+          {chartsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+        {chartsExpanded && (
+          <>
+            <div className="grid gap-4 grid-cols-1 md:grid-cols-4 p-4 pt-0 border-t border-gray-100">
+              {/* Graphique 1 : Évolution des loyers (2 colonnes) */}
+              <div className="md:col-span-2">
+                <LeasesRentEvolutionChart
+                  monthlyData={chartsData?.rentEvolution?.monthly ?? []}
+                  yearlyData={chartsData?.rentEvolution?.yearly ?? []}
+                  isLoading={chartsLoading}
+                />
+              </div>
+              {/* Graphique 2 : Répartition par type de meublé (1 colonne) */}
+              <div className="md:col-span-1">
+                <LeasesByFurnishedChart
+                  data={chartsData?.byFurnished ?? []}
+                  isLoading={chartsLoading}
+                />
+              </div>
+              {/* Graphique 3 : Cautions & Loyers cumulés (1 colonne) */}
+              <div className="md:col-span-1">
+                <LeasesDepositsRentsChart
+                  data={chartsData?.depositsRents ?? { totalDeposits: 0, monthlyTotal: 0, yearlyTotal: 0 }}
+                  isLoading={chartsLoading}
+                />
+              </div>
+            </div>
+            <div className="px-4 pb-4 pt-2 border-t border-gray-100">
       <LeasesKpiBar
         kpis={kpis}
         activeFilter={activeKpiFilter}
         onFilterChange={handleKpiFilterChange}
         isLoading={kpisLoading}
       />
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Filtres avancés (sans le filtre "Bien" qui est fixé) */}
       <LeasesFilters
@@ -709,8 +863,19 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
             <p className="text-sm text-gray-700">
               <span className="font-semibold">{sortedLeases.length}</span> bail{sortedLeases.length > 1 ? 'x' : ''} affiché{sortedLeases.length > 1 ? 's' : ''}
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-gray-500">Tri rapide:</span>
+              <button
+                onClick={() => handleSort('business')}
+                className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors ${
+                  sortField === 'business'
+                    ? 'bg-orange-50 border-orange-300 text-orange-700'
+                    : 'bg-white border-gray-300 hover:bg-gray-50'
+                }`}
+                title="Tri métier (retards, partiels, expirations, OK)"
+              >
+                Priorité {sortField === 'business' ? (sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3" />}
+              </button>
               <button
                 onClick={() => handleSort('startDate')}
                 className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors ${
@@ -752,13 +917,15 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
           {process.env.NODE_ENV === 'development' && (window as any).__SMARTIMMO_DEBUG_LEASES__ && (
             <div className="text-xs text-gray-400 mb-2">
               [DEV] Render #{renderCountRef.current} | Leases affichées: {sortedLeases.length} | 
-              {sortedLeases.length > 0 && (
-                <> Premier: {sortedLeases[0].id.slice(0, 8)}... status={sortedLeases[0].status}</>
-              )}
+              {sortedLeases.length > 0 && (() => {
+                const first = sortedLeases[0];
+                return first ? <> Premier: {first.id.slice(0, 8)}... status={first.status}</> : null;
+              })()}
             </div>
           )}
           <LeasesTableNew
             leases={sortedLeases}
+            organizationId={organizationId}
             loading={isLoading}
             onView={handleViewLease}
             onEdit={handleEditLease}
@@ -768,6 +935,8 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
             onSelectAll={handleSelectAll}
             selectedIds={stableSelectedIds}
             showSelection={true}
+            leaseHealthMap={leaseHealthMap}
+            onQuickPay={handleViewLease}
           />
         </CardContent>
       </Card>
@@ -803,26 +972,20 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
 
       {/* Drawer de détail */}
       {isDrawerOpen && selectedLease && (
-        <LeaseDrawerNew
+        <LeaseDetailView
           lease={selectedLease}
           isOpen={isDrawerOpen}
           onClose={handleCloseDrawer}
-          onEdit={() => {
+          onEdit={(lease) => {
             setIsDrawerOpen(false);
-            handleEditLease(selectedLease);
+            handleEditLease(lease);
           }}
-          onDelete={() => handleDeleteLease(selectedLease)}
+          onDelete={(lease) => handleDeleteLease(lease)}
           onGenerateReceipt={(lease) => {
             setSelectedLease(lease);
             setShowActionsModal(true);
           }}
-          onDownloadSignedLease={(lease) => {
-            if (lease.signedPdfUrl) {
-              window.open(lease.signedPdfUrl, '_blank');
-            } else {
-              notify2.error('Aucun bail signé disponible');
-            }
-          }}
+          onEnregistrerPaiement={handleEnregistrerPaiement}
         />
       )}
 
@@ -838,9 +1001,9 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
             startDate: selectedLease.startDate,
             endDate: selectedLease.endDate || undefined,
             rentAmount: selectedLease.rentAmount,
-            charges: selectedLease.charges,
-            deposit: selectedLease.deposit,
-            paymentDay: selectedLease.paymentDay,
+            charges: selectedLease.charges ?? 0,
+            deposit: selectedLease.deposit ?? 0,
+            paymentDay: selectedLease.paymentDay ?? 5,
             status: selectedLease.status,
             notes: selectedLease.notes || undefined,
             Property: selectedLease.Property,
@@ -860,6 +1023,20 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
           initialAction="generate-receipt"
         />
       )}
+
+      {/* Modale d'enregistrement de paiement */}
+      <TransactionModal
+        isOpen={showPaymentModal}
+        onClose={() => {
+          setShowPaymentModal(false);
+          setPaymentPrefill(null);
+        }}
+        onSubmit={handlePaymentModalSubmit}
+        context={{ type: 'property', propertyId }}
+        mode="create"
+        title="Enregistrer un paiement"
+        prefill={paymentPrefill ?? undefined}
+      />
 
       {/* Modale de confirmation de suppression */}
       <DeleteConfirmModal

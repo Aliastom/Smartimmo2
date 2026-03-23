@@ -1,5 +1,10 @@
 'use client';
 
+/**
+ * @deprecated Utiliser EcheanceModal à la place.
+ * Ce drawer utilise l'ancien schéma (type) au lieu de natureCode/categoryId.
+ * Non migré vers le référentiel Nature + Catégorie.
+ */
 import React, { useEffect, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';

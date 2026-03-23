@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
+import { getLegacyTypeFromNatureCode } from '@/lib/echeances/echeanceNatureMapping';
 import { EcheanceType, Periodicite, SensEcheance } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
@@ -14,6 +15,9 @@ export const dynamic = 'force-dynamic';
 
 const UpdateEcheanceSchema = z.object({
   label: z.string().min(1).optional(),
+  natureCode: z.string().optional(),
+  categoryId: z.string().optional(),
+  defaultCategoryId: z.string().nullable().optional(),
   type: z.nativeEnum(EcheanceType).optional(),
   periodicite: z.nativeEnum(Periodicite).optional(),
   montant: z.number().positive().optional(),
@@ -98,9 +102,16 @@ export async function PATCH(
       );
     }
 
-    // Préparer les données pour Prisma
     const updateData: any = { ...data };
-    
+    if (data.defaultCategoryId !== undefined || data.categoryId !== undefined) {
+      updateData.defaultCategoryId = data.defaultCategoryId ?? data.categoryId ?? null;
+    }
+    if (data.natureCode !== undefined && data.type === undefined) {
+      const sens = (data.sens ?? existing?.sens) as 'DEBIT' | 'CREDIT';
+      updateData.type = getLegacyTypeFromNatureCode(data.natureCode, sens);
+    }
+    delete updateData.categoryId; // Pas un champ Prisma
+
     // Convertir montant en Decimal si fourni
     if (data.montant !== undefined) {
       updateData.montant = new Decimal(data.montant);

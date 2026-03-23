@@ -68,6 +68,7 @@
     "check:env": "tsx scripts/check-env.ts",
     "db:migrate:ai": "tsx scripts/migrate-ai-tables.ts",
     "db:migrate:ai-log": "tsx scripts/migrate-ai-query-log.ts",
+    "db:migrate:echeances-nature": "tsx scripts/migrate-echeances-nature-category.ts",
     "db:seed:ai": "tsx prisma/seeds/ai-analytics-seed.ts",
     "db:views": "tsx scripts/apply-analytics-views.ts",
     "ai:catalog": "tsx scripts/generate-sql-catalog.ts",

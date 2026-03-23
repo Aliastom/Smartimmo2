@@ -25,11 +25,14 @@ import { getLeaseRepositoryOffline } from '@/lib/offline/repositories/LeaseRepos
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import {
   EcheanceRecurrente,
-  ECHEANCE_TYPE_LABELS,
   PERIODICITE_LABELS,
   SENS_LABELS,
-  TYPE_COLORS,
+  getNatureBadgeClass,
+  getCategoryLabelForEcheance,
 } from '@/types/echeance';
+import { getNatureLabelForEcheance } from '@/lib/echeances/echeanceDisplayHelpers';
+import { useEcheanceReferential } from '@/features/echeances/hooks/useEcheanceReferential';
+import { resolveNatureCodeForEcheance } from '@/lib/echeances/echeanceTypeMigration';
 import { EcheanceFormSchema } from '@/lib/validations/echeance';
 import Link from 'next/link';
 
@@ -65,6 +68,7 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
   }
 
   const { organizationId } = useCurrentOrganization();
+  const { natures, categories, getDefaultCategoryId } = useEcheanceReferential('normal');
 
   // États des modals et drawer
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -473,7 +477,8 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                     />
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Libellé</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nature</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Catégorie</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Périodicité</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Montant</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sens</th>
@@ -487,14 +492,14 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                 {isLoading ? (
                   [...Array(5)].map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={10} className="px-4 py-3">
+                      <td colSpan={11} className="px-4 py-3">
                         <div className="h-12 bg-gray-100 rounded animate-pulse"></div>
                       </td>
                     </tr>
                   ))
                 ) : filteredEcheances.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
                       Aucune échéance pour ce bien
                     </td>
                   </tr>
@@ -515,9 +520,12 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                       </td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">{echeance.label}</td>
                       <td className="px-4 py-3 text-sm">
-                        <Badge className={TYPE_COLORS[echeance.type]}>
-                          {ECHEANCE_TYPE_LABELS[echeance.type]}
+                        <Badge className={getNatureBadgeClass(resolveNatureCodeForEcheance(echeance))}>
+                          {getNatureLabelForEcheance(echeance, natures)}
                         </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {getCategoryLabelForEcheance(echeance, categories, resolveNatureCodeForEcheance, getDefaultCategoryId)}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         {PERIODICITE_LABELS[echeance.periodicite]}

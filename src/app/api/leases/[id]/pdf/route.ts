@@ -60,8 +60,11 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         status: lease.status,
         notes: lease.notes,
         furnishedType: lease.furnishedType,
+        noticeMonths: lease.noticeMonths ?? null,
+        indexationType: lease.indexationType ?? null,
+        overridesJson: lease.overridesJson ?? null,
       },
-      Property: {
+      property: {
         name: lease.Property.name,
         address: lease.Property.address,
         city: lease.Property.city || '',
@@ -69,12 +72,15 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         surface: lease.Property.surface ? Number(lease.Property.surface) : undefined,
         rooms: lease.Property.rooms || undefined,
       },
-      Tenant: {
+      tenant: {
         firstName: lease.Tenant.firstName,
         lastName: lease.Tenant.lastName,
         email: lease.Tenant.email,
         phone: lease.Tenant.phone || null,
         birthDate: lease.Tenant.birthDate ? lease.Tenant.birthDate.toISOString() : null,
+        address: lease.Tenant.address || null,
+        postalCode: lease.Tenant.postalCode || null,
+        city: lease.Tenant.city || null,
       },
       generatedAt,
     };

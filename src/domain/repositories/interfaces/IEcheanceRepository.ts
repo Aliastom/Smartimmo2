@@ -9,6 +9,8 @@ export interface Echeance {
   leaseId?: string | null;
   label: string;
   type: string;
+  natureCode?: string | null;
+  defaultCategoryId?: string | null;
   periodicite: string;
   montant: number;
   recuperable: boolean;
@@ -26,6 +28,8 @@ export interface CreateEcheanceData {
   leaseId?: string | null;
   label: string;
   type: string;
+  natureCode?: string | null;
+  defaultCategoryId?: string | null;
   periodicite: string;
   montant: number;
   recuperable: boolean;
@@ -40,6 +44,8 @@ export interface UpdateEcheanceData {
   leaseId?: string | null;
   label?: string;
   type?: string;
+  natureCode?: string | null;
+  defaultCategoryId?: string | null;
   periodicite?: string;
   montant?: number;
   recuperable?: boolean;

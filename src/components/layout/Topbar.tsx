@@ -1,13 +1,15 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { usePathname } from 'next/navigation';
-import { Search, Bell, Menu, User } from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { Search, Bell, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
 import { LogoutButton } from '@/components/auth/LogoutButton';
 import { useAuth } from '@/hooks/useAuth';
 import { LogoWithSyncStatus } from '@/components/offline/LogoWithSyncStatus';
+import { BRANDING } from '@/lib/branding';
 
 interface TopbarProps {
   onMenuClick?: () => void;
@@ -50,11 +52,21 @@ export function Topbar({
           <Menu className="h-5 w-5" />
         </Button>
 
-        {/* Logo */}
+        {/* Logo + Sync */}
         <div className="flex items-center gap-3">
-          <LogoWithSyncStatus size="md" bgColor="bg-primary-500" className="rounded-xl" />
+          <Link href="/app" className="flex items-center gap-3 shrink-0">
+            <Image
+              src={BRANDING.logoUrl}
+              alt={BRANDING.name}
+              width={140}
+              height={40}
+              className="h-8 w-auto object-contain"
+              priority
+            />
+          </Link>
+          <LogoWithSyncStatus size="sm" bgColor="bg-primary-500" className="rounded-lg shrink-0" />
           <span className="font-bold text-lg text-gray-900 hidden sm:block">
-            SmartImmo
+            {BRANDING.name}
           </span>
         </div>
       </div>

@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { notify2 } from '@/lib/notify2';
-import { Plus, ArrowUpDown, ArrowUp, ArrowDown, Loader2, Menu, X } from 'lucide-react';
+import { Plus, ArrowUpDown, ArrowUp, ArrowDown, Loader2, Menu, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { LeasesKpiBar } from '@/components/leases/LeasesKpiBar';
@@ -23,18 +23,27 @@ import { useLeasesKpis } from '@/hooks/useLeasesKpis';
 import { useLeasesCharts } from '@/hooks/useLeasesCharts';
 import LeasesFilters from '@/components/leases/LeasesFilters';
 import { LeasesTableNew } from '@/components/leases/LeasesTableNew';
-import LeaseDrawerNew from '@/components/leases/LeaseDrawerNew';
+import { LeasesActionBanner, type ActionFilterKey } from '@/features/leases/components/LeasesActionBanner';
+import { useLeasesActionCounts } from '@/features/leases/hooks/useLeasesActionCounts';
+import LeaseDetailView from '@/features/leases/components/LeaseDetailView';
+import { LeaseIndexationModal } from '@/features/leases/components/LeaseIndexationModal';
 import LeaseFormComplete from '@/components/forms/LeaseFormComplete';
 import LeaseEditModal from '@/components/forms/LeaseEditModal';
 import LeaseActionsManager from '@/components/forms/LeaseActionsManager';
 import CannotDeleteLeaseModal from '@/components/leases/CannotDeleteLeaseModal';
 import DeleteConfirmModal from '@/components/leases/DeleteConfirmModal';
+import { TransactionModal } from '@/components/transactions/TransactionModalV2';
+import { createTransactionServiceWithMode } from '@/domain/services/transactionServiceFactory';
+import { LeaseTerminationModal } from '@/features/leases/components/LeaseTerminationModal';
+import type { LeasePaymentsTimelineMonth } from './hooks/useLeasePaymentsTimeline';
+import type { TransactionFormData } from '@/lib/validations/transaction';
 import type { LeaseWithDetails } from '@/lib/services/leasesService';
 import { useLeasesData, type LeasesFilters } from './hooks/useLeasesData';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 // Import supprimé : plus besoin du repository offline directement, on utilise les services via factories
 import { useAlert } from '@/hooks/useAlert';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
+import { normalizeLeaseContractStatus } from './utils/leaseWorkflowStatus';
 
 export interface LeasesPageCoreProps {
   mode: 'normal' | 'app-shell';
@@ -52,9 +61,9 @@ export function LeasesPageCore({
   // États de sélection multiple
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   
-  // États de tri
-  const [sortField, setSortField] = useState<'startDate' | 'endDate' | 'rentAmount'>('startDate');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  // États de tri (tri métier par défaut : retards > partiels > expirations > ok)
+  const [sortField, setSortField] = useState<'business' | 'startDate' | 'endDate' | 'rentAmount'>('business');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // asc = problèmes en premier
 
   // États des modals et drawer
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -64,6 +73,7 @@ export function LeasesPageCore({
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [leasesToConfirmDelete, setLeasesToConfirmDelete] = useState<LeaseWithDetails[]>([]);
   const [showActionsModal, setShowActionsModal] = useState(false);
+  const [showRenewModal, setShowRenewModal] = useState(false);
   const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
   const [protectedLeasesForModal, setProtectedLeasesForModal] = useState<Array<{
     id: string;
@@ -71,9 +81,30 @@ export function LeasesPageCore({
     tenantName: string;
     reason: string;
   }>>([]);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showTerminateModal, setShowTerminateModal] = useState(false);
+  const [renewBaseLease, setRenewBaseLease] = useState<LeaseWithDetails | null>(null);
+  const [showIndexationModal, setShowIndexationModal] = useState(false);
+  const [paymentPrefill, setPaymentPrefill] = useState<{
+    propertyId: string;
+    leaseId: string;
+    nature: string;
+    amount: number;
+    date: string;
+    periodMonth: string;
+    periodYear: number;
+    label: string;
+    montantLoyer?: number;
+    chargesRecup?: number;
+    paymentDate?: string;
+  } | null>(null);
   
   // État pour le filtre KPI actif
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
+  // État pour le bandeau "À traiter" (filtre le tableau)
+  const [actionFilter, setActionFilter] = useState<ActionFilterKey>(null);
+  // Analytics repliables pour laisser la priorité au bandeau À traiter et au tableau
+  const [chartsExpanded, setChartsExpanded] = useState(true);
 
   // États des filtres
   const [filters, setFilters] = useState<LeasesFilters>({
@@ -125,6 +156,13 @@ export function LeasesPageCore({
     refreshKey,
   });
 
+  // Compteurs "À traiter" (partiels, retards, expirant, indexations)
+  const { counts: actionCounts, loading: actionCountsLoading } = useLeasesActionCounts(
+    organizationId ?? null,
+    leases,
+    mode
+  );
+
   // Nettoyer l'URL au montage (mode normal uniquement)
   useEffect(() => {
     if (mode === 'normal' && router && searchParamsHook) {
@@ -157,7 +195,12 @@ export function LeasesPageCore({
     }
   }, [activeKpiFilter]);
 
+  const handleActionFilterChange = useCallback((filter: ActionFilterKey) => {
+    setActionFilter(filter);
+  }, []);
+
   const handleResetFilters = useCallback(() => {
+    setActionFilter(null);
     const resetFilters: LeasesFilters = {
       search: '',
       propertyId: '',
@@ -197,6 +240,11 @@ export function LeasesPageCore({
   }, []);
 
   const handleEditLease = useCallback((lease: LeaseWithDetails) => {
+    const contract = normalizeLeaseContractStatus(lease.status);
+    if (contract === 'RESILIE' || contract === 'ARCHIVE') {
+      notify2.warning('Bail en lecture seule', "Un bail résilié/archivé ne peut plus être modifié.");
+      return;
+    }
     setSelectedLease(lease);
     setIsEditModalOpen(true);
   }, []);
@@ -351,39 +399,81 @@ export function LeasesPageCore({
   }, [leases]);
 
   // Gestion du tri
-  const handleSort = useCallback((field: 'startDate' | 'endDate' | 'rentAmount') => {
+  const handleSort = useCallback((field: 'business' | 'startDate' | 'endDate' | 'rentAmount') => {
     if (sortField === field) {
       setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
-      setSortOrder('desc');
+      setSortOrder(field === 'business' ? 'asc' : 'desc');
     }
   }, [sortField]);
 
-  // Trier les baux
+  // Filtrer par actionFilter puis trier les baux
   const sortedLeases = useMemo(() => {
-    const sorted = [...leases].sort((a, b) => {
+    // 1. Appliquer le filtre "À traiter" si actif
+    let toSort = [...leases];
+    if (actionFilter) {
+      const set =
+        actionFilter === 'partiels' ? actionCounts.leaseIdsPartiels :
+        actionFilter === 'retards' ? actionCounts.leaseIdsRetards :
+        actionFilter === 'expirant90' ? actionCounts.leaseIdsExpirant90 :
+        actionFilter === 'indexations' ? actionCounts.leaseIdsIndexations : null;
+      if (set && set.size > 0) {
+        toSort = toSort.filter((l) => set.has(l.id));
+      }
+    }
+
+    // 2. Trier
+    const getBusinessPriority = (lease: LeaseWithDetails): number => {
+      if (actionCounts.leaseIdsRetards.has(lease.id)) return 0;
+      if (actionCounts.leaseIdsPartiels.has(lease.id)) return 1;
+      if (actionCounts.leaseIdsExpirant90.has(lease.id)) return 2;
+      return 3;
+    };
+
+    return toSort.sort((a, b) => {
       let comparison = 0;
 
-      switch (sortField) {
-        case 'startDate':
-          comparison = new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
-          break;
-        case 'endDate':
-          const endA = a.endDate ? new Date(a.endDate).getTime() : 0;
-          const endB = b.endDate ? new Date(b.endDate).getTime() : 0;
+      if (sortField === 'business') {
+        const pa = getBusinessPriority(a);
+        const pb = getBusinessPriority(b);
+        comparison = pa - pb;
+        // Sous-tri : expirant bientôt en premier (endDate croissant)
+        if (comparison === 0 && (pa === 2 || pb === 2)) {
+          const endA = a.endDate ? new Date(a.endDate).getTime() : Infinity;
+          const endB = b.endDate ? new Date(b.endDate).getTime() : Infinity;
           comparison = endA - endB;
-          break;
-        case 'rentAmount':
-          comparison = a.rentAmount - b.rentAmount;
-          break;
+        }
+      } else {
+        switch (sortField) {
+          case 'startDate':
+            comparison = new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+            break;
+          case 'endDate':
+            const endA = a.endDate ? new Date(a.endDate).getTime() : 0;
+            const endB = b.endDate ? new Date(b.endDate).getTime() : 0;
+            comparison = endA - endB;
+            break;
+          case 'rentAmount':
+            comparison = a.rentAmount - b.rentAmount;
+            break;
+        }
       }
 
       return sortOrder === 'asc' ? comparison : -comparison;
     });
+  }, [leases, sortField, sortOrder, actionFilter, actionCounts]);
 
-    return sorted;
-  }, [leases, sortField, sortOrder]);
+  // Map leaseId -> santé pour surlignage et action rapide
+  const leaseHealthMap = useMemo(() => {
+    const map: Record<string, 'ok' | 'partiel' | 'retard'> = {};
+    for (const lease of leases) {
+      if (actionCounts.leaseIdsRetards.has(lease.id)) map[lease.id] = 'retard';
+      else if (actionCounts.leaseIdsPartiels.has(lease.id)) map[lease.id] = 'partiel';
+      else map[lease.id] = 'ok';
+    }
+    return map;
+  }, [leases, actionCounts]);
 
   // Gestion des modales
   const handleModalSubmit = async (data: any) => {
@@ -601,12 +691,172 @@ export function LeasesPageCore({
     setSelectedLease(null);
   };
 
+  const handleEnregistrerPaiement = useCallback((lease: LeaseWithDetails, month: LeasePaymentsTimelineMonth) => {
+    const contract = normalizeLeaseContractStatus(lease.status);
+    if (contract === 'RESILIE' || contract === 'ARCHIVE') {
+      notify2.warning('Paiement bloqué', "Ce bail est résilié : aucun nouveau paiement futur n'est autorisé.");
+      return;
+    }
+    const [y, m] = month.yearMonth.split('-');
+    const dueDate = month.dueDate || `${y}-${m}-15`;
+    setPaymentPrefill({
+      propertyId: lease.propertyId,
+      leaseId: lease.id,
+      nature: 'RECETTE_LOYER',
+      amount: month.expected,
+      date: `${y}-${m}-01`,
+      periodMonth: m,
+      periodYear: parseInt(y, 10),
+      label: `Loyer ${month.label}`,
+      montantLoyer: lease.rentAmount,
+      chargesRecup: lease.chargesRecupMensuelles ?? 0,
+      paymentDate: dueDate,
+    });
+    setShowPaymentModal(true);
+  }, []);
+
+  const handlePaymentModalSubmit = useCallback(async (data: TransactionFormData) => {
+    if (!organizationId) throw new Error('Organisation requise');
+    const lease = leases.find((l) => l.id === data.leaseId);
+    if (lease) {
+      const contract = normalizeLeaseContractStatus(lease.status);
+      if (contract === 'RESILIE' || contract === 'ARCHIVE') {
+        const target = new Date(data.date);
+        const now = new Date();
+        const isFutureOrCurrent =
+          target.getFullYear() > now.getFullYear() ||
+          (target.getFullYear() === now.getFullYear() && target.getMonth() >= now.getMonth());
+        if (isFutureOrCurrent) {
+          throw new Error("Bail résilié : impossible d'enregistrer un paiement futur.");
+        }
+      }
+    }
+    const svc = createTransactionServiceWithMode('app-shell');
+    const d = new Date(data.date);
+    const accountingMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    await svc.createTransaction({
+      organizationId,
+      propertyId: data.propertyId,
+      leaseId: data.leaseId || null,
+      categoryId: data.categoryId,
+      nature: data.nature,
+      label: data.label || 'Loyer',
+      amount: Number(data.amount),
+      date: data.date,
+      paidAt: (data as any).paidAt || (data as any).paymentDate || data.date,
+      method: (data as any).method || (data as any).paymentMethod || null,
+      accountingMonth,
+      periodMonth: data.periodMonth ? parseInt(data.periodMonth, 10) : d.getMonth() + 1,
+      periodYear: data.periodYear ?? d.getFullYear(),
+      monthsCovered: 1,
+      skipAutoCommissions: true,
+    });
+    setShowPaymentModal(false);
+    setPaymentPrefill(null);
+    notify2.success('Paiement enregistré');
+    const leaseId = data.leaseId || null;
+    window.dispatchEvent(new CustomEvent('leases:refresh', { detail: { scope: 'global', leaseId, reason: 'tx' } }));
+    window.dispatchEvent(new CustomEvent('transactions:refresh', { detail: { scope: 'global', leaseId } }));
+    setRefreshKey(prev => prev + 1);
+  }, [organizationId, leases]);
+
   // Gestion de la suppression multiple
   const handleDeleteMultiple = useCallback(() => {
     const toDelete = leases.filter(l => selectedIds.has(l.id));
     setLeasesToConfirmDelete(toDelete);
     setShowDeleteConfirmModal(true);
   }, [leases, selectedIds]);
+
+  const handleIndexLease = useCallback((lease: LeaseWithDetails) => {
+    const contract = normalizeLeaseContractStatus(lease.status);
+    if (contract !== 'ACTIF') {
+      notify2.warning('Action indisponible', "L'indexation est disponible uniquement pour un bail actif.");
+      return;
+    }
+    setSelectedLease(lease);
+    setShowIndexationModal(true);
+  }, []);
+
+  const buildRenewalInitialData = useCallback((lease: LeaseWithDetails) => {
+    const baseEnd = lease.endDate ? new Date(lease.endDate) : new Date();
+    const nextStart = new Date(baseEnd);
+    nextStart.setDate(nextStart.getDate() + 1);
+
+    const nextEnd = new Date(nextStart);
+    const isOneYear = lease.furnishedType === 'MEUBLE' || lease.furnishedType === 'meuble' || lease.furnishedType === 'garage';
+    nextEnd.setFullYear(nextEnd.getFullYear() + (isOneYear ? 1 : 3));
+
+    return {
+      propertyId: lease.propertyId,
+      tenantId: lease.tenantId,
+      type: lease.type || 'residential',
+      furnishedType: (lease.furnishedType || 'vide').toLowerCase(),
+      startDate: nextStart.toISOString().slice(0, 10),
+      endDate: nextEnd.toISOString().slice(0, 10),
+      rentAmount: lease.rentAmount,
+      deposit: lease.deposit || 0,
+      paymentDay: lease.paymentDay || 1,
+      indexationType: (lease.indexationType || 'none').toLowerCase(),
+      chargesRecupMensuelles: lease.chargesRecupMensuelles || 0,
+      chargesNonRecupMensuelles: lease.chargesNonRecupMensuelles || 0,
+      status: 'BROUILLON',
+      notes: `Renouvellement du bail ${lease.id}${lease.notes ? `\n\n${lease.notes}` : ''}`,
+    };
+  }, []);
+
+  const handleOpenRenewLease = useCallback((lease: LeaseWithDetails) => {
+    const contract = normalizeLeaseContractStatus(lease.status);
+    if (contract !== 'ACTIF') {
+      notify2.warning('Action indisponible', 'Seul un bail actif peut être renouvelé.');
+      return;
+    }
+    if (!lease.endDate) {
+      notify2.warning('Action indisponible', 'Le bail doit avoir une date de fin pour être renouvelé.');
+      return;
+    }
+    setRenewBaseLease(lease);
+    setShowRenewModal(true);
+  }, []);
+
+  const handleRenewalSubmit = useCallback(async (data: any) => {
+    await handleModalSubmit({
+      ...data,
+      id: undefined,
+      status: 'BROUILLON',
+      notes: `Renouvellement du bail ${renewBaseLease?.id ?? ''}${data.notes ? `\n\n${data.notes}` : ''}`.trim(),
+    });
+    setShowRenewModal(false);
+    setRenewBaseLease(null);
+  }, [handleModalSubmit, renewBaseLease?.id]);
+
+  const handleOpenTerminateLease = useCallback((lease: LeaseWithDetails) => {
+    const contract = normalizeLeaseContractStatus(lease.status);
+    if (contract !== 'ACTIF') return;
+    setSelectedLease(lease);
+    setShowTerminateModal(true);
+  }, []);
+
+  const handleConfirmTerminateLease = useCallback(
+    async ({ effectiveEndDate, reason }: { effectiveEndDate: string; reason?: string }) => {
+      if (!selectedLease || !organizationId) return;
+      const { createLeaseServiceWithMode } = await import('@/domain/services/leaseServiceFactory');
+      const leaseService = createLeaseServiceWithMode(mode === 'app-shell' ? 'app-shell' : 'normal');
+      const existingNotes = selectedLease.notes ? `${selectedLease.notes}\n\n` : '';
+      const reasonLine = reason ? `Motif de résiliation: ${reason}` : 'Motif de résiliation: —';
+      await leaseService.updateLease(selectedLease.id, organizationId, {
+        status: 'RÉSILIÉ',
+        endDate: effectiveEndDate,
+        notes: `${existingNotes}${reasonLine}`.trim(),
+      });
+      notify2.success('Bail résilié', 'La résiliation a été enregistrée.');
+      window.dispatchEvent(
+        new CustomEvent('leases:refresh', { detail: { scope: 'global', reason: 'terminate', leaseId: selectedLease.id } })
+      );
+      setRefreshKey((prev) => prev + 1);
+      setShowTerminateModal(false);
+    },
+    [selectedLease, organizationId, mode]
+  );
 
   // États de chargement et erreur
   if (loading) {
@@ -669,45 +919,65 @@ export function LeasesPageCore({
         <p className="text-sm sm:text-base text-gray-600">Suivi global des baux et de leurs conditions financières</p>
       </div>
 
-      {/* Graphiques - TOUS sur la même ligne (AU DESSUS DES CARTES) */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
-        {/* Graphique 1 : Évolution des loyers (2 colonnes) */}
-        <div className="md:col-span-2">
-          <LeasesRentEvolutionChart
-            monthlyData={chartsData?.rentEvolution?.monthly || []}
-            yearlyData={chartsData?.rentEvolution?.yearly || []}
-            isLoading={chartsLoading}
-          />
-        </div>
-        
-        {/* Graphique 2 : Répartition par type de meublé (1 colonne) */}
-        <div className="md:col-span-1">
-          <LeasesByFurnishedChart
-            data={chartsData?.byFurnished || []}
-            isLoading={chartsLoading}
-          />
-        </div>
-        
-        {/* Graphique 3 : Cautions & Loyers cumulés (1 colonne) */}
-        <div className="md:col-span-1">
-          <LeasesDepositsRentsChart
-            data={chartsData?.depositsRents || {
-              totalDeposits: 0,
-              monthlyTotal: 0,
-              yearlyTotal: 0,
-            }}
-            isLoading={chartsLoading}
-          />
-        </div>
-      </div>
-
-      {/* Cartes KPI (APRÈS LES GRAPHIQUES) - Cartes filtrantes actives */}
-      <LeasesKpiBar
-        kpis={kpis}
-        activeFilter={activeKpiFilter}
-        onFilterChange={handleKpiFilterChange}
-        isLoading={kpisLoading}
+      {/* Bandeau À traiter - PRIORITÉ : avant les graphiques */}
+      <LeasesActionBanner
+        counts={actionCounts}
+        activeFilter={actionFilter}
+        onFilterChange={handleActionFilterChange}
+        isLoading={actionCountsLoading}
       />
+
+      {/* Analytics repliables */}
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setChartsExpanded((e) => !e)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          <span>Synthèse et graphiques</span>
+          {chartsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+        {chartsExpanded && (
+          <>
+            <div className="grid gap-4 grid-cols-1 md:grid-cols-4 p-4 pt-0 border-t border-gray-100">
+              {/* Graphique 1 : Évolution des loyers (2 colonnes) */}
+              <div className="md:col-span-2">
+                <LeasesRentEvolutionChart
+                  monthlyData={chartsData?.rentEvolution?.monthly || []}
+                  yearlyData={chartsData?.rentEvolution?.yearly || []}
+                  isLoading={chartsLoading}
+                />
+              </div>
+              {/* Graphique 2 : Répartition par type de meublé (1 colonne) */}
+              <div className="md:col-span-1">
+                <LeasesByFurnishedChart
+                  data={chartsData?.byFurnished || []}
+                  isLoading={chartsLoading}
+                />
+              </div>
+              {/* Graphique 3 : Cautions & Loyers cumulés (1 colonne) */}
+              <div className="md:col-span-1">
+                <LeasesDepositsRentsChart
+                  data={chartsData?.depositsRents || {
+                    totalDeposits: 0,
+                    monthlyTotal: 0,
+                    yearlyTotal: 0,
+                  }}
+                  isLoading={chartsLoading}
+                />
+              </div>
+            </div>
+            <div className="px-4 pb-4 pt-2 border-t border-gray-100">
+              <LeasesKpiBar
+                kpis={kpis}
+                activeFilter={activeKpiFilter}
+                onFilterChange={handleKpiFilterChange}
+                isLoading={kpisLoading}
+              />
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Filtres avancés */}
       <LeasesFilters
@@ -762,8 +1032,19 @@ export function LeasesPageCore({
             <p className="text-sm text-gray-700">
               <span className="font-semibold">{sortedLeases.length}</span> bail{sortedLeases.length > 1 ? 'x' : ''} affiché{sortedLeases.length > 1 ? 's' : ''}
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-gray-500">Tri rapide:</span>
+              <button
+                onClick={() => handleSort('business')}
+                className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors ${
+                  sortField === 'business'
+                    ? 'bg-orange-50 border-orange-300 text-orange-700'
+                    : 'bg-white border-gray-300 hover:bg-gray-50'
+                }`}
+                title="Tri métier (retards, partiels, expirations, OK)"
+              >
+                Priorité {sortField === 'business' ? (sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3" />}
+              </button>
               <button
                 onClick={() => handleSort('startDate')}
                 className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors ${
@@ -803,6 +1084,7 @@ export function LeasesPageCore({
           {/* Tableau des baux */}
           <LeasesTableNew
             leases={sortedLeases}
+            organizationId={organizationId}
             loading={loading}
             onView={handleViewLease}
             onEdit={handleEditLease}
@@ -812,6 +1094,8 @@ export function LeasesPageCore({
             onSelectAll={handleSelectAll}
             selectedIds={selectedIds}
             showSelection={true}
+            leaseHealthMap={leaseHealthMap}
+            onQuickPay={handleViewLease}
           />
         </CardContent>
       </Card>
@@ -845,28 +1129,55 @@ export function LeasesPageCore({
 
       {/* Drawer de détail */}
       {isDrawerOpen && selectedLease && (
-        <LeaseDrawerNew
+        <LeaseDetailView
           lease={selectedLease}
           isOpen={isDrawerOpen}
           onClose={handleCloseDrawer}
-          onEdit={() => {
+          onEdit={(lease) => {
             setIsDrawerOpen(false);
-            handleEditLease(selectedLease);
+            handleEditLease(lease);
           }}
-          onDelete={() => handleDeleteLease(selectedLease)}
+          onDelete={(lease) => handleDeleteLease(lease)}
+          onTerminateLease={handleOpenTerminateLease}
+          onRenewLease={handleOpenRenewLease}
           onGenerateReceipt={(lease) => {
             setSelectedLease(lease);
             setShowActionsModal(true);
           }}
-          onDownloadSignedLease={(lease) => {
-            if (lease.signedPdfUrl) {
-              window.open(lease.signedPdfUrl, '_blank');
-            } else {
-              notify2.error('Aucun bail signé disponible');
-            }
-          }}
+          onIndexLease={handleIndexLease}
+          onEnregistrerPaiement={handleEnregistrerPaiement}
         />
       )}
+
+      {showRenewModal && renewBaseLease && (
+        <LeaseFormComplete
+          isOpen={showRenewModal}
+          onClose={() => {
+            setShowRenewModal(false);
+            setRenewBaseLease(null);
+          }}
+          onSubmit={handleRenewalSubmit}
+          title="Renouveler le bail"
+          initialData={buildRenewalInitialData(renewBaseLease)}
+          properties={properties}
+          tenants={tenants}
+          mode={mode}
+        />
+      )}
+
+      {/* Modale d'enregistrement de paiement */}
+      <TransactionModal
+        isOpen={showPaymentModal}
+        onClose={() => {
+          setShowPaymentModal(false);
+          setPaymentPrefill(null);
+        }}
+        onSubmit={handlePaymentModalSubmit}
+        context={{ type: 'global' }}
+        mode="create"
+        title="Enregistrer un paiement"
+        prefill={paymentPrefill ?? undefined}
+      />
 
       {/* Modale de génération de quittance */}
       {showActionsModal && selectedLease && (
@@ -899,6 +1210,22 @@ export function LeasesPageCore({
           initialAction="generate-receipt"
         />
       )}
+
+      <LeaseIndexationModal
+        isOpen={showIndexationModal}
+        lease={selectedLease}
+        onClose={() => setShowIndexationModal(false)}
+        onApplied={() => {
+          setRefreshKey((prev) => prev + 1);
+        }}
+      />
+
+      <LeaseTerminationModal
+        isOpen={showTerminateModal}
+        lease={selectedLease}
+        onClose={() => setShowTerminateModal(false)}
+        onConfirm={handleConfirmTerminateLease}
+      />
 
       {/* Modale de confirmation de suppression */}
       <DeleteConfirmModal

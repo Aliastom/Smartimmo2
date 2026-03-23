@@ -176,8 +176,8 @@ export class LeaseService {
       status = 'ACTIF';
     }
 
-    // Calculer endDate automatiquement si nécessaire
-    if (!endDate && (status === 'SIGNÉ' || status === 'ACTIF')) {
+    // Calculer endDate automatiquement si nécessaire (cohérence UI/édition)
+    if (!endDate) {
       endDate = this.calculateEndDate(startDate, furnishedType);
     }
 

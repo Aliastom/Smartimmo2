@@ -33,6 +33,8 @@ interface Lease {
   signedPdfUrl?: string | null;
   property?: any;
   tenant?: any;
+  Property?: { id: string; name: string; address?: string; city?: string; postalCode?: string };
+  Tenant?: { id: string; firstName: string; lastName: string; email?: string; phone?: string };
 }
 
 interface LeaseActionsManagerProps {

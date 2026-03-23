@@ -65,17 +65,28 @@ export const defaultEcheanceLinkConfig: EcheanceLinkConfig = {
   ecartDisplayThresholdEur: COVERAGE_ECART_DISPLAY_THRESHOLD_EUR,
 };
 
-/** Types d'échéance pour seuil strict (taxe, assurance). */
+/** Types legacy pour seuil strict (taxe, assurance). */
 const COVERAGE_STRICT_TYPES = new Set(['IMPOT', 'CFE', 'PNO', 'ASSURANCE']);
 
-/** Types d'échéance pour seuil souple (loyer). */
+/** Natures pour seuil strict. */
+const COVERAGE_STRICT_NATURES = new Set(['DEPENSE_TAXE', 'DEPENSE_ASSURANCE']);
+
+/** Types legacy pour seuil souple (loyer). */
 const COVERAGE_LOOSE_TYPES = new Set(['LOYER_ATTENDU']);
 
+/** Natures pour seuil souple. */
+const COVERAGE_LOOSE_NATURES = new Set(['RECETTE_LOYER']);
+
 /**
- * Retourne le ratio au-delà duquel on considère "montant_superieur" selon le type d'échéance.
+ * Retourne le ratio au-delà duquel on considère "montant_superieur".
+ * Accepte type legacy (IMPOT, LOYER_ATTENDU...) ou natureCode (DEPENSE_TAXE, RECETTE_LOYER...).
  */
-export function getCoverageThresholdByType(echeanceType: string): number {
-  if (COVERAGE_STRICT_TYPES.has(echeanceType)) return COVERAGE_OVER_LINKED_RATIO_STRICT;
-  if (COVERAGE_LOOSE_TYPES.has(echeanceType)) return COVERAGE_OVER_LINKED_RATIO_LOOSE;
+export function getCoverageThresholdByType(echeanceTypeOrNature: string): number {
+  if (COVERAGE_STRICT_TYPES.has(echeanceTypeOrNature) || COVERAGE_STRICT_NATURES.has(echeanceTypeOrNature)) {
+    return COVERAGE_OVER_LINKED_RATIO_STRICT;
+  }
+  if (COVERAGE_LOOSE_TYPES.has(echeanceTypeOrNature) || COVERAGE_LOOSE_NATURES.has(echeanceTypeOrNature)) {
+    return COVERAGE_OVER_LINKED_RATIO_LOOSE;
+  }
   return COVERAGE_OVER_LINKED_RATIO;
 }

@@ -5,7 +5,9 @@ import { Calendar, ChevronRight, Pencil, Power } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import type { EcheanceRecurrente } from '@/types/echeance';
-import { ECHEANCE_TYPE_LABELS } from '@/types/echeance';
+import { getNatureBadgeClass } from '@/types/echeance';
+import { resolveNatureCodeForEcheance } from '@/lib/echeances/echeanceTypeMigration';
+import { getNatureLabelForEcheance } from '@/lib/echeances/echeanceDisplayHelpers';
 import type { NextOccurrenceInfo } from '@/lib/echeances/echeanceCashflowHelpers';
 import { temporalBadgeMeta, generationBadgeMeta, getStatutGeneration } from '@/lib/echeances/echeanceCashflowHelpers';
 import type { CoverageResult } from '@/lib/echeances/echeanceCoverage';
@@ -16,8 +18,14 @@ interface PropertyEcheancesHeroProps {
   echeance: EcheanceRecurrente;
   info: NextOccurrenceInfo;
   linkedCount?: number;
+  /** S’il reste une occurrence à couvrir (sinon on masque « Créer la transaction » même avec d’anciens liens). */
+  hasUncoveredOccurrence?: boolean;
   /** Résultat de couverture (phase 3+) pour statut génération précis */
   coverage?: CoverageResult | null;
+  /** Libellé de la nature (référentiel) — si non fourni, calculé via getNatureLabelForEcheance */
+  natureLabel?: string;
+  /** Libellé de la catégorie — si fourni, affiché dans le hero */
+  categoryLabel?: string;
   onViewDetail: () => void;
   onEdit: () => void;
   onToggleActive: () => void;
@@ -30,7 +38,10 @@ export function PropertyEcheancesHero({
   echeance,
   info,
   linkedCount = 0,
+  hasUncoveredOccurrence,
   coverage,
+  natureLabel,
+  categoryLabel,
   onViewDetail,
   onEdit,
   onToggleActive,
@@ -51,7 +62,10 @@ export function PropertyEcheancesHero({
     overRatio,
     overRatioCritical: COVERAGE_OVER_LINKED_RATIO_CRITICAL,
   });
-  const showCreateTx = linkedCount === 0 && echeance.isActive && onCreateTransaction;
+  const showCreateTx =
+    echeance.isActive &&
+    onCreateTransaction &&
+    (hasUncoveredOccurrence === undefined ? linkedCount === 0 : hasUncoveredOccurrence);
 
   return (
     <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-white to-gray-50/80 shadow-sm overflow-hidden">
@@ -73,9 +87,17 @@ export function PropertyEcheancesHero({
           </p>
         </div>
         <div>
-          <p className="text-gray-500 text-xs mb-0.5">Type</p>
-          <Badge className="text-xs font-normal">{ECHEANCE_TYPE_LABELS[echeance.type]}</Badge>
+          <p className="text-gray-500 text-xs mb-0.5">Nature</p>
+          <Badge className={cn(getNatureBadgeClass(resolveNatureCodeForEcheance(echeance)), 'text-xs font-normal')}>
+            {natureLabel ?? getNatureLabelForEcheance(echeance)}
+          </Badge>
         </div>
+        {categoryLabel && (
+          <div>
+            <p className="text-gray-500 text-xs mb-0.5">Catégorie</p>
+            <p className="text-sm font-medium text-gray-900">{categoryLabel}</p>
+          </div>
+        )}
         <div>
           <p className="text-gray-500 text-xs mb-0.5">Date</p>
           <p className="font-medium text-gray-900 flex items-center gap-1">

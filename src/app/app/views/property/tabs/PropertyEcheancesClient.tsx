@@ -16,14 +16,21 @@ import { ConfirmDeleteEcheanceModal } from '@/components/echeances/ConfirmDelete
 import { ConfirmDeleteMultipleEcheancesModal } from '@/components/echeances/ConfirmDeleteMultipleEcheancesModal';
 import { useEcheancesData } from '@/features/echeances/hooks/useEcheancesData';
 import {
-  getNextOccurrenceInfo,
-  pickPrimaryEcheance,
   sumProjected12Months,
-  countEcheancesEchues,
   temporalBadgeMeta,
   generationBadgeMeta,
   getStatutGeneration,
 } from '@/lib/echeances/echeanceCashflowHelpers';
+import { resolveNatureCodeForEcheance } from '@/lib/echeances/echeanceTypeMigration';
+import {
+  buildCoveredOccurrenceDates,
+  pickPrimaryEcheanceForPilotage,
+  countEcheancesWithUncoveredOccurrence,
+  getNextUncoveredOccurrenceInfo,
+  getNextUncoveredOccurrenceDate,
+  listTheoreticalOccurrenceDates,
+  filterLinksForOccurrence,
+} from '@/lib/echeances/echeanceOccurrences';
 import {
   computeCoverage,
   transactionToCoverageInput,
@@ -51,10 +58,12 @@ import { navigateToView } from '@/utils/appShellNavigation';
 import { createEcheanceServiceWithMode } from '@/domain/services/echeanceServiceFactory';
 import {
   EcheanceRecurrente,
-  ECHEANCE_TYPE_LABELS,
   PERIODICITE_LABELS,
-  TYPE_COLORS,
+  getNatureBadgeClass,
+  getCategoryLabelForEcheance,
 } from '@/types/echeance';
+import { getNatureLabelForEcheance } from '@/lib/echeances/echeanceDisplayHelpers';
+import { useEcheanceReferential } from '@/features/echeances/hooks/useEcheanceReferential';
 import { EcheanceFormSchema } from '@/lib/validations/echeance';
 import Link from 'next/link';
 import { TransactionModal } from '@/components/transactions/TransactionModalV2';
@@ -66,7 +75,7 @@ import {
   addEcheanceTransactionLink,
   type EcheanceTransactionLinkRow,
 } from '@/lib/echeances/echeanceTransactionLinkClient';
-import { buildTransactionPrefillFromEcheance } from '@/lib/echeances/echeanceTransactionPrefill';
+import { buildTransactionFromEcheance } from '@/lib/echeances/echeanceTransactionPrefill';
 import type { TransactionFormData } from '@/lib/validations/transaction';
 
 interface PropertyEcheancesClientProps {
@@ -77,6 +86,7 @@ interface PropertyEcheancesClientProps {
 interface Filters {
   search: string;
   type: string;
+  natureCode?: string;
   sens: string;
   periodicite: string;
   leaseId: string;
@@ -86,6 +96,7 @@ interface Filters {
 
 export default function PropertyEcheancesClient({ propertyId, propertyName }: PropertyEcheancesClientProps) {
   const { organizationId } = useCurrentOrganization();
+  const { natures, categories, getDefaultCategoryId } = useEcheanceReferential('app-shell');
   
   // ✅ CORRECTION: Mémoriser les propriétés pour la modale pour éviter les re-renders inutiles
   // et s'assurer que le nom est toujours à jour (même si propertyName change après le mount)
@@ -111,9 +122,15 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
 
   const [echeanceLinksById, setEcheanceLinksById] = useState<Map<string, EcheanceTransactionLinkRow[]>>(new Map());
   const [coverageByEcheanceId, setCoverageByEcheanceId] = useState<Map<string, CoverageResult>>(new Map());
+  const [coveredOccurrenceByEcheanceId, setCoveredOccurrenceByEcheanceId] = useState<Map<string, Set<string>>>(
+    new Map()
+  );
   const [txModalOpen, setTxModalOpen] = useState(false);
   const [echeanceForTx, setEcheanceForTx] = useState<EcheanceRecurrente | null>(null);
-  const [txModalPrefill, setTxModalPrefill] = useState<Awaited<ReturnType<typeof buildTransactionPrefillFromEcheance>> | null>(null);
+  const [txModalPrefill, setTxModalPrefill] = useState<Awaited<ReturnType<typeof buildTransactionFromEcheance>> | null>(
+    null
+  );
+  const pendingOccurrenceYmdRef = useRef<string | null>(null);
 
   // États pour la période (format YYYY) - Par défaut : 5 années à venir
   const now = new Date();
@@ -126,13 +143,14 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
   const [quickScope, setQuickScope] = useState<
     '' | 'active' | 'inactive' | 'upcoming' | 'overdue' | 'charges' | 'revenus' | 'recuperables'
   >('');
-  const [sortKey, setSortKey] = useState<'date' | 'montant' | 'type' | 'actif'>('date');
+  const [sortKey, setSortKey] = useState<'date' | 'montant' | 'natureCode' | 'actif'>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   // États des filtres (sans propertyId car fixe)
   const [filters, setFilters] = useState<Filters>({
     search: '',
     type: '',
+    natureCode: '',
     sens: '',
     periodicite: '',
     leaseId: '',
@@ -197,8 +215,13 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
         if (!echeance.label.toLowerCase().includes(searchLower)) return false;
       }
 
-      // Filtre de type
-      if (filters.type && echeance.type !== filters.type) return false;
+      // Filtre par nature (référentiel métier)
+      if (filters.natureCode) {
+        const effectiveNature = resolveNatureCodeForEcheance(echeance);
+        if (effectiveNature !== filters.natureCode) return false;
+      }
+      // Filtre de type (legacy)
+      if (filters.type && !filters.natureCode && echeance.type !== filters.type) return false;
 
       // Filtre de sens
       if (filters.sens && echeance.sens !== filters.sens) return false;
@@ -225,12 +248,14 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
   }, [allEcheances, filters]);
 
   const metaById = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof getNextOccurrenceInfo>>();
+    const m = new Map<string, ReturnType<typeof getNextUncoveredOccurrenceInfo>>();
+    const ref = new Date();
     for (const e of allEcheances || []) {
-      m.set(e.id, getNextOccurrenceInfo(e));
+      const covered = coveredOccurrenceByEcheanceId.get(e.id) ?? new Set<string>();
+      m.set(e.id, getNextUncoveredOccurrenceInfo(e, covered, ref));
     }
     return m;
-  }, [allEcheances]);
+  }, [allEcheances, coveredOccurrenceByEcheanceId]);
 
   const filteredWithQuick = useMemo(() => {
     let list = filteredEcheances;
@@ -267,8 +292,11 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
       let c = 0;
       if (sortKey === 'date') c = dateKey(a).localeCompare(dateKey(b));
       else if (sortKey === 'montant') c = a.montant - b.montant;
-      else if (sortKey === 'type') c = a.type.localeCompare(b.type);
-      else c = (a.isActive === b.isActive ? 0 : a.isActive ? -1 : 1);
+      else if (sortKey === 'natureCode') {
+        const na = resolveNatureCodeForEcheance(a);
+        const nb = resolveNatureCodeForEcheance(b);
+        c = na.localeCompare(nb);
+      } else c = (a.isActive === b.isActive ? 0 : a.isActive ? -1 : 1);
       return c * dir;
     });
     return arr;
@@ -329,12 +357,26 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
   }, [organizationId, propertyId]); // ✅ Chargé une seule fois, pas rechargé à chaque filtre
 
   const projected = useMemo(() => sumProjected12Months(allEcheances || []), [allEcheances]);
-  const echuesCount = useMemo(() => countEcheancesEchues(allEcheances || []), [allEcheances]);
-  const primaryPick = useMemo(() => pickPrimaryEcheance(allEcheances || []), [allEcheances]);
+  const echuesCount = useMemo(() => {
+    let n = 0;
+    const ref = new Date();
+    for (const e of allEcheances || []) {
+      if (!e.isActive) continue;
+      const covered = coveredOccurrenceByEcheanceId.get(e.id) ?? new Set<string>();
+      const info = getNextUncoveredOccurrenceInfo(e, covered, ref);
+      if (info?.temporalStatus === 'echue') n++;
+    }
+    return n;
+  }, [allEcheances, coveredOccurrenceByEcheanceId]);
+  const primaryPick = useMemo(
+    () => pickPrimaryEcheanceForPilotage(allEcheances || [], coveredOccurrenceByEcheanceId, new Date()),
+    [allEcheances, coveredOccurrenceByEcheanceId]
+  );
   const reloadEcheanceLinks = useCallback(async () => {
     if (!organizationId || !propertyId || !(allEcheances?.length ?? 0)) {
       setEcheanceLinksById(new Map());
       setCoverageByEcheanceId(new Map());
+      setCoveredOccurrenceByEcheanceId(new Map());
       return;
     }
     await fetchAndMergeLinksForProperty(organizationId, propertyId);
@@ -343,15 +385,64 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
     const m = await getLinksByEcheanceIds(ids);
     setEcheanceLinksById(m);
 
+    const txRepo = getTransactionRepositoryOffline();
+    const refNow = new Date();
+    const coveredMap = new Map<string, Set<string>>();
     const coverageMap = new Map<string, CoverageResult>();
+
     for (const e of allEcheances || []) {
-      const links = m.get(e.id);
-      if (!links?.length) continue;
-      const txs = await getLinkedTransactions(e.id, organizationId);
-      const inputs = txs.map((t) => transactionToCoverageInput(t.amount, t.nature));
+      const links = m.get(e.id) ?? [];
+      const theoretical = listTheoreticalOccurrenceDates(e, refNow);
+      if (theoretical.length === 0) {
+        coveredMap.set(e.id, new Set());
+        const exp = Math.abs(Number(e.montant));
+        coverageMap.set(e.id, {
+          totalLinked: 0,
+          linkedCount: 0,
+          expectedAmount: exp,
+          ecartAbsolu: -exp,
+          ecartRelatif: exp > 0 ? -1 : 0,
+          statut: 'a_generer',
+        });
+        continue;
+      }
+      const txDateById = new Map<string, string>();
+      for (const l of links) {
+        const t = await txRepo.getById(l.transactionId, organizationId);
+        if (t?.date) {
+          const d = typeof t.date === 'string' ? t.date : (t.date as Date).toISOString().slice(0, 10);
+          txDateById.set(l.transactionId, d);
+        }
+      }
+      const covered = buildCoveredOccurrenceDates(
+        theoretical,
+        links,
+        txDateById,
+        SUGGESTION_DATE_TOLERANCE_DAYS
+      );
+      coveredMap.set(e.id, covered);
+
+      const nextUnc = getNextUncoveredOccurrenceDate(e, covered, refNow);
+      if (!nextUnc) {
+        const txs = await getLinkedTransactions(e.id, organizationId);
+        const inputs = txs.map((t) => transactionToCoverageInput(t.amount, t.nature));
+        const cov = computeCoverage(e.montant, e.sens as 'CREDIT' | 'DEBIT', inputs, undefined, e.type);
+        coverageMap.set(e.id, { ...cov, statut: 'generee' });
+        continue;
+      }
+
+      const linksForOcc = filterLinksForOccurrence(nextUnc, links, txDateById, SUGGESTION_DATE_TOLERANCE_DAYS);
+      const txsForOcc: Awaited<ReturnType<typeof getLinkedTransactions>> = [];
+      for (const l of linksForOcc) {
+        const t = await txRepo.getById(l.transactionId, organizationId);
+        if (t) txsForOcc.push(t);
+      }
+      const inputs = txsForOcc.map((t) => transactionToCoverageInput(t.amount, t.nature));
       const cov = computeCoverage(e.montant, e.sens as 'CREDIT' | 'DEBIT', inputs, undefined, e.type);
       coverageMap.set(e.id, cov);
     }
+
+    setCoveredOccurrenceByEcheanceId(coveredMap);
     setCoverageByEcheanceId(coverageMap);
   }, [organizationId, propertyId, allEcheances]);
 
@@ -371,11 +462,10 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
     };
   }, [reloadEcheanceLinks]);
 
-  const countAGenerer = useMemo(() => {
-    return (allEcheances || []).filter(
-      (e) => e.isActive && (echeanceLinksById.get(e.id)?.length ?? 0) === 0
-    ).length;
-  }, [allEcheances, echeanceLinksById]);
+  const countAGenerer = useMemo(
+    () => countEcheancesWithUncoveredOccurrence(allEcheances || [], coveredOccurrenceByEcheanceId, new Date()),
+    [allEcheances, coveredOccurrenceByEcheanceId]
+  );
 
   const qualityScore = useMemo(() => {
     const active = (allEcheances || []).filter((e) => e.isActive);
@@ -386,8 +476,10 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
   }, [allEcheances, coverageByEcheanceId, echeanceLinksById]);
 
   const echeancesWithCoverage = useMemo(() => {
+    const ref = new Date();
     return (allEcheances || []).map((e) => {
-      const info = getNextOccurrenceInfo(e);
+      const covered = coveredOccurrenceByEcheanceId.get(e.id) ?? new Set<string>();
+      const info = getNextUncoveredOccurrenceInfo(e, covered, ref);
       const linkedCount = echeanceLinksById.get(e.id)?.length ?? 0;
       const coverage = coverageByEcheanceId.get(e.id);
       return {
@@ -402,7 +494,7 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
         linkedCount,
       };
     });
-  }, [allEcheances, coverageByEcheanceId, echeanceLinksById]);
+  }, [allEcheances, coverageByEcheanceId, echeanceLinksById, coveredOccurrenceByEcheanceId]);
 
   const alerts = useMemo(() => computeAlerts(echeancesWithCoverage), [echeancesWithCoverage]);
   const proactiveSuggestions = useMemo(() => computeSuggestions(echeancesWithCoverage), [echeancesWithCoverage]);
@@ -415,8 +507,11 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
 
   const openCreateTxFromEcheance = useCallback(
     async (e: EcheanceRecurrente) => {
-      const info = getNextOccurrenceInfo(e);
-      const ymd = info?.displayDate || info?.nextDate || new Date().toISOString().slice(0, 10);
+      const covered = coveredOccurrenceByEcheanceId.get(e.id) ?? new Set<string>();
+      const ymd =
+        getNextUncoveredOccurrenceDate(e, covered, new Date()) ||
+        new Date().toISOString().slice(0, 10);
+      pendingOccurrenceYmdRef.current = ymd;
       if (organizationId && e.propertyId && ymd) {
         try {
           const txRepo = getTransactionRepositoryOffline();
@@ -442,12 +537,12 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
           /* ignore */
         }
       }
-      const prefill = await buildTransactionPrefillFromEcheance(e, ymd);
+      const prefill = await buildTransactionFromEcheance(e, ymd);
       setEcheanceForTx(e);
       setTxModalPrefill(prefill);
       setTxModalOpen(true);
     },
-    [organizationId]
+    [organizationId, coveredOccurrenceByEcheanceId]
   );
 
   const handleTxModalSubmit = useCallback(
@@ -479,8 +574,10 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
         skipAutoCommissions: true,
         method: (data.method as string) || (data.paymentMethod as string) || 'virement',
       });
-      const nextInfo = getNextOccurrenceInfo(echeanceForTx);
-      const occ = nextInfo?.displayDate || nextInfo?.nextDate || null;
+      const occ =
+        pendingOccurrenceYmdRef.current ||
+        (typeof data.date === 'string' ? data.date.slice(0, 10) : null);
+      pendingOccurrenceYmdRef.current = null;
       await addEcheanceTransactionLink({
         organizationId,
         echeanceId: echeanceForTx.id,
@@ -518,6 +615,7 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
     setFilters({
       search: '',
       type: '',
+      natureCode: '',
       sens: '',
       periodicite: '',
       leaseId: '',
@@ -528,7 +626,7 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
     setPagination((prev) => ({ ...prev, page: 1 }));
   }, []);
 
-  const toggleSort = (key: typeof sortKey) => {
+  const toggleSort = (key: 'date' | 'montant' | 'natureCode' | 'actif') => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else {
       setSortKey(key);
@@ -585,36 +683,27 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
     try {
       const echeanceService = createEcheanceServiceWithMode('app-shell');
       
-      if (modalMode === 'edit' && selectedEcheance?.id) {
-        // Mise à jour
-        await echeanceService.updateEcheance(selectedEcheance.id, organizationId, {
-          label: data.label,
-          type: data.type,
-          periodicite: data.periodicite,
-          montant: data.montant,
-          sens: data.sens,
-          recuperable: data.recuperable,
-          propertyId: data.propertyId || propertyId,
-          leaseId: data.leaseId || null,
-          startAt: new Date(data.startAt),
-          endAt: data.endAt ? new Date(data.endAt) : null,
-          isActive: data.isActive,
-        });
-      } else {
-        // Création ou duplication
-        await echeanceService.createEcheance({
-          organizationId,
+      const common = {
         label: data.label,
-        type: data.type,
+        natureCode: data.natureCode,
+        defaultCategoryId: data.categoryId || null,
         periodicite: data.periodicite,
         montant: data.montant,
         sens: data.sens,
         recuperable: data.recuperable,
-          propertyId: data.propertyId || propertyId,
+        propertyId: data.propertyId || propertyId,
         leaseId: data.leaseId || null,
-          startAt: new Date(data.startAt),
-          endAt: data.endAt ? new Date(data.endAt) : null,
+        startAt: new Date(data.startAt),
+        endAt: data.endAt ? new Date(data.endAt) : null,
         isActive: data.isActive,
+      };
+
+      if (modalMode === 'edit' && selectedEcheance?.id) {
+        await echeanceService.updateEcheance(selectedEcheance.id, organizationId, common);
+      } else {
+        await echeanceService.createEcheance({
+          organizationId,
+          ...common,
         });
       }
       
@@ -922,8 +1011,17 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
             <PropertyEcheancesHero
               echeance={primaryPick.echeance}
               info={primaryPick.info}
-              linkedCount={echeanceLinksById.get(primaryPick.echeance.id)?.length ?? 0}
+              linkedCount={coverageByEcheanceId.get(primaryPick.echeance.id)?.linkedCount ?? 0}
               coverage={coverageByEcheanceId.get(primaryPick.echeance.id)}
+              natureLabel={getNatureLabelForEcheance(primaryPick.echeance, natures)}
+              categoryLabel={getCategoryLabelForEcheance(primaryPick.echeance, categories, resolveNatureCodeForEcheance, getDefaultCategoryId)}
+              hasUncoveredOccurrence={
+                getNextUncoveredOccurrenceDate(
+                  primaryPick.echeance,
+                  coveredOccurrenceByEcheanceId.get(primaryPick.echeance.id) ?? new Set(),
+                  new Date()
+                ) != null
+              }
               onViewDetail={() => {
                 setSelectedEcheance(primaryPick.echeance);
                 setIsDrawerOpen(true);
@@ -934,6 +1032,11 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
               formatCurrency={formatCurrency}
               formatDateShort={formatYmdFr}
             />
+          </div>
+        ) : (allEcheances || []).some((e) => e.isActive) ? (
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 px-5 py-6 text-center">
+            <p className="text-emerald-900 text-sm font-medium">Aucune occurrence à couvrir (période analysée).</p>
+            <p className="text-emerald-800/80 text-xs mt-1">Les échéances actives sont à jour ou hors fenêtre.</p>
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/50 px-5 py-8 text-center">
@@ -989,7 +1092,7 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
             >
               {countAGenerer}
             </p>
-            <p className="text-[10px] text-gray-500 mt-1 leading-tight">Actives sans transaction liée</p>
+            <p className="text-[10px] text-gray-500 mt-1 leading-tight">Avec au moins une occurrence non couverte</p>
           </div>
           <div
             className={cn(
@@ -1191,8 +1294,8 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                           <h4 className="text-sm font-semibold text-gray-900 truncate">{echeance.label}</h4>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <Badge className={TYPE_COLORS[echeance.type]}>
-                            {ECHEANCE_TYPE_LABELS[echeance.type]}
+                          <Badge className={getNatureBadgeClass(resolveNatureCodeForEcheance(echeance))}>
+                            {getNatureLabelForEcheance(echeance, natures)}
                           </Badge>
                           <span
                             className={
@@ -1302,12 +1405,13 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Libellé</th>
                   <th
                     className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none"
-                    onClick={() => toggleSort('type')}
+                    onClick={() => toggleSort('natureCode')}
                   >
                     <span className="inline-flex items-center gap-1">
-                      Type <ArrowUpDown className="h-3 w-3 opacity-40" />
+                      Nature <ArrowUpDown className="h-3 w-3 opacity-40" />
                     </span>
                   </th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Catégorie</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Périodicité</th>
                   <th
                     className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase cursor-pointer select-none"
@@ -1343,14 +1447,14 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                 {isLoading ? (
                   [...Array(5)].map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={13} className="px-4 py-3">
+                      <td colSpan={14} className="px-4 py-3">
                         <div className="h-12 bg-gray-100 rounded animate-pulse"></div>
                       </td>
                     </tr>
                   ))
                 ) : sortedForTable.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={14} className="px-4 py-12 text-center text-gray-500">
                       Aucune échéance pour ce bien
                     </td>
                   </tr>
@@ -1383,9 +1487,12 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
                       </td>
                       <td className="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate">{echeance.label}</td>
                       <td className="px-3 py-3 text-sm align-middle">
-                        <Badge className={cn(TYPE_COLORS[echeance.type], 'text-xs font-normal')}>
-                          {ECHEANCE_TYPE_LABELS[echeance.type]}
+                        <Badge className={cn(getNatureBadgeClass(resolveNatureCodeForEcheance(echeance)), 'text-xs font-normal')}>
+                          {getNatureLabelForEcheance(echeance, natures)}
                         </Badge>
+                      </td>
+                      <td className="px-3 py-3 text-sm text-gray-700">
+                        {getCategoryLabelForEcheance(echeance, categories, resolveNatureCodeForEcheance, getDefaultCategoryId)}
                       </td>
                       <td className="px-3 py-3 text-sm text-gray-600">
                         {PERIODICITE_LABELS[echeance.periodicite]}
@@ -1557,10 +1664,11 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleFormSubmit}
         echeance={selectedEcheance}
-        properties={propertiesForModal} // Un seul bien (mémorisé pour éviter les re-renders)
+        properties={propertiesForModal}
         leases={leases}
         mode={modalMode}
         defaultPropertyId={propertyId}
+        dataMode="app-shell"
       />
 
       {/* Drawer lecture seule */}
@@ -1573,12 +1681,16 @@ export default function PropertyEcheancesClient({ propertyId, propertyName }: Pr
         onDelete={handleDelete}
         propertyId={propertyId}
         onCreateTransaction={openCreateTxFromEcheance}
+        coveredOccurrenceDates={
+          selectedEcheance ? coveredOccurrenceByEcheanceId.get(selectedEcheance.id) : undefined
+        }
       />
 
       <TransactionModal
         key={echeanceForTx?.id || 'tx-echeance'}
         isOpen={txModalOpen}
         onClose={() => {
+          pendingOccurrenceYmdRef.current = null;
           setTxModalOpen(false);
           setEcheanceForTx(null);
           setTxModalPrefill(null);

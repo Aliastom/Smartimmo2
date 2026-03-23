@@ -290,7 +290,13 @@ export function useLeasesData(options: UseLeasesDataOptions) {
         }
         
         if (event instanceof CustomEvent && event.detail) {
-          const detail = event.detail as { scope?: string; propertyId?: string; reason?: string };
+          const detail = event.detail as { scope?: string; propertyId?: string; reason?: string; leaseId?: string };
+          
+          // ✅ OPTIM: Ne pas refetch les leases quand seul un paiement a changé (reason='tx')
+          // Les données lease n'ont pas changé, éviter un re-render inutile de toute la liste
+          if (detail.reason === 'tx') {
+            return;
+          }
           
           // ✅ Filtrer par scope : si propertyId est défini, on est en scope 'property', sinon scope 'global'
           if (currentPropertyId) {

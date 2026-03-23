@@ -14,12 +14,17 @@ import { useLeasesKpis } from '@/hooks/useLeasesKpis';
 import { useLeasesCharts } from '@/hooks/useLeasesCharts';
 import LeasesFilters from '@/components/leases/LeasesFilters';
 import { LeasesTableNew } from '@/components/leases/LeasesTableNew';
-import LeaseDrawerNew from '@/components/leases/LeaseDrawerNew';
+import LeaseDetailView from '@/features/leases/components/LeaseDetailView';
 import LeaseFormComplete from '@/components/forms/LeaseFormComplete';
 import LeaseEditModal from '@/components/forms/LeaseEditModal';
 import LeaseActionsManager from '@/components/forms/LeaseActionsManager';
 import CannotDeleteLeaseModal from '@/components/leases/CannotDeleteLeaseModal';
 import DeleteConfirmModal from '@/components/leases/DeleteConfirmModal';
+import { TransactionModal } from '@/components/transactions/TransactionModalV2';
+import { createTransactionServiceWithMode } from '@/domain/services/transactionServiceFactory';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import type { LeasePaymentsTimelineMonth } from '@/features/leases/hooks/useLeasePaymentsTimeline';
+import type { TransactionFormData } from '@/lib/validations/transaction';
 import type { LeaseWithDetails } from '@/lib/services/leasesService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
@@ -75,6 +80,21 @@ export default function LeasesClient() {
     tenantName: string;
     reason: string;
   }>>([]);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentPrefill, setPaymentPrefill] = useState<{
+    propertyId: string;
+    leaseId: string;
+    nature: string;
+    amount: number;
+    date: string;
+    periodMonth: string;
+    periodYear: number;
+    label: string;
+    montantLoyer?: number;
+    chargesRecup?: number;
+    paymentDate?: string;
+  } | null>(null);
+  const { organizationId } = useCurrentOrganization();
   
   // État pour le filtre KPI actif
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
@@ -562,6 +582,55 @@ export default function LeasesClient() {
     setSelectedLease(null);
   };
 
+  const handleEnregistrerPaiement = useCallback((lease: LeaseWithDetails, month: LeasePaymentsTimelineMonth) => {
+    const [y, m] = month.yearMonth.split('-');
+    const dueDate = month.dueDate || `${y}-${m}-15`;
+    setPaymentPrefill({
+      propertyId: lease.propertyId,
+      leaseId: lease.id,
+      nature: 'RECETTE_LOYER',
+      amount: month.expected,
+      date: `${y}-${m}-01`,
+      periodMonth: m,
+      periodYear: parseInt(y, 10),
+      label: `Loyer ${month.label}`,
+      montantLoyer: lease.rentAmount,
+      chargesRecup: lease.chargesRecupMensuelles ?? 0,
+      paymentDate: dueDate,
+    });
+    setShowPaymentModal(true);
+  }, []);
+
+  const handlePaymentModalSubmit = useCallback(async (data: TransactionFormData) => {
+    if (!organizationId) throw new Error('Organisation requise');
+    const svc = createTransactionServiceWithMode('app-shell');
+    const d = new Date(data.date);
+    const accountingMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    await svc.createTransaction({
+      organizationId,
+      propertyId: data.propertyId,
+      leaseId: data.leaseId || null,
+      categoryId: data.categoryId,
+      nature: data.nature,
+      label: data.label || 'Loyer',
+      amount: Number(data.amount),
+      date: data.date,
+      paidAt: (data as any).paidAt || (data as any).paymentDate || data.date,
+      method: (data as any).method || (data as any).paymentMethod || null,
+      accountingMonth,
+      periodMonth: data.periodMonth ? parseInt(data.periodMonth, 10) : d.getMonth() + 1,
+      periodYear: data.periodYear ?? d.getFullYear(),
+      monthsCovered: 1,
+      skipAutoCommissions: true,
+    });
+    setShowPaymentModal(false);
+    setPaymentPrefill(null);
+    notify2.success('Paiement enregistré');
+    setRefreshKey(prev => prev + 1);
+    window.dispatchEvent(new CustomEvent('leases:refresh', { detail: { scope: 'global', reason: 'tx' } }));
+    window.dispatchEvent(new CustomEvent('transactions:refresh', { detail: { scope: 'global' } }));
+  }, [organizationId]);
+
   // Gestion de la suppression multiple
   const handleDeleteMultiple = useCallback(() => {
     const toDelete = leases.filter(l => selectedIds.has(l.id));
@@ -714,6 +783,7 @@ export default function LeasesClient() {
           {/* Tableau des baux */}
           <LeasesTableNew
             leases={sortedLeases}
+            organizationId={organizationId}
             loading={isLoading}
             onView={handleViewLease}
             onEdit={handleEditLease}
@@ -752,26 +822,20 @@ export default function LeasesClient() {
 
       {/* Drawer de détail */}
       {isDrawerOpen && selectedLease && (
-        <LeaseDrawerNew
+        <LeaseDetailView
           lease={selectedLease}
           isOpen={isDrawerOpen}
           onClose={handleCloseDrawer}
-          onEdit={() => {
+          onEdit={(lease) => {
             setIsDrawerOpen(false);
-            handleEditLease(selectedLease);
+            handleEditLease(lease);
           }}
-          onDelete={() => handleDeleteLease(selectedLease)}
+          onDelete={(lease) => handleDeleteLease(lease)}
           onGenerateReceipt={(lease) => {
             setSelectedLease(lease);
             setShowActionsModal(true);
           }}
-          onDownloadSignedLease={(lease) => {
-            if (lease.signedPdfUrl) {
-              window.open(lease.signedPdfUrl, '_blank');
-            } else {
-              notify2.error('Aucun bail signé disponible');
-            }
-          }}
+          onEnregistrerPaiement={handleEnregistrerPaiement}
         />
       )}
 
@@ -821,6 +885,17 @@ export default function LeasesClient() {
           propertyName: lease.Property.name,
           tenantName: `${lease.Tenant.firstName} ${lease.Tenant.lastName}`
         }))}
+      />
+
+      {/* Modale d'enregistrement de paiement */}
+      <TransactionModal
+        isOpen={showPaymentModal}
+        onClose={() => { setShowPaymentModal(false); setPaymentPrefill(null); }}
+        onSubmit={handlePaymentModalSubmit}
+        context={{ type: 'global' }}
+        mode="create"
+        title="Enregistrer un paiement"
+        prefill={paymentPrefill ?? undefined}
       />
 
       {/* Modale d'impossibilité de suppression */}

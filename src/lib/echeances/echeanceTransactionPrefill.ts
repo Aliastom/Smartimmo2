@@ -1,28 +1,12 @@
 /**
- * Pré-remplissage formulaire transaction depuis une échéance (phase 2).
+ * Pré-remplissage formulaire transaction depuis une échéance.
+ * Nature = mapping type d'échéance → code nature ; catégorie = defaultCategory de la nature (cache IDB).
+ * Pas de fallback « première catégorie DEPENSE » (évitait les erreurs type Loyer sur une taxe).
  */
+
 import type { EcheanceRecurrente } from '@/types/echeance';
-import type { EcheanceType } from '@prisma/client';
 import { getLocalDB } from '@/lib/offline/db';
-
-function defaultNatureForEcheance(type: EcheanceType, sens: 'DEBIT' | 'CREDIT'): string {
-  if (type === 'LOYER_ATTENDU' && sens === 'CREDIT') return 'RECETTE_LOYER';
-  if (sens === 'CREDIT') return 'RECETTE_AUTRE';
-  if (type === 'IMPOT' || type === 'CFE') return 'DEPENSE_TAXE';
-  if (type === 'PNO' || type === 'ASSURANCE') return 'DEPENSE_ASSURANCE';
-  if (type === 'PRET') return 'DEPENSE_BANQUE';
-  if (type === 'COPRO' || type === 'CHARGE_RECUP' || type === 'ENTRETIEN') return 'DEPENSE_ENTRETIEN';
-  return 'DEPENSE_ENTRETIEN';
-}
-
-const NATURE_TO_CATEGORY_SLUG: Record<string, string> = {
-  RECETTE_LOYER: 'loyer',
-  RECETTE_AUTRE: 'revenus-exceptionnels',
-  DEPENSE_TAXE: 'taxe-fonciere',
-  DEPENSE_ASSURANCE: 'assurance-pno',
-  DEPENSE_BANQUE: 'interets-emprunt',
-  DEPENSE_ENTRETIEN: 'travaux-entretien',
-};
+import { resolveNatureCodeForEcheance } from '@/lib/echeances/echeanceTypeMigration';
 
 export interface EcheanceTransactionPrefill {
   propertyId: string;
@@ -33,41 +17,69 @@ export interface EcheanceTransactionPrefill {
   date?: string;
   paymentDate?: string;
   label?: string;
+  /** Contexte échéance pour bloc explicite dans la modal (Partie 6) */
+  echeanceSource?: {
+    label: string;
+    occurrenceYmd: string;
+    montantAttendu: number;
+    nature: string;
+    categoryId?: string;
+  };
 }
 
 /**
- * Construit le prefill pour TransactionModal à partir d'une échéance et d'une date d'occurrence (YYYY-MM-DD).
+ * Construit le préfill métier depuis une échéance et la date d'occurrence à couvrir (YYYY-MM-DD).
  */
-export async function buildTransactionPrefillFromEcheance(
+export async function buildTransactionFromEcheance(
   echeance: EcheanceRecurrente,
   occurrenceYmd: string
 ): Promise<EcheanceTransactionPrefill> {
   const propertyId = echeance.propertyId || '';
-  const nature = defaultNatureForEcheance(echeance.type, echeance.sens);
-  const slug = NATURE_TO_CATEGORY_SLUG[nature];
+  const nature = resolveNatureCodeForEcheance(echeance);
   let categoryId: string | undefined;
-  const db = await getLocalDB();
-  if (db && slug) {
-    const cats = await db.Category.toArray();
-    const c = cats.find((x: { slug?: string; actif?: boolean }) => x.slug === slug && x.actif !== false);
-    categoryId = c?.id;
-  }
-  if (!categoryId && db) {
-    const type = echeance.sens === 'CREDIT' ? 'REVENU' : 'DEPENSE';
-    const cats = (await db.Category.toArray()).filter(
-      (x: { type?: string; actif?: boolean }) => x.type === type && x.actif !== false
-    );
-    categoryId = cats[0]?.id;
+
+  if (echeance.defaultCategoryId) {
+    categoryId = echeance.defaultCategoryId;
   }
 
+  if (!categoryId) {
+    const db = await getLocalDB();
+    if (db) {
+      const row = await db.NatureEntity.where('key').equals(nature).first();
+      if (row?.defaultCategory) {
+        categoryId = row.defaultCategory;
+      } else if (process.env.NODE_ENV === 'development') {
+        console.warn(
+          `[Échéance→Transaction] Nature "${nature}" sans defaultCategory en cache local — choisir la catégorie à la main ou lancer une sync des natures.`
+        );
+      }
+    }
+  }
+
+  const amount = Math.abs(Number(echeance.montant));
   return {
     propertyId,
     leaseId: echeance.leaseId || undefined,
     nature,
     categoryId,
-    amount: Math.abs(Number(echeance.montant)),
+    amount,
     date: occurrenceYmd,
     paymentDate: occurrenceYmd,
     label: echeance.label,
+    echeanceSource: {
+      label: echeance.label,
+      occurrenceYmd,
+      montantAttendu: amount,
+      nature,
+      categoryId,
+    },
   };
+}
+
+/** @deprecated alias — utiliser buildTransactionFromEcheance */
+export async function buildTransactionPrefillFromEcheance(
+  echeance: EcheanceRecurrente,
+  occurrenceYmd: string
+): Promise<EcheanceTransactionPrefill> {
+  return buildTransactionFromEcheance(echeance, occurrenceYmd);
 }

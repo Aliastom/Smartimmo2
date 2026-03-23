@@ -5,11 +5,33 @@ import LeasePdf from '@/pdf/LeasePdf';
 import { getProfileData } from '@/lib/services/profileService';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { getStorageService } from '@/services/storage.service';
+import { buildLeaseSignatureEmail } from './emailTemplate';
+import { getLogoPdfUrl } from '@/lib/branding';
 import React from 'react';
 
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
+
+/** Statuts depuis lesquels on peut générer PDF + EML (premier envoi ou réessai). */
+const SEND_FOR_SIGNATURE_ALLOWED_STATUSES = new Set<string>([
+  'BROUILLON',
+  'DRAFT',
+  'À_ENVOYER',
+  'A_ENVOYER',
+  'TO_SEND',
+  /** Canonique workflow UI (leaseWorkflowStatus) */
+  'A_SIGNER',
+  /** Réessai : PDF/EML déjà générés une fois, l’utilisateur retélécharge ou renvoie */
+  'ENVOYÉ',
+  'ENVOYE',
+  'SENT',
+]);
+
+function canSendLeaseForSignature(status: string | null | undefined): boolean {
+  if (status == null || status === '') return false;
+  return SEND_FOR_SIGNATURE_ALLOWED_STATUSES.has(status);
+}
 
 export async function POST(
   request: NextRequest,
@@ -42,11 +64,16 @@ export async function POST(
       return NextResponse.json({ error: 'Accès non autorisé' }, { status: 403 });
     }
 
-    // Vérifier que le bail est en statut BROUILLON ou À_ENVOYER (pour réessayer un envoi)
-    if (lease.status !== 'BROUILLON' && lease.status !== 'À_ENVOYER' && lease.status !== 'A_ENVOYER' && lease.status !== 'TO_SEND') {
-      return NextResponse.json({ 
-        error: 'Le bail doit être en statut BROUILLON ou À_ENVOYER pour être envoyé pour signature' 
-      }, { status: 400 });
+    if (!canSendLeaseForSignature(lease.status)) {
+      return NextResponse.json(
+        {
+          error:
+            'Le bail doit être en brouillon, à envoyer ou déjà envoyé (réessai) pour générer le PDF et l’EML.',
+          code: 'LEASE_SEND_FOR_SIGNATURE_INVALID_STATUS',
+          currentStatus: lease.status,
+        },
+        { status: 400 }
+      );
     }
 
     // Vérifier que Property et Tenant existent
@@ -79,12 +106,16 @@ export async function POST(
     const profileData = await getProfileData(organizationId);
     
     // Générer le PDF côté serveur avec les données du profil
-    const pdfBuffer = await renderToBuffer(React.createElement(LeasePdf, { 
-      lease, 
-      property: lease.Property, 
-      tenant: lease.Tenant,
-      profile: profileData
-    }));
+    const pdfBuffer = await renderToBuffer(
+      React.createElement(LeasePdf, {
+        lease,
+        property: lease.Property,
+        tenant: lease.Tenant,
+        profile: profileData,
+        branding: { logoUrl: profileData?.logo || getLogoPdfUrl() },
+        generatedAt: new Date().toISOString(),
+      })
+    );
     
     // Utiliser Supabase Storage pour stocker les fichiers
     const storageService = getStorageService();
@@ -102,12 +133,31 @@ export async function POST(
     // Upload du PDF vers Supabase Storage
     await storageService.uploadWithKey(pdfBuffer, pdfKey, 'application/pdf');
     
+    // Obtenir l'URL publique du PDF (CTA email)
+    const pdfUrl = await storageService.getDocumentUrl(pdfKey);
+
     // Créer l'EML avec le PDF en pièce jointe
     const pdfBase64 = pdfBuffer.toString('base64');
-    
+
+    const propertyAddress = [lease.Property.address, lease.Property.postalCode, lease.Property.city]
+      .filter(Boolean)
+      .join(' ');
+    const emailTemplate = buildLeaseSignatureEmail({
+      tenantFirstName: lease.Tenant.firstName,
+      tenantLastName: lease.Tenant.lastName,
+      propertyAddress: propertyAddress || lease.Property.name || 'Adresse non renseignée',
+      rentAmount: Number(lease.rentAmount || 0),
+      chargesAmount: Number(lease.chargesRecupMensuelles || 0),
+      startDate: lease.startDate?.toString(),
+      endDate: lease.endDate?.toString(),
+      depositAmount: Number(lease.deposit || 0),
+      downloadUrl: pdfUrl,
+      supportEmail: profileData.email || 'support@smartimmo.fr',
+    });
+
     const emlContent = `From: noreply@smartimmo.fr
 To: ${email || lease.Tenant.email || 'tenant@example.com'}
-Subject: =?UTF-8?B?${Buffer.from(`Bail à signer - ${lease.Property.name}`).toString('base64')}?=
+Subject: =?UTF-8?B?${Buffer.from(emailTemplate.subject).toString('base64')}?=
 MIME-Version: 1.0
 Content-Type: multipart/mixed; boundary="boundary123"
 
@@ -117,42 +167,12 @@ Content-Type: multipart/alternative; boundary="boundary456"
 --boundary456
 Content-Type: text/plain; charset=UTF-8
 
-Bonjour ${lease.Tenant.firstName} ${lease.Tenant.lastName},
-
-Veuillez trouver ci-joint votre bail à signer pour le bien ${lease.Property.name}.
-
-Adresse : ${lease.Property.address || 'Non renseignée'}
-Loyer : ${lease.rentAmount}€/mois
-Charges : ${lease.chargesRecupMensuelles || 0}€/mois
-Début du bail : ${new Date(lease.startDate).toLocaleDateString('fr-FR')}
-${lease.endDate ? `Fin du bail : ${new Date(lease.endDate).toLocaleDateString('fr-FR')}` : ''}
-Caution : ${lease.deposit || 0}€
-
-Merci de signer le document PDF ci-joint et de nous le retourner.
-
-Cordialement,
-L'équipe Smartimmo
+${emailTemplate.text}
 
 --boundary456
 Content-Type: text/html; charset=UTF-8
 
-<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-  <h2 style="color: #2563eb;">Bail à signer - ${lease.Property.name}</h2>
-  <p>Bonjour <strong>${lease.Tenant.firstName} ${lease.Tenant.lastName}</strong>,</p>
-  <p>Veuillez trouver ci-joint votre bail à signer pour le bien :</p>
-  <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 15px 0;">
-    <p><strong>Adresse :</strong> ${lease.Property.address || 'Non renseignée'}</p>
-    <p><strong>Loyer :</strong> ${lease.rentAmount}€/mois</p>
-    <p><strong>Charges :</strong> ${lease.chargesRecupMensuelles || 0}€/mois</p>
-    <p><strong>Début du bail :</strong> ${new Date(lease.startDate).toLocaleDateString('fr-FR')}</p>
-    ${lease.endDate ? `<p><strong>Fin du bail :</strong> ${new Date(lease.endDate).toLocaleDateString('fr-FR')}</p>` : ''}
-    <p><strong>Caution :</strong> ${lease.deposit || 0}€</p>
-  </div>
-  <p><strong>📎 Pièce jointe :</strong> Le bail à signer est disponible en pièce jointe (PDF)</p>
-  <p>Merci de signer le document et de nous le retourner.</p>
-  <br>
-  <p>Cordialement,<br><strong>L'équipe Smartimmo</strong></p>
-</div>
+${emailTemplate.html}
 
 --boundary456--
 
@@ -178,8 +198,7 @@ ${pdfBase64}
       status: 'SENT'
     });
 
-    // Obtenir les URLs publiques depuis Supabase Storage
-    const pdfUrl = await storageService.getDocumentUrl(pdfKey);
+    // Obtenir l'URL publique de l'EML depuis Supabase Storage
     const emlUrl = await storageService.getDocumentUrl(emlKey);
     
     return NextResponse.json({

@@ -8,6 +8,13 @@ import { PendingOperation, SyncMeta } from './types';
 import type { SyncResult } from './sync';
 import { logToServer } from '@/lib/utils/logger';
 import { notify2 } from '@/lib/notify2';
+import {
+  classifySmartimmoId,
+  getLeaseSignatureDiagLeaseId,
+  logLeaseSignWorkflowDiag,
+  setLeaseSignatureDiagRemoteLeaseMapping,
+  summarizeFkPair,
+} from './leaseSignatureWorkflowDiag';
 
 export interface EntitySyncConfig {
   entity: string; // 'property', 'lease', 'tenant', etc.
@@ -1461,6 +1468,86 @@ export class GlobalSyncService {
     logToServer(`[APP-SHELL][SYNC] Démarrage syncAllPendingToRemote pour organizationId=${organizationId}`);
     const results: Record<string, SyncResult> = {};
     const db = await this.getDb();
+    const normalizeDay = (v: unknown) => {
+      const s = String(v ?? '');
+      return s.length >= 10 ? s.slice(0, 10) : s;
+    };
+
+    // Snapshot diagnostic complet de la queue au refresh (pending/syncing/error).
+    const queueSnapshotRaw = await db.pendingOperations
+      .where('status')
+      .anyOf(['pending', 'syncing', 'error'])
+      .toArray();
+    const queueSnapshot = queueSnapshotRaw.filter(
+      (op: PendingOperation) => op.organizationId === organizationId || op.organizationId == null
+    );
+    logToServer(
+      `[APP-SHELL][SYNC][QUEUE] Snapshot ops=${queueSnapshot.length} org=${organizationId}`
+    );
+    for (const op of queueSnapshot) {
+      const payload = op.payload || {};
+      logToServer(
+        `[APP-SHELL][SYNC][QUEUE_OP] ${JSON.stringify({
+          id: op.id,
+          entity: op.entity,
+          operation: op.operation,
+          entityId: op.entityId,
+          status: op.status,
+          propertyId: payload.propertyId ?? null,
+          tenantId: payload.tenantId ?? null,
+          startDate: payload.startDate ?? null,
+          rentAmount: payload.rentAmount ?? null,
+        })}`
+      );
+    }
+
+    // Pré-nettoyage: lease:create fantômes (bail déjà remote localement).
+    if (queueSnapshot.length > 0) {
+      const orgLeases = await db.Lease.where('organizationId').equals(organizationId).toArray();
+      const staleLeaseCreateOpIds: string[] = [];
+      for (const op of queueSnapshot) {
+        if (op.entity !== 'lease' || op.operation !== 'create') continue;
+        const payload = op.payload || {};
+        let hasRemoteLeaseAlready = false;
+
+        // Cas 1: entityId est déjà un cuid -> vérifier existence serveur.
+        if (classifySmartimmoId(op.entityId) === 'cuid_remote') {
+          try {
+            const check = await fetch(`/api/leases/${encodeURIComponent(op.entityId)}`, {
+              method: 'GET',
+              headers: { 'Content-Type': 'application/json' },
+            });
+            hasRemoteLeaseAlready = check.ok;
+          } catch {
+            // ignore (on continue avec détection locale)
+          }
+        }
+
+        // Cas 2: une ligne locale Lease cuid matche la signature métier du payload.
+        if (!hasRemoteLeaseAlready) {
+          const signatureMatch = orgLeases.find((l: any) => {
+            if (classifySmartimmoId(l.id) !== 'cuid_remote') return false;
+            return (
+              l.propertyId === payload.propertyId &&
+              l.tenantId === payload.tenantId &&
+              normalizeDay(l.startDate) === normalizeDay(payload.startDate) &&
+              Math.abs(Number(l.rentAmount ?? 0) - Number(payload.rentAmount ?? 0)) < 0.01
+            );
+          });
+          hasRemoteLeaseAlready = !!signatureMatch;
+        }
+
+        if (hasRemoteLeaseAlready) {
+          staleLeaseCreateOpIds.push(op.id);
+          logToServer(
+            `[APP-SHELL][SYNC][LEASE_GHOST_CREATE] suppress op=${op.id} entityId=${op.entityId} reason=remote_lease_already_exists`
+          );
+        }
+      }
+      if (staleLeaseCreateOpIds.length > 0) {
+        await Promise.all(staleLeaseCreateOpIds.map((id) => db.pendingOperations.delete(id)));
+      }
+    }
 
     // Récupérer les opérations en attente ET en erreur (pour permettre de les réessayer)
     const allPendingOps = await db.pendingOperations
@@ -1604,8 +1691,8 @@ export class GlobalSyncService {
     // Phase 1 : Entités racines (documents, transactions, etc.) - celles qui ne dépendent pas d'autres entités métier
     // Phase 2 : DocumentLinks (dépendent des documents/transactions)
     // ⚠️ IMPORTANT: 'loan' doit être synchronisé AVANT 'document' car les documents peuvent être liés aux prêts
-    // L'ordre de sync est : property, lease, tenant, loan, transaction, echeanceRecurrente, document, puis documentLink
-    const rootEntities = ['property', 'lease', 'tenant', 'loan', 'transaction', 'echeanceRecurrente', 'document'];
+    // L'ordre de sync est : property, tenant, lease, loan, ... — lease DOIT venir après property ET tenant (FK).
+    const rootEntities = ['property', 'tenant', 'lease', 'loan', 'transaction', 'echeanceRecurrente', 'document'];
     const dependencyEntities = ['documentLink'];
     
     // Extraire les entités par phase
@@ -1624,8 +1711,8 @@ export class GlobalSyncService {
     }
     
     // ✅ Trier selon l'ordre de dépendance (pas alphabétique)
-    // property → lease → tenant → loan → transaction → echeanceRecurrente → document → documentLink
-    const entityOrder = ['property', 'lease', 'tenant', 'loan', 'transaction', 'echeanceRecurrente', 'document', 'documentLink'];
+    // property → tenant → lease → loan → transaction → echeanceRecurrente → document → documentLink
+    const entityOrder = ['property', 'tenant', 'lease', 'loan', 'transaction', 'echeanceRecurrente', 'document', 'documentLink'];
     const orderedPhase1 = phase1Entities.sort((a, b) => {
       const indexA = entityOrder.indexOf(a);
       const indexB = entityOrder.indexOf(b);
@@ -1771,7 +1858,145 @@ export class GlobalSyncService {
         let success = false;
 
         if (op.operation === 'create') {
-          success = await this.createRemote(config, op.payload, organizationId);
+          // Garde-fou pré-POST: éviter d'appeler /api/leases avec FK locale non résolue.
+          if (config.entity === 'lease') {
+            const payload = op.payload || {};
+            let nextPropertyId = payload.propertyId;
+            let nextTenantId = payload.tenantId;
+
+            // Tentative de résolution propertyId local UUID -> remote ID via matching métier.
+            if (classifySmartimmoId(nextPropertyId) === 'uuid_local') {
+              try {
+                const localProperty = await db.Property.get(nextPropertyId);
+                if (localProperty) {
+                  const remotePropertiesRes = await fetch('/api/properties?limit=10000&includeArchived=true');
+                  if (remotePropertiesRes.ok) {
+                    const remotePropertiesJson = await remotePropertiesRes.json();
+                    const remoteProperties =
+                      remotePropertiesJson?.data || remotePropertiesJson?.items || [];
+                    const normalize = (v: unknown) => String(v ?? '').trim().toLowerCase();
+                    const matched = remoteProperties.find(
+                      (p: any) =>
+                        normalize(p.name) === normalize(localProperty.name) &&
+                        normalize(p.address) === normalize(localProperty.address) &&
+                        normalize(p.city) === normalize(localProperty.city) &&
+                        normalize(p.postalCode) === normalize(localProperty.postalCode)
+                    );
+                    if (matched?.id) {
+                      nextPropertyId = matched.id;
+                    }
+                  }
+                }
+              } catch (resolveErr) {
+                console.warn('[GlobalSync] Résolution pre-POST propertyId lease:create échouée:', resolveErr);
+              }
+            }
+
+            // Tentative légère de résolution tenantId local UUID -> remote ID (email/nom).
+            if (classifySmartimmoId(nextTenantId) === 'uuid_local') {
+              try {
+                const localTenant = await db.Tenant.get(nextTenantId);
+                if (localTenant) {
+                  const remoteTenantsRes = await fetch('/api/tenants?limit=10000');
+                  if (remoteTenantsRes.ok) {
+                    const remoteTenantsJson = await remoteTenantsRes.json();
+                    const remoteTenants = remoteTenantsJson?.data || remoteTenantsJson?.items || [];
+                    const normalize = (v: unknown) => String(v ?? '').trim().toLowerCase();
+                    const matched = remoteTenants.find(
+                      (t: any) =>
+                        (localTenant.email &&
+                          t.email &&
+                          normalize(t.email) === normalize(localTenant.email)) ||
+                        (normalize(t.firstName) === normalize(localTenant.firstName) &&
+                          normalize(t.lastName) === normalize(localTenant.lastName))
+                    );
+                    if (matched?.id) {
+                      nextTenantId = matched.id;
+                    }
+                  }
+                }
+              } catch (resolveErr) {
+                console.warn('[GlobalSync] Résolution pre-POST tenantId lease:create échouée:', resolveErr);
+              }
+            }
+
+            // Appliquer remap dans la pending op avant createRemote.
+            if (nextPropertyId !== payload.propertyId || nextTenantId !== payload.tenantId) {
+              const nextPayload = {
+                ...payload,
+                propertyId: nextPropertyId,
+                tenantId: nextTenantId,
+              };
+              await db.pendingOperations.update(op.id, {
+                payload: nextPayload,
+                updatedAt: new Date().toISOString(),
+              });
+              op.payload = nextPayload;
+            }
+
+            // Si propertyId reste local, isoler sans polluer le boot avec un POST 404.
+            if (classifySmartimmoId(op.payload?.propertyId) === 'uuid_local') {
+              await db.pendingOperations.update(op.id, {
+                status: 'blocked_permanent',
+                errorMessage:
+                  `Lease create isolée avant POST: propertyId local non résolu (${op.payload?.propertyId ?? 'null'})`,
+                blockReason:
+                  `lease_create_unresolved_property_fk: entityId=${op.entityId}, propertyId=${op.payload?.propertyId ?? 'null'}`,
+                updatedAt: new Date().toISOString(),
+              });
+              logToServer(
+                `[APP-SHELL][SYNC][LEASE_CREATE_ISOLATED_PREPOST] op=${op.id} entityId=${op.entityId} propertyId=${op.payload?.propertyId ?? 'null'} tenantId=${op.payload?.tenantId ?? 'null'}`
+              );
+              continue;
+            }
+          }
+
+          const diagLeaseId = getLeaseSignatureDiagLeaseId();
+          if (diagLeaseId && config.entity === 'property') {
+            const leaseRow = await db.Lease.get(diagLeaseId);
+            if (
+              leaseRow &&
+              leaseRow.organizationId === organizationId &&
+              leaseRow.propertyId === op.entityId
+            ) {
+              const propRow = await db.Property.get(op.entityId);
+              logLeaseSignWorkflowDiag({
+                step: '1_before_sync_property',
+                organizationId,
+                diagLeaseLocalId: diagLeaseId,
+                pendingPropertyOpId: op.id,
+                localPropertyId: op.entityId,
+                localPropertyIdKind: classifySmartimmoId(op.entityId),
+                propertyRowPresent: !!propRow,
+                /** Si le bien a déjà un id « serveur » (cuid), il est déjà aligné remote */
+                propertyRowIdKind: propRow?.id ? classifySmartimmoId(propRow.id) : 'empty',
+              });
+            }
+          }
+          if (diagLeaseId && config.entity === 'tenant') {
+            const leaseRow = await db.Lease.get(diagLeaseId);
+            if (
+              leaseRow &&
+              leaseRow.organizationId === organizationId &&
+              leaseRow.tenantId === op.entityId
+            ) {
+              const tenantRow = await db.Tenant.get(op.entityId);
+              logLeaseSignWorkflowDiag({
+                step: '3_before_sync_tenant',
+                organizationId,
+                diagLeaseLocalId: diagLeaseId,
+                pendingTenantOpId: op.id,
+                localTenantId: op.entityId,
+                localTenantIdKind: classifySmartimmoId(op.entityId),
+                tenantRowPresent: !!tenantRow,
+                tenantRowIdKind: tenantRow?.id ? classifySmartimmoId(tenantRow.id) : 'empty',
+              });
+            }
+          }
+
+          success = await this.createRemote(config, op.payload, organizationId, {
+            pendingOpId: op.id,
+          });
         } else if (op.operation === 'update') {
           // ✅ STRATÉGIE PATCH-FIRST : Tenter directement PATCH, fallback 404 → POST
           // Pas de GET de pré-vérification (offline-first, pas de read serveur)
@@ -1977,6 +2202,44 @@ export class GlobalSyncService {
       } catch (error: any) {
         console.error(`[GlobalSync] Erreur sync op ${config.entity}:`, error);
 
+        // Isolation robuste: lease:create cassée (FK property introuvable) ne doit pas polluer chaque refresh.
+        const isLeaseCreatePropertyNotFound =
+          config.entity === 'lease' &&
+          op.operation === 'create' &&
+          typeof error?.message === 'string' &&
+          error.message.includes('Propriété introuvable');
+        if (isLeaseCreatePropertyNotFound) {
+          const p = op.payload || {};
+          const remoteLeaseByIdExists =
+            classifySmartimmoId(op.entityId) === 'cuid_remote'
+              ? await fetch(`/api/leases/${encodeURIComponent(op.entityId)}`, {
+                  method: 'GET',
+                  headers: { 'Content-Type': 'application/json' },
+                })
+                  .then((r) => r.ok)
+                  .catch(() => false)
+              : false;
+
+          if (remoteLeaseByIdExists) {
+            await db.pendingOperations.delete(op.id);
+            logToServer(
+              `[APP-SHELL][SYNC][LEASE_GHOST_CREATE] delete op=${op.id} entityId=${op.entityId} reason=remote_exists_after_property_not_found`
+            );
+            continue;
+          }
+
+          await db.pendingOperations.update(op.id, {
+            status: 'blocked_permanent',
+            errorMessage: `Lease create isolée: propriété introuvable (propertyId=${p.propertyId ?? 'null'}, tenantId=${p.tenantId ?? 'null'}, startDate=${p.startDate ?? 'null'}, rentAmount=${p.rentAmount ?? 'null'})`,
+            blockReason: `lease_create_property_not_found: entityId=${op.entityId}, propertyId=${p.propertyId ?? 'null'}, tenantId=${p.tenantId ?? 'null'}`,
+            updatedAt: new Date().toISOString(),
+          });
+          logToServer(
+            `[APP-SHELL][SYNC][LEASE_CREATE_ISOLATED] op=${op.id} entityId=${op.entityId} propertyId=${p.propertyId ?? 'null'} tenantId=${p.tenantId ?? 'null'}`
+          );
+          continue;
+        }
+
         // ⚠️ GARDE-FOU 3 : Pour documentLink avec TRANSACTION_NOT_SYNCED, bloquer avec raison explicite
         // Cela se produit quand un DocumentLink référence une transaction locale qui n'a pas encore de serverId
         // La pendingOp reste en 'pending' pour être retentée automatiquement après la sync de la transaction
@@ -2107,7 +2370,8 @@ export class GlobalSyncService {
   private async createRemote(
     config: EntitySyncConfig,
     payload: any,
-    organizationId: string
+    organizationId: string,
+    meta?: { pendingOpId?: string }
   ): Promise<boolean> {
     // ⚠️ GESTION SPÉCIALE POUR documentLink : clé composite
     // L'API utilise POST /api/documents/{documentId}/links avec { entityType, entityId }
@@ -2212,6 +2476,35 @@ export class GlobalSyncService {
       const { id, loanId, ...dataWithoutId } = transformed;
       requestBody = dataWithoutId;
     } else {
+      // ⚠️ LEASE: relire le payload pending le plus récent juste avant POST.
+      // Évite d'envoyer des FK obsolètes (propertyId/tenantId) quand un remapping
+      // a été fait en base pendant ce même cycle de synchronisation.
+      if (config.entity === 'lease') {
+        try {
+          const db = await this.getDb();
+          // ⚠️ CRITIQUE : pendant la sync l'op courante est en `syncing`, pas `pending`.
+          // Préférer pendingOpId (opération exacte) pour relire le payload à jour (FK remappées).
+          let latestLeasePending: PendingOperation | undefined;
+          if (meta?.pendingOpId) {
+            latestLeasePending = (await db.pendingOperations.get(meta.pendingOpId)) || undefined;
+          }
+          if (!latestLeasePending && payload?.id) {
+            latestLeasePending = await db.pendingOperations
+              .where('entityId')
+              .equals(payload.id)
+              .and((op: PendingOperation) =>
+                op.entity === 'lease' && (op.status === 'pending' || op.status === 'syncing')
+              )
+              .first();
+          }
+          if (latestLeasePending?.payload && typeof latestLeasePending.payload === 'object') {
+            payload = { ...payload, ...latestLeasePending.payload };
+          }
+        } catch (reloadError) {
+          console.warn('[GlobalSync] ⚠️ Impossible de relire le payload lease récent:', reloadError);
+        }
+      }
+
       // Route normale
       const transformed = config.transformToRemote
         ? config.transformToRemote(payload)
@@ -2220,15 +2513,192 @@ export class GlobalSyncService {
       const { id, ...dataWithoutId } = transformed;
       apiRoute = config.apiRoute;
       requestBody = dataWithoutId;
+
+      // App-shell : indices pour résolution FK côté API si l'ID local ne correspond pas au serveur
+      if (config.entity === 'lease' && payload?.id) {
+        try {
+          const db = await this.getDb();
+          const leaseRow = await db.Lease.get(payload.id);
+          if (leaseRow) {
+            const [prop, ten] = await Promise.all([
+              db.Property.get(leaseRow.propertyId),
+              db.Tenant.get(leaseRow.tenantId),
+            ]);
+            const hints: Record<string, string> = {};
+            if (prop) {
+              if (prop.name) hints.propertyName = String(prop.name);
+              if (prop.address) hints.propertyAddress = String(prop.address);
+              if (prop.city) hints.propertyCity = String(prop.city);
+              if (prop.postalCode) hints.propertyPostalCode = String(prop.postalCode);
+            }
+            if (ten) {
+              if (ten.email) hints.tenantEmail = String(ten.email);
+              if (ten.firstName) hints.tenantFirstName = String(ten.firstName);
+              if (ten.lastName) hints.tenantLastName = String(ten.lastName);
+            }
+            if (Object.keys(hints).length > 0) {
+              requestBody = { ...requestBody, __syncHints: hints };
+            }
+          }
+        } catch (hintError) {
+          console.warn('[GlobalSync] ⚠️ Impossible d’attacher __syncHints pour lease:', hintError);
+        }
+      }
     }
 
     // Logs supprimés pour réduire la verbosité (nécessaire uniquement en debug)
 
-    const response = await fetch(apiRoute, {
+    if (config.entity === 'lease' && requestBody) {
+      const diagLeaseId = getLeaseSignatureDiagLeaseId();
+      const verboseDiag = process.env.NEXT_PUBLIC_LEASE_SIGN_DIAG === '1';
+      if ((diagLeaseId && payload?.id === diagLeaseId) || verboseDiag) {
+        try {
+          const bodyForLog = JSON.parse(JSON.stringify(requestBody));
+          logLeaseSignWorkflowDiag({
+            step: '5_before_post_api_leases',
+            organizationId,
+            pendingOpId: meta?.pendingOpId,
+            leaseLocalId: payload?.id,
+            apiRoute,
+            requestBodyJson: JSON.stringify(bodyForLog),
+            ...summarizeFkPair(bodyForLog.propertyId, bodyForLog.tenantId),
+            hasSyncHintsFallback: Object.prototype.hasOwnProperty.call(
+              bodyForLog,
+              '__syncHints'
+            ),
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    let response = await fetch(apiRoute, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
     });
+
+    // Fallback robuste App-Shell: si le bail référence une FK locale non résolue,
+    // tenter un remap property/tenant par matching métier puis retenter une seule fois.
+    if (!response.ok && config.entity === 'lease' && response.status === 404) {
+      try {
+        const normalize = (v: unknown) => String(v ?? '').trim().toLowerCase();
+        const db = await this.getDb();
+        const localLease = payload?.id ? await db.Lease.get(payload.id) : null;
+        if (localLease) {
+          const [propertiesRes, tenantsRes] = await Promise.all([
+            fetch('/api/properties?limit=10000&includeArchived=true'),
+            fetch('/api/tenants?limit=10000'),
+          ]);
+          if (propertiesRes.ok && tenantsRes.ok) {
+            const propertiesJson = await propertiesRes.json();
+            const tenantsJson = await tenantsRes.json();
+            const remoteProperties = propertiesJson?.data || propertiesJson?.items || [];
+            const remoteTenants = tenantsJson?.data || tenantsJson?.items || [];
+            const localProperty = await db.Property.get(localLease.propertyId);
+            const localTenant = await db.Tenant.get(localLease.tenantId);
+
+            let remappedPropertyId = localLease.propertyId;
+            let remappedTenantId = localLease.tenantId;
+
+            if (!remoteProperties.some((p: any) => p.id === localLease.propertyId) && localProperty) {
+              const matched = remoteProperties.find(
+                (p: any) =>
+                  normalize(p.name) === normalize(localProperty.name) &&
+                  normalize(p.address) === normalize(localProperty.address) &&
+                  normalize(p.city) === normalize(localProperty.city) &&
+                  normalize(p.postalCode) === normalize(localProperty.postalCode)
+              );
+              if (matched?.id) remappedPropertyId = matched.id;
+            }
+
+            if (!remoteTenants.some((t: any) => t.id === localLease.tenantId) && localTenant) {
+              const matched = remoteTenants.find(
+                (t: any) =>
+                  (localTenant.email && t.email && normalize(t.email) === normalize(localTenant.email)) ||
+                  (normalize(t.firstName) === normalize(localTenant.firstName) &&
+                    normalize(t.lastName) === normalize(localTenant.lastName))
+              );
+              if (matched?.id) remappedTenantId = matched.id;
+            }
+
+            if (remappedPropertyId !== localLease.propertyId || remappedTenantId !== localLease.tenantId) {
+              await db.Lease.update(localLease.id, {
+                propertyId: remappedPropertyId,
+                tenantId: remappedTenantId,
+                _localUpdatedAt: new Date().toISOString(),
+              } as any);
+
+              const pendingLeaseOps: PendingOperation[] = [];
+              if (meta?.pendingOpId) {
+                const cur = await db.pendingOperations.get(meta.pendingOpId);
+                if (cur && cur.entity === 'lease') pendingLeaseOps.push(cur);
+              }
+              if (pendingLeaseOps.length === 0) {
+                const more = await db.pendingOperations
+                  .where('entityId')
+                  .equals(localLease.id)
+                  .and((op: PendingOperation) =>
+                    op.entity === 'lease' && (op.status === 'pending' || op.status === 'syncing')
+                  )
+                  .toArray();
+                pendingLeaseOps.push(...more);
+              }
+
+              for (const op of pendingLeaseOps) {
+                await db.pendingOperations.update(op.id, {
+                  payload: {
+                    ...(op.payload || {}),
+                    propertyId: remappedPropertyId,
+                    tenantId: remappedTenantId,
+                  },
+                  updatedAt: new Date().toISOString(),
+                } as any);
+              }
+
+              requestBody = {
+                ...(requestBody || {}),
+                propertyId: remappedPropertyId,
+                tenantId: remappedTenantId,
+              };
+              // Recalculer les hints après remap
+              try {
+                const [prop, ten] = await Promise.all([
+                  db.Property.get(remappedPropertyId),
+                  db.Tenant.get(remappedTenantId),
+                ]);
+                const hints: Record<string, string> = {};
+                if (prop) {
+                  if (prop.name) hints.propertyName = String(prop.name);
+                  if (prop.address) hints.propertyAddress = String(prop.address);
+                  if (prop.city) hints.propertyCity = String(prop.city);
+                  if (prop.postalCode) hints.propertyPostalCode = String(prop.postalCode);
+                }
+                if (ten) {
+                  if (ten.email) hints.tenantEmail = String(ten.email);
+                  if (ten.firstName) hints.tenantFirstName = String(ten.firstName);
+                  if (ten.lastName) hints.tenantLastName = String(ten.lastName);
+                }
+                if (Object.keys(hints).length > 0) {
+                  requestBody.__syncHints = hints;
+                }
+              } catch {
+                /* ignore */
+              }
+
+              response = await fetch(apiRoute, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody),
+              });
+            }
+          }
+        }
+      } catch (fallbackError) {
+        console.warn('[GlobalSync] ⚠️ Fallback remap lease FK échoué:', fallbackError);
+      }
+    }
 
     // Logs supprimés pour réduire la verbosité
 
@@ -2431,6 +2901,68 @@ export class GlobalSyncService {
               op.payload = { ...op.payload, id: createdId };
             }
           });
+
+        // 1bis. Remapper les clés étrangères dans les payloads lease create/update
+        // après sync property/tenant (sinon POST /api/leases peut échouer "Propriété introuvable").
+        if (config.entity === 'property' || config.entity === 'tenant') {
+          const fkField = config.entity === 'property' ? 'propertyId' : 'tenantId';
+
+          // 1ter. Remapper aussi les données locales déjà persistées (pas seulement les pendingOps)
+          // sinon un bail local peut continuer à pointer vers un ancien UUID local inexistant côté API.
+          if (fkField === 'propertyId') {
+            await db.Lease
+              .where('propertyId')
+              .equals(oldLocalEntityId)
+              .modify((lease: any) => {
+                lease.propertyId = createdId;
+                lease._localUpdatedAt = new Date().toISOString();
+              });
+            // Table Transaction peut être exposée différemment selon le runtime Dexie.
+            const txTable: any =
+              (db as any).Transaction && typeof (db as any).Transaction.where === 'function'
+                ? (db as any).Transaction
+                : db.tables.find((t: any) => t.name === 'Transaction');
+            if (txTable && typeof txTable.where === 'function') {
+              await txTable
+                .where('propertyId')
+                .equals(oldLocalEntityId)
+                .modify((tx: any) => {
+                  tx.propertyId = createdId;
+                  tx._localUpdatedAt = new Date().toISOString();
+                });
+            }
+          } else {
+            await db.Lease
+              .where('tenantId')
+              .equals(oldLocalEntityId)
+              .modify((lease: any) => {
+                lease.tenantId = createdId;
+                lease._localUpdatedAt = new Date().toISOString();
+              });
+          }
+
+          const leasePendingOps = await db.pendingOperations
+            .where('entity')
+            .equals('lease')
+            .and((op: PendingOperation) => op.status === 'pending' || op.status === 'syncing')
+            .toArray();
+
+          for (const op of leasePendingOps) {
+            const currentFk = op.payload?.[fkField];
+            if (currentFk && currentFk === oldLocalEntityId) {
+              const nextPayload = { ...(op.payload || {}), [fkField]: createdId };
+              await db.pendingOperations.update(op.id, {
+                payload: nextPayload,
+                updatedAt: new Date().toISOString(),
+              });
+              if (process.env.NODE_ENV === 'development') {
+                console.log(
+                  `[GlobalSync] 🔁 FK remappée pour pending lease ${op.id}: ${fkField} ${oldLocalEntityId} -> ${createdId}`
+                );
+              }
+            }
+          }
+        }
         
         // 2. ⚠️ CRITIQUE : Mettre à jour les DocumentLink pendingOps qui référencent cette transaction mère
         // Les DocumentLink ont linkedId dans leur payload, pas dans entityId
@@ -2447,6 +2979,81 @@ export class GlobalSyncService {
       // ⚠️ CRITIQUE : Même sans ID serveur, on considère la création comme réussie
       // car la transaction existe maintenant sur le serveur (même si on n'a pas son ID)
       // La prochaine sync FROM remote récupérera la transaction avec son ID
+    }
+
+    if (config.entity === 'property' && createdId) {
+      const lid = getLeaseSignatureDiagLeaseId();
+      if (lid) {
+        const db = await this.getDb();
+        const lease = await db.Lease.get(lid);
+        const leasePos = await db.pendingOperations.where('entityId').equals(lid).toArray();
+        const leasePo = leasePos.find((p: PendingOperation) => p.entity === 'lease');
+        logLeaseSignWorkflowDiag({
+          step: '2_after_sync_property',
+          organizationId,
+          diagLeaseLocalId: lid,
+          propertyLocalIdBefore: oldLocalEntityId,
+          propertyRemoteIdFromApi: createdId,
+          propertyIdMappingApplied: oldLocalEntityId !== createdId,
+          leaseRowFk: lease ? summarizeFkPair(lease.propertyId, lease.tenantId) : null,
+          pendingLeaseOpSnapshot: leasePo
+            ? {
+                pendingOpId: leasePo.id,
+                status: leasePo.status,
+                operation: leasePo.operation,
+                ...summarizeFkPair(leasePo.payload?.propertyId, leasePo.payload?.tenantId),
+                payloadPropertyIdMatchesRemoteProperty:
+                  leasePo.payload?.propertyId === createdId,
+              }
+            : null,
+        });
+      }
+    }
+
+    if (config.entity === 'tenant' && createdId) {
+      const lid = getLeaseSignatureDiagLeaseId();
+      if (lid) {
+        const db = await this.getDb();
+        const lease = await db.Lease.get(lid);
+        const leasePos = await db.pendingOperations.where('entityId').equals(lid).toArray();
+        const leasePo = leasePos.find((p: PendingOperation) => p.entity === 'lease');
+        logLeaseSignWorkflowDiag({
+          step: '4_after_sync_tenant',
+          organizationId,
+          diagLeaseLocalId: lid,
+          tenantLocalIdBefore: oldLocalEntityId,
+          tenantRemoteIdFromApi: createdId,
+          tenantIdMappingApplied: oldLocalEntityId !== createdId,
+          leaseRowFk: lease ? summarizeFkPair(lease.propertyId, lease.tenantId) : null,
+          pendingLeaseOpSnapshot: leasePo
+            ? {
+                pendingOpId: leasePo.id,
+                status: leasePo.status,
+                operation: leasePo.operation,
+                ...summarizeFkPair(leasePo.payload?.propertyId, leasePo.payload?.tenantId),
+                payloadTenantIdMatchesRemoteTenant:
+                  leasePo.payload?.tenantId === createdId,
+              }
+            : null,
+        });
+      }
+    }
+
+    if (config.entity === 'lease' && createdId) {
+      const lid = getLeaseSignatureDiagLeaseId();
+      if (lid && oldLocalEntityId === lid) {
+        logLeaseSignWorkflowDiag({
+          step: '6_after_post_api_leases',
+          organizationId,
+          pendingOpId: meta?.pendingOpId,
+          localLeaseId: oldLocalEntityId,
+          remoteLeaseIdCreated: createdId,
+          leaseLocalIdKind: classifySmartimmoId(oldLocalEntityId),
+          leaseRemoteIdKind: classifySmartimmoId(createdId),
+          mappingLocalToRemote: `${oldLocalEntityId} -> ${createdId}`,
+        });
+        setLeaseSignatureDiagRemoteLeaseMapping(oldLocalEntityId, createdId);
+      }
     }
 
     return true;

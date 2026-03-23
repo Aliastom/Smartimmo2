@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 const ListQuerySchema = z.object({
   search: z.string().optional(),
-  type: z.string().optional(), // CSV de types
+  type: z.string().optional(), // CSV de types (legacy)
+  natureCode: z.string().optional(), // Filtre par nature métier
   sens: z.nativeEnum(SensEcheance).optional(),
   periodicite: z.string().optional(), // CSV de périodicités
   propertyId: z.string().optional(),
@@ -52,6 +53,7 @@ export async function GET(request: NextRequest) {
     const validation = ListQuerySchema.safeParse({
       search: searchParams.get('search') || undefined,
       type: searchParams.get('type') || undefined,
+      natureCode: searchParams.get('natureCode') || undefined,
       sens: searchParams.get('sens') || undefined,
       periodicite: searchParams.get('periodicite') || undefined,
       propertyId: searchParams.get('propertyId') || undefined,
@@ -73,6 +75,7 @@ export async function GET(request: NextRequest) {
     const {
       search,
       type,
+      natureCode,
       sens,
       periodicite,
       propertyId,
@@ -100,10 +103,15 @@ export async function GET(request: NextRequest) {
       where.label = { contains: search, mode: 'insensitive' };
     }
 
-    // Filtre type (CSV)
+    // Filtre type (CSV, legacy)
     if (type) {
       const types = type.split(',').filter(Boolean);
       where.type = { in: types as EcheanceType[] };
+    }
+
+    // Filtre par nature métier
+    if (natureCode) {
+      where.natureCode = natureCode;
     }
 
     // Filtre sens

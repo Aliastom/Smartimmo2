@@ -270,25 +270,29 @@ model DocumentTypeField {
 }
 
 model EcheanceRecurrente {
-  id             String       @id @default(cuid())
-  organizationId String       @default("default")
-  propertyId     String?
-  leaseId        String?
-  label          String
-  type           EcheanceType
-  periodicite    Periodicite
-  montant        Decimal      @db.Decimal(10, 2)
-  recuperable    Boolean      @default(false)
-  sens           SensEcheance
-  startAt        DateTime
-  endAt          DateTime?
-  isActive       Boolean      @default(true)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  Lease          Lease?       @relation(fields: [leaseId], references: [id])
-  Property       Property?    @relation(fields: [propertyId], references: [id])
-  Organization   Organization @relation(fields: [organizationId], references: [id])
-  TransactionLinks EcheanceTransactionLink[]
+  id                 String       @id @default(cuid())
+  organizationId     String       @default("default")
+  propertyId         String?
+  leaseId            String?
+  label              String
+  type               EcheanceType
+  periodicite        Periodicite
+  montant            Decimal      @db.Decimal(10, 2)
+  recuperable        Boolean      @default(false)
+  sens               SensEcheance
+  startAt            DateTime
+  endAt              DateTime?
+  isActive           Boolean      @default(true)
+  /** Code nature transaction (ex. DEPENSE_TAXE). Rendu l'échéance autonome ; fallback sur type si null. */
+  natureCode         String?
+  /** Catégorie par défaut pour la transaction générée (résolu depuis NatureEntity si null). */
+  defaultCategoryId  String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  Lease              Lease?       @relation(fields: [leaseId], references: [id])
+  Property           Property?    @relation(fields: [propertyId], references: [id])
+  Organization       Organization @relation(fields: [organizationId], references: [id])
+  TransactionLinks   EcheanceTransactionLink[]
 
   @@index([isActive, startAt])
   @@index([leaseId])

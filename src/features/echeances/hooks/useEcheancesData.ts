@@ -15,6 +15,7 @@ import type { EcheanceRecurrente } from '@/types/echeance';
 export interface EcheancesFilters {
   search: string;
   type: string;
+  natureCode?: string;
   sens: string;
   periodicite: string;
   propertyId: string;

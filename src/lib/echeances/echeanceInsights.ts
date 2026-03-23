@@ -137,7 +137,7 @@ export function computeSuggestions(
 
   for (const e of echeances) {
     if (!e.isActive) continue;
-    if (e.nextOccurrenceDate && e.nextOccurrenceDate <= today && (e.linkedCount === 0 || e.coverage?.statut === 'a_generer')) {
+    if (e.nextOccurrenceDate && e.nextOccurrenceDate <= today && e.coverage?.statut === 'a_generer') {
       suggestions.push({
         id: `create-${e.id}`,
         label: `Créer la transaction pour ${e.label}`,

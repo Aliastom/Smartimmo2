@@ -10,6 +10,73 @@ import { mapLeaseServiceErrorToHttpStatus } from '@/domain/services/leaseService
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
 
+/**
+ * GET /api/leases/[id] — lecture d’un bail pour l’organisation courante (préflight, refresh UI, sync).
+ */
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    const id = params.id;
+
+    const lease = await prisma.lease.findFirst({
+      where: { id, organizationId },
+      include: {
+        Property: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            postalCode: true,
+            city: true,
+            surface: true,
+            rooms: true,
+          },
+        },
+        Tenant: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            birthDate: true,
+          },
+        },
+      },
+    });
+
+    if (lease) {
+      return NextResponse.json({
+        success: true,
+        data: lease,
+      });
+    }
+
+    const foreign = await prisma.lease.findUnique({
+      where: { id },
+      select: { id: true, organizationId: true },
+    });
+    if (foreign && foreign.organizationId !== organizationId) {
+      return NextResponse.json(
+        { success: false, error: 'Accès non autorisé à ce bail' },
+        { status: 403 }
+      );
+    }
+
+    return NextResponse.json({ success: false, error: 'Bail non trouvé' }, { status: 404 });
+  } catch (error) {
+    console.error('Erreur GET bail:', error);
+    return NextResponse.json(
+      { success: false, error: 'Erreur lors de la lecture du bail' },
+      { status: 500 }
+    );
+  }
+}
+
 const updateLeaseSchema = z.object({
   status: z.enum(['BROUILLON', 'ENVOYÉ', 'SIGNÉ', 'ACTIF', 'RÉSILIÉ', 'ARCHIVÉ']).optional(),
   propertyId: z.string().min(1).optional(),

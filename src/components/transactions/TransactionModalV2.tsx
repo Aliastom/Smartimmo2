@@ -105,6 +105,14 @@ interface TransactionModalProps {
       description?: string;
       montant: number;
     }>;
+    // Contexte échéance (création transaction depuis échéance)
+    echeanceSource?: {
+      label: string;
+      occurrenceYmd: string;
+      montantAttendu: number;
+      nature: string;
+      categoryId?: string;
+    };
   };
   // Métadonnées de suggestion (pour affichage)
   suggestionMeta?: {
@@ -295,6 +303,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   
   // Ref pour indiquer qu'on applique une suggestion OCR (évite l'écrasement par le pré-remplissage du bail)
   const isApplyingOcrSuggestion = React.useRef(false);
+  // Ref pour pré-remplissage depuis échéance : ne pas écraser nature/catégorie/montant par la logique bail
+  const isFromEcheancePrefill = React.useRef(false);
   // En édition : éviter que le recalcul auto écrase le montant persisté au premier rendu
   const editInitialLoadDoneRef = React.useRef(false);
   
@@ -811,7 +821,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     categories: categories || [],
     natures: isAppShellMode && natures && natures.length > 0 ? natures : undefined, // Passer les natures UNIQUEMENT en mode app-shell si disponibles
     mode: mode, // Passer le mode pour désactiver les automatismes en édition
-    selectedNature: selectedNature // Passer la nature sélectionnée pour le filtrage
+    selectedNature: selectedNature, // Passer la nature sélectionnée pour le filtrage
+    skipLeaseAutoFill: !!(prefill as any)?.echeanceSource, // Ne pas écraser nature/catégorie par Loyer quand pré-remplissage échéance
   });
 
   // Mise à jour automatique du libellé (uniquement si libellé en mode auto) — après useAutoFillTransaction
@@ -846,8 +857,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     if (mode === 'edit') {
       return;
     }
-    // ⚠️ Ne pas écraser les valeurs si on applique une suggestion OCR
-    if (isApplyingOcrSuggestion.current) {
+    // ⚠️ Ne pas écraser les valeurs si on applique une suggestion OCR ou un pré-remplissage échéance
+    if (isApplyingOcrSuggestion.current || isFromEcheancePrefill.current) {
       return;
     }
     
@@ -921,6 +932,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const chargesNonRecup = watch('chargesNonRecup') || 0;
   
   useEffect(() => {
+    if (isFromEcheancePrefill.current) return; // Pré-remplissage échéance : montant fixe
     // Ne pas recalculer pour les transactions enfant (commissions)
     const isChildTransaction = watch('parentTransactionId' as any);
     if (isChildTransaction) return;
@@ -962,6 +974,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   // Réinitialiser le mode auto quand on change de bien (nouveau contexte)
   const propertyId = watch('propertyId');
   useEffect(() => {
+    if (isFromEcheancePrefill.current) return; // Pré-remplissage échéance : ne pas toucher
     if (propertyId && mode === 'create') {
       // En mode création, réinitialiser le mode auto quand on change de bien
       setIsAutoAmount(true);
@@ -972,6 +985,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   // 🐛 FIX : Gestion intelligente du breakdown (pré-remplissage OU nettoyage)
   useEffect(() => {
+    if (isFromEcheancePrefill.current) return; // Ne pas toucher au breakdown si pré-remplissage échéance
     if (!isGestionEnabled || !gestionCodes || !selectedNature || !selectedCategory) return;
     
     const selectedCategoryObj = categories.find(c => c.id === selectedCategory);
@@ -1681,8 +1695,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 setLeases(leasesArray);
               }
               
-              // Auto-sélectionner le bail si un seul bail actif
-              if (leasesArray.length === 1 && leasesArray[0].status === 'ACTIF') {
+              // Auto-sélectionner le bail si un seul bail actif (sauf si pré-remplissage échéance : c'est lui qui décide)
+              if (!(prefill as any)?.echeanceSource && leasesArray.length === 1 && leasesArray[0].status === 'ACTIF') {
                 setValue('leaseId', leasesArray[0].id);
                 // Auto-sélection du bail unique - log supprimé
               }
@@ -1692,14 +1706,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           }
         }
 
-        // ✨ Appliquer le pré-remplissage OCR si disponible (mode création uniquement)
+        // ✨ Appliquer le pré-remplissage OCR ou échéance (mode création uniquement)
         if (mode === 'create' && prefill) {
+          const fromEcheance = !!(prefill as any)?.echeanceSource;
+          if (fromEcheance) isFromEcheancePrefill.current = true;
           // Protéger contre l'écrasement par l'effet "bail" au prochain re-render
           isApplyingOcrSuggestion.current = true;
-          // Application du pré-remplissage OCR - log supprimé
+          // Application du pré-remplissage - log supprimé
           
           if (prefill.propertyId) setValue('propertyId', prefill.propertyId);
           if (prefill.leaseId) setValue('leaseId', prefill.leaseId);
+          else if (fromEcheance) setValue('leaseId', ''); // Échéance sans bail : ne pas garder l'auto-sélection
           if (prefill.nature) {
             setSelectedNature(prefill.nature);
             setValue('nature', prefill.nature);
@@ -1726,8 +1743,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             // Applique paymentDate depuis prefill - log supprimé
             setValue('paymentDate', prefill.paymentDate);
           }
-          // Activer le calcul auto si breakdown présent
-          if (prefill.montantLoyer || prefill.chargesRecup) {
+          // Activer le calcul auto si breakdown présent (sauf pré-remplissage échéance : montant fixe)
+          if ((prefill as any)?.echeanceSource) {
+            setIsAutoAmount(false);
+          } else if (prefill.montantLoyer || prefill.chargesRecup) {
             setIsAutoAmount(true);
           }
           
@@ -1739,10 +1758,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           });
           
           // Pré-remplissage OCR appliqué - log supprimé
-          // Réactiver l'effet bail après un délai pour que le prochain re-render ne réécrive pas les valeurs OCR
+          // Réactiver l'effet bail après un délai (isFromEcheancePrefill reste true jusqu'à fermeture modal)
           setTimeout(() => {
             isApplyingOcrSuggestion.current = false;
-          }, 500);
+          }, fromEcheance ? 100 : 500);
           
           // Lier automatiquement le document suggéré
           if (suggestionMeta?.documentId && !isAppShellMode) {
@@ -1813,7 +1832,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       linkedDocumentIds.current.clear();
       sessionInitializedRef.current = false;
       processedDocIds.current.clear();
-      isApplyingOcrSuggestion.current = false; // Réinitialiser le flag OCR
+      isApplyingOcrSuggestion.current = false;
+      isFromEcheancePrefill.current = false;
       // Reset tracking documents liés et session - log supprimé
     }
   }, [isOpen]);
@@ -2232,6 +2252,37 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
           {activeTab === 'essentielles' && (
             <div className="space-y-4">
+              {/* Bloc explicite : transaction issue de l'échéance (Partie 6) */}
+              {(prefill as any)?.echeanceSource && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                  <div className="font-medium text-amber-900">Transaction issue de l'échéance</div>
+                  <dl className="mt-2 space-y-1 text-amber-800">
+                    <div className="flex justify-between gap-2">
+                      <dt>Libellé :</dt>
+                      <dd className="truncate font-medium">{(prefill as any).echeanceSource.label}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>Occurrence ciblée :</dt>
+                      <dd>{(prefill as any).echeanceSource.occurrenceYmd}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>Montant attendu :</dt>
+                      <dd>{(prefill as any).echeanceSource.montantAttendu?.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>Nature :</dt>
+                      <dd>{natures.find((n: { key?: string }) => n.key === (prefill as any).echeanceSource.nature)?.label || (prefill as any).echeanceSource.nature}</dd>
+                    </div>
+                    {(prefill as any).echeanceSource.categoryId && (
+                      <div className="flex justify-between gap-2">
+                        <dt>Catégorie :</dt>
+                        <dd>{categories.find(c => c.id === (prefill as any).echeanceSource.categoryId)?.label || (prefill as any).echeanceSource.categoryId}</dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+              )}
+
               {/* Bien */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>

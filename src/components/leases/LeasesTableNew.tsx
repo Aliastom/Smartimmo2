@@ -20,16 +20,24 @@ import {
   Clock,
   XCircle,
   AlertTriangle,
-  Eye
+  Eye,
+  Banknote
 } from 'lucide-react';
 import { useUI2 } from '@/hooks/useUI2';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import type { LeaseWithDetails } from '@/lib/services/leasesService';
 import { formatLeasePeriod } from '@/utils/leaseUtils';
+import { LeaseHealthBadge } from '@/features/leases/components/LeaseHealthBadge';
+import { LeaseNextActionCell } from '@/features/leases/components/LeaseNextActionCell';
+import { LeaseIndexationRowBadge } from '@/features/leases/components/LeaseIndexationRowBadge';
+import { getLeaseContractStatusInfo } from '@/features/leases/utils/leaseWorkflowStatus';
+
+export type LeaseHealthStatus = 'ok' | 'partiel' | 'retard';
 
 interface LeasesTableNewProps {
   leases: LeaseWithDetails[];
+  organizationId?: string;
   onView?: (lease: LeaseWithDetails) => void;
   onEdit?: (lease: LeaseWithDetails) => void;
   onDelete?: (lease: LeaseWithDetails) => void;
@@ -39,10 +47,15 @@ interface LeasesTableNewProps {
   selectedIds?: Set<string>;
   showSelection?: boolean;
   loading?: boolean;
+  /** Map leaseId -> santé (pour surlignage lignes problématiques + action rapide) */
+  leaseHealthMap?: Record<string, LeaseHealthStatus>;
+  /** Callback pour action rapide "Payer" sur lignes retard/partiel */
+  onQuickPay?: (lease: LeaseWithDetails) => void;
 }
 
 const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
   leases,
+  organizationId,
   onView,
   onEdit,
   onDelete,
@@ -52,6 +65,8 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
   selectedIds = new Set(),
   showSelection = true,
   loading = false,
+  leaseHealthMap,
+  onQuickPay,
 }) => {
   // ✅ [DEV-ONLY] Logs de debug (isolés derrière flag DEV)
   if (process.env.NODE_ENV === 'development' && (window as any).__SMARTIMMO_DEBUG_LEASES_TABLE__) {
@@ -68,21 +83,16 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
   const isUI2Active = useUI2();
   
   const getStatusBadge = (status: string) => {
+    const normalized = getLeaseContractStatusInfo(status);
     const statusConfig: Record<string, { variant: any; icon: any; label: string }> = {
-      'BROUILLON': { variant: 'secondary', icon: Edit, label: 'Brouillon' },
-      'À_ENVOYER': { variant: 'warning', icon: AlertTriangle, label: 'À envoyer' },
-      'A_ENVOYER': { variant: 'warning', icon: AlertTriangle, label: 'À envoyer' },
-      'TO_SEND': { variant: 'warning', icon: AlertTriangle, label: 'À envoyer' },
-      'ENVOYÉ': { variant: 'warning', icon: Clock, label: 'Envoyé' },
-      'ENVOYE': { variant: 'warning', icon: Clock, label: 'Envoyé' },
-      'SIGNÉ': { variant: 'success', icon: CheckCircle, label: 'Signé' },
-      'SIGNE': { variant: 'success', icon: CheckCircle, label: 'Signé' },
-      'ACTIF': { variant: 'success', icon: CheckCircle, label: 'Actif' },
-      'RÉSILIÉ': { variant: 'destructive', icon: XCircle, label: 'Résilié' },
-      'RESILIE': { variant: 'destructive', icon: XCircle, label: 'Résilié' },
+      BROUILLON: { variant: 'secondary', icon: Edit, label: 'Brouillon' },
+      A_SIGNER: { variant: 'warning', icon: Clock, label: 'À signer' },
+      ACTIF: { variant: 'success', icon: CheckCircle, label: 'Actif' },
+      RESILIE: { variant: 'destructive', icon: XCircle, label: 'Résilié' },
+      ARCHIVE: { variant: 'outline', icon: FileText, label: 'Archivé' },
     };
 
-    const config = statusConfig[status] || { variant: 'secondary', icon: FileText, label: status };
+    const config = statusConfig[normalized.code];
     const Icon = config.icon;
 
     return (
@@ -240,18 +250,32 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
               <TableHeaderCellV2>Locataire(s)</TableHeaderCellV2>
               <TableHeaderCellV2>Type</TableHeaderCellV2>
               <TableHeaderCellV2>Période</TableHeaderCellV2>
-              <TableHeaderCellV2>€ Loyer (€)</TableHeaderCellV2>
+              <TableHeaderCellV2>€ Loyer</TableHeaderCellV2>
+              {organizationId && <TableHeaderCellV2 className="font-semibold text-gray-900">Santé</TableHeaderCellV2>}
               <TableHeaderCellV2>Statut</TableHeaderCellV2>
-              <TableHeaderCellV2>Prochaine action / Échéance</TableHeaderCellV2>
+              <TableHeaderCellV2 className="font-semibold text-gray-900">Prochaine action / Échéance</TableHeaderCellV2>
               <TableHeaderCellV2 className="text-center">Actions</TableHeaderCellV2>
             </tr>
           </TableHeaderV2>
           <TableBodyV2>
-            {leases.map((lease) => (
+            {leases.map((lease) => {
+              const contractStatus = getLeaseContractStatusInfo(lease.status).code;
+              const canUsePaymentHealth = contractStatus === 'ACTIF';
+              const health = leaseHealthMap?.[lease.id];
+              const isProblematic = canUsePaymentHealth && (health === 'retard' || health === 'partiel');
+              const rowClass = !canUsePaymentHealth
+                ? undefined
+                : health === 'retard'
+                  ? 'bg-red-50/70'
+                  : health === 'partiel'
+                    ? 'bg-amber-50/70'
+                    : undefined;
+              return (
               <TableRowV2
                 key={lease.id}
                 onClick={() => onView?.(lease)}
                 onHoverInfo={getHoverInfo(lease)}
+                className={rowClass}
               >
                 {showSelection && (
                   <TableCellV2 onClick={(e) => e.stopPropagation()}>
@@ -320,19 +344,44 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                     )}
                   </div>
                 </TableCellV2>
+                {organizationId && (
+                  <TableCellV2 className="font-medium">
+                    <LeaseHealthBadge lease={lease} organizationId={organizationId} className="text-base" />
+                  </TableCellV2>
+                )}
                 <TableCellV2>
                   <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out">
                     {getStatusBadge(lease.status)}
+                    {organizationId && (
+                      <div className="mt-1">
+                        <LeaseIndexationRowBadge lease={lease} />
+                      </div>
+                    )}
                   </div>
                 </TableCellV2>
                 <TableCellV2>
-                  <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out flex flex-col gap-1">
-                    {getExpirationWarning(lease.endDate)}
-                    {/* TODO: Ajouter indexation à prévoir */}
-                  </div>
+                  {organizationId ? (
+                    <LeaseNextActionCell lease={lease} organizationId={organizationId} />
+                  ) : (
+                    <span className="text-sm text-gray-400">—</span>
+                  )}
                 </TableCellV2>
                 <TableCellV2 className="text-center" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-center gap-1">
+                    {isProblematic && onQuickPay && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onQuickPay(lease);
+                        }}
+                        className="h-8 px-2 text-amber-700 border-amber-300 hover:bg-amber-50"
+                        title="Enregistrer un paiement"
+                      >
+                        <Banknote className="h-4 w-4" />
+                      </Button>
+                    )}
                     {onEdit && (
                       <Button
                         variant="outline"
@@ -362,7 +411,8 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                   </div>
                 </TableCellV2>
               </TableRowV2>
-            ))}
+              );
+            })}
           </TableBodyV2>
         </TableV2>
       ) : (
@@ -396,17 +446,30 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
               <TableHeaderCell>Locataire(s)</TableHeaderCell>
               <TableHeaderCell>Type</TableHeaderCell>
               <TableHeaderCell>Période</TableHeaderCell>
-              <TableHeaderCell>€ Loyer (€)</TableHeaderCell>
+              <TableHeaderCell>€ Loyer</TableHeaderCell>
+              {organizationId && <TableHeaderCell className="font-semibold text-gray-900">Santé</TableHeaderCell>}
               <TableHeaderCell>Statut</TableHeaderCell>
-              <TableHeaderCell>Prochaine action / Échéance</TableHeaderCell>
+              <TableHeaderCell className="font-semibold text-gray-900">Prochaine action / Échéance</TableHeaderCell>
               <TableHeaderCell>Actions</TableHeaderCell>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {leases.map((lease) => (
+            {leases.map((lease) => {
+              const contractStatus = getLeaseContractStatusInfo(lease.status).code;
+              const canUsePaymentHealth = contractStatus === 'ACTIF';
+              const health = leaseHealthMap?.[lease.id];
+              const isProblematic = canUsePaymentHealth && (health === 'retard' || health === 'partiel');
+              const rowClass = !canUsePaymentHealth
+                ? undefined
+                : health === 'retard'
+                  ? 'bg-red-50/70'
+                  : health === 'partiel'
+                    ? 'bg-amber-50/70'
+                    : undefined;
+              return (
               <TableRow 
                 key={lease.id}
-                className="cursor-pointer hover:bg-gray-50"
+                className={`cursor-pointer hover:bg-gray-50 ${rowClass ?? ''}`}
                 onClick={() => onView?.(lease)}
               >
                 {showSelection && (
@@ -474,17 +537,40 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                     </div>
                   )}
                 </TableCell>
-                <TableCell>
-                  {getStatusBadge(lease.status)}
-                </TableCell>
+                {organizationId && (
+                  <TableCell className="font-medium">
+                    <LeaseHealthBadge lease={lease} organizationId={organizationId} className="text-base" />
+                  </TableCell>
+                )}
                 <TableCell>
                   <div className="flex flex-col gap-1">
-                    {getExpirationWarning(lease.endDate)}
-                    {/* TODO: Ajouter indexation à prévoir */}
+                    {getStatusBadge(lease.status)}
+                    {organizationId && <LeaseIndexationRowBadge lease={lease} />}
                   </div>
+                </TableCell>
+                <TableCell>
+                  {organizationId ? (
+                    <LeaseNextActionCell lease={lease} organizationId={organizationId} />
+                  ) : (
+                    <span className="text-sm text-gray-400">—</span>
+                  )}
                 </TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center gap-2">
+                    {isProblematic && onQuickPay && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onQuickPay(lease);
+                        }}
+                        title="Enregistrer un paiement"
+                        className="text-amber-700 hover:bg-amber-50"
+                      >
+                        <Banknote className="h-4 w-4" />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -511,7 +597,8 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
           </TableBody>
         </Table>
       )}
@@ -528,6 +615,9 @@ export const LeasesTableNew = React.memo(LeasesTableNewComponent, (prevProps, ne
   if (prevProps.leases.length !== nextProps.leases.length) return false;
   if (prevProps.selectedIds.size !== nextProps.selectedIds.size) return false;
   if (prevProps.showSelection !== nextProps.showSelection) return false;
+  if (prevProps.organizationId !== nextProps.organizationId) return false;
+  if (prevProps.onQuickPay !== nextProps.onQuickPay) return false;
+  if (prevProps.leaseHealthMap !== nextProps.leaseHealthMap) return false;
   
   // ✅ OPTIMISATION : Si même nombre de leases, comparer uniquement les signatures
   // ⚠️ ROBUSTE AUX STRING ISO : updatedAt peut être string ISO ou Date, normaliser en string

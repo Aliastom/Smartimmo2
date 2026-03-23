@@ -90,6 +90,42 @@ export function computeCoverage(
   };
 }
 
+/** Transaction liée avec date pour couverture par occurrence. */
+export interface LinkedTransactionWithDate {
+  amount: number;
+  sens: 'CREDIT' | 'DEBIT';
+  date: string;
+}
+
+/**
+ * Calcule la couverture au niveau d'une occurrence spécifique (Partie 5).
+ */
+export function computeCoverageForOccurrence(
+  expectedAmount: number,
+  sens: 'CREDIT' | 'DEBIT',
+  linkedTransactions: LinkedTransactionWithDate[],
+  occurrenceYmd: string,
+  dateToleranceDays: number = 7,
+  config: EcheanceLinkConfig = defaultEcheanceLinkConfig,
+  echeanceType?: string
+): CoverageResult & { transactionsForOccurrence: LinkedTransactionWithDate[] } {
+  const filtered = linkedTransactions.filter((t) => {
+    const dist = Math.abs(
+      (new Date(t.date).getTime() - new Date(occurrenceYmd).getTime()) / (24 * 60 * 60 * 1000)
+    );
+    return dist <= dateToleranceDays;
+  });
+  const inputs: LinkedTransactionInput[] = filtered.map((t) => ({ amount: t.amount, sens: t.sens }));
+  const result = computeCoverage(
+    expectedAmount,
+    sens,
+    inputs,
+    config,
+    echeanceType
+  );
+  return { ...result, transactionsForOccurrence: filtered };
+}
+
 /**
  * Convertit une transaction "brute" (montant, nature) en entrée pour computeCoverage.
  * nature type RECETTE => CREDIT, sinon DEBIT.

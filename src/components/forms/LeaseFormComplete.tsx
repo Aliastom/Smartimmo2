@@ -259,15 +259,14 @@ export default function LeaseFormComplete({
   };
 
   const tabs = [
-    { id: 'basic', label: 'Informations essentielles', icon: Building2, required: true },
-    { id: 'financial', label: 'Conditions financières', icon: Euro, required: false },
+    { id: 'basic', label: 'Contrat', icon: Building2, required: true },
+    { id: 'financial', label: 'Financier', icon: Euro, required: false },
     { id: 'terms', label: 'Clauses et conditions', icon: FileText, required: false },
     { id: 'actions', label: 'Actions', icon: Send, required: false },
   ];
 
-  // Labels courts pour mobile
   const tabLabelsMobile: Record<string, string> = {
-    'basic': 'Essentiel',
+    'basic': 'Contrat',
     'financial': 'Finances',
     'terms': 'Clauses',
     'actions': 'Actions',
@@ -418,89 +417,6 @@ export default function LeaseFormComplete({
         </div>
       </div>
 
-      {/* Loyer obligatoire */}
-      <div className="border-t border-gray-200 pt-6">
-        <h4 className="text-lg font-medium text-gray-900 mb-4">Conditions financières obligatoires</h4>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <span className="text-red-500">*</span> Loyer mensuel (€)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={formData.rentAmount}
-              onChange={(e) => handleChange('rentAmount', parseFloat(e.target.value) || 0)}
-              className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
-                errors.rentAmount ? 'border-red-500' : 'border-gray-300'
-              }`}
-              placeholder="Ex: 850.00"
-            />
-            {errors.rentAmount && <p className="text-red-500 text-sm mt-1">{errors.rentAmount}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Caution (€)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={formData.deposit}
-              onChange={(e) => handleChange('deposit', parseFloat(e.target.value) || 0)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
-              placeholder="Ex: 1700.00"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Granularité des charges */}
-      {isGestionEnabled && (
-        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-          <h4 className="text-sm font-medium text-orange-900 mb-3">
-            Granularité des charges (optionnel)
-          </h4>
-          <p className="text-xs text-orange-700 mb-4">
-            Ces montants permettront de préremplir automatiquement les transactions de loyer mensuelles
-          </p>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Charges récupérables mensuelles (€)
-                <span className="text-xs text-gray-500 block mt-1">
-                  Refacturées au locataire
-                </span>
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.chargesRecupMensuelles || ''}
-                onChange={(e) => handleChange('chargesRecupMensuelles', parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
-                placeholder="Ex: 20.00"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Charges non récupérables mensuelles (€)
-                <span className="text-xs text-gray-500 block mt-1">
-                  À la charge du propriétaire
-                </span>
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.chargesNonRecupMensuelles || ''}
-                onChange={(e) => handleChange('chargesNonRecupMensuelles', parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
-                placeholder="Ex: 35.00"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Statut - seulement en édition */}
       {initialData && (
         <div>
@@ -526,37 +442,109 @@ export default function LeaseFormComplete({
     </div>
   );
 
+  const totalLocataire = formData.rentAmount + (formData.chargesRecupMensuelles || 0);
+
   const renderFinancialInfo = () => (
-    <div className="space-y-6">
-      {/* Information */}
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <AlertCircle className="h-5 w-5 text-yellow-600" />
-          <h3 className="font-medium text-yellow-900">Informations financières supplémentaires</h3>
+    <div className="space-y-8">
+      {/* Résumé financier en live */}
+      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-6">
+        <h4 className="text-sm font-medium text-gray-500 mb-4">Résumé financier</h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div>
+            <p className="text-sm text-gray-400">Loyer HC</p>
+            <p className="text-2xl font-bold text-gray-900">{formData.rentAmount.toFixed(2)} €</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-400">Charges récup.</p>
+            <p className="text-2xl font-bold text-gray-900">{(formData.chargesRecupMensuelles || 0).toFixed(2)} €</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-400">Total locataire</p>
+            <p className="text-2xl font-bold text-gray-900">{totalLocataire.toFixed(2)} €</p>
+          </div>
         </div>
-        <p className="text-sm text-yellow-700">
-          Les montants principaux sont déjà renseignés dans l'onglet "Informations essentielles".
-        </p>
       </div>
 
-      {/* Jour de paiement */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Jour de paiement du loyer
-        </label>
-        <input
-          type="number"
-          min="1"
-          max="31"
-          value={formData.paymentDay}
-          onChange={(e) => handleChange('paymentDay', parseInt(e.target.value) || 1)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-        />
-        <p className="text-xs text-gray-500 mt-1">Jour du mois où le loyer doit être payé (1-31)</p>
-      </div>
-
-      {/* Indexation */}
+      {/* Loyer HC et Charges récup — champs principaux */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            <span className="text-red-500">*</span> Loyer mensuel HC (€)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            value={formData.rentAmount}
+            onChange={(e) => handleChange('rentAmount', parseFloat(e.target.value) || 0)}
+            className={`w-full px-3 py-2 border rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors ${
+              errors.rentAmount ? 'border-red-500' : 'border-gray-300'
+            }`}
+            placeholder="Ex: 850.00"
+          />
+          {errors.rentAmount && <p className="text-red-500 text-sm mt-1">{errors.rentAmount}</p>}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Charges récupérables mensuelles (€)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            value={formData.chargesRecupMensuelles || ''}
+            onChange={(e) => handleChange('chargesRecupMensuelles', parseFloat(e.target.value) || 0)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
+            placeholder="Ex: 20.00"
+          />
+        </div>
+      </div>
+
+      {/* Progressive disclosure — détails supplémentaires */}
+      <div className="space-y-6 border-t border-gray-200 pt-6">
+        {isGestionEnabled && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Charges non récupérables mensuelles (€)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={formData.chargesNonRecupMensuelles || ''}
+              onChange={(e) => handleChange('chargesNonRecupMensuelles', parseFloat(e.target.value) || 0)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
+              placeholder="Ex: 35.00"
+            />
+          </div>
+        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Dépôt de garantie (€)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            value={formData.deposit}
+            onChange={(e) => handleChange('deposit', parseFloat(e.target.value) || 0)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
+            placeholder="Ex: 1700.00"
+          />
+        </div>
+
+        {/* Jour de paiement */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Jour de paiement du loyer
+          </label>
+          <input
+            type="number"
+            min="1"
+            max="31"
+            value={formData.paymentDay}
+            onChange={(e) => handleChange('paymentDay', parseInt(e.target.value) || 1)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          />
+          <p className="text-xs text-gray-400 mt-1">Jour du mois (1-31)</p>
+        </div>
+
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-indexationType">
             Type d'indexation
@@ -574,39 +562,7 @@ export default function LeaseFormComplete({
             aria-label="Type d'indexation"
           />
         </div>
-
-        {/* Note: Le taux d'indexation n'est pas encore supporté dans la base de données */}
       </div>
-
-      {/* Résumé financier */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Euro className="h-5 w-5" />
-            Résumé financier
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="text-center p-4 bg-orange-50 rounded-lg">
-              <p className="text-sm text-orange-600 font-medium">Loyer mensuel</p>
-              <p className="text-2xl font-bold text-orange-900">{formData.rentAmount.toFixed(2)} €</p>
-            </div>
-            <div className="text-center p-4 bg-green-50 rounded-lg">
-              <p className="text-sm text-green-600 font-medium">Charges récup. mensuelles</p>
-              <p className="text-2xl font-bold text-green-900">{(formData.chargesRecupMensuelles || 0).toFixed(2)} €</p>
-            </div>
-            <div className="text-center p-4 bg-purple-50 rounded-lg">
-              <p className="text-sm text-purple-600 font-medium">Total payé par locataire</p>
-              <p className="text-2xl font-bold text-purple-900">{(formData.rentAmount + (formData.chargesRecupMensuelles || 0)).toFixed(2)} €</p>
-            </div>
-          </div>
-          <div className="mt-4 text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-sm text-gray-600 font-medium">Caution demandée</p>
-            <p className="text-xl font-bold text-gray-900">{formData.deposit.toFixed(2)} €</p>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 

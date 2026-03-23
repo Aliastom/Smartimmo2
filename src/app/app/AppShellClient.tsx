@@ -631,12 +631,15 @@ function AppShellClientContent() {
         const validTab = validTabs.includes(normalizedTab) ? normalizedTab : 'transactions';
         
         // ✅ Key stable pour éviter les remounts inutiles
+        const initialLeaseId = urlParams.get('leaseId') || undefined;
+
         return (
           <PropertyDetailView 
             key="app-shell-property"
             propertyId={propertyId}
             organizationId={organizationId}
             tab={validTab}
+            initialLeaseId={initialLeaseId}
           />
         );
       }

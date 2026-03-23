@@ -24,10 +24,13 @@ import { Badge } from '@/components/ui/Badge';
 import { Switch } from '@/components/ui/Switch';
 import {
   EcheanceRecurrente,
-  ECHEANCE_TYPE_LABELS,
   PERIODICITE_LABELS,
-  TYPE_COLORS,
+  getNatureBadgeClass,
+  getCategoryLabelForEcheance,
 } from '@/types/echeance';
+import { getNatureLabelForEcheance } from '@/lib/echeances/echeanceDisplayHelpers';
+import { resolveNatureCodeForEcheance } from '@/lib/echeances/echeanceTypeMigration';
+import { useEcheanceReferential } from '@/features/echeances/hooks/useEcheanceReferential';
 import Link from 'next/link';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { createEcheanceServiceWithMode } from '@/domain/services/echeanceServiceFactory';
@@ -43,6 +46,7 @@ import {
   generationBadgeMeta,
   getStatutGeneration,
 } from '@/lib/echeances/echeanceCashflowHelpers';
+import { getNextUncoveredOccurrenceInfo } from '@/lib/echeances/echeanceOccurrences';
 import {
   getLinksByEcheanceIds,
   addEcheanceTransactionLink,
@@ -165,6 +169,11 @@ interface EcheanceDrawerProps {
   onDuplicate: (echeance: EcheanceRecurrente) => void;
   onDelete: (echeance: EcheanceRecurrente) => void;
   propertyId?: string; // Pour émettre l'événement de refresh
+  onCreateTransaction?: (echeance: EcheanceRecurrente) => void;
+  /** Occurrences déjà couvertes (sync avec l’onglet Échéances bien). Si absent : comportement historique. */
+  coveredOccurrenceDates?: Set<string>;
+  /** Mode de chargement des catégories pour afficher le libellé */
+  dataMode?: 'normal' | 'app-shell';
 }
 
 export function EcheanceDrawer({
@@ -176,8 +185,18 @@ export function EcheanceDrawer({
   onDelete,
   propertyId,
   onCreateTransaction,
+  coveredOccurrenceDates,
+  dataMode = 'app-shell',
 }: EcheanceDrawerProps) {
+  const pilotageInfo = React.useCallback(
+    (e: EcheanceRecurrente) =>
+      coveredOccurrenceDates != null
+        ? getNextUncoveredOccurrenceInfo(e, coveredOccurrenceDates, new Date())
+        : getNextOccurrenceInfo(e),
+    [coveredOccurrenceDates]
+  );
   const { organizationId } = useCurrentOrganization();
+  const { natures, categories, getDefaultCategoryId } = useEcheanceReferential(dataMode);
   
   // ✅ CORRECTION: État local pour l'échéance (mis à jour via événements)
   const [echeance, setEcheance] = useState<EcheanceRecurrente | null>(initialEcheance);
@@ -247,6 +266,8 @@ export function EcheanceDrawer({
             leaseId: updated.leaseId || null,
             label: updated.label,
             type: updated.type,
+            natureCode: (updated as any).natureCode ?? undefined,
+            defaultCategoryId: (updated as any).defaultCategoryId ?? undefined,
             periodicite: updated.periodicite,
             montant: Number(updated.montant),
             recuperable: updated.recuperable,
@@ -378,7 +399,7 @@ export function EcheanceDrawer({
             label: t.label || '—',
             nature: t.nature ?? null,
           }));
-        const nextOcc = getNextOccurrenceInfo(echeance);
+        const nextOcc = pilotageInfo(echeance);
         const echForScoring = {
           id: echeance.id,
           propertyId: echeance.propertyId ?? null,
@@ -398,7 +419,20 @@ export function EcheanceDrawer({
         setLoadingSuggestions(false);
       }
     })();
-  }, [isOpen, echeance?.id, echeance?.propertyId, echeance?.leaseId, echeance?.montant, echeance?.sens, echeance?.label, echeance?.type, propertyId, organizationId, linkedRows.length]);
+  }, [
+    isOpen,
+    echeance?.id,
+    echeance?.propertyId,
+    echeance?.leaseId,
+    echeance?.montant,
+    echeance?.sens,
+    echeance?.label,
+    echeance?.type,
+    propertyId,
+    organizationId,
+    linkedRows.length,
+    pilotageInfo,
+  ]);
 
   const openLinkPicker = async () => {
     if (!organizationId || !propertyId || !echeance) return;
@@ -436,7 +470,7 @@ export function EcheanceDrawer({
       if (!ok) return;
       await removeEcheanceTransactionLink(existing.id);
     }
-    const nextInfo = getNextOccurrenceInfo(echeance);
+    const nextInfo = pilotageInfo(echeance);
     const occ = nextInfo?.displayDate || nextInfo?.nextDate || null;
     setLinking(true);
     try {
@@ -474,7 +508,7 @@ export function EcheanceDrawer({
   
   if (!isOpen || !echeance) return null;
 
-  const nextInfo = getNextOccurrenceInfo(echeance);
+  const nextInfo = pilotageInfo(echeance);
   const urg = nextInfo ? temporalBadgeMeta(nextInfo.temporalStatus) : temporalBadgeMeta('desactive');
   const chargeAnnuelleEstimee =
     echeance.sens === 'DEBIT' ? toAnnualAmount(echeance.montant, echeance.periodicite) : null;
@@ -537,7 +571,12 @@ export function EcheanceDrawer({
                 <span className="text-xs text-gray-500">par occurrence</span>
               </div>
               <div className="flex flex-wrap gap-2 mt-3">
-                <Badge className={TYPE_COLORS[echeance.type]}>{ECHEANCE_TYPE_LABELS[echeance.type]}</Badge>
+                <Badge className={getNatureBadgeClass(resolveNatureCodeForEcheance(echeance))}>
+                  {getNatureLabelForEcheance(echeance, natures)}
+                </Badge>
+                <span className="text-xs text-gray-600" title="Catégorie">
+                  {getCategoryLabelForEcheance(echeance, categories, resolveNatureCodeForEcheance, getDefaultCategoryId)}
+                </span>
                 <span
                   className={
                     echeance.sens === 'DEBIT'
@@ -699,11 +738,12 @@ export function EcheanceDrawer({
                   </Button>
                 </div>
                 {/* Timeline échéance ↔ transaction (phase 4) */}
-                {echeance && (linkedRows.length > 0 || getNextOccurrenceInfo(echeance)?.nextDate) && (
+                {echeance && (linkedRows.length > 0 || pilotageInfo(echeance)?.nextDate) && (
                   <div className="mt-4 pt-4 border-t border-gray-100">
                     <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Timeline</p>
                     {(() => {
-                      const nextOcc = getNextOccurrenceInfo(echeance)?.nextDate ?? getNextOccurrenceInfo(echeance)?.displayDate;
+                      const pi = pilotageInfo(echeance);
+                      const nextOcc = pi?.nextDate ?? pi?.displayDate;
                       const entries: { date: string; label: string; type: 'echeance' | 'transaction' }[] = [];
                       if (nextOcc) entries.push({ date: nextOcc, label: 'Échéance prévue', type: 'echeance' });
                       linkedRows.forEach((r) => entries.push({ date: r.date.slice(0, 10), label: `Transaction : ${r.label || '—'}`, type: 'transaction' }));

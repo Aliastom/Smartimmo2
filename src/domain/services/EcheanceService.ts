@@ -5,6 +5,7 @@
  */
 
 import type { IEcheanceRepository, Echeance, CreateEcheanceData, UpdateEcheanceData } from '../repositories/interfaces/IEcheanceRepository';
+import { getLegacyTypeFromNatureCode } from '@/lib/echeances/echeanceNatureMapping';
 import type { IPropertyRepository } from '../repositories/interfaces/IPropertyRepository';
 import type { ILeaseRepository } from '../repositories/interfaces/ILeaseRepository';
 
@@ -19,7 +20,10 @@ export interface CreateEcheanceParams {
   propertyId?: string | null;
   leaseId?: string | null;
   label: string;
-  type: string;
+  /** Type legacy (dérivé de natureCode si non fourni) */
+  type?: string;
+  natureCode: string;
+  defaultCategoryId?: string | null;
   periodicite: string;
   montant: number;
   recuperable?: boolean;
@@ -34,6 +38,8 @@ export interface UpdateEcheanceParams {
   leaseId?: string | null;
   label?: string;
   type?: string;
+  natureCode?: string;
+  defaultCategoryId?: string | null;
   periodicite?: string;
   montant?: number;
   recuperable?: boolean;
@@ -107,13 +113,17 @@ export class EcheanceService {
       }
     }
 
-    // Préparer les données
+    const sens = params.sens as 'DEBIT' | 'CREDIT';
+    const type = params.type || getLegacyTypeFromNatureCode(params.natureCode, sens);
+
     const createData: CreateEcheanceData = {
       organizationId: params.organizationId,
       propertyId: params.propertyId || null,
       leaseId: params.leaseId || null,
       label: params.label,
-      type: params.type,
+      type,
+      natureCode: params.natureCode,
+      defaultCategoryId: params.defaultCategoryId || null,
       periodicite: params.periodicite,
       montant: params.montant,
       recuperable: params.recuperable ?? false,
@@ -201,6 +211,12 @@ export class EcheanceService {
     const updateData: UpdateEcheanceData = {};
     if (params.label !== undefined) updateData.label = params.label;
     if (params.type !== undefined) updateData.type = params.type;
+    else if (params.natureCode !== undefined) {
+      const sens = (params.sens ?? existing.sens) as 'DEBIT' | 'CREDIT';
+      updateData.type = getLegacyTypeFromNatureCode(params.natureCode, sens);
+    }
+    if (params.natureCode !== undefined) updateData.natureCode = params.natureCode;
+    if (params.defaultCategoryId !== undefined) updateData.defaultCategoryId = params.defaultCategoryId;
     if (params.periodicite !== undefined) updateData.periodicite = params.periodicite;
     if (params.montant !== undefined) updateData.montant = params.montant;
     if (params.recuperable !== undefined) updateData.recuperable = params.recuperable;

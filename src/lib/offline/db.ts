@@ -264,6 +264,8 @@ export interface LocalEcheanceRecurrente {
   startAt: string;
   endAt?: string | null;
   isActive: boolean;
+  natureCode?: string | null;
+  defaultCategoryId?: string | null;
   createdAt: string;
   updatedAt: string;
   _localUpdatedAt?: string;

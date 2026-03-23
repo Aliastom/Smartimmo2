@@ -1,13 +1,15 @@
 /**
  * Schéma de validation Zod pour le formulaire d'échéance (côté client)
+ * Référentiel métier : Nature + Catégorie (aligné avec les transactions)
  */
 
 import { z } from 'zod';
-import { EcheanceType, Periodicite, SensEcheance } from '@prisma/client';
+import { Periodicite, SensEcheance } from '@prisma/client';
 
 export const echeanceFormSchema = z.object({
   label: z.string().min(1, 'Le libellé est requis'),
-  type: z.nativeEnum(EcheanceType, { required_error: 'Le type est requis' }),
+  natureCode: z.string().min(1, 'La nature est requise'),
+  categoryId: z.string().min(1, 'La catégorie est requise'),
   periodicite: z.nativeEnum(Periodicite, { required_error: 'La périodicité est requise' }),
   montant: z.coerce.number().positive('Le montant doit être positif'),
   recuperable: z.boolean().default(false),
@@ -17,6 +19,8 @@ export const echeanceFormSchema = z.object({
   startAt: z.string().min(1, 'La date de début est requise'), // Format YYYY-MM-DD
   endAt: z.string().nullable().optional(),
   isActive: z.boolean().default(true),
+  /** Legacy : conservé pour migration, dérivé de natureCode si absent */
+  type: z.string().optional(),
 }).refine(
   (data) => {
     // Si endAt est fourni et non vide, il doit être >= startAt

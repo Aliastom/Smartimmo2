@@ -24,6 +24,8 @@ interface UseAutoFillTransactionProps {
   categories: any[];
   selectedNature?: string; // Ajouter selectedNature pour le filtrage
   natures?: any[]; // Ajouter natures pour passer au hook useNatureMapping en mode app-shell
+  /** Quand true (ex: pré-remplissage depuis échéance), ne pas écraser nature/catégorie par Loyer */
+  skipLeaseAutoFill?: boolean;
 }
 
 export const useAutoFillTransaction = ({
@@ -35,6 +37,7 @@ export const useAutoFillTransaction = ({
   categories,
   selectedNature,
   natures,
+  skipLeaseAutoFill = false,
   mode = 'create' // Ajouter le mode pour désactiver les automatismes en édition
 }: UseAutoFillTransactionProps & { mode?: 'create' | 'edit' }) => {
   const [autoFillState, setAutoFillState] = useState<AutoFillState>({
@@ -86,6 +89,11 @@ export const useAutoFillTransaction = ({
         lease.Property?.id === propertyId && lease.status === 'ACTIF'
       );
       
+      // Ne pas écraser nature/catégorie si pré-remplissage depuis échéance
+      if (skipLeaseAutoFill) {
+        return;
+      }
+      
       // Vérifier si le bail actuel appartient encore au bien
       const currentLeaseId = getValues('leaseId');
       if (currentLeaseId) {
@@ -105,7 +113,7 @@ export const useAutoFillTransaction = ({
         }
       }
       
-      // Si un seul bail ACTIF, auto-sélectionner
+      // Si un seul bail ACTIF, auto-sélectionner (sauf si skipLeaseAutoFill)
       if (propertyLeases.length === 1) {
         const singleLease = propertyLeases[0];
         setValue('leaseId', singleLease.id);
@@ -143,7 +151,7 @@ export const useAutoFillTransaction = ({
         autoSuggestions: {}
       }));
     }
-  }, [propertyId, leases, properties, date, setValue, getValues]);
+  }, [propertyId, leases, properties, date, setValue, getValues, skipLeaseAutoFill]);
 
   // 3) Modification du Bail - Recalculer et pré-sélectionner la nature
   // DÉSACTIVÉ pour éviter les resets automatiques
