@@ -2,33 +2,35 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { notify2 } from '@/lib/notify2';
-import { Plus, Edit, Trash2, CheckCircle, Home } from 'lucide-react';
+import { Plus, Edit, Trash2, CheckCircle, Home, ArrowDown, ArrowUp, ArrowDownUp } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { Switch } from '@/components/ui/Switch';
-import { SectionTitle } from '@/components/ui/SectionTitle';
+import { Badge } from '@/components/ui/Badge';
 import { usePropertyHeaderActions } from '@/app/biens/[id]/PropertyHeaderActionsContext';
 import { navigateToView } from '@/utils/appShellNavigation';
-import { LoansKpiBar } from '@/components/loans/LoansKpiBar';
 import { LoansCRDTimelineChart } from '@/components/loans/LoansCRDTimelineChart';
-import { LoansByPropertyChart } from '@/components/loans/LoansByPropertyChart';
-import { LoansTopCostlyChart } from '@/components/loans/LoansTopCostlyChart';
-import { Loan } from '@/components/loans/LoansTable';
+import { PropertyFinancingSummaryBlock } from '@/features/loans/components/PropertyFinancingSummaryBlock';
+import { useTransactionsKpis } from '@/hooks/useTransactionsKpis';
+import {
+  aggregateActivePropertyLoans,
+  getLoanPilotageStatus,
+  loanPilotageStatusLabel,
+} from '@/features/loans/utils/propertyLoanPilotage';
+import { buildCrdTimelineForLoans } from '@/features/loans/utils/buildCrdTimeline';
+import {
+  LOAN_CASHFLOW_WEIGHT_TOOLTIP,
+  LoanCashflowWeightProgressBar,
+  computeLoanWeightInCashflowPct,
+  getLoanCashflowWeightDisplay,
+} from '@/features/loans/utils/loanCashflowWeight';
 import { LoanModalV2 } from '@/components/loans/LoanModalV2';
 import { LoanDrawer } from '@/components/loans/LoanDrawer';
 import { ConfirmDeleteLoanModal } from '@/components/loans/ConfirmDeleteLoanModal';
 import { ConfirmDeleteMultipleLoansModal } from '@/components/loans/ConfirmDeleteMultipleLoansModal';
 import { LoansFilters } from '@/components/loans/LoansFilters';
-import { useLoansData } from '@/features/loans/hooks/useLoansData';
+import { useLoansData, type Loan } from '@/features/loans/hooks/useLoansData';
 import { useLoansCharts } from '@/hooks/useLoansCharts';
 import { getLoanRepositoryOffline } from '@/lib/offline/repositories/LoanRepositoryOffline';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
-import Link from 'next/link';
-
-interface Property {
-  id: string;
-  name: string;
-}
-
 interface PropertyLoansClientProps {
   propertyId: string;
   propertyName: string;
@@ -64,8 +66,11 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
   const [periodStart, setPeriodStart] = useState<string | undefined>(undefined);
   const [periodEnd, setPeriodEnd] = useState<string | undefined>(undefined);
 
-  // État pour le filtre KPI actif
-  const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
+  /** Graph CRD : total ou un prêt actif */
+  const [chartLoanId, setChartLoanId] = useState<'all' | string>('all');
+
+  /** Tri colonne « Poids dans cashflow » : none → desc (risque d’abord) → asc → none */
+  const [weightColSort, setWeightColSort] = useState<'none' | 'desc' | 'asc'>('none');
 
   // États des filtres
   const [filters, setFilters] = useState<Filters>({
@@ -86,36 +91,60 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
   // ✅ APP-SHELL: Charger les prêts depuis IndexedDB avec filtre propertyId
   const {
     loans: allLoans,
+    loansForPropertyAggregates,
     properties,
-    kpis,
-    kpisLoading,
-    totalCount,
     loading: isLoading,
   } = useLoansData({
     mode: 'app-shell',
     propertyId, // ✅ Passer propertyId pour filtrer les events
     scope: 'property', // ✅ Scope property pour le tab property
     filters: loansFilters,
-    activeKpiFilter,
     periodStart,
     periodEnd,
   });
 
-  // ✅ APP-SHELL: Filtrer les prêts en mémoire selon les filtres UI
-  // Note: useLoansData filtre déjà selon filters.active, mais on doit quand même gérer le filtre KPI ici
-  const filteredLoans = useMemo(() => {
-    // Le hook useLoansData filtre déjà selon filters.active, donc allLoans est déjà filtré
-    // On ne doit appliquer que le filtre KPI ici
-    let filtered = [...allLoans];
+  const pilotageLoans = loansForPropertyAggregates ?? [];
+  const pilotageAgg = useMemo(
+    () => aggregateActivePropertyLoans(pilotageLoans),
+    [pilotageLoans]
+  );
 
-    // Appliquer le filtre KPI actif
-    // Note: Si l'utilisateur change explicitement le filtre vers "Tous les prêts", le filtre KPI est désactivé dans handleFiltersChange
-    if (activeKpiFilter === 'actifs') {
-      filtered = filtered.filter(loan => loan.isActive);
+  const { kpis: txKpis, isLoading: txKpisLoading } = useTransactionsKpis({
+    mode: 'app-shell',
+    propertyId,
+  });
+
+  const propertyCashflowMonthly = txKpis.cashflowMensuelMoyen ?? 0;
+  const cashflowNet = propertyCashflowMonthly - pilotageAgg.mensualiteTotale;
+
+  const loansSortedForTable = useMemo(() => {
+    if (weightColSort === 'none') return allLoans;
+    const pctOf = (l: Loan) => {
+      const m = l.loanDisplay?.monthlyPayment ?? l.monthlyPayment ?? 0;
+      return computeLoanWeightInCashflowPct(m, propertyCashflowMonthly);
+    };
+    return [...allLoans].sort((a, b) => {
+      const wa = pctOf(a);
+      const wb = pctOf(b);
+      if (wa === null && wb === null) return 0;
+      if (wa === null) return 1;
+      if (wb === null) return -1;
+      return weightColSort === 'desc' ? wb - wa : wa - wb;
+    });
+  }, [allLoans, weightColSort, propertyCashflowMonthly]);
+
+  const activeLoansOnProperty = pilotageAgg.activeLoans;
+
+  useEffect(() => {
+    setChartLoanId('all');
+  }, [propertyId]);
+
+  useEffect(() => {
+    if (chartLoanId === 'all') return;
+    if (!activeLoansOnProperty.some((l) => l.id === chartLoanId)) {
+      setChartLoanId('all');
     }
-
-    return filtered;
-  }, [allLoans, activeKpiFilter]);
+  }, [chartLoanId, activeLoansOnProperty]);
 
   // ✅ APP-SHELL: Charger les graphiques en mode app-shell (filtrés par propertyId)
   const { data: chartsData, isLoading: chartsLoading } = useLoansCharts({
@@ -129,20 +158,7 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
   // ✅ APP-SHELL: Gestion des filtres (en mémoire uniquement)
   const handleFiltersChange = useCallback((newFilters: Filters) => {
     setFilters(newFilters);
-    // ✅ Si on change le filtre actif/inactif explicitement, désactiver le filtre KPI pour éviter les conflits
-    // Le filtre explicite (Tous/Actifs/Inactifs) a la priorité sur le filtre KPI
-    if (activeKpiFilter === 'actifs') {
-      setActiveKpiFilter(null);
-    }
-  }, [activeKpiFilter]);
-
-  const handleKpiFilterChange = useCallback((filterKey: string | null) => {
-    if (filterKey === activeKpiFilter) {
-      setActiveKpiFilter(null);
-    } else {
-      setActiveKpiFilter(filterKey);
-    }
-  }, [activeKpiFilter]);
+  }, []);
 
   const handleResetFilters = useCallback(() => {
     setFilters({
@@ -150,7 +166,6 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
       propertyId: propertyId,
       active: '', // Réinitialiser à "Tous les prêts"
     });
-    setActiveKpiFilter(null);
   }, [propertyId]);
 
   const handlePeriodChange = (start: string, end: string) => {
@@ -639,11 +654,35 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
   };
 
   const handleSelectAll = (checked: boolean) => {
-    setSelectedLoanIds(checked ? filteredLoans.map((l) => l.id) : []);
+    setSelectedLoanIds(checked ? loansSortedForTable.map((l) => l.id) : []);
   };
+
+  const cycleWeightColSort = useCallback(() => {
+    setWeightColSort((s) => (s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none'));
+  }, []);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
+  };
+
+  const renderLoanCashflowWeight = (loan: Loan) => {
+    const monthly = loan.loanDisplay?.monthlyPayment ?? loan.monthlyPayment ?? 0;
+    const pct = computeLoanWeightInCashflowPct(monthly, propertyCashflowMonthly);
+    const d = getLoanCashflowWeightDisplay(pct);
+    return (
+      <div
+        className="inline-flex flex-col items-end gap-1.5 max-w-[168px] ml-auto"
+        title={LOAN_CASHFLOW_WEIGHT_TOOLTIP}
+      >
+        <LoanCashflowWeightProgressBar pct={pct} />
+        <span
+          className={`inline-flex items-center justify-end gap-1 rounded-md border px-2 py-0.5 text-xs font-semibold tabular-nums max-w-full ${d.badgeClassName}`}
+        >
+          {d.showWarningIcon ? <span aria-hidden>⚠️</span> : null}
+          <span>{d.text}</span>
+        </span>
+      </div>
+    );
   };
 
   const formatDate = (date: string) => {
@@ -651,11 +690,85 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
     return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
+  const getStatusBadge = (loan: Loan) => {
+    const status = loan.loanBusinessStatus || 'inactif';
+    if (status === 'actif') return <Badge variant="success">Actif</Badge>;
+    if (status === 'solde') return <Badge variant="secondary">Soldé</Badge>;
+    return <Badge variant="warning">Inactif</Badge>;
+  };
+
+  const pilotageBadgeTitle =
+    'Score crédit : taux, durée restante et part de la mensualité dans le cashflow moyen du bien (12 mois)';
+
+  const getPilotageBadge = (loan: Loan) => {
+    if (loan.loanBusinessStatus !== 'actif') {
+      return (
+        <Badge variant="secondary" className="text-xs" title={pilotageBadgeTitle}>
+          —
+        </Badge>
+      );
+    }
+    const monthly = loan.loanDisplay?.monthlyPayment ?? loan.monthlyPayment ?? 0;
+    const weightPct = computeLoanWeightInCashflowPct(monthly, propertyCashflowMonthly);
+    const s = getLoanPilotageStatus(loan, weightPct);
+    if (s === 'ok') {
+      return (
+        <Badge variant="success" className="text-xs" title={pilotageBadgeTitle}>
+          OK
+        </Badge>
+      );
+    }
+    if (s === 'optimisable') {
+      return (
+        <Badge variant="info" className="text-xs" title={pilotageBadgeTitle}>
+          Optimisable
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="warning" className="text-xs" title={pilotageBadgeTitle}>
+        {loanPilotageStatusLabel('a_surveiller')}
+      </Badge>
+    );
+  };
+
   // ✅ Mémoriser charts pour éviter les re-renders si chartsData oscille
   const charts = useMemo(() => 
     chartsData || { crdTimeline: [], crdByProperty: [], topCostlyLoans: [] },
     [chartsData]
   ) as { crdTimeline: any[]; crdByProperty: any[]; topCostlyLoans: any[] };
+
+  const chartTimelineData = useMemo(() => {
+    const base = charts.crdTimeline;
+    if (!base?.length) return [];
+    const months = base.map((p: { month: string }) => p.month);
+    if (chartLoanId === 'all') return base;
+
+    const loan = pilotageLoans.find((l) => l.id === chartLoanId);
+    if (!loan) return base;
+
+    return buildCrdTimelineForLoans(
+      [
+        {
+          startDate: loan.startDate,
+          endDate: loan.endDate,
+          principal: loan.principal,
+          annualRatePct: loan.annualRatePct,
+          durationMonths: loan.durationMonths,
+          defermentMonths: loan.defermentMonths,
+          insurancePct: loan.insurancePct,
+          paymentDay: loan.paymentDay,
+          isActive: loan.isActive,
+        },
+      ],
+      months,
+    );
+  }, [charts.crdTimeline, chartLoanId, pilotageLoans]);
+
+  const chartTitle =
+    chartLoanId === 'all'
+      ? 'Évolution du CRD total'
+      : `Évolution du CRD — ${pilotageLoans.find((l) => l.id === chartLoanId)?.label ?? 'Prêt'}`;
 
   // Mémoriser les actions pour éviter les re-renders inutiles
   const headerActions = useMemo(() => (
@@ -693,51 +806,74 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
   }, [headerActions]);
 
   return (
-    <div className="space-y-6">
-      {/* Graphiques - Ligne 1 : 2+1+1 colonnes */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <LoansCRDTimelineChart
-              data={charts.crdTimeline}
-              isLoading={chartsLoading}
-            />
-            <LoansByPropertyChart
-              data={charts.crdByProperty}
-              isLoading={chartsLoading}
-            />
-            <LoansTopCostlyChart
-              data={charts.topCostlyLoans}
-              isLoading={chartsLoading}
-            />
+    <div className="space-y-5">
+      <PropertyFinancingSummaryBlock
+        propertyCashflowMonthly={propertyCashflowMonthly}
+        mensualiteTotale={pilotageAgg.mensualiteTotale}
+        cashflowNet={cashflowNet}
+        crdTotal={pilotageAgg.crdTotal}
+        coutRestant={pilotageAgg.coutRestant}
+        isLoadingCashflow={txKpisLoading}
+        formatCurrency={formatCurrency}
+        aggregates={pilotageAgg}
+      />
+
+      <div className="grid grid-cols-1 gap-3">
+        {activeLoansOnProperty.length > 1 && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
+            <label htmlFor="property-loan-chart-scope" className="text-xs text-muted-foreground sm:mr-1">
+              Courbe CRD
+            </label>
+            <select
+              id="property-loan-chart-scope"
+              value={chartLoanId}
+              onChange={(e) => setChartLoanId(e.target.value === 'all' ? 'all' : e.target.value)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white max-w-full sm:max-w-xs"
+            >
+              <option value="all">Tous les prêts (CRD total)</option>
+              {activeLoansOnProperty.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
           </div>
+        )}
+        <LoansCRDTimelineChart
+          data={chartTimelineData}
+          isLoading={chartsLoading}
+          title={chartTitle}
+          subtitle="Capital restant dû sur la période (IndexedDB)"
+          legendLabel={chartLoanId === 'all' ? 'CRD total' : 'CRD prêt'}
+          cardClassName="w-full"
+        />
+      </div>
 
-          {/* KPIs - Cartes filtrantes */}
-          <LoansKpiBar
-            kpis={kpis}
-            activeFilter={activeKpiFilter}
-            onFilterChange={handleKpiFilterChange}
-            isLoading={kpisLoading}
-          />
+      {/* Filtres */}
+      <LoansFilters
+        filters={filters}
+        onFiltersChange={handleFiltersChange}
+        onResetFilters={handleResetFilters}
+        properties={properties}
+        periodStart={periodStart || ''}
+        periodEnd={periodEnd || ''}
+        onPeriodChange={handlePeriodChange}
+        hidePropertyFilter={true}
+      />
 
-          {/* Filtres */}
-          <LoansFilters
-            filters={filters}
-            onFiltersChange={handleFiltersChange}
-            onResetFilters={handleResetFilters}
-            properties={properties}
-            periodStart={periodStart}
-            periodEnd={periodEnd}
-            onPeriodChange={handlePeriodChange}
-            hidePropertyFilter={true}
-          />
-
-          {/* Tableau */}
-          <div className="bg-white rounded-xl border border-gray-200">
+      {/* Tableau */}
+      <div className="bg-white rounded-xl border border-gray-200">
             {/* Header du tableau */}
             <div className="p-4 border-b border-gray-200">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold text-gray-900">Prêts du bien</h3>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Liste des prêts</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Détail et actions sur chaque financement
+                  </p>
+                </div>
                 <div className="text-sm text-gray-600">
-                  {filteredLoans.length} prêt{filteredLoans.length > 1 ? 's' : ''} au total
+                  {allLoans.length} prêt{allLoans.length > 1 ? 's' : ''} au total
                 </div>
               </div>
 
@@ -769,13 +905,13 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
                     <div className="h-12 bg-gray-100 rounded animate-pulse"></div>
                   </div>
                 ))
-              ) : filteredLoans.length === 0 ? (
+              ) : allLoans.length === 0 ? (
                 <div className="text-center text-gray-500 py-12">
                   Aucun prêt trouvé pour ce bien
                 </div>
               ) : (
                 <>
-                  {filteredLoans.slice(0, mobileLimit).map((loan) => (
+                  {loansSortedForTable.slice(0, mobileLimit).map((loan) => (
                     <div
                       key={loan.id}
                       onClick={() => handleRowClick(loan)}
@@ -796,64 +932,44 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
                             />
                             <h4 className="text-sm font-semibold text-gray-900 truncate">{loan.label}</h4>
                           </div>
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            {getStatusBadge(loan)}
+                            {getPilotageBadge(loan)}
+                          </div>
                           <div className="space-y-1 mb-2">
                             <div className="flex items-center justify-between text-sm">
-                              <span className="text-gray-600">Capital initial:</span>
-                              <span className="font-medium text-gray-900">{formatCurrency(loan.principal)}</span>
+                              <span className="text-gray-600">Impact mensuel:</span>
+                              <span className="font-semibold text-cyan-600">
+                                {formatCurrency(loan.loanDisplay?.monthlyPayment || loan.monthlyPayment || 0)}
+                              </span>
                             </div>
                             <div className="flex items-center justify-between text-sm">
-                              <span className="text-gray-600">Mensualité:</span>
-                              <span className="font-semibold text-cyan-600">
-                                {loan.monthlyPayment ? formatCurrency(loan.monthlyPayment) : '—'}
+                              <span className="text-gray-600" title={LOAN_CASHFLOW_WEIGHT_TOOLTIP}>
+                                Poids dans cashflow:
                               </span>
+                              {renderLoanCashflowWeight(loan)}
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-gray-600">CRD actuel:</span>
+                              <span className="font-medium text-gray-900">{formatCurrency(loan.loanDisplay?.currentCRD || 0)}</span>
                             </div>
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-gray-600">Taux:</span>
                               <span className="text-gray-900">{loan.annualRatePct}%</span>
                             </div>
                             <div className="flex items-center justify-between text-sm">
-                              <span className="text-gray-600">Durée:</span>
-                              <span className="text-gray-900">{loan.durationMonths} mois</span>
+                              <span className="text-gray-600">Durée restante:</span>
+                              <span className="text-gray-900">{loan.loanDisplay?.remainingMonths ?? 0} mois</span>
                             </div>
-                            {loan.endDate && (
+                            {typeof loan.loanDisplay?.repaidPercent === 'number' && (
                               <div className="flex items-center justify-between text-sm">
-                                <span className="text-gray-600">Date de fin:</span>
-                                <span className="text-gray-900">{formatDate(loan.endDate)}</span>
-                              </div>
-                            )}
-                            {loan.insurancePct && (
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="text-gray-600">Assurance:</span>
-                                <span className="text-gray-900">{loan.insurancePct}%/an</span>
+                                <span className="text-gray-600">% remboursé:</span>
+                                <span className="text-gray-900">{Math.round(loan.loanDisplay.repaidPercent)}%</span>
                               </div>
                             )}
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                          <Switch
-                            checked={loan.isActive}
-                            onCheckedChange={async (checked) => {
-                              if (!organizationId) {
-                                notify2.error('Organisation requise');
-                                return;
-                              }
-
-                              try {
-                                const loanRepo = getLoanRepositoryOffline();
-                                
-                                // Mettre à jour dans IndexedDB (crée automatiquement une pendingOp)
-                                await loanRepo.upsert({ ...loan, id: loan.id, isActive: checked, organizationId }, organizationId);
-                                
-                                // ✅ Émettre un événement ciblé avec payload scope + propertyId
-                                window.dispatchEvent(new CustomEvent('loans:refresh', { 
-                                  detail: { scope: 'property', propertyId, reason: 'update' } 
-                                }));
-                              } catch (error: any) {
-                                console.error('Erreur lors de la mise à jour:', error);
-                                notify2.error('Erreur lors de la mise à jour');
-                              }
-                            }}
-                          />
                           <Button
                             variant="ghost"
                             size="sm"
@@ -882,12 +998,12 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
                       </div>
                     </div>
                   ))}
-                  {filteredLoans.length > mobileLimit && (
+                  {allLoans.length > mobileLimit && (
                     <button
                       onClick={() => setMobileLimit(prev => prev + 10)}
                       className="w-full py-2 text-sm font-medium text-orange-600 hover:text-orange-700 hover:bg-orange-50 rounded-lg border border-orange-200 transition-colors"
                     >
-                      Voir plus ({filteredLoans.length - mobileLimit} restantes)
+                      Voir plus ({allLoans.length - mobileLimit} restantes)
                     </button>
                   )}
                 </>
@@ -902,19 +1018,41 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
                     <th className="px-4 py-3 text-left">
                       <input
                         type="checkbox"
-                        checked={selectedLoanIds.length === filteredLoans.length && filteredLoans.length > 0}
+                        checked={
+                          loansSortedForTable.length > 0 &&
+                          loansSortedForTable.every((l) => selectedLoanIds.includes(l.id))
+                        }
                         onChange={(e) => handleSelectAll(e.target.checked)}
                         className="rounded border-gray-300"
                       />
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Libellé</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Capital Initial</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Mensualité</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Impact mensuel</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                      <button
+                        type="button"
+                        className="inline-flex w-full items-center justify-end gap-1 hover:text-gray-800"
+                        title={`${LOAN_CASHFLOW_WEIGHT_TOOLTIP} — clic : trier`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          cycleWeightColSort();
+                        }}
+                      >
+                        <span>Poids dans cashflow</span>
+                        {weightColSort === 'desc' ? (
+                          <ArrowDown className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+                        ) : weightColSort === 'asc' ? (
+                          <ArrowUp className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+                        ) : (
+                          <ArrowDownUp className="h-3.5 w-3.5 shrink-0 opacity-50" aria-hidden />
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">CRD actuel</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Taux</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Durée</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date de fin</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assurance</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actif</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Durée restante</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Statut</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Pilotage</th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
                 </thead>
@@ -927,14 +1065,14 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
                         </td>
                       </tr>
                     ))
-                  ) : filteredLoans.length === 0 ? (
+                  ) : allLoans.length === 0 ? (
                     <tr>
                       <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
                         Aucun prêt trouvé pour ce bien
                       </td>
                     </tr>
                   ) : (
-                    filteredLoans.map((loan) => (
+                    loansSortedForTable.map((loan) => (
                       <tr
                         key={loan.id}
                         className="hover:bg-gray-50 cursor-pointer"
@@ -949,44 +1087,19 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
                           />
                         </td>
                         <td className="px-4 py-3 text-sm font-medium text-gray-900">{loan.label}</td>
-                        <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
-                          {formatCurrency(loan.principal)}
-                        </td>
                         <td className="px-4 py-3 text-sm text-right font-semibold text-cyan-600">
-                          {loan.monthlyPayment ? formatCurrency(loan.monthlyPayment) : '—'}
+                          {formatCurrency(loan.loanDisplay?.monthlyPayment || loan.monthlyPayment || 0)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right">{renderLoanCashflowWeight(loan)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
+                          {formatCurrency(loan.loanDisplay?.currentCRD || 0)}
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-gray-600">{loan.annualRatePct}%</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">{loan.durationMonths} mois</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{loan.endDate ? formatDate(loan.endDate) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {loan.insurancePct ? `${loan.insurancePct}%/an` : '—'}
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">{loan.loanDisplay?.remainingMonths ?? 0} mois</td>
+                        <td className="px-4 py-3 text-center">
+                          {getStatusBadge(loan)}
                         </td>
-                        <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                          <Switch
-                            checked={loan.isActive}
-                            onCheckedChange={async (checked) => {
-                              if (!organizationId) {
-                                notify2.error('Organisation requise');
-                                return;
-                              }
-
-                              try {
-                                const loanRepo = getLoanRepositoryOffline();
-                                
-                                // Mettre à jour dans IndexedDB (crée automatiquement une pendingOp)
-                                await loanRepo.upsert({ ...loan, id: loan.id, isActive: checked, organizationId }, organizationId);
-                                
-                                // ✅ Émettre un événement ciblé avec payload scope + propertyId
-                                window.dispatchEvent(new CustomEvent('loans:refresh', { 
-                                  detail: { scope: 'property', propertyId, reason: 'update' } 
-                                }));
-                              } catch (error: any) {
-                                console.error('Erreur lors de la mise à jour:', error);
-                                notify2.error('Erreur lors de la mise à jour');
-                              }
-                            }}
-                          />
-                        </td>
+                        <td className="px-4 py-3 text-center">{getPilotageBadge(loan)}</td>
                         <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-center gap-1">
                             <Button
@@ -1021,7 +1134,7 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
                 </tbody>
               </table>
             </div>
-          </div>
+      </div>
 
       {/* Modal de formulaire */}
       <LoanModalV2

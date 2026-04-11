@@ -321,10 +321,12 @@ export default function PropertyLoansClient({ propertyId, propertyName }: Proper
             <LoansByPropertyChart
               data={charts.crdByProperty}
               isLoading={chartsLoading}
+              financingNavigation
             />
             <LoansTopCostlyChart
               data={charts.topCostlyLoans}
               isLoading={chartsLoading}
+              financingNavigation
             />
           </div>
 

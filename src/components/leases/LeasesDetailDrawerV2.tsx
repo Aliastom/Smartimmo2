@@ -36,6 +36,7 @@ import {
 import { LeaseWithDetails } from '@/lib/services/leasesService';
 import { LeaseDocumentsService, LeaseDocumentsSummary } from '@/lib/services/leaseDocumentsService';
 import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
+import { getLeaseDocumentDisplayInfo } from '@/features/leases/utils/leaseDocumentDisplay';
 
 interface LeasesDetailDrawerV2Props {
   lease: LeaseWithDetails | null;
@@ -236,11 +237,15 @@ export function LeasesDetailDrawerV2({
   const DocumentItem = ({ 
     document, 
     label, 
+    badgeLabel,
+    badgeVariant,
     documentTypeCode,
     onView 
   }: { 
     document: any; 
     label: string; 
+    badgeLabel?: string;
+    badgeVariant?: 'secondary' | 'warning' | 'success';
     documentTypeCode: string;
     onView?: () => void; 
   }) => {
@@ -251,6 +256,11 @@ export function LeasesDetailDrawerV2({
             <FileCheck className="h-5 w-5 text-green-600" />
             <div>
               <p className="font-medium text-green-800">{label}</p>
+              {badgeLabel && badgeVariant && (
+                <Badge variant={badgeVariant} size="sm" className="mt-1">
+                  {badgeLabel}
+                </Badge>
+              )}
               <p className="text-sm text-green-600">{document.filenameOriginal}</p>
             </div>
           </div>
@@ -370,6 +380,7 @@ export function LeasesDetailDrawerV2({
 
     return alerts;
   };
+  const leaseDocumentDisplay = getLeaseDocumentDisplayInfo(lease.status, documents?.bailSigne || null);
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
@@ -463,7 +474,9 @@ export function LeasesDetailDrawerV2({
                   <>
                     <DocumentItem
                       document={documents?.bailSigne}
-                      label="Bail signé"
+                      label={leaseDocumentDisplay.label}
+                      badgeLabel={leaseDocumentDisplay.badgeLabel}
+                      badgeVariant={leaseDocumentDisplay.badgeVariant}
                       documentTypeCode="BAIL_SIGNE"
                       onView={() => window.open(documents?.bailSigne?.url, '_blank')}
                     />

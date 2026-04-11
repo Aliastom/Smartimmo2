@@ -50,6 +50,7 @@ export interface UpdateLeaseParams {
   signedPdfUrl?: string | null;
   chargesRecupMensuelles?: number | null;
   chargesNonRecupMensuelles?: number | null;
+  pilotageIgnored?: boolean | null;
 }
 
 export interface CreateLeaseResult {
@@ -230,6 +231,7 @@ export class LeaseService {
     if (params.signedPdfUrl !== undefined) updateData.signedPdfUrl = params.signedPdfUrl;
     if (params.chargesRecupMensuelles !== undefined) updateData.chargesRecupMensuelles = params.chargesRecupMensuelles;
     if (params.chargesNonRecupMensuelles !== undefined) updateData.chargesNonRecupMensuelles = params.chargesNonRecupMensuelles;
+    if (params.pilotageIgnored !== undefined) updateData.pilotageIgnored = params.pilotageIgnored;
 
     // Gérer les dates
     if (params.startDate !== undefined) {
@@ -283,10 +285,11 @@ export class LeaseService {
       throw new Error('Ce bail est actif et ne peut pas être supprimé directement. Résiliez-le d\'abord.');
     }
 
-    // Vérifier les transactions liées
+    // Protection : un bail avec transactions ne peut jamais être supprimé
+    // (même résilié), pour préserver l'intégrité comptable et l'historique.
     const transactionCount = await this.deps.leaseRepo.countTransactions(id, organizationId);
-    if (transactionCount > 0 && existingLease.status !== 'RÉSILIÉ') {
-      throw new Error('Ce bail ne peut pas être supprimé car il contient des transactions. Résiliez-le d\'abord.');
+    if (transactionCount > 0) {
+      throw new Error('Ce bail ne peut pas être supprimé car il contient des transactions.');
     }
 
     // Supprimer le bail

@@ -25,7 +25,7 @@ export type ViewType =
 /**
  * Liste des paramètres qui sont property-scoped (doivent être supprimés lors de la navigation vers des vues globales)
  */
-const PROPERTY_SCOPED_PARAMS = ['propertyId', 'tab'] as const;
+const PROPERTY_SCOPED_PARAMS = ['propertyId', 'tab', 'leaseId'] as const;
 
 /**
  * Détermine si une vue est globale (pas property-scoped)

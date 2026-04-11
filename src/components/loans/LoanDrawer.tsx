@@ -1,17 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Edit, Copy, Trash2, Download, FileText, Building2, Calendar, Euro, Info, Percent, Clock } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { X, Edit, Copy, Trash2, Download, FileText, Building2, Calendar, Euro, Percent, Clock, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Switch } from '@/components/ui/Switch';
-import { Loan } from './LoansTable';
-import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { useAlert } from '@/hooks/useAlert';
 import { getLoanRepositoryOffline } from '@/lib/offline/repositories/LoanRepositoryOffline';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { notify2 } from '@/lib/notify2';
+import type { Loan } from '@/features/loans/hooks/useLoansData';
 
 interface LoanDrawerProps {
   loan: Loan | null;
@@ -32,99 +29,50 @@ export function LoanDrawer({
   onDelete,
   propertyId,
 }: LoanDrawerProps) {
-  const { showAlert } = useAlert();
   const { organizationId } = useCurrentOrganization();
-  const [schedule, setSchedule] = useState<any[]>([]);
-  const [chartData, setChartData] = useState<any[]>([]);
-  const [currentMonthIndex, setCurrentMonthIndex] = useState<number>(-1);
-  const [highlightCurrentRow, setHighlightCurrentRow] = useState<boolean>(false);
-  const [currentCRD, setCurrentCRD] = useState<number>(0);
-  const [localLoan, setLocalLoan] = useState<Loan | null>(loan);
-  const [isToggling, setIsToggling] = useState(false);
-  const currentRowRef = useRef<HTMLTableRowElement>(null);
-  const tableContainerRef = useRef<HTMLDivElement>(null);
-
-  // Synchroniser localLoan avec loan quand il change
-  useEffect(() => {
-    setLocalLoan(loan);
-  }, [loan]);
+  const [statusOverride, setStatusOverride] = useState<'actif' | 'solde' | 'inactif' | null>(null);
+  const [isStatusUpdating, setIsStatusUpdating] = useState(false);
 
   useEffect(() => {
-    if (!loan) return;
+    setStatusOverride(null);
+  }, [loan?.id]);
 
-    // Calculer le tableau d'amortissement
-    const computed = buildSchedule({
-      principal: loan.principal,
-      annualRatePct: loan.annualRatePct,
-      durationMonths: loan.durationMonths,
-      defermentMonths: loan.defermentMonths || 0,
-      insurancePct: loan.insurancePct || 0,
-      startDate: new Date(loan.startDate),
-      paymentDay: (loan as any).paymentDay || undefined,
-    });
+  const safeLoan = loan;
+  const schedule = safeLoan?.loanDisplay?.schedule || [];
+  const currentCRD = safeLoan?.loanDisplay?.currentCRD ?? 0;
+  const monthlyPayment = safeLoan?.loanDisplay?.monthlyPayment ?? safeLoan?.monthlyPayment ?? 0;
+  const endDateIso = safeLoan?.loanDisplay?.endDateIso || safeLoan?.endDate || null;
+  const totalCost = safeLoan?.loanDisplay?.totalCost ?? safeLoan?.principal ?? 0;
+  const remainingInterests = safeLoan?.loanDisplay?.remainingInterests ?? 0;
+  const repaidPercent = safeLoan?.loanDisplay?.repaidPercent ?? 0;
+  const totalInsurance = schedule.reduce((sum, row) => sum + (row.paymentInsurance || 0), 0);
 
-    setSchedule(computed);
+  const now = new Date();
+  const nowMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const nextPayment = schedule.find((row) => row.date.substring(0, 7) > nowMonthKey) || null;
+  const lastPayment = [...schedule].reverse().find((row) => row.date.substring(0, 7) <= nowMonthKey) || null;
+  const paymentStatus = nextPayment ? 'À venir' : 'Terminé';
 
-    // Calculer le mois actuel du prêt
-    const startDate = new Date(loan.startDate);
-    const today = new Date();
-    const monthsDiff = (today.getFullYear() - startDate.getFullYear()) * 12 + 
-                      (today.getMonth() - startDate.getMonth());
-    
-    // Le mois actuel est à l'index monthsDiff (0-based), sauf si le prêt n'a pas encore commencé
-    const currentIdx = monthsDiff >= 0 && monthsDiff < computed.length ? monthsDiff : -1;
-    setCurrentMonthIndex(currentIdx);
+  const businessStatus = statusOverride || safeLoan?.loanBusinessStatus || (safeLoan?.isActive ? 'actif' : 'inactif');
+  const statusBadge = businessStatus === 'actif'
+    ? <Badge variant="success">Actif</Badge>
+    : businessStatus === 'solde'
+      ? <Badge variant="secondary">Soldé</Badge>
+      : <Badge variant="warning">Inactif</Badge>;
 
-    // Calculer le CRD actuel
-    if (currentIdx >= 0 && currentIdx < computed.length) {
-      setCurrentCRD(computed[currentIdx]?.remainingCapital || 0);
-    } else if (computed.length > 0) {
-      // Si le prêt n'a pas encore commencé, utiliser le capital initial
-      setCurrentCRD(loan.principal);
-    } else {
-      setCurrentCRD(0);
-    }
-
-    // Préparer les données pour le graphique (tous les 12 mois + dernière échéance)
-    const chartPoints = computed.filter((row, idx) => idx % 12 === 0 || idx === computed.length - 1);
-    const chartFormatted = chartPoints.map((row) => ({
+  const chartData = useMemo(() => {
+    if (schedule.length === 0) return [];
+    const chartPoints = schedule.filter((row, idx) => idx % 12 === 0 || idx === schedule.length - 1);
+    return chartPoints.map((row) => ({
       month: row.month,
       Principal: Math.round(row.paymentPrincipal),
       Intérêts: Math.round(row.paymentInterest),
       Assurance: Math.round(row.paymentInsurance),
       CRD: Math.round(row.remainingCapital),
     }));
+  }, [schedule]);
 
-    setChartData(chartFormatted);
-  }, [loan]);
-
-  // Effet pour scroller vers le mois actuel et appliquer la surbrillance
-  useEffect(() => {
-    if (isOpen && currentMonthIndex >= 0 && currentRowRef.current && tableContainerRef.current) {
-      // Petit délai pour s'assurer que le drawer est bien ouvert et rendu
-      setTimeout(() => {
-        if (currentRowRef.current && tableContainerRef.current) {
-          // Scroller vers la ligne du mois actuel
-          const rowTop = currentRowRef.current.offsetTop;
-          const containerHeight = tableContainerRef.current.clientHeight;
-          const rowHeight = currentRowRef.current.clientHeight;
-          
-          // Centrer la ligne dans le conteneur
-          tableContainerRef.current.scrollTop = rowTop - (containerHeight / 2) + (rowHeight / 2);
-          
-          // Activer la surbrillance
-          setHighlightCurrentRow(true);
-          
-          // Désactiver la surbrillance après 3 secondes
-          setTimeout(() => {
-            setHighlightCurrentRow(false);
-          }, 3000);
-        }
-      }, 300);
-    }
-  }, [isOpen, currentMonthIndex]);
-
-  if (!isOpen || !loan) return null;
+  if (!isOpen || !safeLoan) return null;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('fr-FR', {
@@ -135,7 +83,8 @@ export function LoanDrawer({
     }).format(amount);
   };
 
-  const formatDate = (dateStr: string) => {
+  const formatDate = (dateStr?: string | null) => {
+    if (!dateStr) return '—';
     const date = new Date(dateStr);
     return date.toLocaleDateString('fr-FR', { 
       day: '2-digit', 
@@ -144,13 +93,32 @@ export function LoanDrawer({
     });
   };
 
-  const formatDateShort = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
+  const formatRepaidPercent = (value: number) => {
+    if (value <= 0) return '0 %';
+    if (value < 1) return '< 1 %';
+    if (value < 10) return `${value.toFixed(1)} %`;
+    return `${Math.round(value)} %`;
+  };
+
+  const formatLoanTypeLabel = (rawType?: string | null) => {
+    if (!rawType) return '—';
+    const normalized = rawType.toUpperCase();
+    const map: Record<string, string> = {
+      IMMOBILIER: 'Prêt immobilier',
+      TRAVAUX: 'Prêt travaux',
+      PERSONNEL: 'Prêt personnel',
+      AUTRE: 'Autre',
+    };
+    return map[normalized] || rawType;
+  };
+
+  const formatDurationLabel = (months: number) => {
+    if (!months || months <= 0) return '—';
+    if (months % 12 === 0) {
+      const years = months / 12;
+      return `${years} an${years > 1 ? 's' : ''} (${months} mois)`;
+    }
+    return `${months} mois`;
   };
 
   const exportCSV = () => {
@@ -207,11 +175,41 @@ export function LoanDrawer({
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Erreur lors de la génération du PDF:', error);
-      await showAlert({
-        type: 'error',
-        title: 'Erreur',
-        message: 'Erreur lors de la génération du PDF',
-      });
+      notify2.error('Erreur lors de la génération du PDF');
+    }
+  };
+
+  const handleStatusAction = async (targetStatus: 'actif' | 'solde') => {
+    if (!organizationId) {
+      notify2.error('Organisation requise');
+      return;
+    }
+
+    setIsStatusUpdating(true);
+    try {
+      const repo = getLoanRepositoryOffline();
+      const nextIsActive = targetStatus === 'actif';
+      await repo.upsert({
+        ...loan,
+        id: loan.id,
+        organizationId,
+        isActive: nextIsActive,
+        status: targetStatus, // champ transitoire pour statut métier explicite
+      } as any, organizationId);
+
+      setStatusOverride(targetStatus);
+      if (propertyId) {
+        window.dispatchEvent(new CustomEvent('loans:refresh', { detail: { scope: 'property', propertyId, reason: 'update' } }));
+      } else {
+        window.dispatchEvent(new CustomEvent('loans:refresh', { detail: { scope: 'global', reason: 'update' } }));
+      }
+
+      notify2.success(targetStatus === 'solde' ? 'Prêt marqué comme soldé' : 'Prêt réactivé');
+    } catch (error: any) {
+      console.error('Erreur mise à jour statut prêt:', error);
+      notify2.error(error.message || 'Erreur lors de la mise à jour du statut');
+    } finally {
+      setIsStatusUpdating(false);
     }
   };
 
@@ -247,345 +245,248 @@ export function LoanDrawer({
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-4">
             <div className="space-y-4">
-              {/* Statut et montant principal */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Badge variant={localLoan?.isActive ? 'success' : 'secondary'}>
-                      {localLoan?.isActive ? 'Actif' : 'Inactif'}
-                    </Badge>
-                  </div>
-                  {currentCRD > 0 && (
-                    <div className="mt-2">
-                      <p className="text-sm text-gray-600">CRD Actuel</p>
-                      <p className="text-2xl font-bold text-orange-600">
-                        {formatCurrency(currentCRD)}
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-gray-600">Capital emprunté</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {formatCurrency(loan.principal)}
-                  </p>
-                </div>
-              </div>
-
-              {/* Toggle Actif/Inactif */}
+              {/* Header cockpit */}
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center gap-3">
-                  <Switch
-                    checked={localLoan?.isActive ?? false}
-                    onCheckedChange={async (checked) => {
-                      if (!organizationId || !localLoan) {
-                        notify2.error('Organisation requise');
-                        return;
-                      }
-
-                      setIsToggling(true);
-                      try {
-                        // ✅ Optimistic update
-                        setLocalLoan(prev => prev ? { ...prev, isActive: checked } : null);
-                        
-                        const loanRepo = getLoanRepositoryOffline();
-                        await loanRepo.upsert({ ...localLoan, id: localLoan.id, isActive: checked, organizationId }, organizationId);
-                        
-                        // ✅ Émettre un événement ciblé pour rafraîchir les hooks
-                        if (propertyId) {
-                          window.dispatchEvent(new CustomEvent('loans:refresh', { 
-                            detail: { scope: 'property', propertyId, reason: 'update' } 
-                          }));
-                        } else {
-                          window.dispatchEvent(new CustomEvent('loans:refresh', { 
-                            detail: { scope: 'global', reason: 'update' } 
-                          }));
-                        }
-                        
-                        notify2.success(checked ? 'Prêt activé' : 'Prêt désactivé');
-                      } catch (error: any) {
-                        console.error('Erreur lors de la mise à jour du prêt:', error);
-                        // ✅ Rollback en cas d'erreur
-                        setLocalLoan(prev => prev ? { ...prev, isActive: !checked } : null);
-                        notify2.error('Erreur', error.message || 'Erreur lors de la mise à jour');
-                      } finally {
-                        setIsToggling(false);
-                      }
-                    }}
-                    disabled={isToggling}
-                  />
-                  <div className="flex-1">
-                    <span className="text-sm font-medium text-gray-900">
-                      Marquer comme actif
-                    </span>
-                    {isToggling && (
-                      <span className="text-xs text-gray-500 ml-2">Enregistrement...</span>
-                    )}
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div>
+                    <p className="text-sm text-gray-600">Prêt</p>
+                    <p className="text-lg font-semibold text-gray-900">{loan.label}</p>
+                  </div>
+                  {statusBadge}
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div>
+                    <p className="text-xs text-gray-500">Mensualité</p>
+                    <p className="font-semibold text-cyan-600">{formatCurrency(monthlyPayment)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">CRD actuel</p>
+                    <p className="font-semibold text-orange-600">{formatCurrency(currentCRD)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Date de fin</p>
+                    <p className="font-medium text-gray-900">{formatDate(endDateIso)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">% remboursé</p>
+                    <p className="font-medium text-gray-900">{formatRepaidPercent(repaidPercent)}</p>
                   </div>
                 </div>
-                <p className="text-xs text-gray-600 mt-2">
-                  Cette modification est automatiquement sauvegardée.
-                </p>
               </div>
 
-              {/* Informations du prêt */}
+              {/* Actions de statut explicites */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Actions</h3>
+                  <p className="text-xs text-gray-600">Mettre a jour le statut metier du pret.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {businessStatus !== 'solde' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleStatusAction('solde')}
+                      disabled={isStatusUpdating}
+                    >
+                      Marquer comme soldé
+                    </Button>
+                  )}
+                  {businessStatus !== 'actif' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleStatusAction('actif')}
+                      disabled={isStatusUpdating}
+                    >
+                      Réactiver
+                    </Button>
+                  )}
+                  {isStatusUpdating && <span className="text-xs text-gray-500">Mise à jour...</span>}
+                </div>
+              </div>
+
+              {/* Synthèse financière */}
               <div className="border-t pt-4">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Informations du prêt</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Synthèse financière</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Capital emprunté */}
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <Euro className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-700">Capital emprunté</span>
+                      <span className="text-sm font-medium text-gray-700">Capital initial</span>
                     </div>
                     <p className="font-medium">{formatCurrency(loan.principal)}</p>
                   </div>
-
-                  {/* Mensualité */}
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <Euro className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-700">Mensualité</span>
+                      <span className="text-sm font-medium text-gray-700">Coût total</span>
                     </div>
-                    <p className="font-medium">{loan.monthlyPayment ? formatCurrency(loan.monthlyPayment) : '—'}</p>
+                    <p className="font-medium">{formatCurrency(totalCost)}</p>
                   </div>
-
-                  {/* Taux annuel */}
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <Percent className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-700">Taux annuel</span>
+                      <Euro className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-700">Intérêts restants</span>
                     </div>
-                    <p className="font-medium">{loan.annualRatePct}%</p>
+                    <p className="font-medium">{formatCurrency(remainingInterests)}</p>
                   </div>
-
-                  {/* Durée */}
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-700">Durée</span>
+                      <Euro className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-700">Assurance totale</span>
                     </div>
-                    <p className="font-medium">{loan.durationMonths} mois</p>
-                  </div>
-
-                  {/* Différé */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Info className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-700">Différé</span>
-                    </div>
-                    <p className="font-medium">{loan.defermentMonths || 0} mois</p>
-                  </div>
-
-                  {/* Assurance */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Info className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-700">Assurance</span>
-                    </div>
-                    <p className="font-medium">{loan.insurancePct ? `${loan.insurancePct}% /an` : 'Aucune'}</p>
-                  </div>
-
-                  {/* Date de début */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-700">Date de début</span>
-                    </div>
-                    <p className="font-medium">{formatDate(loan.startDate)}</p>
-                  </div>
-
-                  {/* Jour de paiement */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-700">Jour de paiement</span>
-                    </div>
-                    <p className="font-medium">
-                      {(loan as any).paymentDay ? `Le ${(loan as any).paymentDay} du mois` : 'Non défini'}
-                    </p>
+                    <p className="font-medium">{formatCurrency(totalInsurance)}</p>
                   </div>
                 </div>
               </div>
 
-              {/* Bien */}
-              <div className="border-t pt-4">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm font-medium text-gray-700">Bien</span>
-                  </div>
-                  <p className="font-medium">{loan.propertyName}</p>
-                </div>
-              </div>
-
-              {/* Graphique d'amortissement */}
+              {/* Évolution */}
               {chartData.length > 0 && (
                 <div className="border-t pt-4">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Évolution de l'amortissement</h3>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Évolution</h3>
                   <div className="bg-white border border-gray-200 rounded-lg p-4">
                     <ResponsiveContainer width="100%" height={300}>
                       <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis 
-                          dataKey="month" 
-                          label={{ value: 'Mois', position: 'insideBottom', offset: -5 }}
-                        />
-                        {/* Axe gauche pour les paiements mensuels */}
-                        <YAxis 
-                          yAxisId="left"
-                          label={{ value: 'Paiements (€)', angle: -90, position: 'insideLeft' }}
-                          tickFormatter={(value) => `${Math.round(value)}€`}
-                        />
-                        {/* Axe droit pour le CRD */}
-                        <YAxis 
-                          yAxisId="right"
-                          orientation="right"
-                          label={{ value: 'CRD (€)', angle: 90, position: 'insideRight' }}
-                          tickFormatter={(value) => `${Math.round(value / 1000)}k€`}
-                        />
-                        <Tooltip 
-                          formatter={(value: number) => formatCurrency(value)}
-                          labelFormatter={(label) => `Mois ${label}`}
-                        />
+                        <XAxis dataKey="month" label={{ value: 'Mois', position: 'insideBottom', offset: -5 }} />
+                        <YAxis yAxisId="left" tickFormatter={(value) => `${Math.round(value)}€`} />
+                        <YAxis yAxisId="right" orientation="right" tickFormatter={(value) => `${Math.round(value / 1000)}k€`} />
+                        <Tooltip formatter={(value: number) => formatCurrency(value)} labelFormatter={(label) => `Mois ${label}`} />
                         <Legend />
-                        <Line 
-                          yAxisId="left"
-                          type="monotone" 
-                          dataKey="Principal" 
-                          stroke="#3b82f6" 
-                          strokeWidth={2} 
-                          name="Principal" 
-                          dot={{ r: 2 }}
-                        />
-                        <Line 
-                          yAxisId="left"
-                          type="monotone" 
-                          dataKey="Intérêts" 
-                          stroke="#ef4444" 
-                          strokeWidth={2} 
-                          name="Intérêts" 
-                          dot={{ r: 2 }}
-                        />
+                        <Line yAxisId="left" type="monotone" dataKey="Principal" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} />
+                        <Line yAxisId="left" type="monotone" dataKey="Intérêts" stroke="#ef4444" strokeWidth={2} dot={{ r: 2 }} />
                         {loan.insurancePct && loan.insurancePct > 0 && (
-                          <Line 
-                            yAxisId="left"
-                            type="monotone" 
-                            dataKey="Assurance" 
-                            stroke="#f59e0b" 
-                            strokeWidth={2} 
-                            name="Assurance" 
-                            dot={{ r: 2 }}
-                          />
+                          <Line yAxisId="left" type="monotone" dataKey="Assurance" stroke="#f59e0b" strokeWidth={2} dot={{ r: 2 }} />
                         )}
-                        <Line 
-                          yAxisId="right"
-                          type="monotone" 
-                          dataKey="CRD" 
-                          stroke="#06b6d4" 
-                          strokeWidth={3} 
-                          name="CRD" 
-                          strokeDasharray="5 5"
-                          dot={{ r: 3 }}
-                        />
+                        <Line yAxisId="right" type="monotone" dataKey="CRD" stroke="#06b6d4" strokeWidth={3} strokeDasharray="5 5" dot={{ r: 3 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
               )}
 
-              {/* Tableau d'amortissement */}
+              {/* Paiements */}
+              <div className="border-t pt-4">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Paiements</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-700">Prochaine mensualité</span>
+                    </div>
+                    <p className="font-medium">
+                      {nextPayment ? `${formatDate(nextPayment.date)} · ${formatCurrency(nextPayment.paymentTotal)}` : '—'}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-700">Dernière mensualité</span>
+                    </div>
+                    <p className="font-medium">
+                      {lastPayment ? `${formatDate(lastPayment.date)} · ${formatCurrency(lastPayment.paymentTotal)}` : '—'}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-700">Statut paiement</span>
+                    </div>
+                    <p className="font-medium">{paymentStatus}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tableau d'amortissement (replié par défaut) */}
               {schedule.length > 0 && (
                 <div className="border-t pt-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-medium text-gray-900">Tableau d'amortissement</h3>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={exportCSV}>
-                        <Download className="h-4 w-4 mr-2" />
-                        CSV
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={exportPDF}>
-                        <FileText className="h-4 w-4 mr-2" />
-                        PDF
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="border border-gray-200 rounded-lg overflow-hidden">
-                    <div ref={tableContainerRef} className="max-h-96 overflow-y-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
-                          <tr>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">MOIS</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">DATE</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">PRINCIPAL</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">INTÉRÊTS</th>
-                            {loan.insurancePct && loan.insurancePct > 0 && (
-                              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">ASSURANCE</th>
-                            )}
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">TOTAL</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">CRD</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {schedule.map((row, idx) => {
-                            // Convertir la date YYYY-MM en format lisible
-                            const [year, month] = row.date.split('-');
-                            const dateObj = new Date(parseInt(year), parseInt(month) - 1);
-                            const formattedDate = dateObj.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
-                            
-                            const isCurrentMonth = idx === currentMonthIndex;
-                            const shouldHighlight = isCurrentMonth && highlightCurrentRow;
-                            
-                            return (
-                              <tr 
-                                key={idx} 
-                                ref={isCurrentMonth ? currentRowRef : null}
-                                className={`
-                                  hover:bg-gray-50 
-                                  ${isCurrentMonth ? 'bg-cyan-50 border-l-4 border-l-cyan-500' : ''}
-                                  ${shouldHighlight ? 'animate-pulse' : ''}
-                                `}
-                              >
-                                <td className={`px-3 py-2 ${isCurrentMonth ? 'font-semibold text-cyan-900' : 'text-gray-900'}`}>
-                                  {row.month}
-                                </td>
-                                <td className={`px-3 py-2 ${isCurrentMonth ? 'font-semibold text-cyan-900' : 'text-gray-600'}`}>
-                                  {formattedDate}
-                                </td>
-                                <td className={`px-3 py-2 text-right ${isCurrentMonth ? 'font-semibold text-cyan-900' : 'text-gray-900'}`}>
-                                  {formatCurrency(row.paymentPrincipal)}
-                                </td>
-                                <td className={`px-3 py-2 text-right ${isCurrentMonth ? 'font-semibold text-cyan-900' : 'text-gray-600'}`}>
-                                  {formatCurrency(row.paymentInterest)}
-                                </td>
+                  <details>
+                    <summary className="flex items-center justify-between cursor-pointer list-none">
+                      <h3 className="text-lg font-medium text-gray-900">Tableau d'amortissement</h3>
+                      <ChevronDown className="h-4 w-4 text-gray-500" />
+                    </summary>
+                    <div className="mt-4">
+                      <div className="flex items-center justify-end gap-2 mb-4">
+                        <Button variant="outline" size="sm" onClick={exportCSV}>
+                          <Download className="h-4 w-4 mr-2" />
+                          CSV
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={exportPDF}>
+                          <FileText className="h-4 w-4 mr-2" />
+                          PDF
+                        </Button>
+                      </div>
+                      <div className="border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="max-h-96 overflow-y-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
+                              <tr>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">MOIS</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">DATE</th>
+                                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">PRINCIPAL</th>
+                                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">INTÉRÊTS</th>
                                 {loan.insurancePct && loan.insurancePct > 0 && (
-                                  <td className={`px-3 py-2 text-right ${isCurrentMonth ? 'font-semibold text-cyan-900' : 'text-gray-600'}`}>
-                                    {formatCurrency(row.paymentInsurance)}
-                                  </td>
+                                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">ASSURANCE</th>
                                 )}
-                                <td className={`px-3 py-2 text-right font-semibold ${isCurrentMonth ? 'text-cyan-900' : 'text-gray-900'}`}>
-                                  {formatCurrency(row.paymentTotal)}
-                                </td>
-                                <td className={`px-3 py-2 text-right font-semibold ${isCurrentMonth ? 'text-cyan-900' : 'text-cyan-600'}`}>
-                                  {formatCurrency(row.remainingCapital)}
-                                </td>
+                                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">TOTAL</th>
+                                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">CRD</th>
                               </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {schedule.map((row, idx) => {
+                                const [year, month] = row.date.split('-');
+                                const dateObj = new Date(parseInt(year, 10), parseInt(month, 10) - 1);
+                                const formattedDate = dateObj.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
+                                return (
+                                  <tr key={idx} className="hover:bg-gray-50">
+                                    <td className="px-3 py-2 text-gray-900">{row.month}</td>
+                                    <td className="px-3 py-2 text-gray-600">{formattedDate}</td>
+                                    <td className="px-3 py-2 text-right text-gray-900">{formatCurrency(row.paymentPrincipal)}</td>
+                                    <td className="px-3 py-2 text-right text-gray-600">{formatCurrency(row.paymentInterest)}</td>
+                                    {loan.insurancePct && loan.insurancePct > 0 && (
+                                      <td className="px-3 py-2 text-right text-gray-600">{formatCurrency(row.paymentInsurance)}</td>
+                                    )}
+                                    <td className="px-3 py-2 text-right font-semibold text-gray-900">{formatCurrency(row.paymentTotal)}</td>
+                                    <td className="px-3 py-2 text-right font-semibold text-cyan-600">{formatCurrency(row.remainingCapital)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  </details>
                 </div>
               )}
 
-              {/* Informations système */}
+              {/* Informations techniques */}
               <div className="border-t pt-4">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Informations système</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Informations techniques</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <p className="text-sm text-gray-600">ID Prêt</p>
-                    <p className="font-mono text-xs text-gray-500">{loan.id}</p>
+                    <p className="text-sm text-gray-600">Type de prêt</p>
+                    <p className="font-medium">{formatLoanTypeLabel((loan as any).loanType)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Taux</p>
+                    <p className="font-medium">{loan.annualRatePct}%</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Durée</p>
+                    <p className="font-medium">{formatDurationLabel(loan.durationMonths)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Différé</p>
+                    <p className="font-medium">{loan.defermentMonths || 0} mois</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Jour de paiement</p>
+                    <p className="font-medium">{(loan as any).paymentDay ? `Le ${(loan as any).paymentDay} du mois` : 'Non défini'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Bien</p>
+                    <p className="font-medium flex items-center gap-1"><Building2 className="h-4 w-4 text-gray-500" />{loan.propertyName}</p>
                   </div>
                 </div>
               </div>

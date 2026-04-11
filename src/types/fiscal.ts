@@ -30,11 +30,21 @@ export interface IRBracket {
 }
 
 /**
- * Décote IR
+ * Décote IR — paramètres issus du JSON FiscalVersion (admin).
+ * Calcul effectif : `computeIrDecoteDGFiP` (plafond − taux × impôt brut, seuils célib./couple).
  */
 export interface IRDecote {
-  threshold: number;                                    // Seuil de revenu (€)
-  formula: (tax: number, parts: number) => number;     // Formule de calcul
+  /** Legacy / admin : souvent le seuil « célibataire » (impôt brut au-delà duquel décote = 0) */
+  threshold?: number;
+  seuilCelibataire?: number;
+  seuilCouple?: number;
+  plafondCelibataire?: number;
+  plafondCouple?: number;
+  taux?: number;
+  /** @deprecated ancienne formule barème (non utilisée si plafonds présents) */
+  facteur?: number;
+  /** @deprecated omis après sérialisation JSON ; ne pas s’en servir pour le calcul */
+  formula?: (tax: number, parts: number) => number;
 }
 
 /**
@@ -92,6 +102,14 @@ export interface TaxParams {
     min: number;         // Minimum (€)
     max: number;         // Maximum (€)
   };
+
+  /**
+   * Estimation optionnelle (JSON BDD) des déductions sociales sur pensions après abattement 10 %.
+   * Aucun taux par défaut dans le code : si absent, le mode « estimé » retombe sur la saisie manuelle.
+   */
+  pensionSocialesDeductiblesEstime?: {
+    tauxSurNetApresAbattement?: number;
+  };
   
   // Prélèvements sociaux
   psRate: number;                     // Taux PS (ex: 0.172 = 17.2%)
@@ -129,10 +147,29 @@ export interface TaxParams {
  * Informations du foyer fiscal
  */
 export interface HouseholdInfo {
-  salaire: number;                 // Salaire et revenus du travail (€)
+  /**
+   * Revenus d’activité **nets imposables** (après abattement 10 % si saisie brute côté UI), hors pensions
+   * lorsque `pensionsBrutes` est renseigné.
+   */
+  salaire: number;
   autresRevenus: number;          // Autres revenus imposables (€)
   parts: number;                   // Nombre de parts fiscales
   isCouple: boolean;               // En couple (marié/pacsé)
+  /**
+   * Pensions **brutes** annuelles (avant abattement 10 %). Si > 0, le moteur applique brut → abattement →
+   * cotisations déductibles sur cette assiette, puis additionne `salaire` + `autresRevenus` (nets imposables).
+   */
+  pensionsBrutes?: number;
+  /**
+   * Cotisations / prélèvements sociaux **déductibles sur pensions** (après abattement 10 %), en € — saisie manuelle.
+   * Si `pensionsBrutes` est absent, soustraite du total (comportement historique).
+   */
+  cotisationsSocialesDeductibles?: number;
+  /**
+   * `manuel` : utilise `cotisationsSocialesDeductibles` sur la voie pensions.
+   * `estime` : utilise `taxParams.pensionSocialesDeductiblesEstime.tauxSurNetApresAbattement` si défini en BDD, sinon manuel.
+   */
+  cotisationsPensionsMode?: 'manuel' | 'estime';
 }
 
 /**
@@ -257,7 +294,7 @@ export interface FiscalInputs {
     regimeOverride?: 'auto' | 'micro' | 'reel'; // Override manuel du régime fiscal
     autofill?: boolean;                       // Autofill activé ou non
     selectedBienIds?: string[];               // IDs des biens sélectionnés pour la simulation
-    baremeCode?: string;                     // Code barème (session fiscale, ex: "2025.1")
+    baremeCode?: string;                     // Code barème (session fiscale, ex: "2026.1")
   };
 }
 

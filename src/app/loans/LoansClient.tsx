@@ -353,10 +353,12 @@ export default function LoansClient() {
           <LoansByPropertyChart
             data={charts.crdByProperty}
             isLoading={chartsLoading}
+            financingNavigation
           />
           <LoansTopCostlyChart
             data={charts.topCostlyLoans}
             isLoading={chartsLoading}
+            financingNavigation
           />
         </div>
 

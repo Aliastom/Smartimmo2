@@ -23,7 +23,18 @@ export interface CRDTimelineData {
 interface LoansCRDTimelineChartProps {
   data: CRDTimelineData[];
   isLoading?: boolean;
+  /** Titre de la carte (défaut : vue portefeuille) */
+  title?: string;
+  subtitle?: string;
+  /** Libellé dans la légende du graphique */
+  legendLabel?: string;
+  /** Classes sur la Card racine (ex. pleine largeur en vue bien) */
+  cardClassName?: string;
 }
+
+const DEFAULT_TITLE = 'Évolution du CRD Global';
+const DEFAULT_SUBTITLE = "Capital Restant Dû de l'ensemble du parc";
+const DEFAULT_LEGEND = 'CRD Global';
 
 const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
   if (!active || !payload || !payload.length) return null;
@@ -49,6 +60,10 @@ const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
 export function LoansCRDTimelineChart({
   data,
   isLoading = false,
+  title = DEFAULT_TITLE,
+  subtitle = DEFAULT_SUBTITLE,
+  legendLabel = DEFAULT_LEGEND,
+  cardClassName = 'col-span-1 md:col-span-2',
 }: LoansCRDTimelineChartProps) {
   const formatMonth = (month: string) => {
     const [year, m] = month.split('-');
@@ -58,9 +73,9 @@ export function LoansCRDTimelineChart({
 
   if (isLoading) {
     return (
-      <Card className="col-span-1 md:col-span-2">
+      <Card className={`${cardClassName} min-w-0`.trim()}>
         <CardHeader>
-          <CardTitle>Évolution du CRD Global</CardTitle>
+          <CardTitle>{title}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="h-64 flex items-center justify-center">
@@ -72,14 +87,12 @@ export function LoansCRDTimelineChart({
   }
 
   return (
-    <Card className="col-span-1 md:col-span-2 min-w-0">
+    <Card className={`${cardClassName} min-w-0`.trim()}>
       <CardHeader className="min-w-0">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Évolution du CRD Global</CardTitle>
-            <p className="text-sm text-gray-600 mt-1">
-              Capital Restant Dû de l'ensemble du parc
-            </p>
+            <CardTitle>{title}</CardTitle>
+            <p className="text-sm text-gray-600 mt-1">{subtitle}</p>
           </div>
         </div>
       </CardHeader>
@@ -109,7 +122,7 @@ export function LoansCRDTimelineChart({
               <Legend
                 wrapperStyle={{ paddingTop: '20px' }}
                 iconType="line"
-                formatter={(value) => 'CRD Global'}
+                formatter={() => legendLabel}
               />
               <Line
                 type="monotone"

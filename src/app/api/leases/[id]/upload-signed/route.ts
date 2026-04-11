@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { getStorageService } from '@/services/storage.service';
+import { createHash } from 'crypto';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -39,6 +40,7 @@ export async function POST(
     // Lire le fichier
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+    const fileSha256 = createHash('sha256').update(buffer).digest('hex');
 
     // Trouver le type de document BAIL_SIGNE
     const documentType = await prisma.documentType.findUnique({
@@ -49,8 +51,111 @@ export async function POST(
       throw new Error('Type de document BAIL_SIGNE non trouvé');
     }
 
-    // Créer le document en base d'abord pour obtenir l'ID
-    const tempDocument = await prisma.document.create({
+    // Remplacement métier: un seul BAIL_SIGNE actif par bail
+    // On archive les anciens documents signés avant d'enregistrer le nouveau.
+    await prisma.document.updateMany({
+      where: {
+        organizationId,
+        leaseId,
+        documentTypeId: documentType.id,
+        deletedAt: null,
+      },
+      data: {
+        deletedAt: new Date(),
+        status: 'archived',
+      },
+    });
+
+    // Idempotence: si le même fichier existe déjà (même SHA), on le réutilise
+    // au lieu de créer une nouvelle ligne qui casserait sur la contrainte unique.
+    let document = await prisma.document.findUnique({
+      where: { fileSha256 },
+    });
+
+    if (document && document.organizationId !== organizationId) {
+      return NextResponse.json(
+        { error: 'Ce document existe déjà dans une autre organisation' },
+        { status: 409 }
+      );
+    }
+
+    if (!document) {
+      try {
+        document = await prisma.document.create({
+          data: {
+            organizationId,
+            ownerId: user.id,
+            documentTypeId: documentType.id,
+            filenameOriginal: file.name,
+            fileName: file.name,
+            mime: file.type,
+            size: file.size,
+            fileSha256,
+            bucketKey: '',
+            url: '',
+            leaseId: leaseId,
+            tenantId: lease.tenantId,
+            propertyId: lease.propertyId,
+            status: 'active',
+            source: 'upload',
+            uploadedBy: user.id,
+            uploadedAt: new Date(),
+            metadata: JSON.stringify({
+              originalName: file.name,
+              uploadType: 'lease_signed',
+              leaseStatus: 'SIGNÉ'
+            })
+          }
+        });
+      } catch (createError: any) {
+        // Course concurrente possible: un autre process a créé le même SHA entre-temps.
+        if (createError?.code === 'P2002') {
+          document = await prisma.document.findUnique({ where: { fileSha256 } });
+        } else {
+          throw createError;
+        }
+      }
+    }
+
+    if (!document) {
+      throw new Error("Impossible d'initialiser le document signé");
+    }
+
+    let finalUrl = document.url;
+    if (!document.bucketKey || !document.url) {
+      // Upload vers le stockage (local ou Supabase selon STORAGE_TYPE)
+      const storageService = getStorageService();
+      const timestamp = Date.now();
+      const fileName = `bail-signe-${leaseId}-${timestamp}.pdf`;
+      const { key: bucketKey } = await storageService.uploadDocument(
+        buffer,
+        document.id,
+        fileName,
+        file.type
+      );
+
+      finalUrl = `/api/documents/${document.id}/file`;
+      document = await prisma.document.update({
+        where: { id: document.id },
+        data: {
+          bucketKey,
+          url: finalUrl,
+        },
+      });
+    } else {
+      // Normaliser l'URL de lecture locale pour cohérence API.
+      finalUrl = `/api/documents/${document.id}/file`;
+      document = await prisma.document.update({
+        where: { id: document.id },
+        data: {
+          url: finalUrl,
+        },
+      });
+    }
+
+    // Réassocier le document au bail courant (cas "fichier déjà connu").
+    document = await prisma.document.update({
+      where: { id: document.id },
       data: {
         organizationId,
         ownerId: user.id,
@@ -59,13 +164,11 @@ export async function POST(
         fileName: file.name,
         mime: file.type,
         size: file.size,
-        fileSha256: '', // Sera calculé si nécessaire
-        bucketKey: '', // Sera mis à jour après upload
-        url: '', // Sera mis à jour après upload
-        leaseId: leaseId,
+        leaseId,
         tenantId: lease.tenantId,
         propertyId: lease.propertyId,
-        status: 'active', // ✅ Active directement (pas de staging pour bail signé)
+        status: 'active',
+        deletedAt: null,
         source: 'upload',
         uploadedBy: user.id,
         uploadedAt: new Date(),
@@ -73,28 +176,7 @@ export async function POST(
           originalName: file.name,
           uploadType: 'lease_signed',
           leaseStatus: 'SIGNÉ'
-        })
-      }
-    });
-
-    // Upload vers le stockage (local ou Supabase selon STORAGE_TYPE)
-    const storageService = getStorageService();
-    const timestamp = Date.now();
-    const fileName = `bail-signe-${leaseId}-${timestamp}.pdf`;
-    const { key: bucketKey, url: storageUrl } = await storageService.uploadDocument(
-      buffer,
-      tempDocument.id,
-      fileName,
-      file.type
-    );
-
-    // Mettre à jour le document avec les infos de stockage
-    const finalUrl = `/api/documents/${tempDocument.id}/file`;
-    const document = await prisma.document.update({
-      where: { id: tempDocument.id },
-      data: {
-        bucketKey,
-        url: finalUrl,
+        }),
       },
     });
 

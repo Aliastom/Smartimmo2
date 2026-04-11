@@ -22,7 +22,7 @@ const DEFAULT_SESSION: FiscalSession = {
   organizationId: '',
   declarationYear: new Date().getFullYear() + 1,
   incomeYear: new Date().getFullYear(),
-  baremeCode: '2025.1',
+  baremeCode: '2026.1',
   updatedAt: new Date().toISOString(),
 };
 

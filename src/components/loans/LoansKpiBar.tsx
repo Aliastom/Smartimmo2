@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { StatCard } from '@/components/ui/StatCard';
-import { Wallet, TrendingDown, Hash, CheckCircle } from 'lucide-react';
+import { cn } from '@/utils/cn';
 
 export interface BorrowerKpi {
   name: string;
@@ -19,11 +19,20 @@ export interface LoansKpis {
   borrowers?: BorrowerKpi[];
 }
 
+/** KPI App Shell : soutenabilité globale (hors filtre tableau) */
+export interface LoansSustainabilityKpi {
+  loading: boolean;
+  /** null = aucun bien avec prêt actif */
+  value: number | null;
+}
+
 interface LoansKpiBarProps {
   kpis: LoansKpis;
   activeFilter: string | null;
   onFilterChange: (filter: string | null) => void;
   isLoading?: boolean;
+  /** Présent uniquement en vue globale App Shell */
+  sustainabilityKpi?: LoansSustainabilityKpi;
 }
 
 export function LoansKpiBar({
@@ -31,6 +40,7 @@ export function LoansKpiBar({
   activeFilter,
   onFilterChange,
   isLoading = false,
+  sustainabilityKpi,
 }: LoansKpiBarProps) {
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('fr-FR', {
@@ -119,10 +129,17 @@ export function LoansKpiBar({
     onFilterChange(cardId);
   };
 
+  const skeletonCount = sustainabilityKpi ? 5 : 4;
+
   if (isLoading) {
     return (
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 min-w-0">
-        {[1, 2, 3, 4].map((i) => (
+      <div
+        className={cn(
+          'grid gap-4 grid-cols-1 sm:grid-cols-2 min-w-0',
+          sustainabilityKpi ? 'lg:grid-cols-3 xl:grid-cols-5' : 'lg:grid-cols-4',
+        )}
+      >
+        {Array.from({ length: skeletonCount }, (_, i) => i + 1).map((i) => (
           <div
             key={i}
             className="bg-white rounded-xl border border-gray-200 p-5 animate-pulse"
@@ -135,8 +152,16 @@ export function LoansKpiBar({
     );
   }
 
+  const sustainabilityTrendLabel =
+    'Moyenne par bien : cashflow brut moyen (12 mois) − mensualités des prêts actifs';
+
   return (
-    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 min-w-0">
+    <div
+      className={cn(
+        'grid gap-4 grid-cols-1 sm:grid-cols-2 min-w-0',
+        sustainabilityKpi ? 'lg:grid-cols-3 xl:grid-cols-5' : 'lg:grid-cols-4',
+      )}
+    >
       {cards.map((card) => (
         <StatCard
           key={card.id}
@@ -152,6 +177,36 @@ export function LoansKpiBar({
           trendDirection="flat"
         />
       ))}
+      {sustainabilityKpi &&
+        (sustainabilityKpi.loading ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-5 animate-pulse flex flex-col gap-3">
+            <div className="h-5 bg-gray-200 rounded w-2/3" />
+            <div className="h-8 bg-gray-200 rounded w-4/5" />
+            <div className="h-4 bg-gray-100 rounded w-full" />
+          </div>
+        ) : (
+          <StatCard
+            title="Cashflow net moyen après crédit"
+            value={
+              sustainabilityKpi.value === null
+                ? '—'
+                : formatCurrency(sustainabilityKpi.value)
+            }
+            iconName="Activity"
+            color={
+              sustainabilityKpi.value === null
+                ? 'slate'
+                : sustainabilityKpi.value >= 0
+                  ? 'emerald'
+                  : 'red'
+            }
+            disabled
+            rightIndicator="none"
+            trendLabel={sustainabilityTrendLabel}
+            trendValue={0}
+            trendDirection="flat"
+          />
+        ))}
     </div>
   );
 }

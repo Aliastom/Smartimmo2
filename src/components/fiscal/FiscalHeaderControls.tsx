@@ -21,13 +21,13 @@ export function FiscalHeaderControls() {
   const [loadingBaremes, setLoadingBaremes] = useState(false);
   const [updating, setUpdating] = useState(false);
 
-  const incomeYear = session?.incomeYear ?? new Date().getFullYear();
+  const declarationYearForBaremes = session?.declarationYear ?? new Date().getFullYear() + 1;
 
   useEffect(() => {
-    if (incomeYear < 2020 || incomeYear > 2035) return;
+    if (declarationYearForBaremes < 2020 || declarationYearForBaremes > 2035) return;
     let cancelled = false;
     setLoadingBaremes(true);
-    fetch(`/api/fiscal/baremes?year=${incomeYear}`)
+    fetch(`/api/fiscal/baremes?year=${declarationYearForBaremes}`)
       .then((res) => (res.ok ? res.json() : { baremes: [] }))
       .then((data) => {
         if (!cancelled) setBaremes(data.baremes || []);
@@ -39,7 +39,7 @@ export function FiscalHeaderControls() {
         if (!cancelled) setLoadingBaremes(false);
       });
     return () => { cancelled = true; };
-  }, [incomeYear]);
+  }, [declarationYearForBaremes]);
 
   const handleDeclarationChange = async (value: string) => {
     const year = parseInt(value, 10);

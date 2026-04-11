@@ -58,8 +58,8 @@ export default function DeleteConfirmModal({
               </p>
               <p className="text-sm text-red-800">
                 {isSingle 
-                  ? 'Le bail sera définitivement supprimé. Si le bail contient des transactions, il sera automatiquement résilié à la place.'
-                  : 'Les baux sélectionnés seront définitivement supprimés. Ceux contenant des transactions seront automatiquement résiliés.'
+                  ? 'Le bail sera définitivement supprimé uniquement s’il ne contient aucune transaction.'
+                  : 'Les baux sélectionnés seront supprimés uniquement s’ils ne contiennent aucune transaction.'
                 }
               </p>
             </div>

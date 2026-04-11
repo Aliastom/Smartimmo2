@@ -125,6 +125,9 @@ export function getNextLeaseAction(
   if (contractStatus === 'A_SIGNER') {
     return { type: 'NONE', label: 'Attendre la signature' };
   }
+  if (contractStatus === 'SIGNE') {
+    return { type: 'NONE', label: 'Activer le bail' };
+  }
   if (contractStatus === 'RESILIE' || contractStatus === 'ARCHIVE') {
     return { type: 'NONE', label: 'Aucune action requise' };
   }

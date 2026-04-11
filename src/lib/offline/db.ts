@@ -123,6 +123,7 @@ export interface LocalLease {
   signedPdfUrl?: string | null;
   chargesRecupMensuelles?: number | null;
   chargesNonRecupMensuelles?: number | null;
+  pilotageIgnored?: boolean | null;
   createdAt: string;
   updatedAt: string;
   _localUpdatedAt?: string;

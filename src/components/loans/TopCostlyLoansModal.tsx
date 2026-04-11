@@ -1,8 +1,11 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { propertyLoansTabHref } from '@/features/loans/components/LoansPortfolioPilotageBar';
 import {
   ResponsiveContainer,
   BarChart,
@@ -13,15 +16,23 @@ import {
   Tooltip,
   TooltipProps,
 } from 'recharts';
+import { ChevronRight } from 'lucide-react';
 import type { TopCostlyLoan } from './LoansTopCostlyChart';
+
+const NAV_HINT = 'Voir le détail du financement';
 
 interface TopCostlyLoansModalProps {
   isOpen: boolean;
   onClose: () => void;
   data: TopCostlyLoan[];
+  financingNavigation?: boolean;
 }
 
-const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
+const CustomTooltip = ({
+  active,
+  payload,
+  showNavHint,
+}: TooltipProps<number, string> & { showNavHint?: boolean }) => {
   if (!active || !payload || !payload.length) return null;
 
   const data = payload[0].payload;
@@ -35,6 +46,9 @@ const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
           {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(data.totalInterest)}
         </span>
       </div>
+      {showNavHint && data.propertyId && (
+        <p className="text-xs text-primary-600 font-medium mt-1 pt-1 border-t border-gray-100">{NAV_HINT}</p>
+      )}
       {/* Afficher les co-emprunteurs dans le tooltip */}
       {data.borrowers && data.borrowers.length > 0 && (
         <div className="mt-2 pt-2 border-t border-gray-200">
@@ -57,12 +71,21 @@ export function TopCostlyLoansModal({
   isOpen,
   onClose,
   data,
+  financingNavigation = false,
 }: TopCostlyLoansModalProps) {
+  const router = useRouter();
+
+  const goToPropertyLoans = (propertyId: string | undefined) => {
+    if (!financingNavigation || !propertyId) return;
+    onClose();
+    router.push(propertyLoansTabHref(propertyId));
+  };
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Top 5 - Coûts les plus élevés"
+      title="Prêts triés par coût total"
       size="lg"
       footer={
         <Button onClick={onClose}>
@@ -91,8 +114,18 @@ export function TopCostlyLoansModal({
                 tickLine={{ stroke: '#9ca3af' }}
                 tickFormatter={(value) => `${(value / 1000).toFixed(0)}k€`}
               />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="totalInterest" fill="#ef4444" radius={[4, 4, 0, 0]} />
+              <Tooltip content={<CustomTooltip showNavHint={financingNavigation} />} />
+              <Bar
+                dataKey="totalInterest"
+                fill="#ef4444"
+                radius={[4, 4, 0, 0]}
+                cursor={financingNavigation ? 'pointer' : undefined}
+                onClick={(barData: unknown) => {
+                  const row = barData as (TopCostlyLoan & { payload?: TopCostlyLoan }) | undefined;
+                  const payload = row?.payload ?? row;
+                  goToPropertyLoans(payload?.propertyId);
+                }}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -100,21 +133,47 @@ export function TopCostlyLoansModal({
         {/* Liste détaillée */}
         <div className="space-y-3 max-h-[400px] overflow-y-auto">
           {data.map((item, index) => (
-            <div key={item.loanId} className="border-b border-gray-200 last:border-0 pb-3 last:pb-0">
-              <div className="flex items-center justify-between text-sm mb-2">
+            <div
+              key={item.loanId}
+              className={`border-b border-gray-200 last:border-0 pb-3 last:pb-0 rounded-md transition-colors ${
+                financingNavigation && item.propertyId
+                  ? 'hover:bg-slate-50/90'
+                  : ''
+              }`}
+            >
+              <div className="flex items-center justify-between text-sm mb-2 gap-2 px-1">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <div className="w-6 h-6 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
                     {index + 1}
                   </div>
-                  <span className="text-gray-700 font-medium">{item.label}</span>
+                  {financingNavigation && item.propertyId ? (
+                    <Link
+                      href={propertyLoansTabHref(item.propertyId)}
+                      onClick={() => onClose()}
+                      className="group inline-flex min-w-0 flex-1 items-center gap-2 cursor-pointer"
+                      title={NAV_HINT}
+                    >
+                      <span className="text-gray-700 font-medium truncate text-left group-hover:text-primary-700 transition-colors">
+                        {item.label}
+                      </span>
+                      <span className="font-medium text-red-600 flex-shrink-0">
+                        {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(item.totalInterest)}
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-primary-500 transition-colors flex-shrink-0" aria-hidden />
+                    </Link>
+                  ) : (
+                    <>
+                      <span className="text-gray-700 font-medium truncate">{item.label}</span>
+                      <span className="font-medium text-red-600 flex-shrink-0 ml-auto">
+                        {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(item.totalInterest)}
+                      </span>
+                    </>
+                  )}
                 </div>
-                <span className="font-medium text-red-600 flex-shrink-0 ml-2">
-                  {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(item.totalInterest)}
-                </span>
               </div>
               {/* Répartition des co-emprunteurs */}
               {item.borrowers && item.borrowers.length > 0 && (
-                <div className="ml-8 mt-2 space-y-1">
+                <div className="ml-8 mt-2 space-y-1 px-1">
                   <div className="text-xs text-gray-500 font-medium">Co-emprunteurs:</div>
                   {item.borrowers.map((borrower, idx) => (
                     <div key={idx} className="flex items-center justify-between text-xs">

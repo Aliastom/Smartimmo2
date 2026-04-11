@@ -21,15 +21,25 @@ export function ServiceWorkerRegister() {
       return; // Ne rien faire cote serveur
     }
 
-    // Verifier que nous sommes en production
-    // En Next.js, NODE_ENV est remplace a la compilation
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (!isProduction) {
-      return; // Ne rien faire en developpement
-    }
-
     if (!('serviceWorker' in navigator)) {
       // Service Worker non supporte (ancien navigateur)
+      return;
+    }
+
+    // En developpement, nettoyer les anciens SW/caches pour eviter
+    // les pages blanches dues a des chunks _next obsoletes.
+    if (process.env.NODE_ENV !== 'production') {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) => Promise.all(registrations.map((r) => r.unregister())))
+        .catch(() => undefined);
+
+      if ('caches' in window) {
+        caches
+          .keys()
+          .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+          .catch(() => undefined);
+      }
       return;
     }
 

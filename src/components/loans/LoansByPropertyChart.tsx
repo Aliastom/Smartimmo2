@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
   ResponsiveContainer,
@@ -11,6 +13,9 @@ import {
   TooltipProps,
 } from 'recharts';
 import { Building2 } from 'lucide-react';
+import { propertyLoansTabHref } from '@/features/loans/components/LoansPortfolioPilotageBar';
+
+const NAV_HINT = 'Voir le détail du financement';
 
 export interface PropertyData {
   propertyName: string;
@@ -21,6 +26,7 @@ export interface PropertyData {
 interface LoansByPropertyChartProps {
   data: PropertyData[];
   isLoading?: boolean;
+  financingNavigation?: boolean;
 }
 
 const CHART_COLORS = [
@@ -34,7 +40,11 @@ const CHART_COLORS = [
   '#f97316', // orange
 ];
 
-const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
+const CustomTooltip = ({
+  active,
+  payload,
+  showNavHint,
+}: TooltipProps<number, string> & { showNavHint?: boolean }) => {
   if (!active || !payload || !payload.length) return null;
 
   const data = payload[0].payload;
@@ -48,6 +58,9 @@ const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
           {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(data.crd)}
         </span>
       </div>
+      {showNavHint && data.propertyId && (
+        <p className="text-xs text-primary-600 font-medium mt-2 pt-2 border-t border-gray-100">{NAV_HINT}</p>
+      )}
     </div>
   );
 };
@@ -55,8 +68,21 @@ const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
 export function LoansByPropertyChart({
   data,
   isLoading = false,
+  financingNavigation = false,
 }: LoansByPropertyChartProps) {
+  const router = useRouter();
   const total = data.reduce((sum, item) => sum + item.crd, 0);
+
+  const goToPropertyLoans = (propertyId: string) => {
+    if (!financingNavigation || !propertyId) return;
+    router.push(propertyLoansTabHref(propertyId));
+  };
+
+  const handlePieClick = (entry: unknown) => {
+    const e = entry as (PropertyData & { payload?: PropertyData }) | null | undefined;
+    const row = e?.payload ?? e;
+    if (row?.propertyId) goToPropertyLoans(row.propertyId);
+  };
 
   if (isLoading) {
     return (
@@ -89,7 +115,7 @@ export function LoansByPropertyChart({
           </div>
         ) : (
           <>
-            <div className="min-w-0">
+            <div className={`min-w-0 ${financingNavigation ? 'cursor-pointer' : ''}`} title={financingNavigation ? NAV_HINT : undefined}>
               <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie
@@ -100,29 +126,50 @@ export function LoansByPropertyChart({
                   outerRadius={80}
                   paddingAngle={2}
                   dataKey="crd"
+                  onClick={financingNavigation ? handlePieClick : undefined}
                 >
                   {data.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<CustomTooltip showNavHint={financingNavigation} />} />
               </PieChart>
             </ResponsiveContainer>
             </div>
             <div className="mt-4 space-y-2">
               {data.map((item, index) => (
-                <div key={item.propertyId} className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
-                    />
-                    <span className="text-gray-700">{item.propertyName}</span>
+                financingNavigation ? (
+                  <Link
+                    key={item.propertyId}
+                    href={propertyLoansTabHref(item.propertyId)}
+                    className="flex items-center justify-between text-sm rounded-md px-1 -mx-1 py-1 hover:bg-slate-50 transition-colors"
+                    title={NAV_HINT}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div
+                        className="w-3 h-3 rounded-full shrink-0"
+                        style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                      />
+                      <span className="text-gray-700 truncate">{item.propertyName}</span>
+                    </div>
+                    <span className="font-medium text-gray-900 shrink-0 ml-2">
+                      {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(item.crd)}
+                    </span>
+                  </Link>
+                ) : (
+                  <div key={item.propertyId} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                      />
+                      <span className="text-gray-700">{item.propertyName}</span>
+                    </div>
+                    <span className="font-medium text-gray-900">
+                      {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(item.crd)}
+                    </span>
                   </div>
-                  <span className="font-medium text-gray-900">
-                    {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(item.crd)}
-                  </span>
-                </div>
+                )
               ))}
             </div>
           </>

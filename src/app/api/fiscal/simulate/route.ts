@@ -44,8 +44,8 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Récupérer les paramètres fiscaux (année des revenus + optionnellement barème)
-    const taxParams = await TaxParamsService.get(year, baremeCode);
+    // Paramètres : sans code explicite, `year` BDD = année de déclaration (= revenus + 1)
+    const taxParams = await TaxParamsService.get(year + 1, baremeCode);
     
     // Agréger les données fiscales automatiquement si autofill
     let inputs: FiscalInputs;
@@ -86,6 +86,11 @@ export async function POST(request: NextRequest) {
         per,
         options,
       };
+    }
+
+    // Métadonnées UI (brut / abattement 10 %, etc.) : nécessaires pour le debug / relevés côté résultats, sans impact sur le moteur
+    if (body._uiMetadata !== undefined) {
+      inputs = { ...inputs, _uiMetadata: body._uiMetadata };
     }
     
     // ========== VALIDATION DES COMBINAISONS FISCALES ==========

@@ -235,6 +235,10 @@ const ENTITY_CONFIGS: EntitySyncConfig[] = [
       if (rest.chargesNonRecupMensuelles !== null && rest.chargesNonRecupMensuelles !== undefined) {
         cleanItem.chargesNonRecupMensuelles = Number(rest.chargesNonRecupMensuelles);
       }
+
+      if (rest.pilotageIgnored !== null && rest.pilotageIgnored !== undefined) {
+        cleanItem.pilotageIgnored = Boolean(rest.pilotageIgnored);
+      }
       
       return cleanItem;
     },

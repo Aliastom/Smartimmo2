@@ -18,7 +18,7 @@ import { UploadReviewModal } from '@/components/documents/UploadReviewModal';
 import { DuplicateDetectedModal } from '@/components/documents/DuplicateDetectedModal';
 import { ConfirmDeleteDocumentModal } from '@/components/documents/ConfirmDeleteDocumentModal';
 import { LinkExistingDocumentModal } from '@/components/documents/LinkExistingDocumentModal';
-import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
+import { computeLoanMetrics } from '@/features/loans/domain/loanDisplay';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useLoanDocuments } from '@/hooks/offline/useLoanDocuments';
 import { getLocalDB } from '@/lib/offline/db';
@@ -860,39 +860,29 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
   useEffect(() => {
     if (principal > 0 && durationMonths > 0 && startDate) {
       try {
-        const schedule = buildSchedule({
+        const metrics = computeLoanMetrics({
+          id: initialData?.id || 'preview',
+          propertyId: selectedPropertyId || 'preview',
+          label: watch('label') || 'Apercu',
           principal,
           annualRatePct,
           durationMonths,
           defermentMonths,
           insurancePct,
-          startDate: new Date(startDate),
-          paymentDay: paymentDay || undefined,
+          feesUpfront: watch('feesUpfront') || 0,
+          startDate,
+          paymentDay: paymentDay || null,
+          isActive: true,
         });
-        
-        if (schedule.length > 0) {
-          // Mensualité (hors période de différé)
-          const firstPaymentAfterDeferment = schedule.find(row => row.month > defermentMonths) || schedule[schedule.length - 1];
-          setCalculatedMonthlyPayment(firstPaymentAfterDeferment.paymentTotal);
-          
-          // Date de fin
-          const endDate = new Date(startDate);
-          endDate.setMonth(endDate.getMonth() + durationMonths);
-          // Si paymentDay est défini, ajuster le jour de la date de fin
-          if (paymentDay) {
-            const lastDayOfMonth = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0).getDate();
-            const adjustedDay = Math.min(paymentDay, lastDayOfMonth);
-            endDate.setDate(adjustedDay);
-          }
-          setCalculatedEndDate(endDate.toLocaleDateString('fr-FR'));
-          
-          // CRD actuel (aujourd'hui)
-          const today = new Date();
-          const todayStr = paymentDay 
-            ? `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-            : `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-          const crd = crdAtDate(schedule, todayStr);
-          setCalculatedCRD(crd);
+
+        if (metrics.schedule.length > 0) {
+          setCalculatedMonthlyPayment(metrics.monthlyPayment);
+          setCalculatedEndDate(
+            metrics.endDateIso
+              ? new Date(metrics.endDateIso).toLocaleDateString('fr-FR')
+              : null
+          );
+          setCalculatedCRD(metrics.currentCRD);
         }
       } catch (error) {
         console.error('Erreur lors du calcul:', error);
@@ -905,7 +895,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
       setCalculatedEndDate(null);
       setCalculatedCRD(null);
     }
-  }, [principal, annualRatePct, durationMonths, defermentMonths, insurancePct, startDate, paymentDay]);
+  }, [principal, annualRatePct, durationMonths, defermentMonths, insurancePct, startDate, paymentDay, initialData?.id, selectedPropertyId, watch]);
 
   // Footer avec boutons
   const modalFooter = (
@@ -989,9 +979,12 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
             <form id="loan-form" onSubmit={handleSubmit(onSubmitForm)} className="space-y-6 pb-4">
               {activeTab === 'informations' && (
                 <div className="space-y-4 md:space-y-6">
-                  {/* Ligne 1 : Bien / Nom du prêt (2 colonnes) */}
+                  {/* Bloc 1 — Essentiel */}
+                  <div className="rounded-lg border border-gray-200 p-4 md:p-5 space-y-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-900">Essentiel</h3>
+                    </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Bien */}
                     <div className="space-y-2">
                       <Label htmlFor="propertyId">Bien *</Label>
                       <SmartSelect
@@ -1012,8 +1005,6 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                         <p className="text-sm text-red-500">{errors.propertyId.message}</p>
                       )}
                     </div>
-
-                    {/* Libellé */}
                     <div className="space-y-2">
                       <Label htmlFor="label">Nom du prêt *</Label>
                       <Input
@@ -1026,60 +1017,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                       )}
                     </div>
                   </div>
-
-                  {/* Ligne 2 : Type de prêt (plein) */}
-                  <div className="space-y-2">
-                    <Label htmlFor="loanType">Type de prêt</Label>
-                    <SmartSelect
-                      value={watch('loanType') || ''}
-                      onChange={(value) => setValue('loanType', value)}
-                      options={[
-                        { value: '', label: 'Sélectionner un type' },
-                        { value: 'IMMOBILIER', label: 'Prêt immobilier' },
-                        { value: 'TRAVAUX', label: 'Prêt travaux' },
-                        { value: 'PERSONNEL', label: 'Prêt personnel' },
-                        { value: 'AUTRE', label: 'Autre' },
-                      ]}
-                      placeholder="Sélectionner un type"
-                    />
-                  </div>
-
-                  {/* Ligne 3 : Type de remboursement / Profil d'amortissement (2 colonnes) */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Type de remboursement */}
-                    <div className="space-y-2">
-                      <Label htmlFor="repaymentType">Type de remboursement</Label>
-                      <SmartSelect
-                        value={watch('repaymentType') || ''}
-                        onChange={(value) => setValue('repaymentType', value)}
-                        options={[
-                          { value: '', label: 'Sélectionner un type' },
-                          { value: 'CLASSIC', label: 'Prêt classique (remboursement progressif)' },
-                          { value: 'IN_FINE', label: 'Prêt in fine' },
-                        ]}
-                        placeholder="Sélectionner un type"
-                      />
-                    </div>
-
-                    {/* Profil d'amortissement */}
-                    <div className="space-y-2">
-                      <Label htmlFor="amortizationProfile">Profil d'amortissement</Label>
-                      <SmartSelect
-                        value={watch('amortizationProfile') || ''}
-                        onChange={(value) => setValue('amortizationProfile', value)}
-                        options={[
-                          { value: '', label: 'Sélectionner un profil' },
-                          { value: 'CONSTANT_PAYMENT', label: 'Mensualités constantes (annuité classique)' },
-                          { value: 'CONSTANT_AMORTIZATION', label: 'Amortissement constant (mensualités dégressives)' },
-                        ]}
-                        placeholder="Sélectionner un profil"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Ligne 4 : Capital / Taux (2 colonnes) */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Capital */}
                     <div className="space-y-2">
                       <Label htmlFor="principal">Capital emprunté (€) *</Label>
                       <Input
@@ -1093,8 +1031,6 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                         <p className="text-sm text-red-500">{errors.principal.message}</p>
                       )}
                     </div>
-
-                    {/* Taux annuel */}
                     <div className="space-y-2">
                       <Label htmlFor="annualRatePct">Taux annuel (%) *</Label>
                       <Input
@@ -1109,10 +1045,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                       )}
                     </div>
                   </div>
-
-                  {/* Ligne 5 : Durée / Différé (2 colonnes) */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Durée */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="durationMonths">Durée (mois) *</Label>
                       <Input
@@ -1125,25 +1058,61 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                         <p className="text-sm text-red-500">{errors.durationMonths.message}</p>
                       )}
                     </div>
+                  </div>
+                  </div>
 
-                    {/* Différé */}
+                  {/* Bloc 2 — Structure du prêt */}
+                  <div className="rounded-lg border border-gray-200 p-4 md:p-5 space-y-4">
+                    <h3 className="text-sm font-semibold text-gray-900">Structure du prêt</h3>
                     <div className="space-y-2">
-                      <Label htmlFor="defermentMonths">Différé (mois)</Label>
-                      <Input
-                        id="defermentMonths"
-                        type="number"
-                        {...register('defermentMonths', { valueAsNumber: true })}
-                        placeholder="0"
+                      <Label htmlFor="loanType">Type de prêt</Label>
+                      <SmartSelect
+                        value={watch('loanType') || ''}
+                        onChange={(value) => setValue('loanType', value)}
+                        options={[
+                          { value: '', label: 'Sélectionner un type' },
+                          { value: 'IMMOBILIER', label: 'Prêt immobilier' },
+                          { value: 'TRAVAUX', label: 'Prêt travaux' },
+                          { value: 'PERSONNEL', label: 'Prêt personnel' },
+                          { value: 'AUTRE', label: 'Autre' },
+                        ]}
+                        placeholder="Sélectionner un type"
                       />
-                      {errors.defermentMonths && (
-                        <p className="text-sm text-red-500">{errors.defermentMonths.message}</p>
-                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="repaymentType">Type de remboursement</Label>
+                        <SmartSelect
+                          value={watch('repaymentType') || ''}
+                          onChange={(value) => setValue('repaymentType', value)}
+                          options={[
+                            { value: '', label: 'Sélectionner un type' },
+                            { value: 'CLASSIC', label: 'Prêt classique (remboursement progressif)' },
+                            { value: 'IN_FINE', label: 'Prêt in fine' },
+                          ]}
+                          placeholder="Sélectionner un type"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="amortizationProfile">Profil d'amortissement</Label>
+                        <SmartSelect
+                          value={watch('amortizationProfile') || ''}
+                          onChange={(value) => setValue('amortizationProfile', value)}
+                          options={[
+                            { value: '', label: 'Sélectionner un profil' },
+                            { value: 'CONSTANT_PAYMENT', label: 'Mensualités constantes (annuité classique)' },
+                            { value: 'CONSTANT_AMORTIZATION', label: 'Amortissement constant (mensualités dégressives)' },
+                          ]}
+                          placeholder="Sélectionner un profil"
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Ligne 6 : Assurance / Frais de dossier (2 colonnes) */}
+                  {/* Bloc 3 — Paramètres financiers */}
+                  <div className="rounded-lg border border-gray-200 p-4 md:p-5 space-y-4">
+                    <h3 className="text-sm font-semibold text-gray-900">Paramètres financiers</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Assurance */}
                     <div className="space-y-2">
                       <Label htmlFor="insurancePct">Assurance (%/an)</Label>
                       <Input
@@ -1159,8 +1128,6 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                         <p className="text-sm text-red-500">{errors.insurancePct.message}</p>
                       )}
                     </div>
-
-                    {/* Frais de dossier */}
                     <div className="space-y-2">
                       <Label htmlFor="feesUpfront">Frais de dossier (€)</Label>
                       <Input
@@ -1177,10 +1144,26 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                       )}
                     </div>
                   </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="defermentMonths">Différé (mois)</Label>
+                        <Input
+                          id="defermentMonths"
+                          type="number"
+                          {...register('defermentMonths', { valueAsNumber: true })}
+                          placeholder="0"
+                        />
+                        {errors.defermentMonths && (
+                          <p className="text-sm text-red-500">{errors.defermentMonths.message}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
-                  {/* Ligne 7 : Date de début / Jour paiement (2 colonnes) */}
+                  {/* Bloc 4 — Paramètres temporels */}
+                  <div className="rounded-lg border border-gray-200 p-4 md:p-5 space-y-4">
+                    <h3 className="text-sm font-semibold text-gray-900">Paramètres temporels</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Date de début */}
                     <div className="space-y-2">
                       <Label htmlFor="startDate">Date de début *</Label>
                       <SmartDatePicker
@@ -1195,8 +1178,6 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                         <p className="text-sm text-red-500">{errors.startDate.message}</p>
                       )}
                     </div>
-
-                    {/* Jour de paiement */}
                     <div className="space-y-2">
                       <Label htmlFor="paymentDay">Jour de paiement du mois</Label>
                       <Input
@@ -1215,35 +1196,36 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                       <p className="text-xs text-gray-500">Si non renseigné, le jour de la date de début sera utilisé</p>
                     </div>
                   </div>
+                  </div>
 
-                  {/* Calculs automatiques - Badges informatifs */}
+                  {/* Aperçu calculé (discret) */}
                   {(calculatedMonthlyPayment !== null || calculatedEndDate !== null || calculatedCRD !== null) && (
-                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Info className="h-5 w-5 text-orange-600" />
-                        <h4 className="text-sm font-medium text-orange-900">Calculs automatiques</h4>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Info className="h-4 w-4 text-gray-500" />
+                        <h4 className="text-xs font-medium text-gray-700 uppercase tracking-wide">Aperçu calculé</h4>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         {calculatedMonthlyPayment !== null && (
-                          <div className="bg-white rounded-md p-3 border border-orange-200">
-                            <p className="text-xs text-orange-700 mb-1">Mensualité</p>
-                            <p className="text-lg font-semibold text-orange-900">
+                          <div className="bg-white rounded-md p-2 border border-gray-200">
+                            <p className="text-[11px] text-gray-500 mb-1">Mensualité</p>
+                            <p className="text-sm font-semibold text-gray-900">
                               {calculatedMonthlyPayment.toFixed(2)} €
                             </p>
                           </div>
                         )}
                         {calculatedEndDate !== null && (
-                          <div className="bg-white rounded-md p-3 border border-orange-200">
-                            <p className="text-xs text-orange-700 mb-1">Date de fin</p>
-                            <p className="text-lg font-semibold text-orange-900">
+                          <div className="bg-white rounded-md p-2 border border-gray-200">
+                            <p className="text-[11px] text-gray-500 mb-1">Date de fin</p>
+                            <p className="text-sm font-semibold text-gray-900">
                               {calculatedEndDate}
                             </p>
                           </div>
                         )}
                         {calculatedCRD !== null && (
-                          <div className="bg-white rounded-md p-3 border border-orange-200">
-                            <p className="text-xs text-orange-700 mb-1">Capital restant dû</p>
-                            <p className="text-lg font-semibold text-orange-900">
+                          <div className="bg-white rounded-md p-2 border border-gray-200">
+                            <p className="text-[11px] text-gray-500 mb-1">CRD actuel</p>
+                            <p className="text-sm font-semibold text-gray-900">
                               {calculatedCRD.toFixed(2)} €
                             </p>
                           </div>
@@ -1252,9 +1234,9 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                     </div>
                   )}
 
-                  {/* Notes : pleine largeur */}
-                  <div className="space-y-2">
-                    <Label htmlFor="notes">Notes</Label>
+                  {/* Bloc 5 — Notes */}
+                  <div className="rounded-lg border border-gray-200 p-4 md:p-5 space-y-2">
+                    <h3 className="text-sm font-semibold text-gray-900">Notes</h3>
                     <textarea
                       id="notes"
                       {...register('notes')}
@@ -1262,19 +1244,6 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors overflow-x-hidden"
                       placeholder="Notes additionnelles sur ce prêt..."
                     />
-                  </div>
-
-                  {/* Actif */}
-                  <div className="flex items-center space-x-2">
-                    <input
-                      id="isActive"
-                      type="checkbox"
-                      {...register('isActive')}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    <Label htmlFor="isActive" className="font-normal">
-                      Prêt actif
-                    </Label>
                   </div>
                 </div>
               )}

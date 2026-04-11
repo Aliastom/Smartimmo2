@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { Simulator } from '../Simulator';
 import type { FiscalInputs, TaxParams } from '@/types/fiscal';
+import { buildIrDecoteFromStored } from '@/services/tax/irDecoteDGFiP';
 
 // Paramètres fiscaux de test (simplifié)
 const mockTaxParams: TaxParams = {
@@ -19,13 +20,13 @@ const mockTaxParams: TaxParams = {
     { lower: 82341, upper: 177106, rate: 0.41 },
     { lower: 177106, upper: null, rate: 0.45 },
   ],
-  irDecote: {
-    threshold: 1929,
-    formula: (tax: number, parts: number) => {
-      const seuil = parts === 1 ? 1929 : 3858;
-      return Math.max(0, seuil - 0.75 * tax);
-    },
-  },
+  irDecote: buildIrDecoteFromStored({
+    seuilCelibataire: 1917,
+    seuilCouple: 3177,
+    plafondCelibataire: 833,
+    plafondCouple: 1378,
+    taux: 0.45,
+  }),
   psRate: 0.172,
   micro: {
     foncierAbattement: 0.30,

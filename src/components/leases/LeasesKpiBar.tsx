@@ -15,6 +15,8 @@ interface LeasesKpiBarProps {
   activeFilter: string | null;
   onFilterChange: (filter: string | null) => void;
   isLoading?: boolean;
+  /** Réduit taille / contraste (ex. onglet baux d’un seul bien). */
+  variant?: 'default' | 'subtle';
 }
 
 export function LeasesKpiBar({
@@ -22,7 +24,9 @@ export function LeasesKpiBar({
   activeFilter,
   onFilterChange,
   isLoading = false,
+  variant = 'default',
 }: LeasesKpiBarProps) {
+  const subtle = variant === 'subtle';
   const cards = [
     {
       id: 'all',
@@ -62,14 +66,20 @@ export function LeasesKpiBar({
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 ${
+          subtle ? 'gap-2 opacity-90' : 'gap-4'
+        }`}
+      >
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
-            className="bg-white rounded-xl border border-gray-200 p-5 animate-pulse"
+            className={`bg-white rounded-lg border border-gray-100 animate-pulse ${
+              subtle ? 'p-3' : 'rounded-xl border-gray-200 p-5'
+            }`}
           >
-            <div className="h-5 bg-gray-200 rounded w-1/2 mb-2"></div>
-            <div className="h-8 bg-gray-200 rounded w-3/4"></div>
+            <div className={`bg-gray-200 rounded w-1/2 mb-2 ${subtle ? 'h-3' : 'h-5'}`}></div>
+            <div className={`bg-gray-200 rounded w-3/4 ${subtle ? 'h-6' : 'h-8'}`}></div>
           </div>
         ))}
       </div>
@@ -77,7 +87,11 @@ export function LeasesKpiBar({
   }
 
   return (
-    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+    <div
+      className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 ${
+        subtle ? 'gap-2 opacity-[0.92]' : 'gap-4'
+      }`}
+    >
       {cards.map((card) => (
         <StatCard
           key={card.id}
@@ -88,6 +102,11 @@ export function LeasesKpiBar({
           onClick={() => handleCardClick(card.id)}
           isActive={activeFilter === card.id}
           rightIndicator="none"
+          className={
+            subtle
+              ? '!p-3 md:!p-3 !rounded-lg border-gray-100/90 shadow-sm saturate-[0.85]'
+              : undefined
+          }
         />
       ))}
     </div>

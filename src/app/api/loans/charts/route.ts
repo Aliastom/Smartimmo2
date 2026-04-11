@@ -132,8 +132,14 @@ export async function GET(request: NextRequest) {
     // Trier par CRD décroissant
     crdByProperty.sort((a, b) => b.crd - a.crd);
 
-    // 3. Classement par coût d'intérêts (top 5) avec co-emprunteurs
-    const loanCosts: { loanId: string; label: string; totalInterest: number; borrowers?: Array<{ name: string; pct: number | null }> }[] = [];
+    // 3. Classement par coût d'intérêts (liste complète triée) avec co-emprunteurs
+    const loanCosts: {
+      loanId: string;
+      propertyId: string;
+      label: string;
+      totalInterest: number;
+      borrowers?: Array<{ name: string; pct: number | null }>;
+    }[] = [];
     
     for (const loan of loans) {
       const schedule = buildSchedule({
@@ -171,6 +177,7 @@ export async function GET(request: NextRequest) {
         
         loanCosts.push({
           loanId: loan.id,
+          propertyId: loan.propertyId,
           label: loan.label,
           totalInterest: Math.round(totalInterest * 100) / 100,
           borrowers: borrowersData,
@@ -178,9 +185,9 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    // Trier par coût décroissant et prendre le top 5
+    // Trier par coût décroissant (liste complète)
     loanCosts.sort((a, b) => b.totalInterest - a.totalInterest);
-    const topCostlyLoans = loanCosts.slice(0, 5);
+    const topCostlyLoans = loanCosts;
 
     return NextResponse.json({
       crdTimeline,

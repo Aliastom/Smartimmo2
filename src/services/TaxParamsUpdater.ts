@@ -5,6 +5,7 @@
 
 import { prisma } from '@/lib/prisma';
 import type { TaxParams } from '@/types/fiscal';
+import { buildIrDecoteFromStored } from '@/services/tax/irDecoteDGFiP';
 
 export class TaxParamsUpdater {
   /**
@@ -93,13 +94,7 @@ export class TaxParamsUpdater {
         { lower: 177106, upper: null, rate: 0.45 },
       ],
       
-      irDecote: {
-        threshold: 1929,
-        formula: (tax: number, parts: number) => {
-          const plafond = parts === 1 ? 1929 : 3191;
-          return Math.max(0, plafond - (3 * tax) / 4);
-        },
-      },
+      irDecote: buildIrDecoteFromStored({}),
       
       // Prélèvements sociaux
       psRate: 0.172,

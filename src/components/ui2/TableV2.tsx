@@ -48,6 +48,10 @@ export interface TableRowV2Props {
   onHoverActions?: React.ReactNode; // Actions pour la colonne Actions
   onClick?: () => void;
   className?: string;
+  /** Ancre pour scroll depuis le bandeau pilotage (ex. bail id). */
+  dataLeaseRowId?: string;
+  /** Ancre pour scroll depuis le bandeau « Actions à traiter » (échéance id). */
+  dataEcheanceRowId?: string;
 }
 
 // Hook pour détecter si on est sur mobile
@@ -76,7 +80,9 @@ export function TableRowV2({
   onHoverInfo, 
   onHoverActions,
   onClick,
-  className 
+  className,
+  dataLeaseRowId,
+  dataEcheanceRowId,
 }: TableRowV2Props) {
   const isMobile = useIsMobile();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -125,6 +131,8 @@ export function TableRowV2({
 
   return (
     <tr
+      data-lease-row-id={dataLeaseRowId ?? undefined}
+      data-echeance-row-id={dataEcheanceRowId ?? undefined}
       className={cn(
         "ui2-table-row group transition-colors",
         onClick && "cursor-pointer hover:bg-gray-50 active:bg-gray-100",

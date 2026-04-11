@@ -21,6 +21,8 @@ import LeaseFormComplete from '@/components/forms/LeaseFormComplete';
 import LeaseEditModal from '@/components/forms/LeaseEditModal';
 import LeaseActionsManager from '@/components/forms/LeaseActionsManager';
 import CannotDeleteLeaseModal from '@/components/leases/CannotDeleteLeaseModal';
+import type { CannotDeleteLeaseItem } from '@/components/leases/cannotDeleteLeaseTypes';
+import { normalizeLeaseContractStatus } from '@/features/leases/utils/leaseWorkflowStatus';
 import DeleteConfirmModal from '@/components/leases/DeleteConfirmModal';
 import { TransactionModal } from '@/components/transactions/TransactionModalV2';
 import { createTransactionServiceWithMode } from '@/domain/services/transactionServiceFactory';
@@ -75,12 +77,7 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
   const [leasesToConfirmDelete, setLeasesToConfirmDelete] = useState<LeaseWithDetails[]>([]);
   const [showActionsModal, setShowActionsModal] = useState(false);
   const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
-  const [protectedLeasesForModal, setProtectedLeasesForModal] = useState<Array<{
-    id: string;
-    propertyName: string;
-    tenantName: string;
-    reason: string;
-  }>>([]);
+  const [protectedLeasesForModal, setProtectedLeasesForModal] = useState<CannotDeleteLeaseItem[]>([]);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentPrefill, setPaymentPrefill] = useState<{
     propertyId: string;
@@ -298,7 +295,8 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
           id: item.lease.id,
           propertyName: item.lease.Property.name,
           tenantName: `${item.lease.Tenant.firstName} ${item.lease.Tenant.lastName}`,
-          reason: item.reason || 'Ce bail contient des transactions'
+          reason: item.reason || 'Ce bail contient des transactions',
+          offerTerminate: normalizeLeaseContractStatus(item.lease.status) === 'ACTIF',
         }));
         setProtectedLeasesForModal(protectedLeasesData);
         setShowCannotDeleteModal(true);

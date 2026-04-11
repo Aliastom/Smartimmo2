@@ -6,7 +6,15 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { computeIRResult } from '@/services/tax/computeIRResult';
+import { irNetAffichageEuro } from '@/services/tax/irNetAffichageEuro';
+import { useFiscalStore } from '@/store/fiscalStore';
+import {
+  abattementForfaitaireRevenus,
+  computeRevenuProFoyerIR,
+  computeCotisationsPensionsEffectives,
+} from '@/services/tax/computeRevenuProFoyerIR';
 import { BlockCard } from '../BlockCard';
 import { Badge } from '@/components/ui/Badge';
 import { Separator } from '@/components/ui/Separator';
@@ -37,6 +45,7 @@ interface DetailsTabProps {
 }
 
 export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: DetailsTabProps) {
+  const draftFoyer = useFiscalStore((s) => s.simulationDraft.foyer);
   const { isExpertMode } = useExpertModeStore();
   const [showTranchesDetail, setShowTranchesDetail] = useState(false);
   const [showPSDetail, setShowPSDetail] = useState(false);
@@ -50,18 +59,232 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
     }).format(amount);
   
   const formatPercent = (rate: number) => `${(rate * 100).toFixed(1)} %`;
+
+  const formatPartsFr = (p: number) =>
+    Number.isInteger(p) ? String(p) : p.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+
+  const partsFoyer = simulation.inputs?.foyer?.parts ?? 1;
+
+  const gainImpotParts = useMemo(() => {
+    if (partsFoyer <= 1 || !simulation.taxParams) return null;
+    const r = simulation.ir.revenuImposable;
+    if (r <= 0) return null;
+    const irUnePart = computeIRResult(r, 1, simulation.taxParams, simulation.inputs?.foyer?.isCouple ?? false);
+    const gain = Math.round(irUnePart.impotNet - simulation.ir.impotNet);
+    return gain > 0 ? gain : null;
+  }, [simulation, partsFoyer]);
+
+  /** Relevé chiffré pour valider IR / décote : jamais en prod ; en local, activer NEXT_PUBLIC_FISCAL_IR_DEBUG=true */
+  const debugIrDevPanel = useMemo(() => {
+    if (
+      process.env.NODE_ENV !== 'development' ||
+      process.env.NEXT_PUBLIC_FISCAL_IR_DEBUG !== 'true'
+    ) {
+      return null;
+    }
+    const meta = simulation.inputs._uiMetadata;
+    const tp = simulation.taxParams?.salaryDeduction;
+    const foyer = simulation.inputs.foyer;
+    const taxParams = simulation.taxParams;
+    const rows: { k: string; v: string }[] = [];
+
+    if (taxParams) {
+      rows.push({
+        k: 'Version fiscale chargée (code / année barème)',
+        v: `${taxParams.version} / ${taxParams.year}`,
+      });
+      const b = taxParams.irBrackets || [];
+      rows.push({
+        k: 'Barème IR effectif (tranches)',
+        v: b
+          .map(
+            (t) =>
+              `${t.lower}–${t.upper == null ? '∞' : t.upper} : ${(t.rate * 100).toFixed(1).replace(/\.0$/, '')} %`
+          )
+          .join(' | '),
+      });
+      const d = taxParams.irDecote;
+      rows.push({
+        k: 'Décote effective (seuils / plafonds / taux)',
+        v: d
+          ? `célib ${d.seuilCelibataire} € | couple ${d.seuilCouple} € | plaf. célib ${d.plafondCelibataire} € | plaf. couple ${d.plafondCouple} € | taux ${d.taux}`
+          : '—',
+      });
+    }
+
+    const pensionsBrutes = Math.max(0, Number(foyer.pensionsBrutes) || 0);
+    let baseFoyerAvantQuotient: number;
+
+    if (pensionsBrutes > 0 && taxParams) {
+      const dedP = abattementForfaitaireRevenus(pensionsBrutes, taxParams);
+      const netApresAbattementPensions = pensionsBrutes - dedP;
+      const cotisP = computeCotisationsPensionsEffectives(
+        foyer,
+        taxParams,
+        netApresAbattementPensions
+      );
+      const netImposablePensions = Math.max(0, netApresAbattementPensions - cotisP);
+      const activiteNet =
+        Math.max(0, Number(foyer.salaire) || 0) + Math.max(0, Number(foyer.autresRevenus) || 0);
+
+      rows.push({ k: 'Pensions brutes (saisie)', v: formatEuro(pensionsBrutes) });
+      rows.push({
+        k: 'Abattement 10 % sur pensions (borné min/max barème)',
+        v: `−${formatEuro(dedP)}`,
+      });
+      rows.push({
+        k: 'Base pensions après abattement 10 %',
+        v: formatEuro(netApresAbattementPensions),
+      });
+      rows.push({
+        k: 'Déductions sociales déductibles sur pensions (ex. CSG déductible)',
+        v: cotisP > 0 ? `−${formatEuro(cotisP)}` : formatEuro(0),
+      });
+      rows.push({
+        k: 'Net imposable pensions',
+        v: formatEuro(netImposablePensions),
+      });
+      rows.push({
+        k: 'Revenus d’activité nets imposables (salaire + autres, hors pensions)',
+        v: formatEuro(activiteNet),
+      });
+      baseFoyerAvantQuotient = computeRevenuProFoyerIR(foyer, taxParams);
+      rows.push({
+        k: 'Base foyer avant quotient / barème (moteur)',
+        v: formatEuro(baseFoyerAvantQuotient),
+      });
+    } else {
+      let baseApresAbattement: number;
+      if (
+        meta?.salaryMode === 'brut' &&
+        meta.salaireBrutOriginal != null &&
+        (meta.deductionMode ?? 'forfaitaire') === 'forfaitaire' &&
+        tp
+      ) {
+        const brut = meta.salaireBrutOriginal;
+        const ded = Math.min(
+          Math.max(brut * (tp.taux ?? 0.1), tp.min ?? 472),
+          tp.max ?? 13522
+        );
+        baseApresAbattement = brut - ded;
+        rows.push({
+          k: 'Brut saisi (revenus d’activité — ne pas confondre avec pensions brutes)',
+          v: formatEuro(brut),
+        });
+        rows.push({
+          k: 'Abattement forfaitaire 10 % (borné min/max barème)',
+          v: `−${formatEuro(ded)}`,
+        });
+        rows.push({
+          k: 'Base après abattement 10 %',
+          v: formatEuro(baseApresAbattement),
+        });
+      } else {
+        baseApresAbattement = foyer.salaire + foyer.autresRevenus;
+        rows.push({
+          k: 'Base après abattement (salaire + autres, déjà nets côté saisie)',
+          v: formatEuro(baseApresAbattement),
+        });
+      }
+
+      const con = simulation.consolidation;
+      const casFoyerSeul =
+        (simulation.biens?.length ?? 0) === 0 &&
+        Math.abs(con?.revenusFonciers ?? 0) < 0.005 &&
+        Math.abs(con?.revenusBIC ?? 0) < 0.005 &&
+        Math.abs((con as { deficitImputableRevenuGlobal?: number })?.deficitImputableRevenuGlobal ?? 0) <
+          0.005 &&
+        (simulation.inputs.per?.versementPrevu ?? 0) <= 0;
+
+      let cotisDed: number;
+      if (casFoyerSeul) {
+        const revenuMoteur = simulation.ir.revenuImposable;
+        cotisDed = Math.max(0, Math.round(baseApresAbattement - revenuMoteur));
+        baseFoyerAvantQuotient = revenuMoteur;
+      } else {
+        const cotisSaisie =
+          foyer.cotisationsSocialesDeductibles ??
+          draftFoyer?.cotisationsSocialesDeductibles;
+        cotisDed = Math.max(0, Number(cotisSaisie) || 0);
+        baseFoyerAvantQuotient = Math.max(0, baseApresAbattement - cotisDed);
+      }
+
+      rows.push({
+        k: 'Cotisations sociales déductibles (voie historique, hors pensions brutes)',
+        v: cotisDed > 0 ? `−${formatEuro(cotisDed)}` : formatEuro(0),
+      });
+      rows.push({
+        k: casFoyerSeul
+          ? 'Base finale avant quotient (= revenu imposable moteur, foyer seul)'
+          : 'Base finale avant quotient (pro + autres nets saisie − cotisations)',
+        v: formatEuro(baseFoyerAvantQuotient),
+      });
+    }
+
+    rows.push({
+      k: 'Revenu imposable total (IR, y compris immo / PER si applicable)',
+      v: formatEuro(simulation.ir.revenuImposable),
+    });
+    rows.push({
+      k: 'Revenu par part (moteur)',
+      v: `${simulation.ir.revenuParPart.toFixed(4)} € (${foyer.parts} part(s))`,
+    });
+    rows.push({
+      k: 'Impôt brut',
+      v: `${simulation.ir.impotBrut.toFixed(2)} € (arrondi affichage ${formatEuro(Math.round(simulation.ir.impotBrut))})`,
+    });
+    rows.push({
+      k: 'Décote appliquée',
+      v: `${simulation.ir.decote.toFixed(2)} € (${formatEuro(Math.round(simulation.ir.decote))})`,
+    });
+    rows.push({
+      k: 'Impôt final (IR net)',
+      v: `${simulation.ir.impotNet.toFixed(2).replace('.', ',')} € (~${simulation.ir.impotNet.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} €) · affichage ${formatEuro(irNetAffichageEuro(simulation.ir.impotNet))}`,
+    });
+    rows.push({
+      k: 'Parts / isCouple',
+      v: `${foyer.parts} / ${foyer.isCouple ? 'oui' : 'non'}`,
+    });
+    rows.push({
+      k: 'PAS déjà payé (option simulation)',
+      v: formatEuro(simulation.inputs.options?.prelevementSourceDejaPaye ?? 0),
+    });
+
+    return (
+      <div className="mt-3 rounded border border-dashed border-amber-500/50 bg-amber-50/70 p-3 text-[11px] leading-relaxed text-amber-950 space-y-1 font-mono">
+        <p className="font-sans font-semibold text-amber-900 border-b border-amber-200/80 pb-1 mb-1.5">
+          Debug IR (dev uniquement)
+        </p>
+        {rows.map((r) => (
+          <p key={r.k}>
+            <span className="text-amber-800/85">{r.k} :</span> {r.v}
+          </p>
+        ))}
+      </div>
+    );
+  }, [simulation, draftFoyer]);
   
   // Données
   const baseImposable = simulation.ir.revenuImposable;
-  const irTotal = simulation.ir.impotNet;
+  const irTotalMoteur = simulation.ir.impotNet;
+  const irBrutArrondi = Math.round(simulation.ir.impotBrut);
+  const decoteArrondie = Math.round(simulation.ir.decote);
+  const irNetEuroAffichage = irNetAffichageEuro(simulation.ir.impotNet);
   const psTotal = simulation.ps.montant || 0;
-  const totalImpots = irTotal + psTotal;
+  const psEuroAffichage = Math.round(psTotal);
+  const totalImpotsEuroAffichage = irNetEuroAffichage + psEuroAffichage;
   
   const prelevementSourceDejaPaye = simulation.inputs?.options?.prelevementSourceDejaPaye || 0;
   const acomptesDejaPayes = simulation.inputs?.options?.acomptesDejaPayes || 0;
   const totalDejaPaye = prelevementSourceDejaPaye + acomptesDejaPayes;
-  const resteAPayer = Math.max(0, totalImpots - totalDejaPaye);
-  
+  const resteAPayerEuroAffichage = Math.max(0, totalImpotsEuroAffichage - totalDejaPaye);
+
+  /** IR : barème appliqué sur le quotient, puis × parts, puis décote (même ordre que le moteur) */
+  const impotCalculeParPart =
+    partsFoyer > 0 ? simulation.ir.impotBrut / partsFoyer : simulation.ir.impotBrut;
+  const revenuParPartArrondi = Math.round(simulation.ir.revenuParPart);
+  const impotParPartArrondi = Math.round(impotCalculeParPart);
+
   return (
     <TooltipProvider>
       <div className="space-y-6 p-6">
@@ -161,12 +384,55 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                   </div>
                 </div>
 
+                {/* Synthèse quotient / parts / décote (lien tranches ↔ impôt final) */}
+                <div className="rounded-md border border-orange-200/90 bg-orange-50/50 px-3 py-2.5 text-xs text-gray-700">
+                  <p className="text-[11px] text-gray-600 leading-snug mb-1.5">
+                    Les tranches ci-dessus sont calculées sur <strong>une part</strong> de revenu (quotient familial).
+                  </p>
+                  <p className="text-[11px] text-gray-600 leading-snug mb-2">
+                    L&apos;impôt issu de ce barème sur une part est ensuite{' '}
+                    <strong>multiplié par le nombre de parts</strong> pour obtenir l&apos;impôt brut du foyer.
+                  </p>
+                  <ul className="space-y-1 text-[11px] text-gray-800 tabular-nums border-t border-orange-200/70 pt-2">
+                    <li className="flex justify-between gap-3">
+                      <span className="text-gray-600 shrink min-w-0">Revenu par part</span>
+                      <span className="font-medium shrink-0">{formatEuro(revenuParPartArrondi)}</span>
+                    </li>
+                    <li className="flex justify-between gap-3">
+                      <span className="text-gray-600 shrink min-w-0">Impôt calculé par part</span>
+                      <span className="font-medium shrink-0">{formatEuro(impotParPartArrondi)}</span>
+                    </li>
+                    <li className="flex justify-between gap-3">
+                      <span className="text-gray-600 shrink min-w-0">Nombre de parts</span>
+                      <span className="font-medium shrink-0">{formatPartsFr(partsFoyer)}</span>
+                    </li>
+                    <li className="flex justify-between gap-3">
+                      <span className="text-gray-600 shrink min-w-0">Impôt brut du foyer</span>
+                      <span className="font-medium shrink-0">{formatEuro(irBrutArrondi)}</span>
+                    </li>
+                    <li className="flex justify-between gap-3">
+                      <span className="text-gray-600 shrink min-w-0">Décote</span>
+                      <span className="font-medium shrink-0">
+                        {decoteArrondie > 0 ? `−${formatEuro(decoteArrondie)}` : formatEuro(0)}
+                      </span>
+                    </li>
+                    <li className="flex justify-between gap-3 pt-1 border-t border-orange-200/70 font-semibold text-gray-900">
+                      <span className="shrink min-w-0">Impôt final</span>
+                      <span className="shrink-0">{formatEuro(irNetEuroAffichage)}</span>
+                    </li>
+                  </ul>
+                  <p className="text-[11px] text-gray-600 leading-snug mt-2 pt-2 border-t border-orange-200/70">
+                    La décote réduit ensuite l&apos;impôt brut du foyer. Le montant ci-dessus est l&apos;impôt final
+                    (arrondi à l&apos;euro comme sur l&apos;avis).
+                  </p>
+                </div>
+
                 <Separator className="bg-orange-300" />
 
                 {/* Total IR */}
                 <div className="bg-orange-100 border-2 border-orange-400 rounded-lg p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
                       <p className="font-semibold text-gray-900">Total Impôt sur le Revenu</p>
                       <p className="text-xs text-gray-600 mt-1">
                         Taux marginal (TMI) : {formatPercent(simulation.ir.trancheMarginate)}
@@ -180,12 +446,19 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                       <p className="text-xs text-gray-500 mt-1 italic">
                         Montant calculé selon le barème officiel {simulation.inputs.year}
                       </p>
+                      {partsFoyer > 1 && gainImpotParts != null && (
+                        <p className="text-xs text-gray-500 mt-2">
+                          Grâce à vos {formatPartsFr(partsFoyer)} parts, vous réduisez votre impôt d&apos;environ{' '}
+                          {formatEuro(gainImpotParts)}.
+                        </p>
+                      )}
                     </div>
-                    <span className="text-2xl font-bold text-orange-600">
-                      {formatEuro(irTotal)}
+                    <span className="text-2xl font-bold text-orange-600 shrink-0">
+                      {formatEuro(irNetEuroAffichage)}
                     </span>
                   </div>
                 </div>
+                {debugIrDevPanel}
               </div>
             </CardContent>
           </Card>
@@ -256,12 +529,12 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-700">Impôt sur le Revenu (IR)</span>
-                  <span className="font-semibold text-gray-700">{formatEuro(irTotal)}</span>
+                  <span className="font-semibold text-gray-700">{formatEuro(irNetEuroAffichage)}</span>
                 </div>
                 
                 <div className="flex justify-between items-center">
                   <span className="text-gray-700">+ Prélèvements sociaux sur revenus immobiliers</span>
-                  <span className="font-semibold text-gray-700">{formatEuro(psTotal)}</span>
+                  <span className="font-semibold text-gray-700">{formatEuro(psEuroAffichage)}</span>
                 </div>
                 
                 <Separator className="bg-orange-300" />
@@ -272,7 +545,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                       <p className="font-bold text-gray-900">TOTAL IMPÔTS</p>
                       {(() => {
                         const irSupplementaire = simulation.resume?.irSupplementaire || 0;
-                        const irSalaire = irTotal - irSupplementaire;
+                        const irSalaire = irTotalMoteur - irSupplementaire;
                         const impotsSalaire = irSalaire; // PS = 0 sur salaire
                         const impotsImpactFoncier = irSupplementaire + psTotal; // IR supp + PS fonciers
                         const hasFoncier = simulation.consolidation.revenusFonciers !== 0;
@@ -289,7 +562,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                         ) : null;
                       })()}
                     </div>
-                    <span className="text-2xl font-bold text-orange-600">{formatEuro(totalImpots)}</span>
+                    <span className="text-2xl font-bold text-orange-600">{formatEuro(totalImpotsEuroAffichage)}</span>
                   </div>
                 </div>
               </div>
@@ -341,14 +614,14 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
           title="Reste à payer"
           icon={<DollarSign className="h-5 w-5 text-orange-600" />}
         >
-          <Card className={`border-2 shadow-sm ${resteAPayer > 0 ? 'border-orange-300' : 'border-emerald-300'} bg-white`}>
+          <Card className={`border-2 shadow-sm ${resteAPayerEuroAffichage > 0 ? 'border-orange-300' : 'border-emerald-300'} bg-white`}>
             <CardContent className="p-6">
               <div className="space-y-3">
                 {totalDejaPaye > 0 && (
                   <>
                     <div className="flex justify-between items-center">
                       <span className="text-gray-700">Total impôts calculés</span>
-                      <span className="font-semibold text-gray-700">{formatEuro(totalImpots)}</span>
+                      <span className="font-semibold text-gray-700">{formatEuro(totalImpotsEuroAffichage)}</span>
                     </div>
                     
                     <div className="flex justify-between items-center">
@@ -356,23 +629,23 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                       <span className="font-semibold text-gray-700">– {formatEuro(totalDejaPaye)}</span>
                     </div>
                     
-                    <Separator className={resteAPayer > 0 ? "bg-orange-300" : "bg-emerald-300"} />
+                    <Separator className={resteAPayerEuroAffichage > 0 ? "bg-orange-300" : "bg-emerald-300"} />
                   </>
                 )}
                 
-                <div className={`rounded-lg p-4 ${resteAPayer > 0 ? 'bg-orange-100 border-2 border-orange-400' : 'bg-emerald-100 border-2 border-emerald-400'}`}>
+                <div className={`rounded-lg p-4 ${resteAPayerEuroAffichage > 0 ? 'bg-orange-100 border-2 border-orange-400' : 'bg-emerald-100 border-2 border-emerald-400'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-xl animate-pulse">🎯</span>
                       <div>
                         <p className="text-sm text-gray-600 mb-1">
-                          {resteAPayer > 0 ? 'Montant restant à régler' : 'Vous êtes à jour !'}
+                          {resteAPayerEuroAffichage > 0 ? 'Montant restant à régler' : 'Vous êtes à jour !'}
                         </p>
                         <span className="font-bold text-gray-900">RESTE À PAYER</span>
                       </div>
                     </div>
-                    <span className={`text-2xl font-bold ${resteAPayer > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
-                      {formatEuro(resteAPayer)}
+                    <span className={`text-2xl font-bold ${resteAPayerEuroAffichage > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                      {formatEuro(resteAPayerEuroAffichage)}
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 italic">

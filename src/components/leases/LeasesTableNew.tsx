@@ -12,6 +12,7 @@ import {
 import { TableV2, TableHeaderV2, TableHeaderCellV2, TableBodyV2, TableRowV2, TableCellV2 } from '@/components/ui2/TableV2';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import Link from 'next/link';
 import { 
   FileText, 
   Edit,
@@ -32,8 +33,23 @@ import { LeaseHealthBadge } from '@/features/leases/components/LeaseHealthBadge'
 import { LeaseNextActionCell } from '@/features/leases/components/LeaseNextActionCell';
 import { LeaseIndexationRowBadge } from '@/features/leases/components/LeaseIndexationRowBadge';
 import { getLeaseContractStatusInfo } from '@/features/leases/utils/leaseWorkflowStatus';
+import type {
+  LeasePilotageRowMeta,
+  LeasePaymentPilotageMeta,
+} from '@/features/leases/utils/buildLeasePriorityActions';
+import { cn } from '@/utils/cn';
+import type { LeasePilotageBucket } from '@/features/leases/utils/leasePilotageSection';
 
 export type LeaseHealthStatus = 'ok' | 'partiel' | 'retard';
+
+function pilotageRowShowsOrangeCta(meta: LeasePilotageRowMeta): boolean {
+  return (
+    meta.nextActionType === 'PAY_FULL' ||
+    meta.nextActionType === 'PAY_REMAINING' ||
+    meta.nextActionType === 'INDEXATION' ||
+    meta.nextActionType === 'RENEWAL'
+  );
+}
 
 interface LeasesTableNewProps {
   leases: LeaseWithDetails[];
@@ -51,6 +67,18 @@ interface LeasesTableNewProps {
   leaseHealthMap?: Record<string, LeaseHealthStatus>;
   /** Callback pour action rapide "Payer" sur lignes retard/partiel */
   onQuickPay?: (lease: LeaseWithDetails) => void;
+  /** Pilotage batch (App Shell) : colonne « Action principale » + teinte ligne */
+  leasePilotageById?: Record<string, LeasePilotageRowMeta>;
+  /** Détail mois courant + barre de progression (App Shell) */
+  leasePaymentPilotageById?: Record<string, LeasePaymentPilotageMeta>;
+  pageMode?: 'normal' | 'app-shell';
+  /** Lien filtré vers les transactions du bail (contexte bien App Shell) */
+  transactionsHrefForLease?: (lease: LeaseWithDetails) => string;
+  onPilotageIgnoreToggle?: (lease: LeaseWithDetails, ignored: boolean) => void;
+  /** Clic sur le CTA orange pilotage (même effet que le bandeau « Actions prioritaires »). */
+  onPilotagePrimaryCta?: (lease: LeaseWithDetails, meta: LeasePilotageRowMeta) => void;
+  /** Bucket pilotage par bail (pour afficher Ignorer seulement sur À traiter / À surveiller). */
+  leasePilotageBucketById?: Record<string, LeasePilotageBucket>;
 }
 
 const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
@@ -67,6 +95,13 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
   loading = false,
   leaseHealthMap,
   onQuickPay,
+  leasePilotageById,
+  leasePaymentPilotageById,
+  pageMode = 'normal',
+  transactionsHrefForLease,
+  onPilotageIgnoreToggle,
+  onPilotagePrimaryCta,
+  leasePilotageBucketById,
 }) => {
   // ✅ [DEV-ONLY] Logs de debug (isolés derrière flag DEV)
   if (process.env.NODE_ENV === 'development' && (window as any).__SMARTIMMO_DEBUG_LEASES_TABLE__) {
@@ -81,12 +116,110 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
   }
   
   const isUI2Active = useUI2();
+  const showPaymentPilotageCol = pageMode === 'app-shell' && !!leasePaymentPilotageById;
+
+  const pilotageTertiaryBtnClass =
+    'shrink-0 self-start p-0 border-0 bg-transparent text-sm font-normal text-slate-400 hover:text-slate-600 transition-colors cursor-pointer disabled:opacity-40';
+
+  const renderPilotageIgnoreBesidePrimary = (lease: LeaseWithDetails) => {
+    if (!onPilotageIgnoreToggle) return null;
+    const bucket = leasePilotageBucketById?.[lease.id];
+    if (lease.pilotageIgnored) {
+      return (
+        <button
+          type="button"
+          className={pilotageTertiaryBtnClass}
+          title="Réafficher dans le pilotage opérationnel"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPilotageIgnoreToggle(lease, false);
+          }}
+        >
+          Réactiver
+        </button>
+      );
+    }
+    if (bucket === 'critique' || bucket === 'surveiller') {
+      return (
+        <button
+          type="button"
+          className={pilotageTertiaryBtnClass}
+          title="Masquer ce bail des actions prioritaires et du bloc À traiter"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPilotageIgnoreToggle(lease, true);
+          }}
+        >
+          Ignorer
+        </button>
+      );
+    }
+    return null;
+  };
+
+  const renderAppShellActionPrincipale = (lease: LeaseWithDetails, meta: LeasePilotageRowMeta) => {
+    const showOrange =
+      !lease.pilotageIgnored && !!onPilotagePrimaryCta && pilotageRowShowsOrangeCta(meta);
+    const payHints =
+      !lease.pilotageIgnored &&
+      (meta.nextActionType === 'PAY_FULL' || meta.nextActionType === 'PAY_REMAINING');
+    const paymentHintText = payHints
+      ? leasePaymentPilotageById?.[lease.id]?.transactionHint === 'existing'
+        ? '→ lié à transaction existante'
+        : leasePaymentPilotageById?.[lease.id]?.transactionHint === 'creates'
+          ? '→ créera une transaction'
+          : null
+      : null;
+    const showTransactionsLink = Boolean(transactionsHrefForLease && !lease.pilotageIgnored);
+
+    return (
+      <div className="flex flex-col gap-2 items-stretch max-w-[240px]">
+        {showOrange ? (
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 w-full justify-center sm:w-max sm:min-w-[7.5rem] bg-orange-600 hover:bg-orange-700 text-white font-semibold border-0 shadow-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPilotagePrimaryCta?.(lease, meta);
+            }}
+          >
+            {meta.ctaLabel}
+          </Button>
+        ) : (
+          <span
+            className={cn(
+              'text-sm font-medium text-slate-800',
+              lease.pilotageIgnored && 'text-slate-400 font-normal',
+              !lease.pilotageIgnored && meta.rowTone === 'retard' && 'text-red-800',
+              !lease.pilotageIgnored && meta.rowTone === 'partiel' && 'text-amber-900',
+              !lease.pilotageIgnored && meta.rowTone === 'resilie' && 'text-slate-500'
+            )}
+          >
+            {meta.primaryLabel}
+          </span>
+        )}
+        {paymentHintText ? <span className="text-xs text-slate-500 leading-snug">{paymentHintText}</span> : null}
+        {showTransactionsLink && transactionsHrefForLease ? (
+          <Link
+            href={transactionsHrefForLease(lease)}
+            className="text-sm font-medium text-slate-700 hover:underline w-fit"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Transactions du bail
+          </Link>
+        ) : null}
+        {renderPilotageIgnoreBesidePrimary(lease)}
+      </div>
+    );
+  };
   
   const getStatusBadge = (status: string) => {
     const normalized = getLeaseContractStatusInfo(status);
     const statusConfig: Record<string, { variant: any; icon: any; label: string }> = {
       BROUILLON: { variant: 'secondary', icon: Edit, label: 'Brouillon' },
       A_SIGNER: { variant: 'warning', icon: Clock, label: 'À signer' },
+      SIGNE: { variant: 'default', icon: CheckCircle, label: 'Signé' },
       ACTIF: { variant: 'success', icon: CheckCircle, label: 'Actif' },
       RESILIE: { variant: 'destructive', icon: XCircle, label: 'Résilié' },
       ARCHIVE: { variant: 'outline', icon: FileText, label: 'Archivé' },
@@ -251,9 +384,12 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
               <TableHeaderCellV2>Type</TableHeaderCellV2>
               <TableHeaderCellV2>Période</TableHeaderCellV2>
               <TableHeaderCellV2>€ Loyer</TableHeaderCellV2>
+              {showPaymentPilotageCol && (
+                <TableHeaderCellV2 className="font-semibold text-gray-900 min-w-[130px]">Mois / encaissement</TableHeaderCellV2>
+              )}
               {organizationId && <TableHeaderCellV2 className="font-semibold text-gray-900">Santé</TableHeaderCellV2>}
               <TableHeaderCellV2>Statut</TableHeaderCellV2>
-              <TableHeaderCellV2 className="font-semibold text-gray-900">Prochaine action / Échéance</TableHeaderCellV2>
+              <TableHeaderCellV2 className="font-semibold text-gray-900 min-w-[140px]">Action principale</TableHeaderCellV2>
               <TableHeaderCellV2 className="text-center">Actions</TableHeaderCellV2>
             </tr>
           </TableHeaderV2>
@@ -262,17 +398,32 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
               const contractStatus = getLeaseContractStatusInfo(lease.status).code;
               const canUsePaymentHealth = contractStatus === 'ACTIF';
               const health = leaseHealthMap?.[lease.id];
+              const meta = leasePilotageById?.[lease.id];
+              const rowTone = meta?.rowTone
+                ? meta.rowTone
+                : !canUsePaymentHealth
+                  ? 'ok'
+                  : health === 'retard'
+                    ? 'retard'
+                    : health === 'partiel'
+                      ? 'partiel'
+                      : 'ok';
               const isProblematic = canUsePaymentHealth && (health === 'retard' || health === 'partiel');
-              const rowClass = !canUsePaymentHealth
-                ? undefined
-                : health === 'retard'
-                  ? 'bg-red-50/70'
-                  : health === 'partiel'
-                    ? 'bg-amber-50/70'
-                    : undefined;
+              const baseRowClass =
+                rowTone === 'resilie'
+                  ? 'bg-gray-100/90'
+                  : rowTone === 'retard'
+                    ? 'bg-red-50/70'
+                    : rowTone === 'partiel'
+                      ? 'bg-amber-50/70'
+                      : undefined;
+              const rowClass = lease.pilotageIgnored
+                ? cn(baseRowClass, 'border-l-2 border-slate-300/90 !bg-slate-50/95 opacity-60 hover:opacity-100')
+                : baseRowClass;
               return (
               <TableRowV2
                 key={lease.id}
+                dataLeaseRowId={lease.id}
                 onClick={() => onView?.(lease)}
                 onHoverInfo={getHoverInfo(lease)}
                 className={rowClass}
@@ -344,6 +495,40 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                     )}
                   </div>
                 </TableCellV2>
+                {showPaymentPilotageCol && (
+                  <TableCellV2>
+                    {(() => {
+                      const pay = leasePaymentPilotageById?.[lease.id];
+                      if (!pay) return <span className="text-xs text-gray-400">—</span>;
+                      return (
+                        <div
+                          className={cn(
+                            'min-w-[120px] max-w-[160px]',
+                            lease.pilotageIgnored && 'opacity-50'
+                          )}
+                        >
+                          <div className="text-xs font-semibold text-gray-900 capitalize truncate" title={pay.currentMonthLabel}>
+                            {pay.currentMonthLabel}
+                          </div>
+                          <div className="text-[11px] text-gray-600">
+                            {formatCurrency(pay.paid)} / {formatCurrency(pay.expected)}
+                          </div>
+                          <div className="h-1.5 w-full bg-gray-200 rounded-full mt-1 overflow-hidden">
+                            <div
+                              className="h-full bg-emerald-500 rounded-full transition-all"
+                              style={{ width: `${Math.min(100, Math.round(pay.progress01 * 100))}%` }}
+                            />
+                          </div>
+                          {pay.remaining > 0.02 && (
+                            <div className="text-[11px] text-amber-800 font-medium mt-0.5">
+                              Reste {formatCurrency(pay.remaining)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </TableCellV2>
+                )}
                 {organizationId && (
                   <TableCellV2 className="font-medium">
                     <LeaseHealthBadge lease={lease} organizationId={organizationId} className="text-base" />
@@ -352,6 +537,16 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                 <TableCellV2>
                   <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out">
                     {getStatusBadge(lease.status)}
+                    {lease.pilotageIgnored && (
+                      <div className="mt-1">
+                        <Badge
+                          variant="outline"
+                          className="border-slate-300/90 bg-slate-50 text-[10px] font-medium py-0 px-1.5 text-slate-600"
+                        >
+                          Ignoré
+                        </Badge>
+                      </div>
+                    )}
                     {organizationId && (
                       <div className="mt-1">
                         <LeaseIndexationRowBadge lease={lease} />
@@ -359,16 +554,21 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                     )}
                   </div>
                 </TableCellV2>
-                <TableCellV2>
-                  {organizationId ? (
-                    <LeaseNextActionCell lease={lease} organizationId={organizationId} />
+                <TableCellV2 onClick={(e) => e.stopPropagation()}>
+                  {pageMode === 'app-shell' && meta ? (
+                    renderAppShellActionPrincipale(lease, meta)
+                  ) : organizationId ? (
+                    <div className="flex flex-col gap-2 items-start">
+                      <LeaseNextActionCell lease={lease} organizationId={organizationId} />
+                      {renderPilotageIgnoreBesidePrimary(lease)}
+                    </div>
                   ) : (
                     <span className="text-sm text-gray-400">—</span>
                   )}
                 </TableCellV2>
                 <TableCellV2 className="text-center" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center justify-center gap-1">
-                    {isProblematic && onQuickPay && (
+                  <div className="flex items-center justify-center gap-1 flex-wrap">
+                    {isProblematic && onQuickPay && pageMode !== 'app-shell' && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -382,6 +582,20 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                         <Banknote className="h-4 w-4" />
                       </Button>
                     )}
+                    {onView && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onView(lease);
+                        }}
+                        className="h-8 w-8 p-0"
+                        title="Voir"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    )}
                     {onEdit && (
                       <Button
                         variant="outline"
@@ -393,19 +607,6 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                         className="h-8 w-8 p-0"
                       >
                         <Edit className="h-4 w-4" />
-                      </Button>
-                    )}
-                    {onDelete && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(lease);
-                        }}
-                        className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        <Trash2 className="h-4 w-4" />
                       </Button>
                     )}
                   </div>
@@ -447,9 +648,12 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
               <TableHeaderCell>Type</TableHeaderCell>
               <TableHeaderCell>Période</TableHeaderCell>
               <TableHeaderCell>€ Loyer</TableHeaderCell>
+              {showPaymentPilotageCol && (
+                <TableHeaderCell className="font-semibold text-gray-900 min-w-[130px]">Mois / encaissement</TableHeaderCell>
+              )}
               {organizationId && <TableHeaderCell className="font-semibold text-gray-900">Santé</TableHeaderCell>}
               <TableHeaderCell>Statut</TableHeaderCell>
-              <TableHeaderCell className="font-semibold text-gray-900">Prochaine action / Échéance</TableHeaderCell>
+              <TableHeaderCell className="font-semibold text-gray-900 min-w-[140px]">Action principale</TableHeaderCell>
               <TableHeaderCell>Actions</TableHeaderCell>
             </TableRow>
           </TableHeader>
@@ -458,18 +662,36 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
               const contractStatus = getLeaseContractStatusInfo(lease.status).code;
               const canUsePaymentHealth = contractStatus === 'ACTIF';
               const health = leaseHealthMap?.[lease.id];
+              const meta = leasePilotageById?.[lease.id];
+              const rowTone = meta?.rowTone
+                ? meta.rowTone
+                : !canUsePaymentHealth
+                  ? 'ok'
+                  : health === 'retard'
+                    ? 'retard'
+                    : health === 'partiel'
+                      ? 'partiel'
+                      : 'ok';
               const isProblematic = canUsePaymentHealth && (health === 'retard' || health === 'partiel');
-              const rowClass = !canUsePaymentHealth
-                ? undefined
-                : health === 'retard'
-                  ? 'bg-red-50/70'
-                  : health === 'partiel'
-                    ? 'bg-amber-50/70'
-                    : undefined;
+              const baseRowClass =
+                rowTone === 'resilie'
+                  ? 'bg-gray-100/90'
+                  : rowTone === 'retard'
+                    ? 'bg-red-50/70'
+                    : rowTone === 'partiel'
+                      ? 'bg-amber-50/70'
+                      : '';
+              const rowClass = lease.pilotageIgnored
+                ? cn(
+                    baseRowClass,
+                    'border-l-2 border-slate-300/90 !bg-slate-50/95 opacity-60 hover:opacity-100'
+                  )
+                : baseRowClass;
               return (
               <TableRow 
                 key={lease.id}
-                className={`cursor-pointer hover:bg-gray-50 ${rowClass ?? ''}`}
+                data-lease-row-id={lease.id}
+                className={cn('cursor-pointer hover:bg-gray-50', rowClass)}
                 onClick={() => onView?.(lease)}
               >
                 {showSelection && (
@@ -537,6 +759,40 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                     </div>
                   )}
                 </TableCell>
+                {showPaymentPilotageCol && (
+                  <TableCell>
+                    {(() => {
+                      const pay = leasePaymentPilotageById?.[lease.id];
+                      if (!pay) return <span className="text-xs text-gray-400">—</span>;
+                      return (
+                        <div
+                          className={cn(
+                            'min-w-[120px] max-w-[160px]',
+                            lease.pilotageIgnored && 'opacity-50'
+                          )}
+                        >
+                          <div className="text-xs font-semibold text-gray-900 capitalize truncate" title={pay.currentMonthLabel}>
+                            {pay.currentMonthLabel}
+                          </div>
+                          <div className="text-[11px] text-gray-600">
+                            {formatCurrency(pay.paid)} / {formatCurrency(pay.expected)}
+                          </div>
+                          <div className="h-1.5 w-full bg-gray-200 rounded-full mt-1 overflow-hidden">
+                            <div
+                              className="h-full bg-emerald-500 rounded-full transition-all"
+                              style={{ width: `${Math.min(100, Math.round(pay.progress01 * 100))}%` }}
+                            />
+                          </div>
+                          {pay.remaining > 0.02 && (
+                            <div className="text-[11px] text-amber-800 font-medium mt-0.5">
+                              Reste {formatCurrency(pay.remaining)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </TableCell>
+                )}
                 {organizationId && (
                   <TableCell className="font-medium">
                     <LeaseHealthBadge lease={lease} organizationId={organizationId} className="text-base" />
@@ -545,19 +801,32 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                 <TableCell>
                   <div className="flex flex-col gap-1">
                     {getStatusBadge(lease.status)}
+                    {lease.pilotageIgnored && (
+                      <Badge
+                        variant="outline"
+                        className="w-fit border-slate-300/90 bg-slate-50 text-[10px] font-medium py-0 px-1.5 text-slate-600"
+                      >
+                        Ignoré
+                      </Badge>
+                    )}
                     {organizationId && <LeaseIndexationRowBadge lease={lease} />}
                   </div>
                 </TableCell>
-                <TableCell>
-                  {organizationId ? (
-                    <LeaseNextActionCell lease={lease} organizationId={organizationId} />
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  {pageMode === 'app-shell' && meta ? (
+                    renderAppShellActionPrincipale(lease, meta)
+                  ) : organizationId ? (
+                    <div className="flex flex-col gap-2 items-start">
+                      <LeaseNextActionCell lease={lease} organizationId={organizationId} />
+                      {renderPilotageIgnoreBesidePrimary(lease)}
+                    </div>
                   ) : (
                     <span className="text-sm text-gray-400">—</span>
                   )}
                 </TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center gap-2">
-                    {isProblematic && onQuickPay && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {isProblematic && onQuickPay && pageMode !== 'app-shell' && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -571,6 +840,19 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                         <Banknote className="h-4 w-4" />
                       </Button>
                     )}
+                    {onView && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onView(lease);
+                        }}
+                        title="Voir"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -581,18 +863,6 @@ const LeasesTableNewComponent: React.FC<LeasesTableNewProps> = ({
                       title="Modifier"
                     >
                       <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete?.(lease);
-                      }}
-                      title="Supprimer"
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </TableCell>
@@ -618,7 +888,14 @@ export const LeasesTableNew = React.memo(LeasesTableNewComponent, (prevProps, ne
   if (prevProps.organizationId !== nextProps.organizationId) return false;
   if (prevProps.onQuickPay !== nextProps.onQuickPay) return false;
   if (prevProps.leaseHealthMap !== nextProps.leaseHealthMap) return false;
-  
+  if (prevProps.leasePilotageById !== nextProps.leasePilotageById) return false;
+  if (prevProps.leasePaymentPilotageById !== nextProps.leasePaymentPilotageById) return false;
+  if (prevProps.pageMode !== nextProps.pageMode) return false;
+  if (prevProps.transactionsHrefForLease !== nextProps.transactionsHrefForLease) return false;
+  if (prevProps.onPilotageIgnoreToggle !== nextProps.onPilotageIgnoreToggle) return false;
+  if (prevProps.onPilotagePrimaryCta !== nextProps.onPilotagePrimaryCta) return false;
+  if (prevProps.leasePilotageBucketById !== nextProps.leasePilotageBucketById) return false;
+
   // ✅ OPTIMISATION : Si même nombre de leases, comparer uniquement les signatures
   // ⚠️ ROBUSTE AUX STRING ISO : updatedAt peut être string ISO ou Date, normaliser en string
   const normalizeUpdatedAt = (updatedAt: string | Date | undefined): string => {
@@ -630,8 +907,12 @@ export const LeasesTableNew = React.memo(LeasesTableNewComponent, (prevProps, ne
   
   // ✅ Comparaison optimisée : signature id:status:updatedAt pour chaque lease
   // Permet de détecter les changements de status ou updatedAt même si l'ID reste identique
-  const prevLeasesSignature = prevProps.leases.map(l => `${l.id}:${l.status}:${normalizeUpdatedAt(l.updatedAt)}`).join('|');
-  const nextLeasesSignature = nextProps.leases.map(l => `${l.id}:${l.status}:${normalizeUpdatedAt(l.updatedAt)}`).join('|');
+  const prevLeasesSignature = prevProps.leases
+    .map((l) => `${l.id}:${l.status}:${normalizeUpdatedAt(l.updatedAt)}:${l.pilotageIgnored ? 1 : 0}`)
+    .join('|');
+  const nextLeasesSignature = nextProps.leases
+    .map((l) => `${l.id}:${l.status}:${normalizeUpdatedAt(l.updatedAt)}:${l.pilotageIgnored ? 1 : 0}`)
+    .join('|');
   if (prevLeasesSignature !== nextLeasesSignature) {
     if (process.env.NODE_ENV === 'development' && (window as any).__SMARTIMMO_DEBUG_LEASES_TABLE__) {
       console.log('[LeasesTableNew] [DEV] Re-render nécessaire (signature changée):', {

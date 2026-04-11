@@ -773,9 +773,9 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
       filtered = filtered.filter(t => t.status === filters.status);
     }
 
-    if (filters.hasDocument === 'yes') {
+    if (filters.hasDocument === 'true' || filters.hasDocument === 'yes') {
       filtered = filtered.filter(t => t.hasDocument);
-    } else if (filters.hasDocument === 'no') {
+    } else if (filters.hasDocument === 'false' || filters.hasDocument === 'no') {
       filtered = filtered.filter(t => !t.hasDocument);
     }
 

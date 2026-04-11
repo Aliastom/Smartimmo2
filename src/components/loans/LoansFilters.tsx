@@ -29,6 +29,10 @@ interface LoansFiltersProps {
   periodEnd: string;
   onPeriodChange: (start: string, end: string) => void;
   hidePropertyFilter?: boolean;
+  /** Libellé du filtre pilotage actif (page prêts App Shell) */
+  pilotageFilterLabel?: string | null;
+  /** Retire uniquement le filtre pilotage */
+  onClearPilotageFilter?: () => void;
 }
 
 export function LoansFilters({
@@ -40,6 +44,8 @@ export function LoansFilters({
   periodEnd,
   onPeriodChange,
   hidePropertyFilter = false,
+  pilotageFilterLabel = null,
+  onClearPilotageFilter,
 }: LoansFiltersProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -96,6 +102,24 @@ export function LoansFilters({
             )}
           </Button>
         </div>
+
+        {pilotageFilterLabel && onClearPilotageFilter && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary-200 bg-primary-50/90 px-3 py-2">
+            <p className="text-xs text-primary-950 pr-2">
+              <span className="font-semibold">Filtre pilotage :</span>{' '}
+              <span className="text-primary-900">{pilotageFilterLabel}</span>
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 shrink-0 text-primary-800 hover:bg-primary-100"
+              onClick={onClearPilotageFilter}
+            >
+              Retirer le filtre pilotage
+            </Button>
+          </div>
+        )}
 
         {/* Tags prédéfinis + Recherche visible */}
         <div className="flex flex-wrap items-center gap-2 mt-3">

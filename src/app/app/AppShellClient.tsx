@@ -19,7 +19,6 @@ import { PropertiesPageCore } from '@/features/properties/PropertiesPageCore';
 import { TenantsPageCore } from '@/features/tenants/TenantsPageCore';
 import { LeasesPageCore } from '@/features/leases/LeasesPageCore';
 import { TransactionsPageCore } from '@/features/transactions/TransactionsPageCore';
-import PropertyTransactionsClient from '@/app/biens/[id]/transactions/PropertyTransactionsClient';
 import { DashboardPageCore } from '@/features/dashboard/DashboardPageCore';
 import { DocumentsPageCore } from '@/features/documents/DocumentsPageCore';
 import { EcheancesPageCore } from '@/features/echeances/EcheancesPageCore';

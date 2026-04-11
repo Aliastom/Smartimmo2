@@ -32,6 +32,12 @@ import {
 import { Separator } from '@/components/ui/Separator';
 import { FiscalLoadingOverlay } from '@/components/fiscal/FiscalLoadingOverlay';
 import { PilotagePASBlock } from '@/components/fiscal/PilotagePASBlock';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/Tooltip';
 
 export default function SimulationTab() {
   const { simulationDraft, simulationResult, updateDraft, setAutofillCache, autofillCache } = useFiscalStore();
@@ -77,6 +83,9 @@ export default function SimulationTab() {
   );
   const [autofill, setAutofill] = useState(
     simulationDraft._uiMetadata?.autofill ?? true
+  );
+  const [pensionsBrutes, setPensionsBrutes] = useState(
+    simulationDraft.foyer?.pensionsBrutes ?? 0
   );
   const [autofillData, setAutofillData] = useState<any>(null);
   const [loadingAutofill, setLoadingAutofill] = useState(false);
@@ -135,18 +144,19 @@ export default function SimulationTab() {
     }
   }, [simulationResult]);
 
-  // Calculer le net imposable depuis le brut
+  // Calculer le net imposable depuis le brut (aucun abattement minimum si brut nul : évite net d’activité négatif avec pensions)
   const calculateNetImposable = (brut: number) => {
+    if (brut <= 0) {
+      return 0;
+    }
     if (deductionMode === 'forfaitaire') {
-      // ✅ Utiliser les paramètres depuis la BDD
       const taux = taxParams?.salaryDeduction?.taux || 0.10;
       const min = taxParams?.salaryDeduction?.min || 472;
       const max = taxParams?.salaryDeduction?.max || 13522;
       const deduction = Math.min(Math.max(brut * taux, min), max);
       return brut - deduction;
-    } else {
-      return Math.max(brut - fraisReels, 0);
     }
+    return Math.max(brut - fraisReels, 0);
   };
 
   const netImposable = salaryMode === 'brut' ? calculateNetImposable(salaireBrut) : salaireBrut;
@@ -293,6 +303,7 @@ export default function SimulationTab() {
       currentDgfipAdvanceAmount,
       currentAdvanceFrequency,
       withholdingGoal,
+      pensionsBrutes,
     });
     
     // Si les métadonnées n'ont pas changé, ne pas synchroniser
@@ -312,6 +323,9 @@ export default function SimulationTab() {
       foyer: {
         ...simulationDraft.foyer,
         salaire: netImposable,
+        pensionsBrutes: pensionsBrutes > 0 ? pensionsBrutes : undefined,
+        // UI : uniquement saisie manuelle ; on normalise pour écraser d’anciennes simuls « estimé »
+        cotisationsPensionsMode: pensionsBrutes > 0 ? 'manuel' : undefined,
       },
       per: perEnabled ? per : undefined,
       options: {
@@ -338,7 +352,7 @@ export default function SimulationTab() {
       },
     });
     });
-  }, [netImposable, perEnabled, per, autofill, regimeOverride, salaryMode, salaireBrut, deductionMode, fraisReels, selectedBienIds, prelevementSourceDejaPaye, acomptesDejaPayes, currentPersonalizedRate, currentDgfipAdvanceAmount, currentAdvanceFrequency, withholdingGoal]);
+  }, [netImposable, perEnabled, per, autofill, regimeOverride, salaryMode, salaireBrut, deductionMode, fraisReels, selectedBienIds, prelevementSourceDejaPaye, acomptesDejaPayes, currentPersonalizedRate, currentDgfipAdvanceAmount, currentAdvanceFrequency, withholdingGoal, pensionsBrutes]);
 
   // Charger les données SmartImmo (offline-first) pour l'année des revenus sélectionnée (session.incomeYear)
   // yearOverride: année explicite pour éviter stale closure au montage (priorité sur currentIncomeYear)
@@ -573,7 +587,7 @@ export default function SimulationTab() {
         });
       }
     }
-  }, [fiscalSession, autofill, fiscalSessionLoading, organizationId, loadAutofillData, setAutofillCache]);
+  }, [fiscalSession?.incomeYear, autofill, fiscalSessionLoading, organizationId, loadAutofillData, setAutofillCache]);
 
   useEffect(() => {
     // Ne charger que lorsque la session est prête (évite données 2026 au lieu de 2025 au montage)
@@ -581,6 +595,8 @@ export default function SimulationTab() {
     if (!sessionReady) return;
 
     const year = fiscalSession.incomeYear;
+    const baseCalcul = simulationDraft.options?.baseCalcul ?? 'encaisse';
+
     // ✅ Restaurer depuis le cache du store seulement si l'année correspond
     if (autofill && !autofillData && autofillCache?.biens?.length && autofillCache.year === year) {
       setAutofillData({
@@ -589,15 +605,21 @@ export default function SimulationTab() {
         charges: autofillCache.biens.reduce((sum: number, b: any) => sum + (b.charges || 0), 0),
         nombreBiens: autofillCache.biens.length,
       });
-      const savedIds = (simulationDraft._uiMetadata as any)?.selectedBienIds;
+      const savedIds = (useFiscalStore.getState().simulationDraft._uiMetadata as any)?.selectedBienIds;
       if (!savedIds || savedIds.length === 0) {
         setSelectedBienIds(autofillCache.biens.map((b: any) => b.id));
       }
       return;
     }
 
-    // ✅ Charger si autofill activé et (pas de données OU année du cache différente)
-    if (autofill && (!autofillData || autofillCache?.year !== year) && !autofillLoadingRef.current) {
+    // ✅ Charger seulement si besoin : pas de données affichées, ou cache store incohérent (année / base calcul).
+    // Important : si autofillCache est null, (autofillCache?.year !== year) était toujours vrai → rechargement à chaque frappe
+    // car _uiMetadata était dans les deps et changeait à chaque sync formulaire.
+    const cacheMismatch =
+      autofillCache != null &&
+      (autofillCache.year !== year || autofillCache.baseCalcul !== baseCalcul);
+
+    if (autofill && (!autofillData || cacheMismatch) && !autofillLoadingRef.current) {
       autofillLoadingRef.current = true;
       loadAutofillData(year).finally(() => {
         autofillLoadingRef.current = false;
@@ -606,7 +628,16 @@ export default function SimulationTab() {
       setAutofillData(null);
       autofillLoadingRef.current = false;
     }
-  }, [autofill, autofillData, autofillCache, fiscalSession, fiscalSessionLoading, loadAutofillData, organizationId, simulationDraft._uiMetadata]);
+  }, [
+    autofill,
+    autofillData,
+    autofillCache,
+    fiscalSession?.incomeYear,
+    fiscalSessionLoading,
+    loadAutofillData,
+    organizationId,
+    simulationDraft.options?.baseCalcul,
+  ]);
 
   // Réessayer au retour online
   useEffect(() => {
@@ -691,7 +722,7 @@ export default function SimulationTab() {
                 Année fiscale {currentYear}
               </p>
               <p className="text-xs text-sky-700">
-                Déclaration {currentYear + 1} • Barèmes officiels 2025
+                Déclaration {currentYear + 1} • Barème selon la session fiscale (ex. 2026.1)
               </p>
             </div>
             <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-300">
@@ -723,6 +754,17 @@ export default function SimulationTab() {
 
             {accordeonState.infosPersonnelles && (
               <CardContent className="space-y-4">
+                {pensionsBrutes > 0 && (
+                  <Alert className="border-sky-200 bg-sky-50">
+                    <Info className="h-4 w-4 shrink-0 text-sky-700" />
+                    <AlertDescription className="text-sky-900 text-sm">
+                      Les pensions sont calculées séparément (abattement 10 % puis cotisations déductibles sur
+                      les pensions). Si vous n&apos;avez pas de revenus d&apos;activité, laissez le salaire à{' '}
+                      <strong>0</strong> : aucun abattement sur l&apos;activité ne s&apos;applique alors.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 {/* Toggle Brut / Net imposable */}
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <Label className="text-sm font-medium">Type de salaire</Label>
@@ -744,6 +786,7 @@ export default function SimulationTab() {
                 <div>
                   <Label htmlFor="salaire">
                     {salaryMode === 'brut' ? 'Salaire annuel brut' : 'Salaire annuel net imposable'}
+                    {pensionsBrutes > 0 ? ' (revenus d’activité uniquement, hors pensions)' : ''}
                   </Label>
                   <div className="relative mt-1">
                     <Euro className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
@@ -753,19 +796,19 @@ export default function SimulationTab() {
                       value={salaireBrut}
                       onChange={(e) => setSalaireBrut(Number(e.target.value))}
                       className="pl-10"
-                      placeholder="50000"
+                      placeholder={pensionsBrutes > 0 ? '0' : '50000'}
                     />
                   </div>
                 </div>
 
-                {/* Déduction */}
-                {salaryMode === 'brut' && (
+                {/* Déduction activité : masquée si pensions + brut 0 (aucun effet fiscal parasite) */}
+                {salaryMode === 'brut' && (pensionsBrutes <= 0 || salaireBrut > 0) && (
                   <div className="space-y-3 p-3 border rounded-lg bg-blue-50 border-blue-200">
-                    <Label className="text-sm font-medium text-blue-900">Déduction fiscale</Label>
-                    
+                    <Label className="text-sm font-medium text-blue-900">Déduction fiscale (revenus d&apos;activité)</Label>
+
                     <div className="flex items-start gap-3">
-                      <input 
-                        type="radio" 
+                      <input
+                        type="radio"
                         checked={deductionMode === 'forfaitaire'}
                         onChange={() => setDeductionMode('forfaitaire')}
                         className="mt-1"
@@ -778,15 +821,32 @@ export default function SimulationTab() {
                         </Label>
                         {deductionMode === 'forfaitaire' && (
                           <p className="text-xs text-blue-700 mt-1">
-                            Déduction : {formatEuro(Math.min(Math.max(salaireBrut * (taxParams?.salaryDeduction?.taux || 0.10), taxParams?.salaryDeduction?.min || 472), taxParams?.salaryDeduction?.max || 13522))} → Net imposable : {formatEuro(netImposable - (perEnabled ? per.versementPrevu : 0))}
+                            {salaireBrut <= 0 ? (
+                              <>Pas d&apos;abattement : salaire brut nul.</>
+                            ) : (
+                              <>
+                                Déduction :{' '}
+                                {formatEuro(
+                                  Math.min(
+                                    Math.max(
+                                      salaireBrut * (taxParams?.salaryDeduction?.taux || 0.1),
+                                      taxParams?.salaryDeduction?.min || 472
+                                    ),
+                                    taxParams?.salaryDeduction?.max || 13522
+                                  )
+                                )}{' '}
+                                → Net imposable activité :{' '}
+                                {formatEuro(netImposable - (perEnabled ? per.versementPrevu : 0))}
+                              </>
+                            )}
                           </p>
                         )}
                       </div>
                     </div>
 
                     <div className="flex items-start gap-3">
-                      <input 
-                        type="radio" 
+                      <input
+                        type="radio"
                         checked={deductionMode === 'reels'}
                         onChange={() => setDeductionMode('reels')}
                         className="mt-1"
@@ -799,7 +859,7 @@ export default function SimulationTab() {
                         {deductionMode === 'reels' && (
                           <div className="mt-2 relative">
                             <Euro className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                            <Input 
+                            <Input
                               type="number"
                               value={fraisReels}
                               onChange={(e) => setFraisReels(Number(e.target.value))}
@@ -811,6 +871,12 @@ export default function SimulationTab() {
                       </div>
                     </div>
                   </div>
+                )}
+                {salaryMode === 'brut' && pensionsBrutes > 0 && salaireBrut <= 0 && (
+                  <p className="text-xs text-gray-500">
+                    Aucune déduction sur l&apos;activité : salaire brut à 0. Les pensions suivent leur propre chaîne
+                    (bloc ci-dessous).
+                  </p>
                 )}
 
                 {/* Autres revenus */}
@@ -832,6 +898,93 @@ export default function SimulationTab() {
                       }
                       className="pl-10"
                       placeholder="0"
+                    />
+                  </div>
+                </div>
+
+                {/* Pensions : brut → abattement 10 % → cotisations déductibles (alignement RFR / DGFIP) */}
+                <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50/60 p-3">
+                  <Label htmlFor="pensionsBrutes" className="text-sky-900">
+                    Pensions annuelles brutes (€)
+                  </Label>
+                  <p className="text-xs text-sky-800">
+                    Si renseigné, le moteur applique l&apos;abattement 10 % puis les déductions sociales
+                    déductibles sur ce net. Les revenus d&apos;activité ci-dessus restent hors de cette
+                    chaîne.
+                  </p>
+                  <div className="relative mt-1">
+                    <Euro className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="pensionsBrutes"
+                      type="number"
+                      min={0}
+                      value={pensionsBrutes || ''}
+                      onChange={(e) =>
+                        setPensionsBrutes(Math.max(0, Number(e.target.value) || 0))
+                      }
+                      className="pl-10"
+                      placeholder="ex : 29 180"
+                    />
+                  </div>
+                  {pensionsBrutes > 0 && (
+                    <p className="text-xs text-sky-800 mt-2">
+                      Déductions sociales déductibles sur pensions (après abattement 10 %) : saisie manuelle en
+                      euros — renseignez le montant indiqué sur votre avis (ex. CSG déductible).
+                    </p>
+                  )}
+                </div>
+
+                {pensionsBrutes > 0 && netImposable > 0 && (
+                  <Alert className="border-amber-300 bg-amber-50">
+                    <AlertCircle className="h-4 w-4 text-amber-700" />
+                    <AlertDescription className="text-amber-900 text-sm">
+                      Pensions brutes et revenus d&apos;activité sont tous deux renseignés : vérifiez de ne
+                      pas compter deux fois les mêmes montants.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Cotisations déductibles (CSG pensions, etc.) — même logique que l’avis DGFIP */}
+                <div>
+                  <TooltipProvider delayDuration={200}>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="cotisDed" className="mb-0">
+                        💡 Cotisations / déductions déductibles{' '}
+                        {pensionsBrutes > 0 ? '(pensions)' : '(revenu global)'}
+                      </Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="text-gray-400 hover:text-gray-600 focus:outline-none"
+                            aria-label="Aide cotisations déductibles"
+                          >
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-sm">
+                          Montant indiqué sur votre avis d&apos;imposition (CSG déductible sur pensions)
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </TooltipProvider>
+                  <div className="relative mt-1">
+                    <Euro className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="cotisDed"
+                      type="number"
+                      min={0}
+                      value={simulationDraft.foyer?.cotisationsSocialesDeductibles ?? 0}
+                      onChange={(e) =>
+                        updateDraft({
+                          foyer: {
+                            ...simulationDraft.foyer,
+                            cotisationsSocialesDeductibles: Math.max(0, Number(e.target.value) || 0),
+                          },
+                        })
+                      }
+                      className="pl-10"
+                      placeholder="ex : 1411"
                     />
                   </div>
                 </div>
@@ -1216,12 +1369,19 @@ export default function SimulationTab() {
         <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Salaire imposable</CardTitle>
+              <CardTitle className="text-sm">
+                {pensionsBrutes > 0 ? 'Revenus d’activité nets imposables' : 'Salaire imposable'}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold text-gray-900">
                 {formatEuro(netImposable - (perEnabled ? per.versementPrevu : 0))}
               </p>
+              {pensionsBrutes > 0 && (
+                <p className="text-xs text-sky-800 mt-1">
+                  Hors pensions : les pensions sont traitées dans le calcul global (étape résultats).
+                </p>
+              )}
               <p className="text-xs text-gray-500 mt-1">
                 {simulationDraft.foyer?.parts || 1} part(s)
               </p>

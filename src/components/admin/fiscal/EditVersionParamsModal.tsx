@@ -47,11 +47,14 @@ export function EditVersionParamsModal({
         // Barème IR
         irBrackets: [],
         
-        // Décote IR
+        // Décote IR (DGFiP : plafond − taux × impôt brut ; seuils impôt brut)
         irDecote: {
-          seuilCelibataire: 1929,
-          seuilCouple: 3858,
-          facteur: 0.75
+          threshold: 1917,
+          seuilCelibataire: 1917,
+          seuilCouple: 3177,
+          plafondCelibataire: 833,
+          plafondCouple: 1378,
+          taux: 0.45,
         },
         
         // Abattement forfaitaire salaires (Article 83 CGI)
@@ -262,27 +265,102 @@ export function EditVersionParamsModal({
 
             <Card>
               <CardHeader>
-                <CardTitle>Décote IR</CardTitle>
+                <CardTitle>Décote IR (DGFiP)</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div>
-                  <Label>Seuil de décote (€)</Label>
-                  <Input
-                    type="number"
-                    value={params.irDecote?.threshold || 0}
-                    onChange={(e) =>
-                      setParams({
-                        ...params,
-                        irDecote: {
-                          ...params.irDecote,
-                          threshold: parseFloat(e.target.value),
-                        },
-                      })
-                    }
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Seuil en dessous duquel la décote s'applique
-                  </p>
+              <CardContent className="space-y-4">
+                <p className="text-xs text-gray-500">
+                  Si impôt brut &lt; seuil : décote = plafond − taux × impôt brut (plafonnée par l&apos;impôt brut).
+                  Données stockées dans ce JSON.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Seuil impôt brut célibataire / isolé (€)</Label>
+                    <Input
+                      type="number"
+                      step="1"
+                      value={params.irDecote?.seuilCelibataire ?? params.irDecote?.threshold ?? 1917}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setParams({
+                          ...params,
+                          irDecote: {
+                            ...params.irDecote,
+                            seuilCelibataire: v,
+                            threshold: v,
+                          },
+                        });
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <Label>Seuil impôt brut couple (€)</Label>
+                    <Input
+                      type="number"
+                      step="1"
+                      value={params.irDecote?.seuilCouple ?? 3177}
+                      onChange={(e) =>
+                        setParams({
+                          ...params,
+                          irDecote: {
+                            ...params.irDecote,
+                            seuilCouple: parseFloat(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Plafond décote célibataire / isolé (€)</Label>
+                    <Input
+                      type="number"
+                      step="1"
+                      value={params.irDecote?.plafondCelibataire ?? 833}
+                      onChange={(e) =>
+                        setParams({
+                          ...params,
+                          irDecote: {
+                            ...params.irDecote,
+                            plafondCelibataire: parseFloat(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Plafond décote couple (€)</Label>
+                    <Input
+                      type="number"
+                      step="1"
+                      value={params.irDecote?.plafondCouple ?? 1378}
+                      onChange={(e) =>
+                        setParams({
+                          ...params,
+                          irDecote: {
+                            ...params.irDecote,
+                            plafondCouple: parseFloat(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Taux appliqué à l&apos;impôt brut (0–1)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={params.irDecote?.taux ?? 0.45}
+                      onChange={(e) =>
+                        setParams({
+                          ...params,
+                          irDecote: {
+                            ...params.irDecote,
+                            taux: parseFloat(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Ex. 0,45 pour 45 %</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>

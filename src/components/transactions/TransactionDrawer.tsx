@@ -120,6 +120,9 @@ interface TransactionDrawerProps {
   /** Ouvrir avec scroll vers la section Documents liés (clic 📎 dans la table) */
   initialScrollToDocuments?: boolean;
   onScrollToDocumentsDone?: () => void;
+  /** Ouvrir avec scroll vers le bloc rapprochement (ex. liste « Actions à traiter ») */
+  initialScrollToRapprochement?: boolean;
+  onScrollToRapprochementDone?: () => void;
 }
 
 const PAYMENT_METHODS = {
@@ -141,6 +144,8 @@ export default function TransactionDrawer({
   mode = 'normal',
   initialScrollToDocuments = false,
   onScrollToDocumentsDone,
+  initialScrollToRapprochement = false,
+  onScrollToRapprochementDone,
 }: TransactionDrawerProps) {
   const pathname = usePathname();
   const { mutate: toggleRapprochement, isPending: isTogglingRapprochement } = useToggleRapprochement(mode);
@@ -161,6 +166,18 @@ export default function TransactionDrawer({
     }, 300);
     return () => clearTimeout(timer);
   }, [isOpen, initialScrollToDocuments, transaction?.id, onScrollToDocumentsDone]);
+
+  React.useEffect(() => {
+    if (!isOpen || !initialScrollToRapprochement || !transaction) return;
+    const timer = setTimeout(() => {
+      const el = document.getElementById('transaction-drawer-rapprochement');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        onScrollToRapprochementDone?.();
+      }
+    }, 320);
+    return () => clearTimeout(timer);
+  }, [isOpen, initialScrollToRapprochement, transaction?.id, onScrollToRapprochementDone]);
 
   // En mode app-shell, utiliser le hook pour charger les documents depuis IndexedDB
   const { 
@@ -571,7 +588,10 @@ export default function TransactionDrawer({
                     </Badge>
                   )}
                 </div>
-                <div className="mt-3 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div
+                  id="transaction-drawer-rapprochement"
+                  className="mt-3 bg-gray-50 border border-gray-200 rounded-lg p-4 scroll-mt-4"
+                >
                 <div className="flex items-center gap-3">
                   <Switch
                     checked={localRapprochementStatus === 'rapprochee'}

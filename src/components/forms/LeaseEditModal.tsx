@@ -46,7 +46,6 @@ import {
   Mail,
   Download,
   Eye,
-  Edit,
   Trash2,
   X,
   XCircle,
@@ -90,6 +89,8 @@ interface LeaseEditModalProps {
   tenants: any[];
   mode?: 'normal' | 'app-shell'; // ✅ Mode pour détecter App Shell
   propertyId?: string; // ✅ PropertyId pour le refresh ciblé
+  /** Bail signé/actif : ouvre le flux renouvellement / avenant (même UX partout) */
+  onRequestAmendment?: () => void;
 }
 
 export default function LeaseEditModal({ 
@@ -100,7 +101,8 @@ export default function LeaseEditModal({
   properties: externalProperties,
   tenants: externalTenants,
   mode = 'normal',
-  propertyId: propPropertyId
+  propertyId: propPropertyId,
+  onRequestAmendment,
 }: LeaseEditModalProps) {
   const toInputDate = (value: string | Date | null | undefined): string =>
     value ? new Date(value).toISOString().slice(0, 10) : '';
@@ -1528,7 +1530,6 @@ export default function LeaseEditModal({
     { id: 'basic', label: 'Contrat', icon: Building2, required: true },
     { id: 'financial', label: 'Financier', icon: Euro, required: false },
     { id: 'terms', label: 'Clauses et conditions', icon: FileText, required: false },
-    { id: 'status', label: 'Statut et workflow', icon: CheckCircle, required: false },
   ];
 
   // Règles de verrouillage selon le statut
@@ -1571,13 +1572,14 @@ export default function LeaseEditModal({
     <div className="space-y-6">
       {/* Banner de verrouillage pour baux Signés/Actifs */}
       {isContractLocked && (
-        <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4">
+        <div className="bg-amber-50 border border-amber-300 rounded-lg p-4">
           <div className="flex items-center gap-2 mb-2">
-            <AlertCircle className="h-5 w-5 text-yellow-700" />
-            <h3 className="font-medium text-yellow-900">Ce bail est signé</h3>
+            <AlertCircle className="h-5 w-5 text-amber-800 shrink-0" />
+            <h3 className="font-semibold text-amber-950">Contrat signé ou en cours — champs verrouillés</h3>
           </div>
-          <p className="text-sm text-yellow-800">
-            Les champs contractuels sont verrouillés. Pour modifier le loyer, les dates ou les conditions, créez un avenant ou résiliez puis créez un nouveau bail.
+          <p className="text-sm text-amber-900 font-medium">Les champs contractuels sont verrouillés.</p>
+          <p className="text-sm text-amber-900 mt-1">
+            Pour modifier le loyer, les dates ou les conditions, créez un avenant ou un renouvellement (bouton en bas de la fenêtre).
           </p>
         </div>
       )}
@@ -1611,8 +1613,13 @@ export default function LeaseEditModal({
       {/* Sélection du bien et locataire */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2">
             <span className="text-red-500">*</span> Bien
+            {isContractualFieldLocked('propertyId') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           {lease ? (
             // Mode édition : afficher le nom du bien en lecture seule
@@ -1642,8 +1649,13 @@ export default function LeaseEditModal({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2">
             <span className="text-red-500">*</span> Locataire
+            {isContractualFieldLocked('tenantId') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           {isContractualFieldLocked('tenantId') ? (
             // Verrouillé : afficher en lecture seule
@@ -1678,8 +1690,13 @@ export default function LeaseEditModal({
       {/* Type de bail */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-edit-type">
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2" htmlFor="lease-edit-type">
             <span className="text-red-500">*</span> Type de bail
+            {isContractualFieldLocked('type') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           <SmartSelect
             id="lease-edit-type"
@@ -1699,8 +1716,13 @@ export default function LeaseEditModal({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-edit-furnishedType">
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2" htmlFor="lease-edit-furnishedType">
             Type de meublé
+            {isContractualFieldLocked('furnishedType') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           <SmartSelect
             id="lease-edit-furnishedType"
@@ -1721,8 +1743,13 @@ export default function LeaseEditModal({
       {/* Dates */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-edit-startDate">
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2" htmlFor="lease-edit-startDate">
             <span className="text-red-500">*</span> Date de début
+            {isContractualFieldLocked('startDate') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           <SmartDatePicker
             id="lease-edit-startDate"
@@ -1737,8 +1764,13 @@ export default function LeaseEditModal({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-edit-endDate">
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2" htmlFor="lease-edit-endDate">
             Date de fin (optionnel)
+            {isContractualFieldLocked('endDate') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           <div className="relative">
             <SmartDatePicker
@@ -1768,35 +1800,22 @@ export default function LeaseEditModal({
   const totalLocataire = formData.rentAmount + (formData.chargesRecupMensuelles || 0);
 
   const renderFinancialInfo = () => (
-    <div className="space-y-6">
-      {/* Résumé financier en live (comme création) */}
-      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-6">
-        <h4 className="text-sm font-medium text-gray-500 mb-4">Résumé financier</h4>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div>
-            <p className="text-sm text-gray-400">Loyer HC</p>
-            <p className="text-2xl font-bold text-gray-900">{formData.rentAmount.toFixed(2)} €</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-400">Charges récup.</p>
-            <p className="text-2xl font-bold text-gray-900">{(formData.chargesRecupMensuelles || 0).toFixed(2)} €</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-400">Total locataire</p>
-            <p className="text-2xl font-bold text-gray-900">{totalLocataire.toFixed(2)} €</p>
-          </div>
-        </div>
-        <div className="mt-4 pt-4 border-t border-gray-200">
-          <p className="text-sm text-gray-400">Caution</p>
-          <p className="text-xl font-bold text-gray-900">{formData.deposit.toFixed(2)} €</p>
-        </div>
-      </div>
+    <div className="space-y-8">
+      <p className="text-sm text-gray-600">
+        <strong className="text-gray-900">Ce que paie le locataire</strong> = loyer hors charges + charges récupérables. Les
+        charges non récupérables sont un coût pour le propriétaire (non refacturées au locataire).
+      </p>
 
-      {/* Loyer HC et Charges récup — champs principaux */}
+      {/* 1–2 : Loyer HC + charges récup (ordre produit) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <span className="text-red-500">*</span> Loyer mensuel HC (€)
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2">
+            <span className="text-red-500">*</span> Loyer mensuel hors charges (€)
+            {isContractualFieldLocked('rentAmount') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           <input
             type="number"
@@ -1812,8 +1831,13 @@ export default function LeaseEditModal({
           {errors.rentAmount && <p className="text-red-500 text-sm mt-1">{errors.rentAmount}</p>}
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2">
             Charges récupérables mensuelles (€)
+            {isContractualFieldLocked('chargesRecupMensuelles') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           <input
             type="number"
@@ -1826,14 +1850,30 @@ export default function LeaseEditModal({
             }`}
             placeholder="Ex: 20.00"
           />
+          <p className="text-xs text-gray-500 mt-1.5">Montant refacturé au locataire (charges récupérables).</p>
         </div>
       </div>
 
-      {/* Charges non récup, dépôt, jour de paiement, indexation */}
+      {/* 3 : Total locataire — résumé calculé uniquement */}
+      <div className="rounded-xl border-2 border-orange-200 bg-orange-50/60 p-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-orange-900 mb-1">Total dû par le locataire (mensuel)</p>
+        <p className="text-3xl font-bold text-gray-900">{totalLocataire.toFixed(2)} €</p>
+        <p className="text-xs text-orange-900/80 mt-2">
+          Loyer HC ({formData.rentAmount.toFixed(2)} €) + charges récupérables ({(formData.chargesRecupMensuelles || 0).toFixed(2)} €). Ce total
+          n&apos;est pas saisi directement : il se met à jour automatiquement.
+        </p>
+      </div>
+
+      {/* 4–7 */}
       <div className="space-y-6 border-t border-gray-200 pt-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2">
             Charges non récupérables mensuelles (€)
+            {isContractualFieldLocked('chargesNonRecupMensuelles') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           <input
             type="number"
@@ -1846,10 +1886,16 @@ export default function LeaseEditModal({
             }`}
             placeholder="Ex: 35.00"
           />
+          <p className="text-xs text-gray-500 mt-1.5">Coût à votre charge (non facturé au locataire).</p>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2">
             Dépôt de garantie (€)
+            {isContractualFieldLocked('deposit') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           <input
             type="number"
@@ -1865,8 +1911,13 @@ export default function LeaseEditModal({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2">
             Jour de paiement du loyer
+            {isContractualFieldLocked('paymentDay') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           <input
             type="number"
@@ -1882,8 +1933,13 @@ export default function LeaseEditModal({
           <p className="text-xs text-gray-500 mt-1">Jour du mois où le loyer doit être payé (1-31)</p>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lease-edit-indexationType">
+          <label className="block text-sm font-medium text-gray-700 mb-2 flex flex-wrap items-center gap-2" htmlFor="lease-edit-indexationType">
             Type d&apos;indexation
+            {isContractualFieldLocked('indexationType') && (
+              <Badge variant="secondary" className="text-[10px] font-semibold">
+                Non modifiable
+              </Badge>
+            )}
           </label>
           <SmartSelect
             id="lease-edit-indexationType"
@@ -1904,12 +1960,17 @@ export default function LeaseEditModal({
   );
 
   const renderTermsInfo = () => (
-    <div className="space-y-6">
-      {/* Notes */}
+    <div className="space-y-8">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-semibold text-gray-900 mb-2 flex flex-wrap items-center gap-2">
           Notes et clauses particulières
+          {isContractualFieldLocked('notes') && (
+            <Badge variant="secondary" className="text-[10px] font-semibold">
+              Non modifiable
+            </Badge>
+          )}
         </label>
+        <p className="text-xs text-gray-500 mb-2">Texte libre pour précisions ou clauses hors modèle.</p>
         <textarea
           value={formData.notes}
           onChange={(e) => handleChange('notes', e.target.value)}
@@ -1922,16 +1983,15 @@ export default function LeaseEditModal({
         />
       </div>
 
-      {/* Clauses standard */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Clauses standard incluses</CardTitle>
-          <CardDescription>
+      <Card className="border-gray-200 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Clauses standard incluses</CardTitle>
+          <CardDescription className="text-sm">
             Ces clauses seront automatiquement incluses dans le bail généré
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
+          <div className="space-y-3.5">
             <div className="flex items-center gap-3">
               <CheckCircle className="h-5 w-5 text-green-500" />
               <span className="text-sm">Obligation de paiement du loyer et des charges</span>
@@ -2425,9 +2485,19 @@ export default function LeaseEditModal({
       case 'basic': return renderBasicInfo();
       case 'financial': return renderFinancialInfo();
       case 'terms': return renderTermsInfo();
-      case 'status': return renderStatusInfo();
       default: return renderBasicInfo();
     }
+  };
+
+  const handleAmendmentPrimaryClick = () => {
+    if (onRequestAmendment) {
+      onRequestAmendment();
+      return;
+    }
+    notify2.info(
+      'Renouvellement ou avenant',
+      'Lancez un renouvellement depuis la page Baux (application) ou les actions du détail du bail lorsque cette option est proposée.'
+    );
   };
 
   if (!isOpen) return null;
@@ -2437,7 +2507,6 @@ export default function LeaseEditModal({
     'basic': 'Essentiel',
     'financial': 'Finances',
     'terms': 'Clauses',
-    'status': 'Statut',
   };
 
   return (
@@ -2487,46 +2556,60 @@ export default function LeaseEditModal({
           )}
 
           {/* Actions footer */}
-          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-            <Button 
-              variant="ghost" 
-              onClick={onClose} 
-              disabled={isSubmitting}
-              className="w-full sm:w-auto"
-            >
-              Annuler
-            </Button>
-            
-            <div className="flex-1 hidden sm:block" />
-            
-            {/* Bouton Créer un avenant (si bail Signé/Actif) - Desktop uniquement */}
+          <div className="flex flex-col gap-3">
             {isContractLocked && !isReadOnly && (
-              <Button 
-                variant="outline"
-                onClick={() => {
-                  notify2.info('🪄 Fonctionnalité à venir : Wizard de création d\'avenant');
-                }}
-                disabled={isSubmitting}
-                className="border-orange-300 text-orange-600 hover:bg-orange-50 hidden lg:flex"
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                🪄 Créer un avenant / renouvellement
-              </Button>
+              <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Les données contractuelles ne peuvent pas être enregistrées depuis cette fenêtre. Utilisez le bouton orange
+                pour créer un avenant ou un renouvellement.
+              </p>
             )}
-            
-            <Button 
-              onClick={handleSubmit} 
-              disabled={isSubmitting || !areRequiredFieldsFilled() || isReadOnly || isContractLocked}
-              title={
-                isReadOnly ? 'Bail résilié - lecture seule' :
-                isContractLocked ? 'Bail signé - champs verrouillés. Utilisez "Créer un avenant" pour modifier.' :
-                !areRequiredFieldsFilled() ? 'Veuillez remplir tous les champs obligatoires' : 
-                ''
-              }
-              className="w-full sm:w-auto"
-            >
-              {isSubmitting ? 'Enregistrement...' : 'Enregistrer les modifications'}
-            </Button>
+            <div className="flex flex-col-reverse sm:flex-row gap-3 items-stretch sm:items-center sm:flex-wrap">
+              <Button variant="ghost" onClick={onClose} disabled={isSubmitting} className="w-full sm:w-auto order-last sm:order-first">
+                Annuler
+              </Button>
+
+              <div className="flex-1 hidden sm:block min-w-[8px]" />
+
+              {isContractLocked && !isReadOnly ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="default"
+                    onClick={handleAmendmentPrimaryClick}
+                    disabled={isSubmitting}
+                    className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white font-semibold"
+                  >
+                    <FileCheck className="h-4 w-4 mr-2 shrink-0" />
+                    Créer un avenant / renouvellement
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleSubmit}
+                    disabled
+                    title="Contrat signé ou actif : les modifications directes ne sont pas autorisées. Créez un avenant."
+                    className="w-full sm:w-auto border-gray-300 text-gray-500 bg-gray-50 cursor-not-allowed"
+                  >
+                    Enregistrer les modifications
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || !areRequiredFieldsFilled() || isReadOnly}
+                  title={
+                    isReadOnly
+                      ? 'Bail résilié - lecture seule'
+                      : !areRequiredFieldsFilled()
+                        ? 'Veuillez remplir tous les champs obligatoires'
+                        : ''
+                  }
+                  className="w-full sm:w-auto"
+                >
+                  {isSubmitting ? 'Enregistrement...' : 'Enregistrer les modifications'}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       }

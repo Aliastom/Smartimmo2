@@ -43,6 +43,7 @@ const initialDraft: Partial<FiscalInputs> = {
     autresRevenus: 0,
     parts: 1,
     isCouple: false,
+    cotisationsSocialesDeductibles: 0,
   },
   per: undefined,
   options: {
@@ -133,15 +134,19 @@ export const useFiscalStore = create<FiscalStore>()(
         set({ status: 'calculating', error: null });
 
         try {
+          /** Même logique que l’API : autofill activé sauf si explicitement désactivé */
+          const autofillOn = simulationDraft.options?.autofill !== false;
+
           // ✅ Inclure le scope avec les IDs des biens sélectionnés si autofill est activé
           const selectedBienIds = (simulationDraft._uiMetadata as any)?.selectedBienIds || [];
-          const scope = simulationDraft.options?.autofill && selectedBienIds.length > 0 ? {
+          const scope = autofillOn && selectedBienIds.length > 0 ? {
             propertyIds: selectedBienIds,
           } : undefined;
           
           // ✅ Si on a un cache autofill valide pour la même année/baseCalcul, l'utiliser
-          // On ne compare pas le scope car les selectedBienIds peuvent changer, mais les biens chargés restent les mêmes
-          const useCache = autofillCache && 
+          // Uniquement quand « Importer mes données » est activé — sinon ne pas réinjecter les loyers depuis le cache
+          const useCache = autofillOn &&
+            autofillCache && 
             autofillCache.year === simulationDraft.year &&
             autofillCache.baseCalcul === simulationDraft.options?.baseCalcul &&
             autofillCache.biens && 
@@ -158,9 +163,9 @@ export const useFiscalStore = create<FiscalStore>()(
             useCache,
           });
           
-          // ✅ Filtrer les biens du cache selon les selectedBienIds
+          // ✅ Filtrer les biens du cache selon les selectedBienIds (autofill uniquement)
           let biensFromCache: any[] | undefined = undefined;
-          if (useCache && autofillCache.biens) {
+          if (autofillOn && useCache && autofillCache.biens) {
             if (selectedBienIds.length > 0) {
               // Filtrer pour ne garder que les biens sélectionnés
               biensFromCache = autofillCache.biens.filter((b: any) => 
@@ -179,9 +184,9 @@ export const useFiscalStore = create<FiscalStore>()(
             ...simulationDraft,
             scope,
             ...(baremeCode ? { baremeCode } : {}),
-            // ✅ Passer les biens filtrés du cache si disponible pour éviter de recharger
-            biens: biensFromCache,
-            _useAutofillCache: useCache, // Flag pour indiquer qu'on utilise le cache
+            // Sans import SmartImmo : aucun bien (évite de réutiliser le cache en mémoire)
+            biens: autofillOn ? biensFromCache : [],
+            _useAutofillCache: autofillOn && !!useCache, // Flag pour indiquer qu'on utilise le cache
           };
           
           const response = await fetch('/api/fiscal/simulate', {
@@ -195,14 +200,21 @@ export const useFiscalStore = create<FiscalStore>()(
           }
 
           const result: SimulationResult = await response.json();
-          
-          set({ 
-            simulationResult: result, 
+          const draftMeta = get().simulationDraft._uiMetadata;
+          const mergedInputs: SimulationResult['inputs'] = {
+            ...result.inputs,
+            _uiMetadata: result.inputs._uiMetadata ?? draftMeta,
+          };
+
+          const mergedResult: SimulationResult = { ...result, inputs: mergedInputs };
+
+          set({
+            simulationResult: mergedResult,
             status: 'done',
             error: null,
           });
 
-          return result;
+          return mergedResult;
         } catch (error: any) {
           console.error('Erreur simulation:', error);
           set({ 

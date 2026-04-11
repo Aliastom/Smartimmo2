@@ -8,6 +8,7 @@ import type { LeaseWithDetails } from '@/lib/services/leasesService';
 import { formatLeasePeriod } from '@/utils/leaseUtils';
 import { getLocalDB } from '@/lib/offline/db';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { getLeaseDocumentDisplayInfo } from '@/features/leases/utils/leaseDocumentDisplay';
 
 interface LeaseDrawerNewProps {
   lease: LeaseWithDetails | null;
@@ -178,6 +179,7 @@ export default function LeaseDrawerNew({
   };
 
   const totalMensuel = lease.rentAmount + (lease.chargesRecupMensuelles || 0);
+  const leaseDocumentDisplay = getLeaseDocumentDisplayInfo(lease.status, signedLeaseDocument);
 
   return (
     <div className="fixed inset-0 z-50">
@@ -370,9 +372,12 @@ export default function LeaseDrawerNew({
                     <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex-1">
                         <p className="font-medium">{signedLeaseDocument.filenameOriginal}</p>
-                        <p className="text-sm text-gray-600">
-                          Bail signé
-                        </p>
+                        <div className="mt-1 flex items-center gap-2">
+                          <p className="text-sm text-gray-600">{leaseDocumentDisplay.label}</p>
+                          <Badge size="sm" variant={leaseDocumentDisplay.badgeVariant}>
+                            {leaseDocumentDisplay.badgeLabel}
+                          </Badge>
+                        </div>
                       </div>
                       <Button 
                         variant="outline" 

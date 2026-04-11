@@ -82,6 +82,15 @@ export function PropertyDetailView({ propertyId, organizationId, tab = 'transact
   // Utiliser activeTab comme source de vérité (pas la prop tab)
   const validTab = activeTab;
 
+  /** Synthèse onglet Baux : remontée depuis PropertyLeasesClient, affichée une fois dans PropertyHeader (hors scroll) */
+  const [leaseTabSummaryLine, setLeaseTabSummaryLine] = useState('');
+
+  useEffect(() => {
+    if (validTab !== 'lease') {
+      setLeaseTabSummaryLine('');
+    }
+  }, [validTab]);
+
   // ⚙️ OPTIMISATION: Mémoriser le header pour éviter les re-renders inutiles
   // Le header ne change que si propertyId, propertyName, rentalMode ou validTab changent
   // ⚠️ IMPORTANT: Ne pas dépendre du loading pour éviter les remounts
@@ -97,8 +106,9 @@ export function PropertyDetailView({ propertyId, organizationId, tab = 'transact
       propertyAddress={propertyBaseData.address}
       propertyPostalCode={propertyBaseData.postalCode}
       propertyCity={propertyBaseData.city}
+      leaseTabSummaryLine={validTab === 'lease' ? leaseTabSummaryLine : undefined}
           />
-  ), [propertyId, propertyBaseData.name, propertyBaseData.rentalMode, validTab, handleTabChange, propertyBaseData.address, propertyBaseData.postalCode, propertyBaseData.city]); // Retiré loading des deps
+  ), [propertyId, propertyBaseData.name, propertyBaseData.rentalMode, validTab, handleTabChange, propertyBaseData.address, propertyBaseData.postalCode, propertyBaseData.city, leaseTabSummaryLine]); // Retiré loading des deps
 
   // Rendre le contenu selon l'onglet actif
   // ⚙️ OPTIMISATION: Utiliser useMemo pour éviter les remounts inutiles
@@ -111,6 +121,7 @@ export function PropertyDetailView({ propertyId, organizationId, tab = 'transact
             mode="app-shell"
             initialPropertyId={propertyId}
             hideTitle={true}
+            initialLeaseId={initialLeaseId}
           />
         );
       case 'documents':
@@ -136,6 +147,7 @@ export function PropertyDetailView({ propertyId, organizationId, tab = 'transact
             propertyId={propertyId}
             propertyName={propertyBaseData.name || 'Chargement...'}
             initialLeaseId={initialLeaseId}
+            onLeaseSummaryLineChange={setLeaseTabSummaryLine}
           />
         );
       case 'loans':
@@ -157,7 +169,7 @@ export function PropertyDetailView({ propertyId, organizationId, tab = 'transact
     </Card>
         );
     }
-  }, [validTab, propertyId]); // ⚠️ CRITIQUE: Retirer propertyBaseData.name des dépendances pour éviter les remounts lors des changements de données
+  }, [validTab, propertyId, setLeaseTabSummaryLine, initialLeaseId]); // ⚠️ CRITIQUE: Retirer propertyBaseData.name des dépendances pour éviter les remounts lors des changements de données
   // Note: propertyBaseData.name est passé en prop aux composants enfants, mais ne doit pas déclencher de remount du contenu de l'onglet
 
   return (

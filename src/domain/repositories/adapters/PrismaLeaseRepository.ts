@@ -38,25 +38,29 @@ export class PrismaLeaseRepository implements ILeaseRepository {
   }
 
   async update(id: string, data: UpdateLeaseData): Promise<Lease> {
+    const patch: Record<string, unknown> = {
+      propertyId: data.propertyId,
+      tenantId: data.tenantId,
+      type: data.type,
+      furnishedType: data.furnishedType,
+      startDate: data.startDate,
+      endDate: data.endDate,
+      rentAmount: data.rentAmount,
+      deposit: data.deposit,
+      paymentDay: data.paymentDay,
+      indexationType: data.indexationType,
+      notes: data.notes,
+      status: data.status,
+      signedPdfUrl: data.signedPdfUrl,
+      chargesRecupMensuelles: data.chargesRecupMensuelles,
+      chargesNonRecupMensuelles: data.chargesNonRecupMensuelles,
+    };
+    if (data.pilotageIgnored !== undefined) {
+      patch.pilotageIgnored = data.pilotageIgnored;
+    }
     const result = await prisma.lease.update({
       where: { id },
-      data: {
-        propertyId: data.propertyId,
-        tenantId: data.tenantId,
-        type: data.type,
-        furnishedType: data.furnishedType,
-        startDate: data.startDate,
-        endDate: data.endDate,
-        rentAmount: data.rentAmount,
-        deposit: data.deposit,
-        paymentDay: data.paymentDay,
-        indexationType: data.indexationType,
-        notes: data.notes,
-        status: data.status,
-        signedPdfUrl: data.signedPdfUrl,
-        chargesRecupMensuelles: data.chargesRecupMensuelles,
-        chargesNonRecupMensuelles: data.chargesNonRecupMensuelles,
-      },
+      data: patch as any,
     });
 
     return this.mapPrismaToLease(result);
@@ -153,6 +157,7 @@ export class PrismaLeaseRepository implements ILeaseRepository {
       signedPdfUrl: result.signedPdfUrl,
       chargesRecupMensuelles: result.chargesRecupMensuelles,
       chargesNonRecupMensuelles: result.chargesNonRecupMensuelles,
+      pilotageIgnored: result.pilotageIgnored ?? false,
       createdAt: result.createdAt,
       updatedAt: result.updatedAt,
     };

@@ -62,7 +62,10 @@ async function handleOptimize(request: NextRequest) {
     // ✅ Si on a des inputs en POST (simulation récente), les utiliser directement
     if (bodyData?.inputs && bodyData.useRecent) {
       inputs = bodyData.inputs;
-      taxParams = await TaxParamsService.get(inputs.year);
+      taxParams = await TaxParamsService.get(
+        inputs.year + 1,
+        inputs._uiMetadata?.baremeCode
+      );
       logDebug(`✅ Utilisation des inputs de la simulation récente (${inputs.biens?.length || 0} bien(s)) - PAS de rechargement`);
     } else if (simulationId) {
       // Charger la simulation spécifique
@@ -96,7 +99,10 @@ async function handleOptimize(request: NextRequest) {
       
       // ⚠️ NE PAS charger taxParams du JSON (perd les fonctions)
       // Recharger depuis TaxParamsService pour avoir les fonctions intactes
-      taxParams = await TaxParamsService.get(inputs.year);
+      taxParams = await TaxParamsService.get(
+        inputs.year + 1,
+        inputs._uiMetadata?.baremeCode
+      );
       
       // ✅ DÉCISION : Utiliser les biens SAUVEGARDÉS (snapshot au moment de la simulation)
       // Au lieu de ré-agréger (qui peut donner des résultats différents si données modifiées)
@@ -153,7 +159,10 @@ async function handleOptimize(request: NextRequest) {
         
         // ⚠️ NE PAS charger taxParams du JSON (perd les fonctions)
         // Recharger depuis TaxParamsService pour avoir les fonctions intactes
-        taxParams = await TaxParamsService.get(inputs.year);
+        taxParams = await TaxParamsService.get(
+          inputs.year + 1,
+          inputs._uiMetadata?.baremeCode
+        );
         
         // ✅ DÉCISION : Utiliser les biens SAUVEGARDÉS (snapshot au moment de la simulation)
         // Au lieu de ré-agréger (qui peut donner des résultats différents si données modifiées)
@@ -191,7 +200,7 @@ async function handleOptimize(request: NextRequest) {
         // logDebug('⚠️ Aucune simulation trouvée → Génération de données par défaut');
         // Pas de simulation sauvegardée : générer une optimisation de base
         const currentYear = new Date().getFullYear();
-        taxParams = await TaxParamsService.get(currentYear);
+        taxParams = await TaxParamsService.get(currentYear + 1);
         
         const aggregated = await FiscalAggregator.aggregate({
           organizationId,

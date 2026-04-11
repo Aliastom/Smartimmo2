@@ -1,6 +1,7 @@
 export type NormalizedLeaseContractStatus =
   | 'BROUILLON'
   | 'A_SIGNER'
+  | 'SIGNE'
   | 'ACTIF'
   | 'RESILIE'
   | 'ARCHIVE';
@@ -34,9 +35,9 @@ const STATUS_MAP: Record<string, NormalizedLeaseContractStatus> = {
   ENVOYE: 'A_SIGNER',
   ENVOYÉ: 'A_SIGNER',
   SENT: 'A_SIGNER',
-  SIGNE: 'A_SIGNER',
-  SIGNÉ: 'A_SIGNER',
-  SIGNED: 'A_SIGNER',
+  SIGNE: 'SIGNE',
+  SIGNÉ: 'SIGNE',
+  SIGNED: 'SIGNE',
   ACTIF: 'ACTIF',
   ACTIVE: 'ACTIF',
   RESILIE: 'RESILIE',
@@ -50,6 +51,7 @@ const STATUS_MAP: Record<string, NormalizedLeaseContractStatus> = {
 const CONTRACT_LABELS: Record<NormalizedLeaseContractStatus, string> = {
   BROUILLON: 'Brouillon',
   A_SIGNER: 'À signer',
+  SIGNE: 'Signé',
   ACTIF: 'Actif',
   RESILIE: 'Résilié',
   ARCHIVE: 'Archivé',
@@ -77,7 +79,7 @@ export function getLeasePaymentHealthInfo(
   timelineStatutGlobal: 'ok' | 'partiel' | 'retard'
 ): LeasePaymentHealthInfo {
   const contract = normalizeLeaseContractStatus(status);
-  if (contract === 'BROUILLON' || contract === 'A_SIGNER') {
+  if (contract === 'BROUILLON' || contract === 'A_SIGNER' || contract === 'SIGNE') {
     return { code: 'NON_DEMARRE', label: 'Non démarré', tone: 'neutral' };
   }
   if (contract === 'RESILIE') {

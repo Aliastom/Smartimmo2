@@ -451,16 +451,24 @@ export function validateParams(params: NormalizedTaxParams): ValidationResult {
     }
   }
   
-  // Vérifier la décote
+  // Vérifier la décote (paramètres DGFiP dans le JSON)
   if (params.irDecote) {
-    if (params.irDecote.seuilCelibataire <= 0) {
-      errors.push(`Seuil décote célibataire invalide: ${params.irDecote.seuilCelibataire}`);
+    const d = params.irDecote;
+    const seuilC = d.seuilCelibataire ?? d.threshold;
+    if (seuilC != null && seuilC <= 0) {
+      errors.push(`Seuil décote célibataire invalide: ${seuilC}`);
     }
-    if (params.irDecote.seuilCouple <= 0) {
-      errors.push(`Seuil décote couple invalide: ${params.irDecote.seuilCouple}`);
+    if (d.seuilCouple != null && d.seuilCouple <= 0) {
+      errors.push(`Seuil décote couple invalide: ${d.seuilCouple}`);
     }
-    if (params.irDecote.facteur < 0 || params.irDecote.facteur > 1) {
-      errors.push(`Facteur décote hors bornes [0,1]: ${params.irDecote.facteur}`);
+    if (d.plafondCelibataire != null && d.plafondCelibataire < 0) {
+      errors.push(`Plafond décote célibataire invalide: ${d.plafondCelibataire}`);
+    }
+    if (d.plafondCouple != null && d.plafondCouple < 0) {
+      errors.push(`Plafond décote couple invalide: ${d.plafondCouple}`);
+    }
+    if (d.taux != null && (d.taux < 0 || d.taux > 1)) {
+      errors.push(`Taux décote hors bornes [0,1]: ${d.taux}`);
     }
   }
   

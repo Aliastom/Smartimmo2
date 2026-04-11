@@ -9,9 +9,14 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getLoanRepositoryOffline } from '@/lib/offline/repositories/LoanRepositoryOffline';
 import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/PropertyRepositoryOffline';
-import { getLocalDB } from '@/lib/offline/db';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import type { LocalLoan, LocalProperty } from '@/lib/offline/db';
+import {
+  getLoanDisplayInfo,
+  type LoanBusinessStatus,
+  type LoanMetrics,
+  type LoanDisplayInfo,
+} from '@/features/loans/domain/loanDisplay';
 
 export interface Loan {
   id: string;
@@ -34,6 +39,9 @@ export interface Loan {
   notes?: string | null;
   isActive: boolean;
   monthlyPayment?: number;
+  loanBusinessStatus?: LoanBusinessStatus;
+  loanMetrics?: LoanMetrics;
+  loanDisplay?: LoanDisplayInfo;
 }
 
 export interface LoansFilters {
@@ -100,35 +108,6 @@ export function useLoansData(options: UseLoansDataOptions) {
           if (!cancelled) {
             setLoans(loansData);
             setProperties(propertiesData);
-            
-            // ✅ Filtrer les prêts selon les filtres pour le calcul des KPIs
-            let loansForKpis = loansData;
-            const filters = filtersProp || {};
-            
-            // Filtrer par propertyId si présent
-            if (filters.propertyId) {
-              loansForKpis = loansForKpis.filter(l => l.propertyId === filters.propertyId);
-            }
-            
-            // Calculer les KPIs depuis les données filtrées
-            const activeLoans = loansForKpis.filter(l => l.isActive);
-            const totalPrincipal = activeLoans.reduce((sum, l) => sum + (l.principal || 0), 0);
-            const totalCRD = activeLoans.reduce((sum, l) => {
-              // Calcul simplifié du CRD (Capital Restant Dû)
-              // TODO: Implémenter le calcul réel du CRD
-              return sum + (l.principal || 0);
-            }, 0);
-            const monthlyPaymentAvg = activeLoans.length > 0
-              ? activeLoans.reduce((sum, l) => sum + (l.monthlyPayment || 0), 0) / activeLoans.length
-              : 0;
-            
-            setKpis({
-              totalPrincipal,
-              totalCRD,
-              monthlyPaymentAvg,
-              activeLoansCount: activeLoans.length,
-            });
-            
             setLoading(false);
             setKpisLoading(false);
           }
@@ -324,15 +303,36 @@ export function useLoansData(options: UseLoansDataOptions) {
 
   // Convertir LocalLoan vers Loan pour compatibilité
   const convertedLoans: Loan[] = useMemo(() => {
+    const now = new Date();
     if (mode === 'app-shell') {
       // En mode app-shell, construire Loan depuis les données locales
       return loans.map(loan => {
         const property = properties.find(p => p.id === loan.propertyId);
+        const propertyName = property?.name || 'Bien inconnu';
+        const loanDisplay = getLoanDisplayInfo(
+          {
+            id: loan.id,
+            propertyId: loan.propertyId,
+            label: loan.label || '',
+            principal: loan.principal || 0,
+            annualRatePct: loan.annualRatePct || 0,
+            durationMonths: loan.durationMonths || 0,
+            defermentMonths: loan.defermentMonths || 0,
+            insurancePct: loan.insurancePct || 0,
+            feesUpfront: loan.feesUpfront || 0,
+            startDate: loan.startDate,
+            paymentDay: loan.paymentDay || null,
+            isActive: loan.isActive || false,
+            status: (loan as any).status || null,
+          },
+          propertyName,
+          now,
+        );
         
         return {
           id: loan.id,
           propertyId: loan.propertyId,
-          propertyName: property?.name || 'Bien inconnu',
+          propertyName,
           label: loan.label || '',
           principal: loan.principal || 0,
           annualRatePct: loan.annualRatePct || 0,
@@ -349,12 +349,44 @@ export function useLoansData(options: UseLoansDataOptions) {
           amortizationProfile: loan.amortizationProfile || null,
           notes: loan.notes || null,
           isActive: loan.isActive || false,
-          monthlyPayment: loan.monthlyPayment || undefined,
+          monthlyPayment: loanDisplay.monthlyPayment || undefined,
+          loanBusinessStatus: loanDisplay.status,
+          loanMetrics: loanDisplay,
+          loanDisplay,
         };
       });
     }
     // En mode normal, utiliser directement les données de l'API
-    return loans as any;
+    return (loans as any[]).map((loan) => {
+      const propertyName = loan.propertyName || 'Bien inconnu';
+      const loanDisplay = getLoanDisplayInfo(
+        {
+          id: loan.id,
+          propertyId: loan.propertyId,
+          label: loan.label || '',
+          principal: loan.principal || 0,
+          annualRatePct: loan.annualRatePct || 0,
+          durationMonths: loan.durationMonths || 0,
+          defermentMonths: loan.defermentMonths || 0,
+          insurancePct: loan.insurancePct || 0,
+          feesUpfront: loan.feesUpfront || 0,
+          startDate: loan.startDate,
+          paymentDay: loan.paymentDay || null,
+          isActive: loan.isActive,
+          status: loan.status || null,
+        },
+        propertyName,
+        now,
+      );
+      return {
+        ...loan,
+        propertyName,
+        monthlyPayment: loan.monthlyPayment || loanDisplay.monthlyPayment,
+        loanBusinessStatus: loanDisplay.status,
+        loanMetrics: loanDisplay,
+        loanDisplay,
+      };
+    }) as Loan[];
   }, [mode, loans, properties]);
 
   // Filtrer les prêts selon les filtres (en mode app-shell)
@@ -383,21 +415,56 @@ export function useLoansData(options: UseLoansDataOptions) {
 
     if (filters.active) {
       const isActive = filters.active === '1';
-      filtered = filtered.filter(loan => loan.isActive === isActive);
+      filtered = filtered.filter(loan => {
+        const status = loan.loanBusinessStatus || (loan.isActive ? 'actif' : 'inactif');
+        return isActive ? status === 'actif' : status !== 'actif';
+      });
     }
 
     // Appliquer le filtre KPI actif
     if (activeKpiFilter === 'actifs') {
-      filtered = filtered.filter(loan => loan.isActive);
+      filtered = filtered.filter(loan => (loan.loanBusinessStatus || (loan.isActive ? 'actif' : 'inactif')) === 'actif');
     }
 
     return filtered;
   }, [mode, convertedLoans, filtersProp, activeKpiFilter]);
 
+  /** Tous les prêts du bien (sans filtre recherche / actif UI) — pilotage agrégé onglet bien. */
+  const loansForPropertyAggregates = useMemo(() => {
+    if (mode !== 'app-shell' || scope !== 'property' || !filtersProp?.propertyId) {
+      return null;
+    }
+    return convertedLoans.filter((loan) => loan.propertyId === filtersProp.propertyId);
+  }, [mode, scope, convertedLoans, filtersProp?.propertyId]);
+
+  const appShellKpis = useMemo(() => {
+    if (mode !== 'app-shell') return null;
+
+    const activeLoans = filteredLoans.filter((loan) => loan.loanBusinessStatus === 'actif');
+    const totalPrincipal = activeLoans.reduce((sum, loan) => sum + (loan.principal || 0), 0);
+    const totalCRD = activeLoans.reduce((sum, loan) => sum + (loan.loanDisplay?.currentCRD || 0), 0);
+    const monthlyPaymentAvg = activeLoans.length > 0
+      ? activeLoans.reduce((sum, loan) => sum + (loan.loanDisplay?.monthlyPayment || 0), 0) / activeLoans.length
+      : 0;
+
+    return {
+      totalPrincipal,
+      totalCRD,
+      monthlyPaymentAvg,
+      activeLoansCount: activeLoans.length,
+    };
+  }, [mode, filteredLoans]);
+
+  /** Tous les prêts convertis (app-shell, page globale) — analytics / pilotage sans filtres UI. */
+  const fullConvertedLoans =
+    mode === 'app-shell' && scope === 'global' ? convertedLoans : null;
+
   return {
     loans: filteredLoans,
+    fullConvertedLoans,
+    loansForPropertyAggregates,
     properties: properties as any[],
-    kpis,
+    kpis: appShellKpis || kpis,
     kpisLoading,
     totalCount: filteredLoans.length,
     loading,

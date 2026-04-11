@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { X, FileText, Calendar, Euro, Building2, Users } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { X, FileText, Euro, Upload, Send, RotateCcw, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 import { LeaseDetailHeader } from './LeaseDetailHeader';
 import { LeaseDetailPaymentsSection } from './LeaseDetailPaymentsSection';
 import { formatLeasePeriod } from '@/utils/leaseUtils';
@@ -11,6 +12,8 @@ import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import type { LeaseWithDetails } from '@/lib/services/leasesService';
 import type { LeasePaymentsTimelineMonth } from '../hooks/useLeasePaymentsTimeline';
 import { useLeaseIndexationStatus } from '../hooks/useLeaseIndexationStatus';
+import { normalizeLeaseContractStatus } from '../utils/leaseWorkflowStatus';
+import { getLeaseDocumentDisplayInfo } from '../utils/leaseDocumentDisplay';
 
 interface LeaseDetailViewProps {
   lease: LeaseWithDetails | null;
@@ -24,6 +27,10 @@ interface LeaseDetailViewProps {
   onVoirTransaction?: (lease: LeaseWithDetails, month: LeasePaymentsTimelineMonth) => void;
   onIndexLease?: (lease: LeaseWithDetails) => void;
   onRenewLease?: (lease: LeaseWithDetails) => void;
+  onSendForSignature?: (lease: LeaseWithDetails) => Promise<void> | void;
+  onCancelSend?: (lease: LeaseWithDetails) => Promise<void> | void;
+  onUploadSignedLease?: (lease: LeaseWithDetails, file: File) => Promise<void> | void;
+  onActivateLease?: (lease: LeaseWithDetails) => Promise<void> | void;
 }
 
 const formatDate = (dateString: string): string =>
@@ -53,6 +60,27 @@ const getIndexationLabel = (indexationType: string | null) => {
   return types[indexationType] || indexationType;
 };
 
+type WorkflowStage = 'BROUILLON' | 'ENVOYE' | 'SIGNE' | 'ACTIF' | 'RESILIE';
+
+const getWorkflowStage = (lease: LeaseWithDetails): WorkflowStage => {
+  const raw = String(lease.status || '').trim().toUpperCase();
+  const contract = normalizeLeaseContractStatus(lease.status);
+  if (contract === 'RESILIE' || contract === 'ARCHIVE') return 'RESILIE';
+  if (contract === 'ACTIF') return 'ACTIF';
+  if (raw.includes('SIGN')) return 'SIGNE';
+  if (
+    raw.includes('ENVOY') ||
+    raw === 'SENT' ||
+    raw === 'A_SIGNER' ||
+    raw === 'A_ENVOYER' ||
+    raw === 'À_ENVOYER' ||
+    raw === 'TO_SEND'
+  ) {
+    return 'ENVOYE';
+  }
+  return 'BROUILLON';
+};
+
 export default function LeaseDetailView({
   lease,
   isOpen,
@@ -65,10 +93,21 @@ export default function LeaseDetailView({
   onVoirTransaction,
   onIndexLease,
   onRenewLease,
+  onSendForSignature,
+  onCancelSend,
+  onUploadSignedLease,
+  onActivateLease,
 }: LeaseDetailViewProps) {
   const { organizationId } = useCurrentOrganization();
   const [signedLeaseDocument, setSignedLeaseDocument] = useState<any | null>(null);
   const [loadingDocument, setLoadingDocument] = useState(false);
+  const [uploadingSignedLease, setUploadingSignedLease] = useState(false);
+  const [workflowActionLoading, setWorkflowActionLoading] = useState<null | 'send' | 'cancel' | 'upload' | 'activate' | 'terminate'>(null);
+  const workflowSectionRef = useRef<HTMLDivElement>(null);
+
+  const scrollToWorkflow = useCallback(() => {
+    workflowSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   const loadSignedLease = useCallback(async () => {
     if (!lease || !organizationId) {
@@ -140,12 +179,55 @@ export default function LeaseDetailView({
 
   const totalMensuel = lease.rentAmount + (lease.chargesRecupMensuelles || 0);
   const period = formatLeasePeriod(lease.startDate, lease.endDate, lease.furnishedType);
+  const workflowStage = getWorkflowStage(lease);
+  const workflowSteps: WorkflowStage[] = ['BROUILLON', 'ENVOYE', 'SIGNE', 'ACTIF', 'RESILIE'];
+  const currentStepIndex = workflowSteps.indexOf(workflowStage);
+  const stepLabels: Record<WorkflowStage, string> = {
+    BROUILLON: 'Brouillon',
+    ENVOYE: 'Envoyé',
+    SIGNE: 'Signé',
+    ACTIF: 'Actif',
+    RESILIE: 'Résilié',
+  };
   const indexationStatus = useLeaseIndexationStatus(lease);
   const indexationLabelByStatus: Record<string, string> = {
     NONE: 'Aucune échéance immédiate',
     UPCOMING: 'À préparer',
     DUE: 'À indexer',
     APPLIED: 'Déjà appliquée',
+  };
+  const timelineEvents = [
+    { key: 'created', date: lease.createdAt, label: 'Bail cree' },
+    ...(workflowStage !== 'BROUILLON'
+      ? [{ key: 'sent', date: lease.updatedAt || lease.createdAt, label: 'Envoye au locataire' }]
+      : []),
+    ...(workflowStage === 'SIGNE' || workflowStage === 'ACTIF' || workflowStage === 'RESILIE' || lease.signedPdfUrl
+      ? [{ key: 'signed', date: lease.updatedAt || lease.createdAt, label: 'Bail signe' }]
+      : []),
+    ...(workflowStage === 'ACTIF' || workflowStage === 'RESILIE'
+      ? [{ key: 'active', date: lease.updatedAt || lease.createdAt, label: 'Bail active' }]
+      : []),
+  ];
+  const leaseDocumentDisplay = getLeaseDocumentDisplayInfo(lease.status, signedLeaseDocument);
+
+  const handleSignedUploadClick = async () => {
+    if (!onUploadSignedLease) return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/pdf';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      setUploadingSignedLease(true);
+      setWorkflowActionLoading('upload');
+      try {
+        await onUploadSignedLease(lease, file);
+      } finally {
+        setUploadingSignedLease(false);
+        setWorkflowActionLoading(null);
+      }
+    };
+    input.click();
   };
 
   return (
@@ -173,6 +255,209 @@ export default function LeaseDetailView({
             onRenewLease={onRenewLease ? () => onRenewLease(lease) : () => onEdit(lease)}
           />
 
+          <div ref={workflowSectionRef} className="rounded-2xl border border-gray-200 overflow-hidden scroll-mt-4">
+            <h3 className="text-lg font-semibold text-gray-900 p-6 border-b border-gray-100">
+              Workflow du bail
+            </h3>
+            <div className="p-6 space-y-5">
+              {workflowStage !== 'ACTIF' && workflowStage !== 'RESILIE' && (
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-xs font-semibold">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Action requise
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                {workflowSteps.map((step, index) => {
+                  const active = index === currentStepIndex;
+                  const done = index < currentStepIndex;
+                  return (
+                    <React.Fragment key={step}>
+                      <button
+                        type="button"
+                        onClick={scrollToWorkflow}
+                        className="flex flex-col items-center min-w-[72px] rounded-lg p-1 -m-1 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1"
+                      >
+                        <div
+                          className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold border-2 ${
+                            done
+                              ? 'bg-green-600 text-white border-green-600'
+                              : active
+                                ? 'bg-orange-500 text-white border-orange-500 ring-2 ring-orange-200'
+                                : 'bg-white text-gray-400 border-gray-200'
+                          }`}
+                          title={stepLabels[step]}
+                        >
+                          <span aria-hidden>{done ? '✔' : active ? '●' : '○'}</span>
+                        </div>
+                        <span
+                          className={`text-xs mt-1 text-center ${active ? 'text-orange-800 font-semibold' : 'text-gray-600'}`}
+                        >
+                          {stepLabels[step]}
+                        </span>
+                      </button>
+                      {index < workflowSteps.length - 1 && (
+                        <div
+                          className={`h-0.5 flex-1 min-w-[8px] ${done ? 'bg-green-500' : active ? 'bg-orange-300' : 'bg-gray-200'}`}
+                        />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs uppercase tracking-wide text-gray-500">Action principale</p>
+                  {workflowStage !== 'ACTIF' && workflowStage !== 'RESILIE' && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+                      <AlertTriangle className="h-3 w-3" />
+                      Action requise
+                    </span>
+                  )}
+                </div>
+
+                {workflowStage === 'BROUILLON' && (
+                  <Button
+                    onClick={async () => {
+                      if (!onSendForSignature) return;
+                      setWorkflowActionLoading('send');
+                      try {
+                        await onSendForSignature(lease);
+                      } finally {
+                        setWorkflowActionLoading(null);
+                      }
+                    }}
+                    disabled={!onSendForSignature || workflowActionLoading !== null}
+                    className="w-full sm:w-auto"
+                  >
+                    {workflowActionLoading === 'send' ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4 mr-2" />
+                    )}
+                    {workflowActionLoading === 'send' ? 'Envoi en cours...' : 'Envoyer pour signature'}
+                  </Button>
+                )}
+
+                {workflowStage === 'ENVOYE' && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={handleSignedUploadClick}
+                      disabled={!onUploadSignedLease || uploadingSignedLease || workflowActionLoading !== null}
+                      className="shadow-soft"
+                    >
+                      {uploadingSignedLease || workflowActionLoading === 'upload' ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4 mr-2" />
+                      )}
+                      {uploadingSignedLease || workflowActionLoading === 'upload'
+                        ? 'Upload en cours...'
+                        : 'Bail signé (upload PDF)'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        if (!onCancelSend) return;
+                        setWorkflowActionLoading('cancel');
+                        try {
+                          await onCancelSend(lease);
+                        } finally {
+                          setWorkflowActionLoading(null);
+                        }
+                      }}
+                      disabled={!onCancelSend || workflowActionLoading !== null}
+                    >
+                      {workflowActionLoading === 'cancel' ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4 mr-2" />
+                      )}
+                      {workflowActionLoading === 'cancel' ? "Annulation..." : "Annuler l'envoi"}
+                    </Button>
+                  </div>
+                )}
+
+                {workflowStage === 'SIGNE' && (
+                  <Button
+                    onClick={async () => {
+                      if (!onActivateLease) return;
+                      setWorkflowActionLoading('activate');
+                      try {
+                        await onActivateLease(lease);
+                      } finally {
+                        setWorkflowActionLoading(null);
+                      }
+                    }}
+                    disabled={!onActivateLease || workflowActionLoading !== null}
+                  >
+                    {workflowActionLoading === 'activate' ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                    )}
+                    {workflowActionLoading === 'activate' ? 'Activation...' : 'Activer le bail'}
+                  </Button>
+                )}
+
+                {workflowStage === 'ACTIF' && (
+                  <Button
+                    variant="danger"
+                    onClick={async () => {
+                      if (!onTerminateLease) return;
+                      setWorkflowActionLoading('terminate');
+                      try {
+                        await onTerminateLease(lease);
+                      } finally {
+                        setWorkflowActionLoading(null);
+                      }
+                    }}
+                    disabled={!onTerminateLease || workflowActionLoading !== null}
+                  >
+                    {workflowActionLoading === 'terminate' ? 'Résiliation...' : 'Résilier le bail'}
+                  </Button>
+                )}
+
+                {workflowStage === 'RESILIE' && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => onDelete(lease)}
+                      className="border-red-300 text-red-700 hover:bg-red-50"
+                    >
+                      Supprimer le bail
+                    </Button>
+                    <p className="w-full text-xs text-gray-500">
+                      Suppression sécurisée : vérification des dépendances (transactions liées, etc.).
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-gray-200 overflow-hidden">
+            <h3 className="text-lg font-semibold text-gray-900 p-6 border-b border-gray-100">
+              Historique du bail
+            </h3>
+            <div className="p-6">
+              <ol className="space-y-3">
+                {timelineEvents.map((event, idx) => (
+                  <li key={`${event.key}-${idx}`} className="flex items-start gap-3">
+                    <span className="mt-1 h-2 w-2 rounded-full bg-gray-400 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900">{event.label}</p>
+                      <p className="text-xs text-gray-500">
+                        {event.date ? formatDate(String(event.date)) : 'Date non disponible'}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+
           {/* 2. Paiements */}
           <LeaseDetailPaymentsSection
             leaseId={lease.id}
@@ -197,17 +482,31 @@ export default function LeaseDetailView({
               Configuration financière
             </h3>
             <div className="p-6 space-y-4">
-              <div className="bg-gray-50 rounded-xl p-4 space-y-2">
-                <div className="text-center py-2">
-                  <p className="text-sm text-gray-500 uppercase tracking-wide">Total mensuel</p>
-                  <p className="text-3xl font-bold text-gray-900">{formatCurrency(totalMensuel)}</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    HC {formatCurrency(lease.rentAmount)}
-                    {lease.chargesRecupMensuelles && lease.chargesRecupMensuelles > 0 && (
-                      <> + charges {formatCurrency(lease.chargesRecupMensuelles)}</>
-                    )}
+              <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                <div className="text-center py-1">
+                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">
+                    Total dû par le locataire (mensuel)
                   </p>
+                  <p className="text-3xl font-bold text-gray-900">{formatCurrency(totalMensuel)}</p>
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm border-t border-gray-200 pt-3">
+                  <div>
+                    <p className="text-gray-500 text-xs">Revenu propriétaire (loyer HC)</p>
+                    <p className="font-semibold text-gray-900">{formatCurrency(lease.rentAmount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">Charges récupérables (payées par le locataire)</p>
+                    <p className="font-semibold text-gray-900">
+                      {formatCurrency(lease.chargesRecupMensuelles || 0)}
+                    </p>
+                  </div>
+                </div>
+                {lease.chargesNonRecupMensuelles != null && lease.chargesNonRecupMensuelles > 0 && (
+                  <p className="text-xs text-gray-600 border-t border-gray-200 pt-2">
+                    Charges non récupérables (charge propriétaire) :{' '}
+                    <span className="font-medium">{formatCurrency(lease.chargesNonRecupMensuelles)}</span>
+                  </p>
+                )}
                 <div className="flex justify-between pt-2 border-t border-gray-200">
                   <span className="text-sm text-gray-400">Dépôt de garantie</span>
                   <span className="font-semibold text-gray-900">{formatCurrency(lease.deposit || 0)}</span>
@@ -320,7 +619,12 @@ export default function LeaseDetailView({
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div className="flex-1">
                     <p className="font-medium">{signedLeaseDocument.filenameOriginal}</p>
-                    <p className="text-sm text-gray-600">Bail signé</p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <p className="text-sm text-gray-600">{leaseDocumentDisplay.label}</p>
+                      <Badge size="sm" variant={leaseDocumentDisplay.badgeVariant}>
+                        {leaseDocumentDisplay.badgeLabel}
+                      </Badge>
+                    </div>
                   </div>
                   <Button
                     variant="outline"

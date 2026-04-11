@@ -1,4 +1,4 @@
-﻿import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { getLeaseRuntimeStatus, getDaysUntilExpiration, getDaysUntilIndexation, getNextAction } from '@/utils/leaseStatus';
 import { prisma } from '@/lib/prisma';
 
@@ -57,6 +57,8 @@ export interface LeaseWithDetails {
   daysUntilIndexation?: number;
   createdAt: string;
   updatedAt: string;
+  /** Pilotage : masqué des actions prioritaires tant que non réactivé. */
+  pilotageIgnored?: boolean;
 }
 
 export interface LeaseKPIs {
@@ -389,7 +391,8 @@ export class LeasesService {
         daysUntilExpiration,
         daysUntilIndexation,
         createdAt: lease.createdAt.toISOString(),
-        updatedAt: lease.updatedAt.toISOString()
+        updatedAt: lease.updatedAt.toISOString(),
+        pilotageIgnored: (lease as { pilotageIgnored?: boolean }).pilotageIgnored ?? false,
       };
     }));
 

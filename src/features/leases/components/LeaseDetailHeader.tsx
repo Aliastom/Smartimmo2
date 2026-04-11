@@ -164,6 +164,7 @@ export function LeaseDetailHeader({
   const statusVariantByCode = {
     BROUILLON: 'secondary',
     A_SIGNER: 'warning',
+    SIGNE: 'default',
     ACTIF: 'success',
     RESILIE: 'danger',
     ARCHIVE: 'secondary',
@@ -185,6 +186,15 @@ export function LeaseDetailHeader({
     PARTIEL: '⚠️',
     RETARD: '❌',
   } as const;
+  const showHealthBadge = paymentHealth.code !== 'NON_DEMARRE';
+  const statusSubtextByCode: Record<string, string> = {
+    BROUILLON: 'Bail en préparation',
+    A_SIGNER: 'En attente de signature',
+    SIGNE: 'Signé, en attente d’activation',
+    ACTIF: 'Bail en cours',
+    RESILIE: 'Bail clôturé',
+    ARCHIVE: 'Bail archivé',
+  };
 
   const handlePrimaryCta = () => {
     switch (nextAction.type) {
@@ -230,46 +240,75 @@ export function LeaseDetailHeader({
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-4">
-      {/* Bloc 1 — Identité (compact) */}
-      <div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="text-base font-semibold text-gray-900">
-            {lease.Tenant.firstName} {lease.Tenant.lastName}
-          </h2>
-          <Badge variant={statusConf.variant} className="text-xs">
-            {statusConf.label}
-          </Badge>
-        </div>
-        <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+      {/* HEADER */}
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-gray-900">
+          {lease.Tenant.firstName} {lease.Tenant.lastName}
+        </h2>
+        <p className="text-xs text-gray-500 flex items-center gap-1">
           <Building2 className="h-3 w-3 shrink-0" />
           {lease.Property.name}
           <span className="text-gray-400">·</span>
           {period.startText} → {period.endText.replace('Au ', '').replace('Fin ', '')}
         </p>
+        <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 space-y-1">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Loyer total locataire (HC + charges récup.)
+            </span>
+            <span className="text-2xl font-bold text-gray-900">
+              {timeline.loading ? '…' : formatCurrency(timeline.cockpit.loyerMensuel)}
+            </span>
+            <span className="text-xs text-gray-500">/ mois</span>
+          </div>
+          {canOperatePayments && !timeline.loading && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-500">Paiement global :</span>
+              <Badge
+                variant={
+                  timeline.cockpit.statutGlobal === 'retard'
+                    ? 'destructive'
+                    : timeline.cockpit.statutGlobal === 'partiel'
+                      ? 'warning'
+                      : 'success'
+                }
+                className="text-xs font-semibold"
+              >
+                {timeline.cockpit.statutGlobal === 'retard'
+                  ? 'Retard'
+                  : timeline.cockpit.statutGlobal === 'partiel'
+                    ? 'Partiel'
+                    : 'OK'}
+              </Badge>
+              {timeline.cockpit.montantEnRetard > 0 && (
+                <span className="text-xs text-red-600 font-medium">
+                  dont {formatCurrency(timeline.cockpit.montantEnRetard)} à régulariser
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant={statusConf.variant} className="text-xs font-semibold">
+            {statusConf.label}
+          </Badge>
+          <span className="text-xs text-gray-500">
+            {timeline.loading ? 'Chargement...' : (nextAction.description || statusSubtextByCode[contractStatus.code])}
+          </span>
+        </div>
       </div>
 
-      {/* Bloc 2 — Statut global + Prochaine action (ordre de lecture prioritaire) */}
-      <div className="flex flex-col gap-1.5">
-        <span
-          className={`inline-flex w-fit items-center rounded-md px-2 py-1 text-xs font-medium ${healthClassByTone[paymentHealth.tone]}`}
-        >
-          <span>{healthIconByCode[paymentHealth.code]}</span>
-          <span className="ml-1">{paymentHealth.label}</span>
-        </span>
-        {timeline.loading ? (
-          <p className="text-sm font-medium text-gray-400">Chargement du pilotage…</p>
-        ) : (
-          <>
-            <p className="text-sm font-medium text-gray-800">{nextAction.label}</p>
-            {nextAction.description ? (
-              <p className="text-xs text-gray-500">{nextAction.description}</p>
-            ) : null}
-          </>
-        )}
-        {timeline.lastPayment && (
-          <p className="text-xs text-gray-500">
-            Dernier paiement : {formatDate(timeline.lastPayment.date)} · {formatCurrency(timeline.lastPayment.amount)}
-          </p>
+      {/* INFO SECONDAIRE */}
+      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-100">
+        <span className="text-xs uppercase tracking-wide text-gray-500">Prochaine action :</span>
+        <span className="text-sm font-semibold text-gray-900">{timeline.loading ? 'Chargement du pilotage...' : nextAction.label}</span>
+        {showHealthBadge && (
+          <span
+            className={`inline-flex w-fit items-center rounded-md px-2 py-1 text-xs font-medium ${healthClassByTone[paymentHealth.tone]}`}
+          >
+            <span>{healthIconByCode[paymentHealth.code]}</span>
+            <span className="ml-1">{paymentHealth.label}</span>
+          </span>
         )}
       </div>
 

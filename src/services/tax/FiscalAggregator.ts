@@ -207,10 +207,11 @@ class FiscalAggregatorClass {
     await this.loadNatures();
     await this.loadFiscalTypes();  // ✅ Charger les types fiscaux depuis BDD
     
-    // 🆕 Charger les paramètres fiscaux depuis la BDD (pour plafonds/abattements micro)
+    // Paramètres fiscaux : `FiscalVersion.year` = année de déclaration (campagne), pas année des revenus
     const { TaxParamsService } = await import('./TaxParamsService');
-    const taxParams = await TaxParamsService.get(year);
-    console.log(`📋 TaxParams ${taxParams.version} chargés (micro foncier: ${taxParams.micro.foncierPlafond}€, ${taxParams.micro.foncierAbattement * 100}%)`);
+    const declarationYear = year + 1;
+    const taxParams = await TaxParamsService.get(declarationYear);
+    console.log(`📋 TaxParams ${taxParams.version} chargés (revenus ${year} / décl. ${declarationYear} ; micro foncier: ${taxParams.micro.foncierPlafond}€, ${taxParams.micro.foncierAbattement * 100}%)`);
     
     // Récupérer tous les biens de l'organisation
     const properties = await this.getProperties(organizationId, scope?.propertyIds);

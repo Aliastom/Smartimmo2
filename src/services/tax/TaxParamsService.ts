@@ -10,6 +10,7 @@
 import type { TaxParams, TaxVersion, TaxYear, TaxParamsChangelog } from '@/types/fiscal';
 import { prisma } from '@/lib/prisma';
 import { fiscalVersionToTaxParams } from './converters/fiscalVersionToParams';
+import { buildIrDecoteFromStored } from '@/services/tax/irDecoteDGFiP';
 
 // ============================================================================
 // BARÈMES FISCAUX 2025 (SOURCE: DGFiP, Service-Public, BOFiP)
@@ -32,16 +33,14 @@ const TAX_PARAMS_2025: TaxParams = {
     { lower: 177106, upper: null, rate: 0.45 },       // 45%
   ],
   
-  // Décote IR 2025
-  irDecote: {
-    threshold: 1929,  // Seuil pour une personne seule
-    formula: (tax: number, parts: number) => {
-      // Décote = (seuil × parts) - (75% × impôt brut)
-      const seuilDecote = parts === 1 ? 1929 : 3858;  // 3858€ pour un couple
-      const decote = seuilDecote - (0.75 * tax);
-      return Math.max(0, decote);
-    }
-  },
+  // Décote IR 2025 : valeurs explicites (les défauts globaux suivent la version publiée courante)
+  irDecote: buildIrDecoteFromStored({
+    seuilCelibataire: 1917,
+    seuilCouple: 3177,
+    plafondCelibataire: 833,
+    plafondCouple: 1378,
+    taux: 0.45,
+  }),
   
   // Abattement forfaitaire salaires 2025 (Article 83 CGI)
   salaryDeduction: {
@@ -102,6 +101,65 @@ const TAX_PARAMS_2025: TaxParams = {
 };
 
 /**
+ * Paramètres embarqués 2026 (revenus 2025 / déclaration 2026) — alignés barème + décote version publiée 2026.1.
+ * Utilisé en secours si la BDD est indisponible ; en production le JSON FiscalVersion prime.
+ */
+const TAX_PARAMS_2026: TaxParams = {
+  version: '2026.1',
+  year: 2026,
+  irBrackets: [
+    { lower: 0, upper: 11600, rate: 0.0 },
+    { lower: 11600, upper: 29579, rate: 0.11 },
+    { lower: 29579, upper: 84577, rate: 0.3 },
+    { lower: 84577, upper: 181917, rate: 0.41 },
+    { lower: 181917, upper: null, rate: 0.45 },
+  ],
+  irDecote: buildIrDecoteFromStored({
+    seuilCelibataire: 1983,
+    seuilCouple: 3278,
+    plafondCelibataire: 897,
+    plafondCouple: 1483,
+    taux: 0.4525,
+  }),
+  salaryDeduction: {
+    taux: 0.1,
+    min: 472,
+    max: 13522,
+  },
+  psRate: 0.172,
+  micro: {
+    foncierAbattement: 0.3,
+    foncierPlafond: 15000,
+    bicAbattement: 0.5,
+    bicPlafond: 77700,
+    meubleTourismeAbattement: 0.71,
+    meubleTourismePlafond: 188700,
+  },
+  deficitFoncier: {
+    plafondImputationRevenuGlobal: 10700,
+    dureeReport: 10,
+  },
+  per: {
+    tauxPlafond: 0.1,
+    plancherLegal: 4399,
+    dureeReportReliquats: 3,
+  },
+  lmp: {
+    recettesMin: 23000,
+    tauxRecettesProMin: 0.5,
+    inscriptionRCSObligatoire: true,
+  },
+  sciIS: {
+    tauxReduit: 0.15,
+    plafondTauxReduit: 42500,
+    tauxNormal: 0.25,
+  },
+  source: 'DGFiP — paramètres embarqués 2026.1 (repli BDD)',
+  dateMAJ: new Date('2026-01-01'),
+  validatedBy: 'system',
+};
+
+/**
  * Barèmes historiques (pour comparaisons et simulations passées)
  */
 const TAX_PARAMS_2024: TaxParams = {
@@ -116,14 +174,14 @@ const TAX_PARAMS_2024: TaxParams = {
     { lower: 177106, upper: null, rate: 0.45 },
   ],
   
-  irDecote: {
-    threshold: 1841,
-    formula: (tax: number, parts: number) => {
-      const seuilDecote = parts === 1 ? 1841 : 3682;
-      const decote = seuilDecote - (0.75 * tax);
-      return Math.max(0, decote);
-    }
-  },
+  // Revenus 2024 — paramètres indicatifs DGFiP (ajustables en BDD)
+  irDecote: buildIrDecoteFromStored({
+    seuilCelibataire: 1928,
+    seuilCouple: 3194,
+    plafondCelibataire: 880,
+    plafondCouple: 1454,
+    taux: 0.4525,
+  }),
   
   // Abattement forfaitaire salaires 2024 (Article 83 CGI)
   salaryDeduction: {
@@ -192,6 +250,7 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
  * Utilisés uniquement si aucune version publiée n'existe en BDD
  */
 const FALLBACK_PARAMS: Map<number, TaxParams> = new Map([
+  [2026, TAX_PARAMS_2026],
   [2025, TAX_PARAMS_2025],
   [2024, TAX_PARAMS_2024],
 ]);
@@ -202,13 +261,10 @@ const FALLBACK_PARAMS: Map<number, TaxParams> = new Map([
 
 class TaxParamsServiceClass {
   /**
-   * Récupère les paramètres fiscaux pour une année donnée
-   * 
-   * VERSION 2.0 : Charge depuis PostgreSQL (FiscalVersion) avec cache 5 min
-   * 
-   * @param year Année fiscale
-   * @param versionCode Code de version spécifique (optionnel)
-   * @returns Paramètres fiscaux
+   * Récupère les paramètres fiscaux (PostgreSQL FiscalVersion, cache 5 min).
+   *
+   * @param year Année de **déclaration** (campagne barème, ex. 2026 pour revenus 2025) lorsque `versionCode` est absent (recherche `FiscalVersion.year`). Ignorée pour le chargement si `versionCode` est fourni (sert au cache / logs).
+   * @param versionCode Code barème explicite (ex. `2026.1`) — prioritaire
    */
   async get(year: TaxYear, versionCode?: string): Promise<TaxParams> {
     const cacheKey = versionCode || `${year}-published`;
@@ -316,15 +372,15 @@ class TaxParamsServiceClass {
       });
       
       if (!fiscalVersion || !fiscalVersion.params) {
-        console.warn('[TaxParamsService] Aucune version publiée en BDD, fallback sur 2025');
-        return FALLBACK_PARAMS.get(2025)!;
+        console.warn('[TaxParamsService] Aucune version publiée en BDD, fallback paramètres embarqués 2026');
+        return TAX_PARAMS_2026;
       }
       
       return fiscalVersionToTaxParams(fiscalVersion as any);
       
     } catch (error) {
       console.error('[TaxParamsService] Erreur getLatest:', error);
-      return FALLBACK_PARAMS.get(2025)!;
+      return TAX_PARAMS_2026;
     }
   }
   
@@ -342,8 +398,8 @@ class TaxParamsServiceClass {
   }
   
   /**
-   * Liste les barèmes publiés pour une année (pour sélecteur UI)
-   * Retourne code, year, source, updatedAt triés par updatedAt desc
+   * Liste les barèmes publiés dont `FiscalVersion.year` = année (campagne / déclaration, ex. 2026 pour « tranches 2026 »).
+   * Utilisé avec l’année de déclaration fiscale, pas l’année des revenus.
    */
   async listPublishedByYear(year: number): Promise<{ code: string; year: number; source: string; updatedAt: Date }[]> {
     try {

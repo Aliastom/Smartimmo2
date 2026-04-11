@@ -10,6 +10,7 @@
 
 import { TaxParamsService } from './TaxParamsService';
 import type { TaxParams, TaxYear } from '@/types/fiscal';
+import { buildIrDecoteFromStored } from '@/services/tax/irDecoteDGFiP';
 
 // ============================================================================
 // CONFIGURATION
@@ -196,14 +197,7 @@ class TaxParamsUpdaterClass {
         { lower: 177106, upper: null, rate: 0.45 },
       ],
       
-      irDecote: {
-        threshold: 1929,
-        formula: (tax: number, parts: number) => {
-          const seuilDecote = parts === 1 ? 1929 : 3858;
-          const decote = seuilDecote - (0.75 * tax);
-          return Math.max(0, decote);
-        },
-      },
+      irDecote: buildIrDecoteFromStored({}),
       
       psRate: 0.172,
       

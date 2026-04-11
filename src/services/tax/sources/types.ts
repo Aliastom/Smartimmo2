@@ -62,11 +62,15 @@ export interface NormalizedTaxParams {
     rate: number;
   }>;
   
-  // Décote IR
+  // Décote IR (JSON BDD — formule plafond − taux × impôt brut)
   irDecote?: {
     seuilCelibataire: number;
     seuilCouple: number;
-    facteur: number;
+    plafondCelibataire?: number;
+    plafondCouple?: number;
+    taux?: number;
+    /** @deprecated ancien barème */
+    facteur?: number;
   };
   
   // 🆕 Abattement forfaitaire salaires (Article 83 CGI)

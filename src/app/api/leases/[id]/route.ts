@@ -94,6 +94,7 @@ const updateLeaseSchema = z.object({
   // Gestion déléguée - Granularité des charges
   chargesRecupMensuelles: z.number().min(0).optional(),
   chargesNonRecupMensuelles: z.number().min(0).optional(),
+  pilotageIgnored: z.boolean().optional(),
 });
 
 export async function PUT(
@@ -126,6 +127,7 @@ export async function PUT(
       signedPdfUrl: validatedData.signedPdfUrl,
       chargesRecupMensuelles: validatedData.chargesRecupMensuelles,
       chargesNonRecupMensuelles: validatedData.chargesNonRecupMensuelles,
+      pilotageIgnored: validatedData.pilotageIgnored,
     });
 
     return NextResponse.json({

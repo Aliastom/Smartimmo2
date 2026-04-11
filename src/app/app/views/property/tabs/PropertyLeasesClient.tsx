@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { notify2 } from '@/lib/notify2';
 import { Plus, FileText, Download, Receipt, Home, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -18,8 +18,17 @@ import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { createLeaseServiceWithMode } from '@/domain/services/leaseServiceFactory';
 import LeasesFilters from '@/components/leases/LeasesFilters';
 import { LeasesTableNew } from '@/components/leases/LeasesTableNew';
-import { LeasesActionBanner, type ActionFilterKey } from '@/features/leases/components/LeasesActionBanner';
-import { useLeasesActionCounts } from '@/features/leases/hooks/useLeasesActionCounts';
+import type { ActionFilterKey } from '@/features/leases/components/LeasesActionBanner';
+import { LeasesPriorityActionsBlock } from '@/features/leases/components/LeasesPriorityActionsBlock';
+import { LeasesTableFilterStrip } from '@/features/leases/components/LeasesTableFilterStrip';
+import { LeaseIndexationModal } from '@/features/leases/components/LeaseIndexationModal';
+import { LeaseTerminationModal } from '@/features/leases/components/LeaseTerminationModal';
+import { useLeasesActionCounts, type LeasePriorityAction } from '@/features/leases/hooks/useLeasesActionCounts';
+import {
+  toLeasePriorityAction,
+  type LeasePilotageRowMeta,
+} from '@/features/leases/utils/buildLeasePriorityActions';
+import { scrollToLeaseTableRow } from '@/features/leases/utils/scrollToLeaseTableRow';
 import LeaseDetailView from '@/features/leases/components/LeaseDetailView';
 import LeaseFormComplete from '@/components/forms/LeaseFormComplete';
 import LeaseEditModal from '@/components/forms/LeaseEditModal';
@@ -29,11 +38,17 @@ import { createTransactionServiceWithMode } from '@/domain/services/transactionS
 import type { LeasePaymentsTimelineMonth } from '@/features/leases/hooks/useLeasePaymentsTimeline';
 import type { TransactionFormData } from '@/lib/validations/transaction';
 import CannotDeleteLeaseModal from '@/components/leases/CannotDeleteLeaseModal';
+import type { CannotDeleteLeaseItem } from '@/components/leases/cannotDeleteLeaseTypes';
 import DeleteConfirmModal from '@/components/leases/DeleteConfirmModal';
 import type { LeaseWithDetails } from '@/lib/services/leasesService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { navigateToView } from '@/utils/appShellNavigation';
+import { classifySmartimmoId } from '@/lib/offline/leaseSignatureWorkflowDiag';
+import { getLeaseRepositoryOffline } from '@/lib/offline/repositories/LeaseRepositoryOffline';
+import { getLocalDB } from '@/lib/offline/db';
+import { normalizeLeaseContractStatus } from '@/features/leases/utils/leaseWorkflowStatus';
+import { buildLeaseRenewalInitialData } from '@/features/leases/utils/buildLeaseRenewalInitialData';
 
 interface Filters {
   search: string;
@@ -59,12 +74,61 @@ interface PropertyLeasesClientProps {
   propertyId: string;
   propertyName: string;
   initialLeaseId?: string;
+  /** Remonte la ligne de synthèse vers PropertyHeader (une seule fois, hors scroll) */
+  onLeaseSummaryLineChange?: (line: string) => void;
 }
 
-export default function PropertyLeasesClient({ propertyId, propertyName, initialLeaseId }: PropertyLeasesClientProps) {
-  
+export default function PropertyLeasesClient({ propertyId, propertyName, initialLeaseId, onLeaseSummaryLineChange }: PropertyLeasesClientProps) {
   const { organizationId } = useCurrentOrganization();
   const { setActions } = usePropertyHeaderActions();
+  const triggerSilentSyncIfOnline = useCallback(async (
+    reason: string,
+    options?: { pullLease?: boolean; pullDocument?: boolean; pullDocumentLink?: boolean }
+  ) => {
+    if (!organizationId) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    try {
+      const { getGlobalSyncService } = await import('@/lib/offline/syncGlobal');
+      const syncService = getGlobalSyncService();
+      await syncService.syncAllPendingToRemote(organizationId);
+      if (options?.pullLease) {
+        await syncService.syncEntityFromRemoteByName('lease', organizationId);
+      }
+      if (options?.pullDocument) {
+        await syncService.syncEntityFromRemoteByName('document', organizationId);
+      }
+      if (options?.pullDocumentLink) {
+        await syncService.syncEntityFromRemoteByName('documentLink', organizationId);
+      }
+    } catch (error) {
+      console.warn(`[PropertyLeasesClient] Sync silencieuse échouée (${reason})`, error);
+    }
+  }, [organizationId]);
+  const findPendingCreateLeaseError = useCallback(async (lease: LeaseWithDetails) => {
+    if (!organizationId) return null;
+    const db = await getLocalDB();
+    const errorOps = await db.pendingOperations
+      .where('[organizationId+status]')
+      .equals([organizationId, 'error'])
+      .toArray();
+    const blockedOps = await db.pendingOperations
+      .where('[organizationId+status]')
+      .equals([organizationId, 'blocked_permanent'])
+      .toArray();
+    const ops = [...errorOps, ...blockedOps];
+
+    const match = ops.find((op: any) => {
+      if (op.entity !== 'lease' || op.operation !== 'create') return false;
+      const p = op.payload || {};
+      return (
+        op.entityId === lease.id ||
+        (p.propertyId === lease.propertyId &&
+          p.tenantId === lease.tenantId &&
+          String(p.startDate || '').slice(0, 10) === String(lease.startDate || '').slice(0, 10))
+      );
+    });
+    return match?.errorMessage || null;
+  }, [organizationId]);
   
   // ✅ [DEV-ONLY] Render count pour debug (isolé derrière flag DEV)
   const renderCountRef = useRef(0);
@@ -91,12 +155,7 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
   const [leasesToConfirmDelete, setLeasesToConfirmDelete] = useState<LeaseWithDetails[]>([]);
   const [showActionsModal, setShowActionsModal] = useState(false);
   const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
-  const [protectedLeasesForModal, setProtectedLeasesForModal] = useState<Array<{
-    id: string;
-    propertyName: string;
-    tenantName: string;
-    reason: string;
-  }>>([]);
+  const [protectedLeasesForModal, setProtectedLeasesForModal] = useState<CannotDeleteLeaseItem[]>([]);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentPrefill, setPaymentPrefill] = useState<{
     propertyId: string;
@@ -111,13 +170,18 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
     chargesRecup?: number;
     paymentDate?: string;
   } | null>(null);
-  
+  const [showRenewModal, setShowRenewModal] = useState(false);
+  const [renewBaseLease, setRenewBaseLease] = useState<LeaseWithDetails | null>(null);
+
   // État pour le filtre KPI actif
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
   // État pour le bandeau "À traiter" (filtre le tableau)
   const [actionFilter, setActionFilter] = useState<ActionFilterKey>(null);
   // Analytics repliables
   const [chartsExpanded, setChartsExpanded] = useState(true);
+  const [showAllPriorityActions, setShowAllPriorityActions] = useState(false);
+  const [showIndexationModal, setShowIndexationModal] = useState(false);
+  const [showTerminateModal, setShowTerminateModal] = useState(false);
 
   // États des filtres (propertyId est toujours fixé)
   const [filters, setFilters] = useState<Filters>({
@@ -296,12 +360,17 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
     mode: 'app-shell',
   });
 
-  // Compteurs "À traiter" (partiels, retards, expirant, indexations) pour ce bien
-  const { counts: actionCounts, loading: actionCountsLoading } = useLeasesActionCounts(
-    organizationId ?? null,
-    allLeases,
-    'app-shell'
-  );
+  const {
+    counts: actionCounts,
+    priorityActions,
+    leasePilotageById,
+    leasePaymentPilotageById,
+    loading: actionCountsLoading,
+  } = useLeasesActionCounts(organizationId ?? null, allLeases, 'app-shell');
+
+  useEffect(() => {
+    if (priorityActions.length <= 3) setShowAllPriorityActions(false);
+  }, [priorityActions.length]);
 
   // Gestion des filtres (en mémoire uniquement, pas de fetch)
   const handleFiltersChange = useCallback((newFilters: Filters) => {
@@ -403,15 +472,165 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
     }
   }, [propertyId]);
 
+  const handleOpenRenewLease = useCallback((lease: LeaseWithDetails) => {
+    const contract = normalizeLeaseContractStatus(lease.status);
+    if (contract !== 'ACTIF') {
+      notify2.warning('Action indisponible', 'Seul un bail actif peut être renouvelé.');
+      return;
+    }
+    if (!lease.endDate) {
+      notify2.warning('Action indisponible', 'Le bail doit avoir une date de fin pour être renouvelé.');
+      return;
+    }
+    setRenewBaseLease(lease);
+    setShowRenewModal(true);
+  }, []);
+
+  const handleIndexLease = useCallback((lease: LeaseWithDetails) => {
+    const contract = normalizeLeaseContractStatus(lease.status);
+    if (contract !== 'ACTIF') {
+      notify2.warning('Action indisponible', "L'indexation est disponible uniquement pour un bail actif.");
+      return;
+    }
+    setSelectedLease(lease);
+    setShowIndexationModal(true);
+  }, []);
+
+  const openPaymentFromPriorityItem = useCallback(
+    (lease: LeaseWithDetails, item: LeasePriorityAction) => {
+      const ym = item.targetYearMonth;
+      if (!ym) {
+        handleViewLease(lease);
+        return;
+      }
+      const parts = ym.split('-');
+      const yStr = parts[0] ?? '';
+      const mStr = parts[1] ?? '01';
+      const y = parseInt(yStr, 10);
+      const mNum = parseInt(mStr, 10);
+      const label = new Date(y, mNum - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+      const fullExpected = lease.rentAmount + (lease.chargesRecupMensuelles ?? 0);
+      const amount =
+        item.nextActionType === 'PAY_REMAINING' && item.amountValue > 0 ? item.amountValue : fullExpected;
+      const paymentDay = lease.paymentDay ?? 5;
+      const dueDate = `${yStr}-${mStr}-${String(Math.min(paymentDay, 28)).padStart(2, '0')}`;
+      setPaymentPrefill({
+        propertyId: lease.propertyId,
+        leaseId: lease.id,
+        nature: 'RECETTE_LOYER',
+        amount,
+        date: `${yStr}-${mStr}-01`,
+        periodMonth: mStr,
+        periodYear: y,
+        label: `Loyer ${label}`,
+        montantLoyer: lease.rentAmount,
+        chargesRecup: lease.chargesRecupMensuelles ?? 0,
+        paymentDate: dueDate,
+      });
+      setShowPaymentModal(true);
+    },
+    [handleViewLease]
+  );
+
+  const handlePriorityActionCta = useCallback(
+    (item: LeasePriorityAction) => {
+      const lease = allLeases.find((l) => l.id === item.leaseId);
+      if (!lease) return;
+      if (item.ctaKind === 'encaisser' || item.ctaKind === 'completer') {
+        openPaymentFromPriorityItem(lease, item);
+        return;
+      }
+      if (item.ctaKind === 'renouveler') {
+        handleOpenRenewLease(lease);
+        return;
+      }
+      if (item.ctaKind === 'indexer') {
+        handleIndexLease(lease);
+      }
+    },
+    [allLeases, openPaymentFromPriorityItem, handleOpenRenewLease, handleIndexLease]
+  );
+
+  const handlePilotageTablePrimaryCta = useCallback(
+    (lease: LeaseWithDetails, meta: LeasePilotageRowMeta) => {
+      handlePriorityActionCta(toLeasePriorityAction(lease, meta));
+    },
+    [handlePriorityActionCta]
+  );
+
+  const transactionsHrefForLeaseTab = useCallback(
+    (lease: { id: string; propertyId: string }) =>
+      `/app?view=property&propertyId=${encodeURIComponent(lease.propertyId)}&tab=transactions&leaseId=${encodeURIComponent(lease.id)}`,
+    []
+  );
+
   const handleEditLease = useCallback((lease: LeaseWithDetails) => {
     setSelectedLease(lease);
     setIsEditModalOpen(true);
   }, []);
 
   const handleDeleteLease = useCallback((lease: LeaseWithDetails) => {
-    setLeasesToConfirmDelete([lease]);
-    setShowDeleteConfirmModal(true);
-  }, []);
+    const openDeleteFlow = async () => {
+      if (!organizationId) {
+        setLeasesToConfirmDelete([lease]);
+        setShowDeleteConfirmModal(true);
+        return;
+      }
+
+      // Pré-check local pour éviter la double modal
+      const protectedItems: CannotDeleteLeaseItem[] = [];
+      const deletableItems: LeaseWithDetails[] = [];
+
+      const contractStatus = normalizeLeaseContractStatus(lease.status);
+      if (contractStatus === 'ACTIF') {
+        protectedItems.push({
+          id: lease.id,
+          propertyName: lease.Property?.name || 'Bien',
+          tenantName: `${lease.Tenant?.firstName || ''} ${lease.Tenant?.lastName || ''}`.trim(),
+          reason: "Ce bail est actif et ne peut pas être supprimé directement. Résiliez-le d'abord.",
+          offerTerminate: true,
+        });
+      } else {
+        try {
+          const db = await getLocalDB();
+          const txTable = db.tables.find((t: any) => t.name === 'Transaction');
+          const transactionCount = txTable
+            ? await txTable
+                .where('organizationId')
+                .equals(organizationId)
+                .filter((tx: any) => tx.leaseId === lease.id || tx.bailId === lease.id)
+                .count()
+            : 0;
+
+          if (transactionCount > 0) {
+            protectedItems.push({
+              id: lease.id,
+              propertyName: lease.Property?.name || 'Bien',
+              tenantName: `${lease.Tenant?.firstName || ''} ${lease.Tenant?.lastName || ''}`.trim(),
+              reason: 'Ce bail contient des transactions et ne peut pas être supprimé.',
+              offerTerminate: false,
+            });
+          } else {
+            deletableItems.push(lease);
+          }
+        } catch {
+          // Fallback safe: garder la protection côté service si le pré-check local échoue.
+          deletableItems.push(lease);
+        }
+      }
+
+      if (protectedItems.length > 0 && deletableItems.length === 0) {
+        setProtectedLeasesForModal(protectedItems);
+        setShowCannotDeleteModal(true);
+        return;
+      }
+
+      setLeasesToConfirmDelete(deletableItems);
+      setShowDeleteConfirmModal(true);
+    };
+
+    void openDeleteFlow();
+  }, [organizationId]);
 
   // ✅ APP-SHELL: Suppression via LeaseService (local-first)
   const handleConfirmDelete = useCallback(async () => {
@@ -422,17 +641,42 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
 
     try {
       const leaseService = createLeaseServiceWithMode('app-shell');
-      
-      // Supprimer tous les baux sélectionnés via le service (crée automatiquement des pendingOps)
-      await Promise.all(
+      const results = await Promise.allSettled(
         leasesToConfirmDelete.map(lease => leaseService.deleteLease(lease.id, organizationId))
       );
+      const succeeded = results.filter(r => r.status === 'fulfilled').length;
+
+      const protectedLeases: CannotDeleteLeaseItem[] = [];
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          const error = result.reason as Error;
+          if (error.message.includes('actif') || error.message.includes('transactions')) {
+            const lease = leasesToConfirmDelete[index];
+            if (!lease) return;
+            protectedLeases.push({
+              id: lease.id,
+              propertyName: lease.Property?.name || 'Bien',
+              tenantName: `${lease.Tenant?.firstName || ''} ${lease.Tenant?.lastName || ''}`.trim(),
+              reason: error.message,
+              offerTerminate: normalizeLeaseContractStatus(lease.status) === 'ACTIF',
+            });
+          }
+        }
+      });
+
+      if (protectedLeases.length > 0) {
+        setProtectedLeasesForModal(protectedLeases);
+        setShowCannotDeleteModal(true);
+      }
 
       // Réinitialiser les états
       setLeasesToConfirmDelete([]);
       setSelectedIds(new Set());
       
-      notify2.success(`${leasesToConfirmDelete.length} bail(x) supprimé(s) avec succès`);
+      if (succeeded > 0) {
+        notify2.success(`${succeeded} bail(x) supprimé(s) avec succès`);
+        await triggerSilentSyncIfOnline('delete_lease', { pullLease: true });
+      }
       
       // ✅ APP-SHELL: Refresh via événement ciblé
       window.dispatchEvent(new CustomEvent('leases:refresh', { 
@@ -447,7 +691,7 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
       console.error('Erreur lors de la suppression des baux:', error);
       notify2.error('Erreur', error.message || 'Erreur lors de la suppression');
     }
-  }, [propertyId, isDrawerOpen, organizationId, leasesToConfirmDelete]);
+  }, [propertyId, isDrawerOpen, organizationId, leasesToConfirmDelete, triggerSilentSyncIfOnline]);
 
   const handleActionsLease = useCallback((lease: LeaseWithDetails) => {
     console.log('Actions pour le bail:', lease.id);
@@ -618,6 +862,12 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
           chargesRecupMensuelles: data.chargesRecupMensuelles || null,
           chargesNonRecupMensuelles: data.chargesNonRecupMensuelles || null,
         });
+
+        // UX attendue: créer puis envoyer dans la foulée sans friction.
+        // Si online, pousser immédiatement la file locale vers le serveur.
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          await triggerSilentSyncIfOnline('create_lease', { pullLease: true });
+        }
       }
 
       setIsModalOpen(false);
@@ -636,6 +886,66 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
       throw error;
     }
   };
+
+  const handleRenewalSubmit = useCallback(
+    async (data: any) => {
+      await handleModalSubmit({
+        ...data,
+        id: undefined,
+        status: 'BROUILLON',
+        notes: `Renouvellement du bail ${renewBaseLease?.id ?? ''}${data.notes ? `\n\n${data.notes}` : ''}`.trim(),
+      });
+      setShowRenewModal(false);
+      setRenewBaseLease(null);
+    },
+    [handleModalSubmit, renewBaseLease?.id]
+  );
+
+  const handleRequestAmendmentFromEditModal = useCallback(() => {
+    if (!selectedLease) return;
+    const contract = normalizeLeaseContractStatus(selectedLease.status);
+    if (contract !== 'ACTIF') {
+      notify2.warning('Action indisponible', 'Seul un bail actif peut être renouvelé.');
+      return;
+    }
+    if (!selectedLease.endDate) {
+      notify2.warning('Action indisponible', 'Le bail doit avoir une date de fin pour être renouvelé.');
+      return;
+    }
+    setIsEditModalOpen(false);
+    setRenewBaseLease(selectedLease);
+    setShowRenewModal(true);
+  }, [selectedLease]);
+
+  const handleOpenTerminateLease = useCallback((lease: LeaseWithDetails) => {
+    const contract = normalizeLeaseContractStatus(lease.status);
+    if (contract !== 'ACTIF') return;
+    setSelectedLease(lease);
+    setShowTerminateModal(true);
+  }, []);
+
+  const handleConfirmTerminateLease = useCallback(
+    async ({ effectiveEndDate, reason }: { effectiveEndDate: string; reason?: string }) => {
+      if (!selectedLease || !organizationId) return;
+      const leaseService = createLeaseServiceWithMode('app-shell');
+      const existingNotes = selectedLease.notes ? `${selectedLease.notes}\n\n` : '';
+      const reasonLine = reason ? `Motif de résiliation: ${reason}` : 'Motif de résiliation: —';
+      await leaseService.updateLease(selectedLease.id, organizationId, {
+        status: 'RÉSILIÉ',
+        endDate: effectiveEndDate,
+        notes: `${existingNotes}${reasonLine}`.trim(),
+      });
+      await triggerSilentSyncIfOnline('terminate_from_modal', { pullLease: true });
+      notify2.success('Bail résilié', 'La résiliation a été enregistrée.');
+      window.dispatchEvent(
+        new CustomEvent('leases:refresh', {
+          detail: { scope: 'property', propertyId, reason: 'terminate', leaseId: selectedLease.id },
+        })
+      );
+      setShowTerminateModal(false);
+    },
+    [selectedLease, organizationId, propertyId, triggerSilentSyncIfOnline]
+  );
 
   // ✅ APP-SHELL: Résiliation via LeaseService (local-first)
   const handleTerminateMultiple = async (leaseIds: string[]) => {
@@ -660,6 +970,7 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
       setSelectedIds(new Set());
       
       notify2.success(`${leaseIds.length} bail(x) résilié(s) avec succès`);
+      await triggerSilentSyncIfOnline('terminate_multiple', { pullLease: true });
       
       // ✅ APP-SHELL: Refresh via événement ciblé
       window.dispatchEvent(new CustomEvent('leases:refresh', { 
@@ -688,6 +999,11 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
   }, []);
 
   const handleEnregistrerPaiement = useCallback((lease: LeaseWithDetails, month: LeasePaymentsTimelineMonth) => {
+    const contract = normalizeLeaseContractStatus(lease.status);
+    if (contract === 'RESILIE' || contract === 'ARCHIVE') {
+      notify2.warning('Paiement bloqué', "Ce bail est résilié : aucun nouveau paiement futur n'est autorisé.");
+      return;
+    }
     const [y = '', m = '01'] = month.yearMonth.split('-');
     const dueDate = month.dueDate || `${y}-${m}-15`;
     setPaymentPrefill({
@@ -708,6 +1024,20 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
 
   const handlePaymentModalSubmit = useCallback(async (data: TransactionFormData) => {
     if (!organizationId) throw new Error('Organisation requise');
+    const lease = allLeases.find((l) => l.id === data.leaseId);
+    if (lease) {
+      const contract = normalizeLeaseContractStatus(lease.status);
+      if (contract === 'RESILIE' || contract === 'ARCHIVE') {
+        const target = new Date(data.date);
+        const now = new Date();
+        const isFutureOrCurrent =
+          target.getFullYear() > now.getFullYear() ||
+          (target.getFullYear() === now.getFullYear() && target.getMonth() >= now.getMonth());
+        if (isFutureOrCurrent) {
+          throw new Error("Bail résilié : impossible d'enregistrer un paiement futur.");
+        }
+      }
+    }
     const svc = createTransactionServiceWithMode('app-shell');
     const d = new Date(data.date);
     const accountingMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -728,37 +1058,325 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
       monthsCovered: 1,
       skipAutoCommissions: true,
     });
+    await triggerSilentSyncIfOnline('lease_payment_create', { pullLease: true });
     setShowPaymentModal(false);
     setPaymentPrefill(null);
     notify2.success('Paiement enregistré');
     const leaseId = data.leaseId || null;
     window.dispatchEvent(new CustomEvent('leases:refresh', { detail: { scope: 'property', propertyId, leaseId, reason: 'tx' } }));
     window.dispatchEvent(new CustomEvent('transactions:refresh', { detail: { scope: 'property', propertyId, leaseId } }));
-  }, [organizationId, propertyId]);
+  }, [organizationId, propertyId, allLeases]);
+
+  const refreshAfterWorkflow = useCallback((leaseId: string, reason: string) => {
+    window.dispatchEvent(
+      new CustomEvent('leases:refresh', {
+        detail: { scope: 'property', propertyId, reason, leaseId },
+      })
+    );
+  }, [propertyId]);
+
+
+  useEffect(() => {
+    if (!selectedLease) return;
+    const fresh = filteredLeases.find((l) => l.id === selectedLease.id);
+    if (!fresh) return;
+    if (fresh.status !== selectedLease.status || fresh.updatedAt !== selectedLease.updatedAt) {
+      setSelectedLease(fresh);
+    }
+  }, [filteredLeases, selectedLease]);
+
+  const handleSendForSignatureFromDrawer = useCallback(async (lease: LeaseWithDetails) => {
+    try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        notify2.error('Action indisponible', "L'envoi pour signature nécessite une connexion internet.");
+        return;
+      }
+      let leaseIdForSend = lease.id;
+      if (classifySmartimmoId(lease.id) === 'uuid_local') {
+        const { getGlobalSyncService } = await import('@/lib/offline/syncGlobal');
+        const syncService = getGlobalSyncService();
+        await syncService.syncAllPendingToRemote(organizationId || '');
+
+        const pendingCreateError = await findPendingCreateLeaseError(lease);
+        if (pendingCreateError) {
+          notify2.error('Impossible de synchroniser le bail', pendingCreateError);
+          return;
+        }
+
+        const leaseRepo = getLeaseRepositoryOffline();
+        let allLeases = await leaseRepo.getAll(organizationId || '', { propertyId: lease.propertyId });
+        let syncedMatch = allLeases.find((l: any) =>
+          l.propertyId === lease.propertyId &&
+          l.tenantId === lease.tenantId &&
+          String(l.startDate).slice(0, 10) === String(lease.startDate).slice(0, 10) &&
+          classifySmartimmoId(l.id) === 'cuid_remote'
+        );
+        if (!syncedMatch) {
+          // Sans refresh page: pull ciblé des baux puis nouveau matching local->remote.
+          await syncService.syncEntityFromRemoteByName('lease', organizationId || '');
+          allLeases = await leaseRepo.getAll(organizationId || '', { propertyId: lease.propertyId });
+          syncedMatch = allLeases.find((l: any) =>
+            l.propertyId === lease.propertyId &&
+            l.tenantId === lease.tenantId &&
+            String(l.startDate).slice(0, 10) === String(lease.startDate).slice(0, 10) &&
+            classifySmartimmoId(l.id) === 'cuid_remote'
+          );
+        }
+        if (syncedMatch?.id) {
+          leaseIdForSend = syncedMatch.id;
+        } else {
+          notify2.error(
+            'Bail non encore synchronisé',
+            "Le bail vient d'être créé localement. Vérifie la page Sync si le problème persiste."
+          );
+          return;
+        }
+      }
+
+      const response = await fetch(`/api/leases/${leaseIdForSend}/send-for-signature`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: lease.Tenant?.email || undefined }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Impossible d'envoyer le bail pour signature");
+      }
+      const result = await response.json().catch(() => ({} as any));
+      const emlUrl: string | undefined = result?.files?.eml || result?.downloadUrl;
+      if (emlUrl) {
+        try {
+          const emlResponse = await fetch(emlUrl);
+          if (emlResponse.ok) {
+            const blob = await emlResponse.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = `bail-signature-${leaseIdForSend}.eml`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(blobUrl);
+          }
+        } catch (downloadError) {
+          console.warn('[PropertyLeasesClient] Téléchargement EML impossible:', downloadError);
+        }
+      }
+      if (!organizationId) throw new Error('Organisation requise');
+      const leaseService = createLeaseServiceWithMode('app-shell');
+      await leaseService.updateLease(lease.id, organizationId, { status: 'ENVOYÉ' });
+      await triggerSilentSyncIfOnline('send_for_signature_local_status', {
+        pullLease: true,
+        pullDocument: true,
+        pullDocumentLink: true,
+      });
+      setSelectedLease((prev) => (prev && prev.id === lease.id ? { ...prev, status: 'ENVOYÉ' } : prev));
+      notify2.success('Bail envoye pour signature');
+      refreshAfterWorkflow(lease.id, 'send_for_signature');
+    } catch (error) {
+      notify2.error(error instanceof Error ? error.message : "Erreur d'envoi pour signature");
+    }
+  }, [findPendingCreateLeaseError, organizationId, refreshAfterWorkflow, triggerSilentSyncIfOnline]);
+
+  const handleCancelSendFromDrawer = useCallback(async (lease: LeaseWithDetails) => {
+    try {
+      if (!organizationId) throw new Error('Organisation requise');
+      const leaseService = createLeaseServiceWithMode('app-shell');
+      await leaseService.updateLease(lease.id, organizationId, { status: 'BROUILLON' });
+      await triggerSilentSyncIfOnline('cancel_send', { pullLease: true });
+      setSelectedLease((prev) => (prev && prev.id === lease.id ? { ...prev, status: 'BROUILLON' } : prev));
+      notify2.success('Envoi annule');
+      refreshAfterWorkflow(lease.id, 'cancel_send');
+    } catch (error) {
+      notify2.error(error instanceof Error ? error.message : "Erreur lors de l'annulation");
+    }
+  }, [organizationId, refreshAfterWorkflow, triggerSilentSyncIfOnline]);
+
+  const handleUploadSignedFromDrawer = useCallback(async (lease: LeaseWithDetails, file: File) => {
+    try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        notify2.error('Action indisponible', "L'upload du bail signe nécessite une connexion internet.");
+        return;
+      }
+      const formData = new FormData();
+      formData.append('signedPdf', file);
+      const response = await fetch(`/api/leases/${lease.id}/upload-signed`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Impossible d'uploader le bail signe");
+      }
+      const payload = await response.json().catch(() => ({}));
+      if (!organizationId) throw new Error('Organisation requise');
+      const leaseService = createLeaseServiceWithMode('app-shell');
+      await leaseService.updateLease(lease.id, organizationId, {
+        status: payload?.lease?.status || 'SIGNÉ',
+        signedPdfUrl: payload?.lease?.signedPdfUrl || lease.signedPdfUrl || null,
+      });
+      await triggerSilentSyncIfOnline('upload_signed', {
+        pullLease: true,
+        pullDocument: true,
+        pullDocumentLink: true,
+      });
+      setSelectedLease((prev) =>
+        prev && prev.id === lease.id
+          ? {
+              ...prev,
+              status: payload?.lease?.status || 'SIGNÉ',
+              signedPdfUrl: payload?.lease?.signedPdfUrl || prev.signedPdfUrl,
+            }
+          : prev
+      );
+      notify2.success('Bail signe uploade');
+      refreshAfterWorkflow(lease.id, 'upload_signed');
+      window.dispatchEvent(new CustomEvent('documents:refresh', { detail: { scope: 'property', propertyId, reason: 'create' } }));
+    } catch (error) {
+      notify2.error(error instanceof Error ? error.message : "Erreur lors de l'upload du bail signe");
+    }
+  }, [organizationId, propertyId, refreshAfterWorkflow, triggerSilentSyncIfOnline]);
+
+  const handleActivateFromDrawer = useCallback(async (lease: LeaseWithDetails) => {
+    try {
+      if (!organizationId) throw new Error('Organisation requise');
+      const leaseService = createLeaseServiceWithMode('app-shell');
+      await leaseService.updateLease(lease.id, organizationId, { status: 'ACTIF' });
+      await triggerSilentSyncIfOnline('activate', { pullLease: true });
+      setSelectedLease((prev) => (prev && prev.id === lease.id ? { ...prev, status: 'ACTIF' } : prev));
+      notify2.success('Bail active');
+      refreshAfterWorkflow(lease.id, 'mark_active');
+    } catch (error) {
+      notify2.error(error instanceof Error ? error.message : "Erreur d'activation du bail");
+    }
+  }, [organizationId, refreshAfterWorkflow, triggerSilentSyncIfOnline]);
 
   // Gestion de la suppression multiple
   const handleDeleteMultiple = useCallback(() => {
-    const toDelete = filteredLeases.filter(l => selectedIds.has(l.id));
-    setLeasesToConfirmDelete(toDelete);
-    setShowDeleteConfirmModal(true);
-  }, [filteredLeases, selectedIds]);
+    const openDeleteFlow = async () => {
+      if (!organizationId) {
+        const toDelete = filteredLeases.filter(l => selectedIds.has(l.id));
+        setLeasesToConfirmDelete(toDelete);
+        setShowDeleteConfirmModal(true);
+        return;
+      }
 
+      const toProcess = filteredLeases.filter(l => selectedIds.has(l.id));
+      const protectedItems: CannotDeleteLeaseItem[] = [];
+      const deletableItems: LeaseWithDetails[] = [];
+
+      let txTable: any = null;
+      try {
+        const db = await getLocalDB();
+        txTable = db.tables.find((t: any) => t.name === 'Transaction');
+      } catch {
+        txTable = null;
+      }
+
+      for (const lease of toProcess) {
+        const contractStatus = normalizeLeaseContractStatus(lease.status);
+        if (contractStatus === 'ACTIF') {
+          protectedItems.push({
+            id: lease.id,
+            propertyName: lease.Property?.name || 'Bien',
+            tenantName: `${lease.Tenant?.firstName || ''} ${lease.Tenant?.lastName || ''}`.trim(),
+            reason: "Ce bail est actif et ne peut pas être supprimé directement. Résiliez-le d'abord.",
+            offerTerminate: true,
+          });
+          continue;
+        }
+
+        if (txTable) {
+          const transactionCount = await txTable
+            .where('organizationId')
+            .equals(organizationId)
+            .filter((tx: any) => tx.leaseId === lease.id || tx.bailId === lease.id)
+            .count();
+          if (transactionCount > 0) {
+            protectedItems.push({
+              id: lease.id,
+              propertyName: lease.Property?.name || 'Bien',
+              tenantName: `${lease.Tenant?.firstName || ''} ${lease.Tenant?.lastName || ''}`.trim(),
+              reason: 'Ce bail contient des transactions et ne peut pas être supprimé.',
+              offerTerminate: false,
+            });
+            continue;
+          }
+        }
+
+        deletableItems.push(lease);
+      }
+
+      if (protectedItems.length > 0) {
+        setProtectedLeasesForModal(protectedItems);
+        setShowCannotDeleteModal(true);
+      }
+
+      if (deletableItems.length > 0) {
+        if (protectedItems.length > 0) {
+          notify2.warning(`${protectedItems.length} bail(x) non supprimable(s) exclu(s) de la sélection.`);
+        }
+        setLeasesToConfirmDelete(deletableItems);
+        setShowDeleteConfirmModal(true);
+      } else if (protectedItems.length === 0) {
+        notify2.info('Aucun bail sélectionné');
+      }
+    };
+
+    void openDeleteFlow();
+  }, [filteredLeases, organizationId, selectedIds]);
+
+  const propertyLeaseSummaryLine = useMemo(() => {
+    if (actionCountsLoading) {
+      return 'Synthèse en cours de calcul…';
+    }
+    const actifs = allLeases.filter((l) => normalizeLeaseContractStatus(l.status) === 'ACTIF');
+    const n = actifs.length;
+    const monthly = actifs.reduce(
+      (s, l) => s + l.rentAmount + (l.chargesRecupMensuelles ?? 0),
+      0
+    );
+    const fmtEuro = (v: number) =>
+      new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(v);
+
+    const bailPart =
+      n === 0 ? 'Aucun bail actif' : n === 1 ? '1 bail actif' : `${n} baux actifs`;
+    const euroPart = n === 0 ? '—' : `${fmtEuro(monthly)}/mois`;
+
+    let payPart = '—';
+    if (n > 0) {
+      let hasRetard = false;
+      let hasPartiel = false;
+      for (const l of actifs) {
+        const meta = leasePilotageById[l.id];
+        if (meta?.paymentGlobale === 'retard') hasRetard = true;
+        if (meta?.paymentGlobale === 'partiel') hasPartiel = true;
+      }
+      if (hasRetard) payPart = 'Retard';
+      else if (hasPartiel) payPart = 'Partiel';
+      else payPart = 'Aucun retard';
+    }
+
+    return `${bailPart} • ${euroPart} • ${payPart}`;
+  }, [actionCountsLoading, allLeases, leasePilotageById]);
+
+  useLayoutEffect(() => {
+    if (!onLeaseSummaryLineChange) return;
+    onLeaseSummaryLineChange(propertyLeaseSummaryLine);
+  }, [propertyLeaseSummaryLine, onLeaseSummaryLineChange]);
 
   return (
     <div className="space-y-6">
-      {/* Header avec bouton retour */}
-      <div className="flex items-start justify-between mb-6">
-        <div className="flex-1">
-          {/* Le titre et le menu contextuel sont déjà dans PropertyHeader via le layout */}
-        </div>
-      </div>
-
-      {/* Bandeau À traiter - PRIORITÉ : avant les graphiques */}
-      <LeasesActionBanner
-        counts={actionCounts}
-        activeFilter={actionFilter}
-        onFilterChange={handleActionFilterChange}
+      <LeasesPriorityActionsBlock
+        actions={priorityActions}
         isLoading={actionCountsLoading}
+        showAll={showAllPriorityActions}
+        onToggleShowAll={() => setShowAllPriorityActions((v) => !v)}
+        onPrimaryCta={handlePriorityActionCta}
+        onNavigateToLeaseRow={scrollToLeaseTableRow}
+        pilotageAvailable
+        noActionsMessage="Aucune action requise pour le moment"
+        presentation="property"
       />
 
       {/* Analytics repliables */}
@@ -797,13 +1415,14 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
                 />
               </div>
             </div>
-            <div className="px-4 pb-4 pt-2 border-t border-gray-100">
-      <LeasesKpiBar
-        kpis={kpis}
-        activeFilter={activeKpiFilter}
-        onFilterChange={handleKpiFilterChange}
-        isLoading={kpisLoading}
-      />
+            <div className="px-4 pb-3 pt-2 border-t border-gray-100">
+              <LeasesKpiBar
+                kpis={kpis}
+                activeFilter={activeKpiFilter}
+                onFilterChange={handleKpiFilterChange}
+                isLoading={kpisLoading}
+                variant="subtle"
+              />
             </div>
           </>
         )}
@@ -858,6 +1477,12 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
           </p>
         </CardHeader>
         <CardContent>
+          <LeasesTableFilterStrip
+            counts={actionCounts}
+            activeFilter={actionFilter}
+            onFilterChange={handleActionFilterChange}
+            disabled={actionCountsLoading}
+          />
           {/* Tri rapide */}
           <div className="flex items-center justify-between mb-4 pb-3 border-b">
             <p className="text-sm text-gray-700">
@@ -937,6 +1562,11 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
             showSelection={true}
             leaseHealthMap={leaseHealthMap}
             onQuickPay={handleViewLease}
+            leasePilotageById={leasePilotageById}
+            leasePaymentPilotageById={leasePaymentPilotageById}
+            pageMode="app-shell"
+            transactionsHrefForLease={transactionsHrefForLeaseTab}
+            onPilotagePrimaryCta={handlePilotageTablePrimaryCta}
           />
         </CardContent>
       </Card>
@@ -965,8 +1595,26 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
           onSubmit={handleModalSubmit}
           properties={properties}
           tenants={tenants}
-          mode="app-shell" // ✅ Indiquer le mode app-shell
-          propertyId={propertyId} // ✅ CRITIQUE: Passer propertyId pour le refresh ciblé
+          mode="app-shell"
+          propertyId={propertyId}
+          onRequestAmendment={handleRequestAmendmentFromEditModal}
+        />
+      )}
+
+      {showRenewModal && renewBaseLease && (
+        <LeaseFormComplete
+          isOpen={showRenewModal}
+          onClose={() => {
+            setShowRenewModal(false);
+            setRenewBaseLease(null);
+          }}
+          onSubmit={handleRenewalSubmit}
+          title="Créer un avenant / renouvellement"
+          initialData={buildLeaseRenewalInitialData(renewBaseLease)}
+          defaultPropertyId={propertyId}
+          properties={properties}
+          tenants={tenants}
+          mode="app-shell"
         />
       )}
 
@@ -981,11 +1629,18 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
             handleEditLease(lease);
           }}
           onDelete={(lease) => handleDeleteLease(lease)}
+          onTerminateLease={handleOpenTerminateLease}
+          onRenewLease={handleOpenRenewLease}
           onGenerateReceipt={(lease) => {
             setSelectedLease(lease);
             setShowActionsModal(true);
           }}
+          onIndexLease={handleIndexLease}
           onEnregistrerPaiement={handleEnregistrerPaiement}
+          onSendForSignature={handleSendForSignatureFromDrawer}
+          onCancelSend={handleCancelSendFromDrawer}
+          onUploadSignedLease={handleUploadSignedFromDrawer}
+          onActivateLease={handleActivateFromDrawer}
         />
       )}
 
@@ -1036,6 +1691,26 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
         mode="create"
         title="Enregistrer un paiement"
         prefill={paymentPrefill ?? undefined}
+      />
+
+      <LeaseIndexationModal
+        isOpen={showIndexationModal}
+        lease={selectedLease}
+        onClose={() => setShowIndexationModal(false)}
+        onApplied={() => {
+          window.dispatchEvent(
+            new CustomEvent('leases:refresh', {
+              detail: { scope: 'property', propertyId, reason: 'indexation' },
+            })
+          );
+        }}
+      />
+
+      <LeaseTerminationModal
+        isOpen={showTerminateModal}
+        lease={selectedLease}
+        onClose={() => setShowTerminateModal(false)}
+        onConfirm={handleConfirmTerminateLease}
       />
 
       {/* Modale de confirmation de suppression */}

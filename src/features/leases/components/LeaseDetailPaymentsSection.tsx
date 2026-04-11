@@ -172,7 +172,7 @@ export function LeaseDetailPaymentsSection({
     }
   }, [showDiagnostic, leaseId, runIdbDiagnostic]);
 
-  const { months, loading } = useLeasePaymentsTimeline(
+  const { months, loading, cockpit } = useLeasePaymentsTimeline(
     leaseId,
     propertyId,
     organizationId,
@@ -242,6 +242,15 @@ export function LeaseDetailPaymentsSection({
   const hasMore = !showAllMonths && visibleCount < sortedByRelevance.length;
   const totalFiltered = sortedByRelevance.length;
 
+  const moisARegul = useMemo(() => {
+    return allMonths.filter(
+      (m) =>
+        m.yearMonth <= currentYm &&
+        m.expected > 0 &&
+        (m.status === 'en_retard' || m.status === 'partiel')
+    ).length;
+  }, [allMonths, currentYm]);
+
   if (loading) {
     return (
       <div className="rounded-2xl border border-gray-200 bg-white p-6">
@@ -285,6 +294,19 @@ export function LeaseDetailPaymentsSection({
           ))}
         </div>
       </div>
+      {moisARegul > 0 && cockpit.montantEnRetard > 0 && (
+        <div className="px-6 py-3 bg-red-50/80 border-b border-red-100">
+          <p className="text-sm font-semibold text-red-900">
+            {moisARegul} mois en décalage · {formatCurrency(cockpit.montantEnRetard)}
+          </p>
+          <p className="text-xs text-red-800 mt-0.5">Utilisez les actions sur chaque ligne pour encaisser ou compléter.</p>
+        </div>
+      )}
+      {moisARegul === 0 && !loading && contractStatus === 'ACTIF' && (
+        <div className="px-6 py-2 bg-emerald-50/50 border-b border-emerald-100 text-sm text-emerald-900">
+          Périodes suivies à jour sur le pilotage loyer.
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -351,11 +373,11 @@ export function LeaseDetailPaymentsSection({
                           size="sm"
                           onClick={() => onEnregistrer({ ...month, expected: resteAPayer })}
                         >
-                          Payer le reste
+                          Compléter
                         </Button>
                       ) : (
-                        <Button variant="outline" size="sm" onClick={() => onEnregistrer(month)}>
-                          Enregistrer
+                        <Button variant="default" size="sm" onClick={() => onEnregistrer(month)}>
+                          Encaisser
                         </Button>
                       )
                     )}

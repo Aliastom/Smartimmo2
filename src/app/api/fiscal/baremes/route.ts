@@ -1,5 +1,5 @@
 /**
- * API Route: Liste des barèmes publiés pour une année
+ * API Route: Liste des barèmes publiés pour une année de déclaration (campagnes DGFiP, ex. 2026)
  * GET /api/fiscal/baremes?year=YYYY
  */
 

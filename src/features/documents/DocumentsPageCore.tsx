@@ -9,7 +9,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { 
   Search, 
@@ -46,6 +46,8 @@ import {
 } from '@/components/documents/unified';
 import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
 import { useDocumentsData, type DocumentsFilters, type DocumentTableRow as DocRow } from './hooks/useDocumentsData';
+import { useDocumentsPilotagePreview } from './hooks/useDocumentsPilotagePreview';
+import { DocumentsPriorityActionsCard } from './components/DocumentsPriorityActionsCard';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useAlert } from '@/hooks/useAlert';
 import { getGlobalSyncService } from '@/lib/offline/syncGlobal';
@@ -138,6 +140,13 @@ export function DocumentsPageCore({
   }, [dataPagination]);
 
   const { insights, loading: insightsLoading } = useDashboardInsights({ mode, scope: 'documents' });
+
+  const {
+    counts: documentsPilotageCounts,
+    items: documentsPilotageItems,
+    docRowsById: documentsPilotageDocRowsById,
+    loading: documentsPilotageLoading,
+  } = useDocumentsPilotagePreview(mode, organizationId ?? null);
 
   // Charger les types de documents
   useEffect(() => {
@@ -616,6 +625,42 @@ export function DocumentsPageCore({
     setShowEditModal(true);
   };
 
+  const resolvePilotageDocRow = useCallback(
+    (id: string): DocRow | null => documents.find((d) => d.id === id) ?? documentsPilotageDocRowsById[id] ?? null,
+    [documents, documentsPilotageDocRowsById]
+  );
+
+  const handlePilotageVoirDetail = useCallback(
+    (id: string) => {
+      const doc = resolvePilotageDocRow(id);
+      if (!doc) return;
+      setSelectedDocument(doc);
+      setIsDrawerOpen(true);
+    },
+    [resolvePilotageDocRow]
+  );
+
+  const handlePilotageAjouter = useCallback((id: string) => {
+    setSelectedIds(new Set([id]));
+    setShowLinkSelector(true);
+  }, []);
+
+  const handlePilotageCorriger = useCallback(
+    (id: string) => {
+      const doc = resolvePilotageDocRow(id);
+      if (!doc) return;
+      const kind = documentsPilotageItems.find((i) => i.documentId === id)?.problemKind;
+      if (kind === 'unclassified' || kind === 'missing_file') {
+        setDocumentToEdit(doc);
+        setShowEditModal(true);
+      } else {
+        setSelectedDocument(doc);
+        setIsDrawerOpen(true);
+      }
+    },
+    [resolvePilotageDocRow, documentsPilotageItems]
+  );
+
   const handleDelete = async (doc: DocRow) => {
     setDocumentToDelete(doc);
     setDeleteModalOpen(true);
@@ -982,6 +1027,17 @@ export function DocumentsPageCore({
           </div>
         </div>
       </div>
+
+      {mode === 'app-shell' && organizationId && (
+        <DocumentsPriorityActionsCard
+          counts={documentsPilotageCounts}
+          items={documentsPilotageItems}
+          isLoading={documentsPilotageLoading}
+          onAjouter={handlePilotageAjouter}
+          onCorriger={handlePilotageCorriger}
+          onVoirDetail={handlePilotageVoirDetail}
+        />
+      )}
 
       {/* Cartes de statistiques */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 auto-rows-fr">

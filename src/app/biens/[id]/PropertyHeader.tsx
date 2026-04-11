@@ -20,6 +20,8 @@ interface PropertyHeaderProps {
   propertyAddress?: string;
   propertyPostalCode?: string;
   propertyCity?: string;
+  /** Onglet Baux (App Shell) : ligne de synthèse pilotage, affichée une fois sous « Baux – [nom] », hors scroll */
+  leaseTabSummaryLine?: string;
 }
 
 // Configuration des titres et descriptions pour chaque sous-page
@@ -63,7 +65,7 @@ const pageConfig: Record<string, { title: string; description: string; shortDesc
   },
   '/loans': {
     title: 'Prêts',
-    description: 'Gestion des prêts immobiliers de ce bien',
+    description: 'Financement de ce bien — capital restant, mensualités et échéancier',
     shortDescription: 'Financement',
   },
 };
@@ -78,7 +80,7 @@ const HeaderActions = React.memo(function HeaderActions() {
 // Mémoriser PropertyTabs pour éviter les re-renders inutiles
 const MemoizedPropertyTabs = React.memo(PropertyTabs);
 
-export const PropertyHeader = React.memo(function PropertyHeader({ propertyId, propertyName, rentalMode, mode = 'normal', activeTab, onTabChange, propertyAddress, propertyPostalCode, propertyCity }: PropertyHeaderProps) {
+export const PropertyHeader = React.memo(function PropertyHeader({ propertyId, propertyName, rentalMode, mode = 'normal', activeTab, onTabChange, propertyAddress, propertyPostalCode, propertyCity, leaseTabSummaryLine }: PropertyHeaderProps) {
   // ✅ DEV-ONLY: Log de mount/unmount pour détecter les remounts
   React.useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
@@ -207,7 +209,7 @@ export const PropertyHeader = React.memo(function PropertyHeader({ propertyId, p
 
         {/* Chip de contexte mobile - Visible uniquement sur mobile */}
         {propertyName && (
-          <div className="sm:hidden">
+          <div className="sm:hidden space-y-2">
             <div className="rounded-xl border border-base-200 bg-base-100/80 px-3 py-2">
               <div className="flex items-center gap-2 min-w-0">
                 <Home className="h-4 w-4 text-gray-600 flex-shrink-0" />
@@ -223,6 +225,11 @@ export const PropertyHeader = React.memo(function PropertyHeader({ propertyId, p
                 </div>
               </div>
             </div>
+            {activeTab === 'lease' && leaseTabSummaryLine !== undefined && (
+              <p className="text-sm text-gray-600 border-b border-gray-100 pb-2" role="status" aria-live="polite">
+                {leaseTabSummaryLine || 'Synthèse en cours…'}
+              </p>
+            )}
           </div>
         )}
         
@@ -230,9 +237,16 @@ export const PropertyHeader = React.memo(function PropertyHeader({ propertyId, p
         <div className="relative flex flex-col lg:flex-row items-start lg:items-center w-full gap-3 lg:gap-0">
           {/* Description à gauche avec 146A - Visible uniquement sur sm+ (desktop) */}
           {(config.shortDescription || config.description) && (
-            <p className="hidden sm:block text-sm sm:text-base text-gray-600 flex-shrink-0 z-10">
-              {config.shortDescription || config.description} - {propertyName}
-            </p>
+            <div className="hidden sm:flex sm:flex-col sm:gap-1 flex-shrink-0 z-10 min-w-0 max-w-xl lg:max-w-2xl">
+              <p className="text-sm sm:text-base text-gray-600">
+                {config.shortDescription || config.description} - {propertyName}
+              </p>
+              {activeTab === 'lease' && leaseTabSummaryLine !== undefined && (
+                <p className="text-sm text-gray-600 border-b border-gray-100 pb-2" role="status" aria-live="polite">
+                  {leaseTabSummaryLine || 'Synthèse en cours…'}
+                </p>
+              )}
+            </div>
           )}
           
           {/* Onglets - Mobile: pleine largeur, Desktop: centrés */}
@@ -272,7 +286,8 @@ export const PropertyHeader = React.memo(function PropertyHeader({ propertyId, p
     prevProps.onTabChange === nextProps.onTabChange &&
     prevProps.propertyAddress === nextProps.propertyAddress &&
     prevProps.propertyPostalCode === nextProps.propertyPostalCode &&
-    prevProps.propertyCity === nextProps.propertyCity
+    prevProps.propertyCity === nextProps.propertyCity &&
+    prevProps.leaseTabSummaryLine === nextProps.leaseTabSummaryLine
   );
 });
 

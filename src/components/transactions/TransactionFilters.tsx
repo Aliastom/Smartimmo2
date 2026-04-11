@@ -40,6 +40,8 @@ interface TransactionFiltersProps {
   onPeriodChange?: (start: string, end: string) => void;
   // Masquer le filtre Bien (pour l'onglet bien)
   hidePropertyFilter?: boolean;
+  /** Faux par défaut : filtres secondaires repliés (vue globale plus lisible) */
+  defaultAdvancedOpen?: boolean;
 }
 
 // STATUS_OPTIONS supprimé - utiliser la carte KPI "Transactions non rapprochées" pour filtrer
@@ -62,9 +64,10 @@ export default function TransactionFilters({
   periodStart,
   periodEnd,
   onPeriodChange,
-  hidePropertyFilter = false
+  hidePropertyFilter = false,
+  defaultAdvancedOpen = false,
 }: TransactionFiltersProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(defaultAdvancedOpen);
   
   // Filtrer les catégories en fonction de la nature sélectionnée
   const filteredCategories = useMemo(() => {
@@ -183,7 +186,11 @@ export default function TransactionFilters({
   // Compter uniquement les vrais filtres restrictifs (exclure les options d'affichage)
   const countActiveFilters = () => {
     const { includeManagementFees, groupByParent, includeArchived, ...restrictiveFilters } = filters;
-    return Object.values(restrictiveFilters).filter(v => v !== '' && v !== null && v !== undefined).length;
+    const entries = Object.entries(restrictiveFilters).filter(([key]) => {
+      if (hidePropertyFilter && key === 'propertyId') return false;
+      return true;
+    });
+    return entries.filter(([, v]) => v !== '' && v !== null && v !== undefined).length;
   };
   
   const activeFiltersCount = countActiveFilters();
@@ -226,8 +233,8 @@ export default function TransactionFilters({
   return (
     <div className="bg-white rounded-xl border border-gray-200 mb-6">
       {/* Header avec bouton toggle - Style Documents */}
-      <div className="flex items-center justify-between px-4 sm:px-6 py-4">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 sm:px-6 py-3 gap-3">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
           <h3 className="text-lg font-bold text-gray-900">Filtres</h3>
           {hasActiveFilters && (
             <span className="bg-orange-100 text-orange-600 text-xs font-medium px-2 py-1 rounded-full">
@@ -238,10 +245,28 @@ export default function TransactionFilters({
         <Button
           variant="ghost"
           size="sm"
+          type="button"
+          aria-expanded={isExpanded}
+          aria-controls="transaction-filters-advanced"
           onClick={() => setIsExpanded(!isExpanded)}
+          className="shrink-0 gap-1.5 text-gray-700"
         >
-          <Filter className="h-4 w-4 mr-2" />
-          {isExpanded ? 'Masquer' : 'Afficher'}
+          {isExpanded ? (
+            <ChevronUp className="h-4 w-4" aria-hidden />
+          ) : (
+            <ChevronDown className="h-4 w-4" aria-hidden />
+          )}
+          <Filter className="h-4 w-4" aria-hidden />
+          <span className="whitespace-nowrap text-sm">
+            {isExpanded ? 'Moins de critères' : 'Plus de critères'}
+          </span>
+          <span
+            className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+              isExpanded ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            {isExpanded ? 'Ouvert' : 'Fermé'}
+          </span>
         </Button>
       </div>
 
@@ -311,47 +336,68 @@ export default function TransactionFilters({
           </div>
         )}
 
-        {/* Champ de recherche - Recherche directe (comme Documents) */}
-        <div className="flex gap-2">
-          <Input
-            type="text"
-            placeholder="Rechercher par libellé, référence..."
-            value={filters.search}
-            onChange={(e) => handleFilterChange('search', e.target.value)}
-            className="flex-1"
-          />
-          {hasActiveFilters && (
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={onResetFilters}
-            >
-              Réinitialiser
-            </Button>
-          )}
-        </div>
-        
-        {/* Checkbox "Inclure les biens archivés" - TOUJOURS VISIBLE */}
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="includeArchivedProperties"
-            checked={filters.includeArchived === true}
-            onChange={(e) => handleFilterChange('includeArchived', e.target.checked)}
-            className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-4 w-4 cursor-pointer"
-          />
-          <label htmlFor="includeArchivedProperties" className="text-sm text-gray-700 cursor-pointer select-none">
-            Inclure les biens archivés
-          </label>
-          {filters.includeArchived && (
-            <span className="text-xs text-orange-600 font-medium">Actif</span>
+        {/* Recherche + bien (portefeuille) + reset */}
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <Input
+              type="text"
+              placeholder="Rechercher par libellé, référence..."
+              value={filters.search}
+              onChange={(e) => handleFilterChange('search', e.target.value)}
+              className="flex-1 min-w-0"
+            />
+            {hasActiveFilters && (
+              <Button type="button" variant="outline" onClick={onResetFilters} className="shrink-0 w-full sm:w-auto">
+                Réinitialiser
+              </Button>
+            )}
+          </div>
+          {!hidePropertyFilter && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bien</label>
+              <SmartSelect
+                value={filters.propertyId}
+                onChange={(value) => handleFilterChange('propertyId', value)}
+                options={[
+                  { value: '', label: 'Tous les biens' },
+                  ...(Array.isArray(properties)
+                    ? properties.map((property) => ({
+                        value: property.id,
+                        label: `${property.name} - ${property.address}`,
+                      }))
+                    : []),
+                ]}
+                placeholder="Tous les biens"
+              />
+            </div>
           )}
         </div>
       </div>
 
       {/* Filtres étendus - Style Documents */}
       {isExpanded && (
-        <div className="px-4 sm:px-6 pb-4 pt-4 border-t space-y-4">
+        <div
+          id="transaction-filters-advanced"
+          className="px-4 sm:px-6 pb-4 pt-4 border-t space-y-4"
+          role="region"
+          aria-label="Critères de filtre avancés"
+        >
+          <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+            <input
+              type="checkbox"
+              id="includeArchivedProperties"
+              checked={filters.includeArchived === true}
+              onChange={(e) => handleFilterChange('includeArchived', e.target.checked)}
+              className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-4 w-4 cursor-pointer"
+            />
+            <label htmlFor="includeArchivedProperties" className="text-sm text-gray-700 cursor-pointer select-none">
+              Inclure les biens archivés
+            </label>
+            {filters.includeArchived && (
+              <span className="text-xs text-orange-600 font-medium">Actif</span>
+            )}
+          </div>
+
           {/* Sélecteurs de période détaillés */}
           {periodStart && periodEnd && onPeriodChange && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-4 border-b">
@@ -446,29 +492,8 @@ export default function TransactionFilters({
             </div>
           </div>
 
-          {/* Filtres avancés */}
+          {/* Filtres avancés (sans le sélecteur Bien — déjà en accès direct si portefeuille) */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Bien - masqué dans le contexte d'un bien */}
-            {!hidePropertyFilter && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Bien
-                </label>
-                <SmartSelect
-                  value={filters.propertyId}
-                  onChange={(value) => handleFilterChange('propertyId', value)}
-                  options={[
-                    { value: '', label: 'Tous les biens' },
-                    ...(Array.isArray(properties) ? properties.map(property => ({
-                      value: property.id,
-                      label: `${property.name} - ${property.address}`
-                    })) : [])
-                  ]}
-                  placeholder="Sélectionner un bien"
-                />
-              </div>
-            )}
-
             {/* Bail */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

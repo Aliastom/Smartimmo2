@@ -14,6 +14,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { notify2 } from '@/lib/notify2';
 import { Plus, Loader2, Home } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 import { SectionTitle } from '@/components/ui/SectionTitle';
 import { Pagination } from '@/components/ui/Pagination';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -48,10 +49,20 @@ import { TransactionModal } from '@/components/transactions/TransactionModalV2';
 import { ConfirmDeleteTransactionModal } from '@/components/transactions/ConfirmDeleteTransactionModal';
 import { ConfirmDeleteMultipleTransactionsModal } from '@/components/transactions/ConfirmDeleteMultipleTransactionsModal';
 import { DuplicateDetectedModal } from '@/components/documents/DuplicateDetectedModal';
+import { TransactionsTableQuickFiltersBar } from '@/features/transactions/components/TransactionsTableQuickFiltersBar';
+import { useTransactionsPortfolioPilotage } from '@/features/transactions/hooks/useTransactionsPortfolioPilotage';
+import {
+  GlobalPilotageDetailAccordion,
+  GlobalPilotageAlertsSection,
+  GLOBAL_ROW_DETAIL_LINK_CLASS,
+} from '@/components/global-pilotage';
+import { AirbnbImportButton } from '@/components/airbnb/AirbnbImportButton';
 
 export interface TransactionsPageCoreProps {
   mode: 'normal' | 'app-shell';
   initialPropertyId?: string; // Pour initialiser le filtre propertyId depuis l'URL en mode app-shell
+  /** Filtre transactions sur un bail (param URL `leaseId`, ex. lien « Transactions du bail »). */
+  initialLeaseId?: string;
   hideTitle?: boolean; // Pour masquer le SectionTitle quand utilisé dans PropertyDetailView
   // Props pour le mode app-shell (quand les données sont déjà chargées)
   propertyId?: string;
@@ -63,6 +74,7 @@ export interface TransactionsPageCoreProps {
 export function TransactionsPageCore({
   mode,
   initialPropertyId,
+  initialLeaseId,
   hideTitle = false,
   // Props pour mode app-shell
   propertyId: propPropertyId,
@@ -76,11 +88,11 @@ export function TransactionsPageCore({
     return () => {
       // UNMOUNT - log supprimé
     };
-  }, [mode, propPropertyId, initialPropertyId, propTransactions]);
+  }, [mode, propPropertyId, initialPropertyId, initialLeaseId, propTransactions]);
   
   const { organizationId } = useCurrentOrganization();
-  const router = mode === 'normal' ? useRouter() : null;
-  const searchParamsHook = mode === 'normal' ? useSearchParams() : null;
+  const router = useRouter();
+  const searchParamsHook = useSearchParams();
   const { showAlert } = useAlert();
   
   // Récupérer les paramètres de gestion déléguée
@@ -100,11 +112,22 @@ export function TransactionsPageCore({
   // Récupérer le contexte sidebar pour le hamburger mobile
   const sidebarContext = useSidebarOptional();
 
+  // Contexte bien (App Shell) : onglet Transactions — filtre bien figé, comme BAUX / ÉCHÉANCES
+  const isPropertyScoped = mode === 'app-shell' && hideTitle === true;
+  const lockedPropertyId = useMemo(() => {
+    if (!isPropertyScoped) return '';
+    return (propPropertyId || initialPropertyId || '').trim();
+  }, [isPropertyScoped, propPropertyId, initialPropertyId]);
+
   // États pour la période (format YYYY-MM)
   // ⚠️ CORRECTION: Initialiser à "Tous" par défaut (période très large) pour afficher toutes les transactions
   const now = new Date();
   const [periodStart, setPeriodStart] = useState(`2020-01`);
   const [periodEnd, setPeriodEnd] = useState(`${now.getFullYear() + 1}-12`);
+
+  const showPortfolioPilotage = mode === 'app-shell' && !hideTitle;
+
+  const [transactionsDetailOpen, setTransactionsDetailOpen] = useState(false);
 
   // État pour le filtre KPI actif (par défaut: 'solde' = vue globale)
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>('solde');
@@ -139,16 +162,40 @@ export function TransactionsPageCore({
       } else if (initialPropertyId) {
         baseFilters.propertyId = initialPropertyId;
       }
+      if (initialLeaseId) {
+        baseFilters.leaseId = initialLeaseId;
+      }
     }
     
     // En mode normal, initialiser depuis searchParams
-    if (mode === 'normal' && searchParamsHook) {
+    if (mode === 'normal') {
       baseFilters.propertyId = searchParamsHook.get('propertyId') || '';
       baseFilters.leaseId = searchParamsHook.get('leaseId') || '';
       baseFilters.tenantId = searchParamsHook.get('tenantId') || '';
     }
     
     return baseFilters;
+  });
+
+  useEffect(() => {
+    if (!lockedPropertyId) return;
+    setFilters((prev) =>
+      prev.propertyId === lockedPropertyId ? prev : { ...prev, propertyId: lockedPropertyId }
+    );
+  }, [lockedPropertyId]);
+
+  useEffect(() => {
+    if (!isPropertyScoped) return;
+    const lid = (initialLeaseId ?? '').trim();
+    setFilters((prev) => (prev.leaseId === lid ? prev : { ...prev, leaseId: lid }));
+  }, [isPropertyScoped, initialLeaseId]);
+
+  const portfolioPilotageStats = useTransactionsPortfolioPilotage({
+    enabled: showPortfolioPilotage && !!organizationId,
+    organizationId,
+    periodStart,
+    periodEnd,
+    propertyId: filters.propertyId || undefined,
   });
 
   const [pagination, setPagination] = useState({
@@ -241,6 +288,7 @@ export function TransactionsPageCore({
   // Filtre rapide Tous / Recettes / Dépenses (client-side sur la page courante)
   const [flowFilter, setFlowFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [scrollToDocuments, setScrollToDocuments] = useState(false);
+  const [scrollToRapprochement, setScrollToRapprochement] = useState(false);
   
   // ⚠️ SUPPRIMÉ: refreshKey n'est plus utilisé pour éviter les remounts
   // Les KPI et graphiques se recalculent automatiquement via leurs dépendances (periodStart, periodEnd, propertyId)
@@ -361,12 +409,71 @@ export function TransactionsPageCore({
   const properties = isAppShellWithProps ? (propProperty ? [propProperty] : []) : hookProperties;
   const leases = isAppShellWithProps ? [] : hookLeases; // TODO: charger les leases si nécessaire
   const tenants = isAppShellWithProps ? [] : hookTenants; // TODO: charger les tenants si nécessaire
+
+  const leaseUrlFilterLabel = useMemo(() => {
+    if (!filters.leaseId || !leases.length) return null;
+    const lease = leases.find((l: { id: string }) => l.id === filters.leaseId) as
+      | { tenantId?: string }
+      | undefined;
+    if (!lease?.tenantId) return null;
+    const tenant = tenants.find((t: { id: string }) => t.id === lease.tenantId) as
+      | { firstName?: string; lastName?: string }
+      | undefined;
+    if (!tenant) return null;
+    const name = `${tenant.firstName ?? ''} ${tenant.lastName ?? ''}`.trim();
+    return name || null;
+  }, [filters.leaseId, leases, tenants]);
   const categories = isAppShellWithProps ? [] : hookCategories; // TODO: charger les categories si nécessaire
   const natures = isAppShellWithProps ? new Map() : hookNatures; // TODO: charger les natures si nécessaire
   const totalCount = isAppShellWithProps ? allTransactions.length : hookTotalCount;
   const amountsSummary = isAppShellWithProps ? { positiveSum: 0, negativeSum: 0 } : hookAmountsSummary; // TODO: calculer
   const loading = isAppShellWithProps ? (propLoading ?? false) : hookLoading;
   const error = isAppShellWithProps ? null : hookError;
+
+  /** App Shell — détail bien : rentalMode / nom depuis IDB + refresh après édition bien / sync */
+  const [airbnbScopedProperty, setAirbnbScopedProperty] = useState<{ rentalMode: string; name: string } | null>(null);
+
+  useEffect(() => {
+    if (!hideTitle || !lockedPropertyId || !organizationId) {
+      setAirbnbScopedProperty(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const p = await getPropertyRepositoryOffline().getById(lockedPropertyId, organizationId);
+        if (!cancelled && p) {
+          setAirbnbScopedProperty({ rentalMode: p.rentalMode, name: p.name });
+        }
+      } catch {
+        if (!cancelled) setAirbnbScopedProperty(null);
+      }
+    };
+    void load();
+    const onRefresh = () => {
+      void load();
+    };
+    window.addEventListener('sync:refresh', onRefresh);
+    window.addEventListener('properties:refresh', onRefresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('sync:refresh', onRefresh);
+      window.removeEventListener('properties:refresh', onRefresh);
+    };
+  }, [hideTitle, lockedPropertyId, organizationId]);
+
+  const showAirbnbImport = useMemo(() => {
+    if (!lockedPropertyId) return false;
+    const fromList = properties.find((x: { id: string; rentalMode?: string }) => x.id === lockedPropertyId);
+    if (fromList && (fromList as { rentalMode?: string }).rentalMode === 'SEASONAL_AIRBNB') return true;
+    return airbnbScopedProperty?.rentalMode === 'SEASONAL_AIRBNB';
+  }, [lockedPropertyId, properties, airbnbScopedProperty]);
+
+  const airbnbPropertyName = useMemo(() => {
+    if (!lockedPropertyId) return '';
+    const fromList = properties.find((x: { id: string; name?: string }) => x.id === lockedPropertyId);
+    return (fromList as { name?: string } | undefined)?.name || airbnbScopedProperty?.name || '';
+  }, [lockedPropertyId, properties, airbnbScopedProperty]);
 
   // En app-shell : tri sur l'ensemble du dataset AVANT la slice (cohérence pagination)
   const sortedAllTransactions = useMemo(() => {
@@ -471,13 +578,16 @@ export function TransactionsPageCore({
   }, [mode, router]);
 
   // Gestion des filtres
-  const handleFiltersChange = useCallback((newFilters: TransactionsFilters) => {
-    setFilters(newFilters);
-    setPagination(prev => ({ ...prev, page: 1 }));
-    updateURL(newFilters);
-    // ⚠️ CRITIQUE: Ne pas incrémenter refreshKey lors des changements de filtres
-    // Les hooks KPI/Charts se recalculeront automatiquement via leurs dépendances (periodStart, periodEnd, propertyId, etc.)
-  }, [updateURL]);
+  const handleFiltersChange = useCallback(
+    (newFilters: TransactionsFilters) => {
+      const merged =
+        lockedPropertyId !== '' ? { ...newFilters, propertyId: lockedPropertyId } : newFilters;
+      setFilters(merged);
+      setPagination((prev) => ({ ...prev, page: 1 }));
+      updateURL(merged);
+    },
+    [updateURL, lockedPropertyId]
+  );
 
   // Gestion du filtre KPI (cartes filtrantes)
   const handleKpiFilterChange = useCallback((filterKey: string | null) => {
@@ -496,10 +606,41 @@ export function TransactionsPageCore({
     // Les hooks KPI/Charts se recalculeront automatiquement via leurs dépendances (activeKpiFilter est passé via useTransactionsData)
   }, [activeKpiFilter]);
 
+  const clearPortfolioPilotageFocus = useCallback(() => {
+    setActiveKpiFilter('solde');
+    setFilters((prev) => {
+      const next: TransactionsFilters = {
+        ...prev,
+        hasDocument: '',
+        ...(lockedPropertyId !== '' ? { propertyId: lockedPropertyId } : {}),
+      };
+      setPagination((p) => ({ ...p, page: 1 }));
+      updateURL(next);
+      return next;
+    });
+  }, [lockedPropertyId, updateURL]);
+
+  const handleTogglePilotageSansDocument = useCallback(() => {
+    setFilters((prev) => {
+      const nextHas = prev.hasDocument === 'false' ? '' : 'false';
+      const merged: TransactionsFilters =
+        lockedPropertyId !== ''
+          ? { ...prev, hasDocument: nextHas, propertyId: lockedPropertyId }
+          : { ...prev, hasDocument: nextHas };
+      setPagination((p) => ({ ...p, page: 1 }));
+      updateURL(merged);
+      return merged;
+    });
+  }, [lockedPropertyId, updateURL]);
+
+  const handleTogglePilotageNonRapprochees = useCallback(() => {
+    handleKpiFilterChange('nonRapprochees');
+  }, [handleKpiFilterChange]);
+
   const handleResetFilters = useCallback(() => {
     const resetFilters: TransactionsFilters = {
       search: '',
-      propertyId: '',
+      propertyId: lockedPropertyId || '',
       leaseId: '',
       tenantId: '',
       natureId: '',
@@ -518,9 +659,26 @@ export function TransactionsPageCore({
     };
 
     setFilters(resetFilters);
-    setPagination(prev => ({ ...prev, page: 1 }));
+    setPagination((prev) => ({ ...prev, page: 1 }));
     updateURL(resetFilters);
-  }, [updateURL]);
+    if (mode === 'app-shell' && isPropertyScoped && typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('leaseId')) {
+        params.delete('leaseId');
+        router.replace(`/app?${params.toString()}`, { scroll: false });
+      }
+    }
+  }, [updateURL, lockedPropertyId, mode, isPropertyScoped, router]);
+
+  const handleClearLeaseUrlFilter = useCallback(() => {
+    setFilters((prev) => ({ ...prev, leaseId: '' }));
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    if (!isPropertyScoped || typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('leaseId')) return;
+    params.delete('leaseId');
+    router.replace(`/app?${params.toString()}`, { scroll: false });
+  }, [isPropertyScoped, router]);
 
   // Gestion du filtre de période
   const handlePeriodChange = useCallback((start: string, end: string) => {
@@ -542,11 +700,30 @@ export function TransactionsPageCore({
     setIsModalOpen(true);
   }, []);
 
+  const handleAirbnbImportSuccess = useCallback(async () => {
+    window.dispatchEvent(new CustomEvent('transactions:refresh'));
+    if (mode === 'app-shell' && organizationId) {
+      try {
+        await getGlobalSyncService().syncEntityFromRemoteByName('transaction', organizationId);
+        window.dispatchEvent(new CustomEvent('sync:refresh'));
+      } catch (e) {
+        console.error('[TransactionsPageCore] Sync transactions après import Airbnb:', e);
+      }
+    }
+  }, [mode, organizationId]);
+
   // Définir les actions dans PropertyHeaderActionsContext si hideTitle est true et que le contexte est disponible
   useEffect(() => {
     if (hideTitle && setHeaderActions) {
       const actionButtons = (
         <div className="flex items-center gap-2">
+          {showAirbnbImport && lockedPropertyId ? (
+            <AirbnbImportButton
+              propertyId={lockedPropertyId}
+              propertyName={airbnbPropertyName || 'Bien'}
+              onImportSuccess={handleAirbnbImportSuccess}
+            />
+          ) : null}
           <button
             onClick={handleCreateTransaction}
             className="inline-flex items-center justify-center h-8 w-8 text-orange-600 border border-orange-200 rounded-lg bg-white hover:bg-gradient-to-r hover:from-orange-500 hover:to-red-500 hover:text-white transition-all duration-300 ease-out focus:outline-none"
@@ -572,7 +749,15 @@ export function TransactionsPageCore({
         setHeaderActions(null);
       };
     }
-  }, [hideTitle, setHeaderActions, handleCreateTransaction]);
+  }, [
+    hideTitle,
+    setHeaderActions,
+    handleCreateTransaction,
+    handleAirbnbImportSuccess,
+    showAirbnbImport,
+    lockedPropertyId,
+    airbnbPropertyName,
+  ]);
 
   const handleEditTransaction = useCallback((transaction: Transaction) => {
     setModalMode('edit');
@@ -1099,6 +1284,31 @@ export function TransactionsPageCore({
     }
   }, [mode]);
 
+  const openTransactionForRapprochement = useCallback(
+    (id: string) => {
+      const tx =
+        sortedAllTransactions.find((t) => t.id === id) ?? allTransactions.find((t) => t.id === id);
+      if (tx) {
+        setScrollToDocuments(false);
+        setScrollToRapprochement(true);
+        void handleRowClick(tx);
+        return;
+      }
+      notify2.warning(
+        'Transaction introuvable',
+        'Élargissez la période ou ouvrez le détail depuis le tableau.'
+      );
+    },
+    [sortedAllTransactions, allTransactions, handleRowClick]
+  );
+
+  const scrollToTransactionsTable = useCallback(() => {
+    setTransactionsDetailOpen(true);
+    setTimeout(() => {
+      document.getElementById('transactions-global-table')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+  }, []);
+
   // ⚠️ OPTION B - UX: Helper pour vérifier si une transaction est éligible à une commission
   const checkTransactionEligibleForCommission = useCallback(async (
     transaction: any,
@@ -1575,9 +1785,228 @@ export function TransactionsPageCore({
     );
   }
 
+  const transactionsDetailSection = (
+    <>
+      {/* Graphiques : Évolution cumulée + Recettes vs Dépenses (Répartition par catégorie supprimée) */}
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+        <div className="min-w-0">
+          <TransactionsCumulativeChart
+            data={chartsData.timeline}
+            isLoading={chartsLoading}
+          />
+        </div>
+        <div className="min-w-0">
+          <TransactionsIncomeExpenseChart
+            data={chartsData.incomeExpense}
+            isLoading={chartsLoading}
+          />
+        </div>
+      </div>
+
+      <TransactionsKpiBar
+        kpis={kpis}
+        activeFilter={activeKpiFilter}
+        onFilterChange={handleKpiFilterChange}
+        isLoading={kpisLoading}
+      />
+
+      {isPropertyScoped && filters.leaseId ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5">
+          <p className="text-sm text-slate-700 min-w-0">
+            <span className="inline-flex items-center rounded-md bg-slate-200/80 text-slate-800 text-xs font-semibold px-2 py-0.5 mr-2 align-middle">
+              Bail
+            </span>
+            Filtré sur :{' '}
+            <span className="font-medium text-slate-900">{leaseUrlFilterLabel ?? 'ce bail'}</span>
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0 text-slate-700 border-slate-300"
+            onClick={handleClearLeaseUrlFilter}
+          >
+            Voir tout
+          </Button>
+        </div>
+      ) : null}
+
+      <TransactionFilters
+        filters={filters}
+        onFiltersChange={handleFiltersChange}
+        onResetFilters={handleResetFilters}
+        properties={properties}
+        leases={leases}
+        tenants={tenants}
+        categories={categories}
+        natures={natures}
+        periodStart={periodStart}
+        periodEnd={periodEnd}
+        onPeriodChange={handlePeriodChange}
+        hidePropertyFilter={!!lockedPropertyId}
+      />
+
+      {selectedTransactionIds.length > 0 && (
+        <Card>
+          <CardContent className="py-3">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-gray-900">
+                {selectedTransactionIds.length} transaction{selectedTransactionIds.length > 1 ? 's' : ''} sélectionnée
+                {selectedTransactionIds.length > 1 ? 's' : ''}
+              </span>
+              <div className="flex-1" />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDeleteMultipleTransactions}
+                disabled={isLoadingDeleteModal}
+              >
+                {isLoadingDeleteModal ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin sidebar-loader-orange" />
+                    Chargement...
+                  </>
+                ) : (
+                  'Supprimer'
+                )}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedTransactionIds([])}>
+                Annuler
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card id="transactions-global-table" className="scroll-mt-24">
+        <CardHeader className="space-y-2">
+          <div>
+            <CardTitle>Transactions</CardTitle>
+            <p className="text-sm text-gray-600 mt-1">
+              {totalCount > 0
+                ? `Affichage de ${((pagination.page - 1) * pagination.limit) + 1} à ${Math.min(pagination.page * pagination.limit, totalCount)} sur ${totalCount}`
+                : 'Aucune transaction'}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-x-5 lg:gap-x-6">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <span className="text-xs font-medium text-muted-foreground shrink-0 pr-0.5">Affichage</span>
+              <button
+                type="button"
+                onClick={() => setFlowFilter('all')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  flowFilter === 'all'
+                    ? 'bg-orange-100 text-orange-700 border border-orange-300'
+                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Tous
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlowFilter('income')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  flowFilter === 'income'
+                    ? 'bg-green-100 text-green-700 border border-green-300'
+                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Recettes
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlowFilter('expense')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  flowFilter === 'expense'
+                    ? 'bg-red-100 text-red-700 border border-red-300'
+                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Dépenses
+              </button>
+            </div>
+
+            {showPortfolioPilotage && (
+              <div className="flex flex-wrap items-center gap-2 min-w-0 md:border-l md:border-gray-200/70 md:pl-5 lg:pl-6">
+                <span className="text-xs font-medium text-muted-foreground shrink-0 pr-0.5">Tableau</span>
+                <TransactionsTableQuickFiltersBar
+                  nonRapprochees={portfolioPilotageStats.nonRapprochees}
+                  sansDocument={portfolioPilotageStats.sansDocument}
+                  isLoading={portfolioPilotageStats.loading}
+                  kpiNonRapprocheesActive={activeKpiFilter === 'nonRapprochees'}
+                  sansDocumentFilterActive={filters.hasDocument === 'false'}
+                  onToggleNonRapprochees={handleTogglePilotageNonRapprochees}
+                  onToggleSansDocument={handleTogglePilotageSansDocument}
+                />
+                {(activeKpiFilter === 'nonRapprochees' || filters.hasDocument === 'false') && (
+                  <button
+                    type="button"
+                    onClick={clearPortfolioPilotageFocus}
+                    className="text-xs font-medium text-muted-foreground hover:text-foreground underline-offset-2 hover:underline shrink-0 p-0 m-0 bg-transparent border-0 cursor-pointer shadow-none md:ml-1"
+                  >
+                    Tout afficher
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <TransactionsTable
+            transactions={(() => {
+              let list = filters.includeManagementFees
+                ? transactions
+                : transactions.filter((t) => t.autoSource !== 'gestion');
+              if (flowFilter === 'income') list = list.filter((t) => t.nature?.type === 'RECETTE');
+              if (flowFilter === 'expense') list = list.filter((t) => t.nature?.type === 'DEPENSE');
+              return list;
+            })()}
+            onEdit={handleEditTransaction}
+            onDelete={handleDeleteTransaction}
+            onDeleteMultiple={handleDeleteMultipleTransactions}
+            onRowClick={handleRowClick}
+            isLoading={loading}
+            totalCount={totalCount}
+            groupByParent={filters.groupByParent}
+            selectedTransactionIds={selectedTransactionIds}
+            onSelectTransaction={handleSelectTransaction}
+            onSelectAll={handleSelectAll}
+            loadingTransactionId={loadingTransactionId}
+            amountsSummary={amountsSummary}
+            pendingCommissionTransactionIds={mode === 'app-shell' ? Array.from(pendingCommissionTransactionIds) : []}
+            sortField={sortBy}
+            sortOrder={sortOrder}
+            onSortChange={(field, order) => {
+              setSortBy(field);
+              setSortOrder(order);
+              setPagination((prev) => ({ ...prev, page: 1 }));
+            }}
+            onOpenDrawerForDocuments={(t) => {
+              setScrollToDocuments(true);
+              handleRowClick(t);
+            }}
+            groupByMonth={true}
+            transactionIdsWithEcheanceLink={mode === 'app-shell' ? transactionIdsWithEcheanceLink : undefined}
+            hidePropertyColumn={!!lockedPropertyId}
+          />
+        </CardContent>
+      </Card>
+
+      {totalCount > pagination.limit && (
+        <div className="flex justify-center">
+          <Pagination
+            currentPage={pagination.page}
+            totalPages={pagination.pages}
+            onPageChange={handlePageChange}
+          />
+        </div>
+      )}
+    </>
+  );
+
   // Rendu principal
   return (
-    <div className="space-y-6 w-full max-w-full">
+    <div className={`w-full max-w-full ${showPortfolioPilotage ? 'min-h-screen bg-gray-50' : ''}`}>
       {/* Header - masqué si hideTitle est true (utilisé dans PropertyDetailView) */}
       {!hideTitle && (
         <div className="mb-4 sm:mb-6 space-y-3">
@@ -1616,180 +2045,177 @@ export function TransactionsPageCore({
         </div>
       )}
 
-      {/* Graphiques : Évolution cumulée + Recettes vs Dépenses (Répartition par catégorie supprimée) */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
-        <div className="min-w-0">
-          <TransactionsCumulativeChart
-            data={chartsData.timeline}
-            isLoading={chartsLoading}
-          />
-        </div>
-        <div className="min-w-0">
-          <TransactionsIncomeExpenseChart
-            data={chartsData.incomeExpense}
-            isLoading={chartsLoading}
-          />
-        </div>
-      </div>
-
-      {/* Cartes KPI (APRÈS LES GRAPHIQUES) - Cartes filtrantes actives */}
-      <TransactionsKpiBar
-        kpis={kpis}
-        activeFilter={activeKpiFilter}
-        onFilterChange={handleKpiFilterChange}
-        isLoading={kpisLoading}
-      />
-
-      {/* Filtres avancés (avec période intégrée) */}
-      <TransactionFilters
-        filters={filters}
-        onFiltersChange={handleFiltersChange}
-        onResetFilters={handleResetFilters}
-        properties={properties}
-        leases={leases}
-        tenants={tenants}
-        categories={categories}
-        natures={natures}
-        periodStart={periodStart}
-        periodEnd={periodEnd}
-        onPeriodChange={handlePeriodChange}
-      />
-
-      {/* Actions groupées */}
-      {selectedTransactionIds.length > 0 && (
-        <Card>
-          <CardContent className="py-3">
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-gray-900">
-                {selectedTransactionIds.length} transaction{selectedTransactionIds.length > 1 ? 's' : ''} sélectionnée{selectedTransactionIds.length > 1 ? 's' : ''}
+      {showPortfolioPilotage ? (
+        <div className="p-6 space-y-6">
+          <div className="rounded-xl border border-red-200 bg-red-50/90 p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+              <h2 className="text-base font-semibold text-gray-900 tracking-tight">Actions à traiter</h2>
+              <span className="inline-flex items-center rounded-full border border-red-200/80 bg-white/90 px-2.5 py-1 text-xs font-semibold text-red-900 tabular-nums shadow-sm">
+                {portfolioPilotageStats.loading
+                  ? '…'
+                  : `${portfolioPilotageStats.nonRapprochees} non rapprochée${portfolioPilotageStats.nonRapprochees > 1 ? 's' : ''}`}
               </span>
-              <div className="flex-1" />
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleDeleteMultipleTransactions}
-                disabled={isLoadingDeleteModal}
-              >
-                {isLoadingDeleteModal ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin sidebar-loader-orange" />
-                    Chargement...
-                  </>
-                ) : (
-                  'Supprimer'
-                )}
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => setSelectedTransactionIds([])}
-              >
-                Annuler
-              </Button>
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Tableau */}
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <CardTitle>Transactions</CardTitle>
-              <p className="text-sm text-gray-600 mt-1">
-                {totalCount > 0
-                  ? `Affichage de ${((pagination.page - 1) * pagination.limit) + 1} à ${Math.min(pagination.page * pagination.limit, totalCount)} sur ${totalCount}`
-                  : 'Aucune transaction'}
+            <p className="text-sm text-gray-600 mb-4 leading-snug">
+              Transactions à rapprocher pour fiabiliser votre suivi.
+            </p>
+            {portfolioPilotageStats.loading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : portfolioPilotageStats.previewNonRapprochees.length === 0 ? (
+              <p className="text-sm text-gray-600">
+                {portfolioPilotageStats.nonRapprochees === 0
+                  ? 'Aucune transaction à rapprocher sur la période affichée.'
+                  : 'Ouvrez le détail ci-dessous et filtrez sur les non rapprochées pour les traiter.'}
               </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Filtre rapide :</span>
-              <button
-                type="button"
-                onClick={() => setFlowFilter('all')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  flowFilter === 'all'
-                    ? 'bg-orange-100 text-orange-700 border border-orange-300'
-                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Tous
-              </button>
-              <button
-                type="button"
-                onClick={() => setFlowFilter('income')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  flowFilter === 'income'
-                    ? 'bg-green-100 text-green-700 border border-green-300'
-                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Recettes
-              </button>
-              <button
-                type="button"
-                onClick={() => setFlowFilter('expense')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  flowFilter === 'expense'
-                    ? 'bg-red-100 text-red-700 border border-red-300'
-                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Dépenses
-              </button>
+            ) : (
+              <ul className="space-y-2">
+                {portfolioPilotageStats.previewNonRapprochees.map((row) => {
+                  const dateLabel = row.date
+                    ? new Date(`${row.date}T12:00:00`).toLocaleDateString('fr-FR', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                      })
+                    : '—';
+                  const amountLabel = new Intl.NumberFormat('fr-FR', {
+                    style: 'currency',
+                    currency: 'EUR',
+                  }).format(row.amount);
+                  return (
+                    <li
+                      key={row.id}
+                      className="rounded-lg border border-gray-200/90 bg-white p-3 shadow-sm transition-colors hover:bg-gray-50/90"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch sm:justify-between sm:gap-4">
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900 leading-snug">{row.label}</p>
+                            <p className="text-xs text-gray-600 mt-1 leading-snug">{row.propertyLine}</p>
+                            {row.periodLabel ? (
+                              <p className="text-xs text-gray-500 mt-1">Période : {row.periodLabel}</p>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600">
+                            <span className="tabular-nums">{dateLabel}</span>
+                            <span className="text-gray-300" aria-hidden>
+                              ·
+                            </span>
+                            <span className="font-medium tabular-nums text-gray-900">{amountLabel}</span>
+                            <span className="text-gray-300" aria-hidden>
+                              ·
+                            </span>
+                            <Badge
+                              variant="warning"
+                              size="sm"
+                              className="border-amber-200 bg-amber-50 text-amber-950 text-[10px] font-semibold px-2 py-0 h-5"
+                            >
+                              Non rapproché
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-stretch gap-1.5 sm:w-[7.75rem] sm:shrink-0 sm:justify-start">
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold shadow-sm"
+                            onClick={() => openTransactionForRapprochement(row.id)}
+                          >
+                            Rapprocher
+                          </Button>
+                          <button
+                            type="button"
+                            className={`${GLOBAL_ROW_DETAIL_LINK_CLASS} !mt-0 !pt-0`}
+                            onClick={scrollToTransactionsTable}
+                          >
+                            Voir dans le tableau
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          <GlobalPilotageAlertsSection>
+            {portfolioPilotageStats.sansDocument > 0 ? (
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold text-amber-950">{portfolioPilotageStats.sansDocument}</span>{' '}
+                transaction(s) sans pièce jointe sur la période — traçabilité à renforcer.
+              </p>
+            ) : (
+              <p className="text-sm text-gray-700">Aucune alerte globale sur les pièces jointes.</p>
+            )}
+            <p className="text-xs text-gray-600 mt-2">
+              Utilisez le détail ci-dessous pour filtrer « sans document ».
+            </p>
+          </GlobalPilotageAlertsSection>
+
+          <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+            <h3 className="text-base font-semibold text-gray-900 mb-3">Synthèse</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 text-sm">
+              <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                <p className="text-xs text-gray-500">Recettes</p>
+                <p className="font-semibold text-gray-900 tabular-nums">
+                  {kpisLoading
+                    ? '…'
+                    : new Intl.NumberFormat('fr-FR', {
+                        style: 'currency',
+                        currency: 'EUR',
+                        maximumFractionDigits: 0,
+                      }).format(kpis.recettesTotales)}
+                </p>
+              </div>
+              <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                <p className="text-xs text-gray-500">Dépenses</p>
+                <p className="font-semibold text-gray-900 tabular-nums">
+                  {kpisLoading
+                    ? '…'
+                    : new Intl.NumberFormat('fr-FR', {
+                        style: 'currency',
+                        currency: 'EUR',
+                        maximumFractionDigits: 0,
+                      }).format(kpis.depensesTotales)}
+                </p>
+              </div>
+              <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                <p className="text-xs text-gray-500">Solde net</p>
+                <p className="font-semibold text-gray-900 tabular-nums">
+                  {kpisLoading
+                    ? '…'
+                    : new Intl.NumberFormat('fr-FR', {
+                        style: 'currency',
+                        currency: 'EUR',
+                        maximumFractionDigits: 0,
+                      }).format(kpis.soldeNet)}
+                </p>
+              </div>
+              <div className="rounded-lg bg-orange-50 border border-orange-100 p-3">
+                <p className="text-xs text-orange-800">Non rapprochées</p>
+                <p className="font-semibold text-orange-950 tabular-nums">
+                  {portfolioPilotageStats.loading ? '…' : portfolioPilotageStats.nonRapprochees}
+                </p>
+              </div>
+              <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
+                <p className="text-xs text-amber-900">Sans document</p>
+                <p className="font-semibold text-amber-950 tabular-nums">
+                  {portfolioPilotageStats.loading ? '…' : portfolioPilotageStats.sansDocument}
+                </p>
+              </div>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <TransactionsTable
-            transactions={(() => {
-              let list = filters.includeManagementFees
-                ? transactions
-                : transactions.filter(t => t.autoSource !== 'gestion');
-              if (flowFilter === 'income') list = list.filter(t => t.nature?.type === 'RECETTE');
-              if (flowFilter === 'expense') list = list.filter(t => t.nature?.type === 'DEPENSE');
-              return list;
-            })()}
-            onEdit={handleEditTransaction}
-            onDelete={handleDeleteTransaction}
-            onDeleteMultiple={handleDeleteMultipleTransactions}
-            onRowClick={handleRowClick}
-            isLoading={loading}
-            totalCount={totalCount}
-            groupByParent={filters.groupByParent}
-            selectedTransactionIds={selectedTransactionIds}
-            onSelectTransaction={handleSelectTransaction}
-            onSelectAll={handleSelectAll}
-            loadingTransactionId={loadingTransactionId}
-            amountsSummary={amountsSummary}
-            pendingCommissionTransactionIds={mode === 'app-shell' ? Array.from(pendingCommissionTransactionIds) : []}
-            sortField={sortBy}
-            sortOrder={sortOrder}
-            onSortChange={(field, order) => {
-              setSortBy(field);
-              setSortOrder(order);
-              setPagination(prev => ({ ...prev, page: 1 }));
-            }}
-            onOpenDrawerForDocuments={(t) => {
-              setScrollToDocuments(true);
-              handleRowClick(t);
-            }}
-            groupByMonth={true}
-            transactionIdsWithEcheanceLink={mode === 'app-shell' ? transactionIdsWithEcheanceLink : undefined}
-          />
-        </CardContent>
-      </Card>
 
-      {/* Pagination */}
-      {totalCount > pagination.limit && (
-        <div className="flex justify-center">
-          <Pagination
-            currentPage={pagination.page}
-            totalPages={pagination.pages}
-            onPageChange={handlePageChange}
-          />
+          <GlobalPilotageDetailAccordion
+            open={transactionsDetailOpen}
+            onToggle={() => setTransactionsDetailOpen((v) => !v)}
+            title="Détail complet (graphiques, filtres et tableau)"
+          >
+            {transactionsDetailSection}
+          </GlobalPilotageDetailAccordion>
         </div>
+      ) : (
+        <div className="space-y-6">{transactionsDetailSection}</div>
       )}
 
       {/* Modal */}
@@ -1798,9 +2224,20 @@ export function TransactionsPageCore({
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleModalSubmit}
-        context={{ 
-          type: (propPropertyId || initialPropertyId || filters.propertyId) ? 'property' : 'global',
-          propertyId: propPropertyId || initialPropertyId || (filters.propertyId || undefined)
+        context={{
+          type:
+            lockedPropertyId ||
+            propPropertyId ||
+            initialPropertyId ||
+            filters.propertyId
+              ? 'property'
+              : 'global',
+          propertyId:
+            lockedPropertyId ||
+            propPropertyId ||
+            initialPropertyId ||
+            filters.propertyId ||
+            undefined,
         }}
         mode={modalMode}
         transactionId={selectedTransaction?.id}
@@ -1832,6 +2269,7 @@ export function TransactionsPageCore({
         isOpen={isDrawerOpen}
         onClose={() => {
           setScrollToDocuments(false);
+          setScrollToRapprochement(false);
           setIsDrawerOpen(false);
         }}
         onEdit={handleEditTransaction}
@@ -1848,6 +2286,8 @@ export function TransactionsPageCore({
         onViewDocument={handleViewDocument}
         initialScrollToDocuments={scrollToDocuments}
         onScrollToDocumentsDone={() => setScrollToDocuments(false)}
+        initialScrollToRapprochement={scrollToRapprochement}
+        onScrollToRapprochementDone={() => setScrollToRapprochement(false)}
       />
 
       {/* Modal de confirmation de suppression de transaction */}

@@ -570,58 +570,46 @@ export function EcheanceDrawer({
                 </span>
                 <span className="text-xs text-gray-500">par occurrence</span>
               </div>
-              <div className="flex flex-wrap gap-2 mt-3">
-                <Badge className={getNatureBadgeClass(resolveNatureCodeForEcheance(echeance))}>
-                  {getNatureLabelForEcheance(echeance, natures)}
-                </Badge>
-                <span className="text-xs text-gray-600" title="Catégorie">
-                  {getCategoryLabelForEcheance(echeance, categories, resolveNatureCodeForEcheance, getDefaultCategoryId)}
-                </span>
-                <span
-                  className={
-                    echeance.sens === 'DEBIT'
-                      ? 'text-xs rounded-md px-2 py-0.5 bg-red-50 text-red-800 border border-red-100'
-                      : 'text-xs rounded-md px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-100'
-                  }
-                >
-                  {echeance.sens === 'DEBIT' ? 'Charge' : 'Revenu'}
-                </span>
-                <Badge variant={echeance.isActive ? 'success' : 'secondary'}>
-                  {echeance.isActive ? (
-                    <>
-                      <CheckCircle className="h-3 w-3 mr-1" /> Active
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-3 w-3 mr-1" /> Inactive
-                    </>
-                  )}
-                </Badge>
-              </div>
-              {nextInfo && nextInfo.temporalStatus !== 'desactive' && (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border', urg.className)}>
-                    <span>{urg.emoji}</span> {nextInfo.message}
-                  </span>
-                  {nextInfo.displayDate && (
-                    <span className="text-sm text-gray-600">
-                      Prochaine occurrence : <strong className="text-gray-900">{formatDateShort(new Date(nextInfo.displayDate + 'T12:00:00'))}</strong>
-                    </span>
-                  )}
-                </div>
-              )}
             </div>
             <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 shrink-0 p-1">
               <X className="h-6 w-6" />
             </button>
           </div>
 
-          {/* Content */}
+          {/* Content : 3 blocs métier + suggestions repliables */}
           <div className="flex-1 overflow-y-auto p-4">
             <div className="space-y-4">
-              {/* Impact prévisionnel */}
               <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Impact prévisionnel</h3>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Configuration</h3>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <Badge className={getNatureBadgeClass(resolveNatureCodeForEcheance(echeance))}>
+                    {getNatureLabelForEcheance(echeance, natures)}
+                  </Badge>
+                  <span className="text-xs text-gray-600 self-center" title="Catégorie">
+                    {getCategoryLabelForEcheance(echeance, categories, resolveNatureCodeForEcheance, getDefaultCategoryId)}
+                  </span>
+                  <span
+                    className={
+                      echeance.sens === 'DEBIT'
+                        ? 'text-xs rounded-md px-2 py-0.5 bg-red-50 text-red-800 border border-red-100 self-center'
+                        : 'text-xs rounded-md px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-100 self-center'
+                    }
+                  >
+                    {echeance.sens === 'DEBIT' ? 'Charge' : 'Revenu'}
+                  </span>
+                  <Badge variant={echeance.isActive ? 'success' : 'secondary'}>
+                    {echeance.isActive ? (
+                      <>
+                        <CheckCircle className="h-3 w-3 mr-1" /> Active
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="h-3 w-3 mr-1" /> Inactive
+                      </>
+                    )}
+                  </Badge>
+                </div>
+                <h4 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Impact prévisionnel</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   {chargeAnnuelleEstimee != null && (
                     <div>
@@ -635,22 +623,6 @@ export function EcheanceDrawer({
                       <p className="font-semibold text-emerald-700">{formatCurrency(toAnnualAmount(echeance.montant, echeance.periodicite))}</p>
                     </div>
                   )}
-                  <div>
-                    <p className="text-gray-500 text-xs">Prochaine occurrence</p>
-                    <p className="font-medium text-gray-900">
-                      {nextInfo?.displayDate
-                        ? formatDateShort(new Date(nextInfo.displayDate + 'T12:00:00'))
-                        : '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500 text-xs">Récurrence</p>
-                    <p className="font-medium text-gray-900">{PERIODICITE_LABELS[echeance.periodicite]}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500 text-xs">Charge récupérable</p>
-                    <p className="font-medium text-gray-900">{echeance.recuperable ? 'Oui' : 'Non'}</p>
-                  </div>
                 </div>
                 {messagesMetier.length > 0 && (
                   <ul className="mt-3 pt-3 border-t border-gray-100 space-y-1.5 text-xs text-gray-600">
@@ -662,9 +634,193 @@ export function EcheanceDrawer({
                     ))}
                   </ul>
                 )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-100">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-700">Périodicité</span>
+                    </div>
+                    <p className="font-medium text-sm">{PERIODICITE_LABELS[echeance.periodicite]}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Tag className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-700">Charge récupérable</span>
+                    </div>
+                    <p className="font-medium text-sm">{echeance.recuperable ? 'Oui' : 'Non'}</p>
+                  </div>
+                  {echeance.Property && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-gray-500" />
+                        <span className="text-sm font-medium text-gray-700">Bien</span>
+                      </div>
+                      <Link
+                        href={`/app?view=property&propertyId=${echeance.Property.id}&tab=transactions`}
+                        className="font-medium text-sm text-primary-600 hover:underline"
+                      >
+                        {echeance.Property.name}
+                      </Link>
+                    </div>
+                  )}
+                  {echeance.Lease && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-gray-500" />
+                        <span className="text-sm font-medium text-gray-700">Bail</span>
+                      </div>
+                      <p className="font-medium text-sm">
+                        {echeance.Lease.type} - {echeance.Lease.status}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    Période
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-gray-500 text-xs">Date de début</p>
+                      <p className="font-medium">{formatDate(echeance.startAt)}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500 text-xs">Date de fin</p>
+                      <p className="font-medium">
+                        {echeance.endAt ? formatDate(echeance.endAt) : 'Aucune (récurrence infinie)'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 pt-4 border-t border-gray-100 bg-gray-50/80 rounded-lg p-3">
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="isActive-drawer"
+                      checked={echeance.isActive}
+                      onCheckedChange={async (checked) => {
+                        if (!organizationId) {
+                          notify2.error('OrganizationId manquant');
+                          return;
+                        }
+
+                        try {
+                          setEcheance((prev) => (prev ? { ...prev, isActive: checked } : null));
+
+                          const echeanceService = await createEcheanceServiceWithMode('app-shell');
+
+                          await echeanceService.updateEcheance(echeance.id, organizationId, {
+                            isActive: checked,
+                          });
+
+                          if (propertyId) {
+                            window.dispatchEvent(
+                              new CustomEvent('deadlines:refresh', {
+                                detail: { scope: 'property', propertyId, reason: 'update' },
+                              })
+                            );
+                          } else {
+                            window.dispatchEvent(new CustomEvent('echeances:refresh'));
+                          }
+
+                          notify2.success(checked ? 'Échéance activée' : 'Échéance désactivée');
+                        } catch (error: any) {
+                          console.error("Erreur lors de la mise à jour de l'échéance:", error);
+                          setEcheance((prev) => (prev ? { ...prev, isActive: !checked } : null));
+                          notify2.error('Erreur', error.message || 'Erreur lors de la mise à jour');
+                        }
+                      }}
+                    />
+                    <div className="flex-1">
+                      <span className="text-sm font-medium text-gray-900">Règle active</span>
+                      <p className="text-xs text-gray-600">Enregistrement automatique.</p>
+                    </div>
+                  </div>
+                </div>
+                <details className="mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50/50 p-3 text-sm">
+                  <summary className="cursor-pointer font-medium text-gray-700">Informations système</summary>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-xs text-gray-600">
+                    {echeance.createdAt && (
+                      <div>
+                        <p className="text-gray-500">Créée le</p>
+                        <p className="font-medium text-gray-900">{formatDateShort(echeance.createdAt)}</p>
+                      </div>
+                    )}
+                    {echeance.updatedAt && (
+                      <div>
+                        <p className="text-gray-500">Modifiée le</p>
+                        <p className="font-medium text-gray-900">{formatDateShort(echeance.updatedAt)}</p>
+                      </div>
+                    )}
+                    <div className="md:col-span-2">
+                      <p className="text-gray-500">ID</p>
+                      <p className="font-mono text-[11px] text-gray-500 break-all">{echeance.id}</p>
+                    </div>
+                  </div>
+                </details>
               </section>
 
-              {/* Transactions liées */}
+              <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Prochaine occurrence</h3>
+                {nextInfo && nextInfo.temporalStatus !== 'desactive' ? (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border',
+                          urg.className
+                        )}
+                      >
+                        <span>{urg.emoji}</span> {nextInfo.message}
+                      </span>
+                    </div>
+                    {nextInfo.displayDate && (
+                      <p className="text-sm text-gray-700">
+                        Date cible :{' '}
+                        <strong className="text-gray-900">
+                          {formatDateShort(new Date(nextInfo.displayDate + 'T12:00:00'))}
+                        </strong>
+                      </p>
+                    )}
+                    {echeance && (linkedRows.length > 0 || pilotageInfo(echeance)?.nextDate) && (
+                      <div className="pt-3 border-t border-gray-100">
+                        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Frise</p>
+                        {(() => {
+                          const pi = pilotageInfo(echeance);
+                          const nextOcc = pi?.nextDate ?? pi?.displayDate;
+                          const entries: { date: string; label: string; type: 'echeance' | 'transaction' }[] = [];
+                          if (nextOcc) entries.push({ date: nextOcc, label: 'Échéance prévue', type: 'echeance' });
+                          linkedRows.forEach((r) =>
+                            entries.push({
+                              date: r.date.slice(0, 10),
+                              label: `Transaction : ${r.label || '—'}`,
+                              type: 'transaction',
+                            })
+                          );
+                          entries.sort((a, b) => a.date.localeCompare(b.date));
+                          return (
+                            <ul className="space-y-1 text-xs text-gray-600">
+                              {entries.map((ent, i) => (
+                                <li key={i} className="flex gap-2">
+                                  <span className="tabular-nums text-gray-500 shrink-0">
+                                    {formatDateShort(ent.date)}
+                                  </span>
+                                  <span className={ent.type === 'echeance' ? 'text-primary-600' : ''}>
+                                    → {ent.label}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-600">Aucune occurrence pilotée (règle inactive).</p>
+                )}
+              </section>
+
               <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                   <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Transactions liées</h3>
@@ -692,7 +848,7 @@ export function EcheanceDrawer({
                     <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
                   </div>
                 ) : linkedRows.length === 0 ? (
-                  <p className="text-sm text-gray-600 mb-3">Aucune transaction liée</p>
+                  <p className="text-sm text-gray-600 mb-3">Aucune transaction liée à cette règle.</p>
                 ) : (
                   <ul className="space-y-2 mb-3">
                     {linkedRows.map((row) => (
@@ -729,230 +885,75 @@ export function EcheanceDrawer({
                       onClick={() => onCreateTransaction(echeance)}
                     >
                       <PlusCircle className="h-4 w-4" />
-                      Créer la transaction
+                      Créer transaction
                     </Button>
                   )}
                   <Button type="button" size="sm" variant="outline" className="gap-1" onClick={openLinkPicker}>
                     <Link2 className="h-4 w-4" />
-                    Lier une transaction
+                    Lier transaction existante
                   </Button>
                 </div>
-                {/* Timeline échéance ↔ transaction (phase 4) */}
-                {echeance && (linkedRows.length > 0 || pilotageInfo(echeance)?.nextDate) && (
-                  <div className="mt-4 pt-4 border-t border-gray-100">
-                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Timeline</p>
-                    {(() => {
-                      const pi = pilotageInfo(echeance);
-                      const nextOcc = pi?.nextDate ?? pi?.displayDate;
-                      const entries: { date: string; label: string; type: 'echeance' | 'transaction' }[] = [];
-                      if (nextOcc) entries.push({ date: nextOcc, label: 'Échéance prévue', type: 'echeance' });
-                      linkedRows.forEach((r) => entries.push({ date: r.date.slice(0, 10), label: `Transaction : ${r.label || '—'}`, type: 'transaction' }));
-                      entries.sort((a, b) => a.date.localeCompare(b.date));
-                      return (
-                        <ul className="space-y-1 text-xs text-gray-600">
-                          {entries.map((ent, i) => (
-                            <li key={i} className="flex gap-2">
-                              <span className="tabular-nums text-gray-500 shrink-0">{formatDateShort(ent.date)}</span>
-                              <span className={ent.type === 'echeance' ? 'text-primary-600' : ''}>→ {ent.label}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      );
-                    })()}
-                  </div>
-                )}
               </section>
 
-              {/* Suggestions de transactions (phase 3) */}
-              <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  Suggestions de transactions
-                </h3>
+              <details className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 text-sm open:bg-white transition-colors">
+                <summary className="cursor-pointer font-medium text-gray-800 list-none flex items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Suggestions automatiques
+                  </span>
+                  <span className="text-xs font-normal text-gray-500">(optionnel)</span>
+                </summary>
+                <p className="text-xs text-gray-600 mt-2 mb-3">
+                  Propositions basées sur l’historique du bien — à utiliser si vous n’avez pas déjà saisi la transaction.
+                </p>
                 {loadingSuggestions ? (
                   <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
                     <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
                   </div>
-                ) : (() => {
-                  const filtered = suggestions.filter((s) => s.level !== 'FAIBLE' && !ignoredSuggestionIds.has(s.item.id));
-                  if (filtered.length === 0) return <p className="text-sm text-gray-600">Aucune suggestion pour le moment</p>;
-                  const { visible, hasMore } = getVisibleSuggestions(filtered);
-                  const toShow = showAllSuggestions ? filtered : visible;
-                  return (
-                    <>
-                      <ul className="space-y-2">
-                        {toShow.map((s) => (
-                          <SuggestionRow
-                            key={s.item.id}
-                            suggestion={s}
-                            echeanceId={echeance.id}
-                            onLink={handleLinkTransaction}
-                            onIgnore={() => setIgnoredSuggestionIds((prev) => new Set(prev).add(s.item.id))}
-                            formatCurrency={formatCurrency}
-                            formatDateShort={formatDateShort}
-                            linking={linking}
-                            checkLinkedElsewhere={getLinkByTransactionId}
-                          />
-                        ))}
-                      </ul>
-                      {hasMore && !showAllSuggestions && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="mt-2 text-primary-600"
-                          onClick={() => setShowAllSuggestions(true)}
-                        >
-                          Voir plus
-                        </Button>
-                      )}
-                    </>
-                  );
-                })()}
-              </section>
-
-              {/* Statut Actif (autosave) */}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center gap-3">
-                  <Switch
-                    id="isActive-drawer"
-                    checked={echeance.isActive}
-                    onCheckedChange={async (checked) => {
-                      if (!organizationId) {
-                        notify2.error('OrganizationId manquant');
-                        return;
-                      }
-
-                      try {
-                        // ✅ Mise à jour optimiste : mettre à jour l'état local immédiatement
-                        setEcheance(prev => prev ? { ...prev, isActive: checked } : null);
-                        
-                        const echeanceService = await createEcheanceServiceWithMode('app-shell');
-                        
-                        await echeanceService.updateEcheance(echeance.id, organizationId, {
-                          isActive: checked,
-                        });
-                        
-                        // ✅ Émettre un événement ciblé pour rafraîchir les hooks (KPI, tableau)
-                        if (propertyId) {
-                          window.dispatchEvent(new CustomEvent('deadlines:refresh', { 
-                            detail: { scope: 'property', propertyId, reason: 'update' } 
-                          }));
-                        } else {
-                          window.dispatchEvent(new CustomEvent('echeances:refresh'));
-                        }
-                        
-                        notify2.success(checked ? 'Échéance activée' : 'Échéance désactivée');
-                      } catch (error: any) {
-                        console.error('Erreur lors de la mise à jour de l\'échéance:', error);
-                        // ✅ Rollback en cas d'erreur
-                        setEcheance(prev => prev ? { ...prev, isActive: !checked } : null);
-                        notify2.error('Erreur', error.message || 'Erreur lors de la mise à jour');
-                      }
-                    }}
-                  />
-                  <div className="flex-1">
-                    <span className="text-sm font-medium text-gray-900">Échéance active</span>
-                  </div>
-                </div>
-                <p className="text-xs text-gray-600 mt-2">
-                  Cette modification est automatiquement sauvegardée.
-                </p>
-              </div>
-
-              {/* Détails */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Périodicité */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm font-medium text-gray-700">Périodicité</span>
-                  </div>
-                  <p className="font-medium">{PERIODICITE_LABELS[echeance.periodicite]}</p>
-                </div>
-
-                {/* Charge récupérable */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm font-medium text-gray-700">Charge récupérable</span>
-                  </div>
-                  <p className="font-medium">{echeance.recuperable ? 'Oui' : 'Non'}</p>
-                </div>
-
-                {/* Bien */}
-                {echeance.Property && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-700">Bien</span>
-                    </div>
-                    <div>
-                      <Link
-                        href={`/app?view=property&propertyId=${echeance.Property.id}&tab=transactions`}
-                        className="font-medium text-primary-600 hover:underline"
-                      >
-                        {echeance.Property.name}
-                      </Link>
-                    </div>
-                  </div>
+                ) : (
+                  (() => {
+                    const filtered = suggestions.filter(
+                      (s) => s.level !== 'FAIBLE' && !ignoredSuggestionIds.has(s.item.id)
+                    );
+                    if (filtered.length === 0) {
+                      return <p className="text-sm text-gray-600">Aucune suggestion pour le moment.</p>;
+                    }
+                    const { visible, hasMore } = getVisibleSuggestions(filtered);
+                    const toShow = showAllSuggestions ? filtered : visible;
+                    return (
+                      <>
+                        <ul className="space-y-2">
+                          {toShow.map((s) => (
+                            <SuggestionRow
+                              key={s.item.id}
+                              suggestion={s}
+                              echeanceId={echeance.id}
+                              onLink={handleLinkTransaction}
+                              onIgnore={() =>
+                                setIgnoredSuggestionIds((prev) => new Set(prev).add(s.item.id))
+                              }
+                              formatCurrency={formatCurrency}
+                              formatDateShort={formatDateShort}
+                              linking={linking}
+                              checkLinkedElsewhere={getLinkByTransactionId}
+                            />
+                          ))}
+                        </ul>
+                        {hasMore && !showAllSuggestions && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="mt-2 text-primary-600"
+                            onClick={() => setShowAllSuggestions(true)}
+                          >
+                            Voir plus
+                          </Button>
+                        )}
+                      </>
+                    );
+                  })()
                 )}
-
-                {/* Bail */}
-                {echeance.Lease && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-700">Bail</span>
-                    </div>
-                    <p className="font-medium">
-                      {echeance.Lease.type} - {echeance.Lease.status}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Période */}
-              <div className="border-t pt-4">
-                <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center gap-2">
-                  <Calendar className="h-5 w-5" />
-                  Période
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-600">Date de début</p>
-                    <p className="font-medium">{formatDate(echeance.startAt)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Date de fin</p>
-                    <p className="font-medium">
-                      {echeance.endAt ? formatDate(echeance.endAt) : 'Aucune (récurrence infinie)'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Informations système */}
-              <div className="border-t pt-4">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Informations système</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {echeance.createdAt && (
-                    <div>
-                      <p className="text-sm text-gray-600">Créée le</p>
-                      <p className="font-medium">{formatDateShort(echeance.createdAt)}</p>
-                    </div>
-                  )}
-                  {echeance.updatedAt && (
-                    <div>
-                      <p className="text-sm text-gray-600">Modifiée le</p>
-                      <p className="font-medium">{formatDateShort(echeance.updatedAt)}</p>
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-sm text-gray-600">ID Échéance</p>
-                    <p className="font-mono text-xs text-gray-500">{echeance.id}</p>
-                  </div>
-                </div>
-              </div>
+              </details>
             </div>
           </div>
 

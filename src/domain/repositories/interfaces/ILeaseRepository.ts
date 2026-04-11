@@ -20,6 +20,7 @@ export interface Lease {
   signedPdfUrl?: string | null;
   chargesRecupMensuelles?: number | null;
   chargesNonRecupMensuelles?: number | null;
+  pilotageIgnored?: boolean | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -59,6 +60,7 @@ export interface UpdateLeaseData {
   signedPdfUrl?: string | null;
   chargesRecupMensuelles?: number | null;
   chargesNonRecupMensuelles?: number | null;
+  pilotageIgnored?: boolean | null;
 }
 
 export interface LeaseWhere {

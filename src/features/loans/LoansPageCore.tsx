@@ -9,14 +9,14 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { notify2 } from '@/lib/notify2';
-import { Plus, Edit, Trash2, CheckCircle, Loader2, Eye, Menu, X } from 'lucide-react';
+import { Plus, Trash2, CheckCircle, Loader2, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Switch } from '@/components/ui/Switch';
 import { PaginationV2 } from '@/components/ui2/PaginationV2';
 import { TableV2, TableHeaderV2, TableHeaderCellV2, TableBodyV2, TableRowV2, TableCellV2 } from '@/components/ui2/TableV2';
 import { useUI2 } from '@/hooks/useUI2';
@@ -32,14 +32,35 @@ import { ConfirmDeleteLoanModal } from '@/components/loans/ConfirmDeleteLoanModa
 import { ConfirmDeleteMultipleLoansModal } from '@/components/loans/ConfirmDeleteMultipleLoansModal';
 import { useLoansCharts } from '@/hooks/useLoansCharts';
 import { useLoansData, type Loan, type LoansFilters } from './hooks/useLoansData';
+import { usePropertyCashflowMonthlyMap } from './hooks/usePropertyCashflowMonthlyMap';
+import { computePortfolioPilotageMetrics } from './utils/computePortfolioPilotageMetrics';
+import { computePortfolioCashflowNetMoyenApresCredit } from './utils/computePortfolioCashflowNetMoyen';
+import {
+  LoansPortfolioPilotageBar,
+  propertyLoansTabHref,
+  type LoansPortfolioPilotageFilterKey,
+} from './components/LoansPortfolioPilotageBar';
+import { LoansPriorityActionsCard } from './components/LoansPriorityActionsBlock';
+import { buildLoanPilotagePriorityItems } from './utils/buildLoanPilotagePriorityItems';
 import { getLoanRepositoryOffline } from '@/lib/offline/repositories/LoanRepositoryOffline';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useAlert } from '@/hooks/useAlert';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
+import {
+  GlobalPilotageDetailAccordion,
+  GlobalPilotageAlertsSection,
+  GLOBAL_ROW_DETAIL_LINK_CLASS,
+} from '@/components/global-pilotage';
 
 export interface LoansPageCoreProps {
   mode: 'normal' | 'app-shell';
 }
+
+const PILOTAGE_FILTER_LABELS: Record<LoansPortfolioPilotageFilterKey, string> = {
+  negative_cf: 'Biens en cashflow négatif après crédit',
+  heavy_payment: 'Mensualité > 80 % du cashflow',
+  high_rate: 'Taux élevés (> 4 %)',
+};
 
 export function LoansPageCore({
   mode,
@@ -69,6 +90,8 @@ export function LoansPageCore({
   // État pour la modal Top 5
   const [showTopCostlyModal, setShowTopCostlyModal] = useState(false);
 
+  const [loansDetailOpen, setLoansDetailOpen] = useState(false);
+
   // États pour la période
   // ✅ Ne pas fixer de période par défaut : le hook calculera automatiquement depuis le prêt le plus ancien
   const [periodStart, setPeriodStart] = useState<string | undefined>(undefined);
@@ -76,6 +99,9 @@ export function LoansPageCore({
 
   // État pour le filtre KPI actif
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
+
+  /** Filtre rapide pilotage (tableau uniquement) — app-shell */
+  const [pilotageQuickFilter, setPilotageQuickFilter] = useState<LoansPortfolioPilotageFilterKey | null>(null);
 
   // États des filtres
   const [filters, setFilters] = useState<LoansFilters>({
@@ -91,6 +117,7 @@ export function LoansPageCore({
   // ✅ Scope 'global' pour la page globale (pas de propertyId fixe)
   const {
     loans,
+    fullConvertedLoans,
     properties,
     kpis,
     kpisLoading,
@@ -105,6 +132,107 @@ export function LoansPageCore({
     scope: 'global', // ✅ Scope global pour la page globale
   });
 
+  const { cashflowMonthlyByPropertyId, isLoadingCashflowMap } = usePropertyCashflowMonthlyMap(
+    mode,
+    organizationId,
+  );
+
+  const portfolioPilotageIndex = useMemo(
+    () =>
+      computePortfolioPilotageMetrics(
+        fullConvertedLoans ?? [],
+        cashflowMonthlyByPropertyId,
+      ),
+    [fullConvertedLoans, cashflowMonthlyByPropertyId],
+  );
+
+  const loanPilotagePriorityRows = useMemo(
+    () =>
+      mode === 'app-shell'
+        ? buildLoanPilotagePriorityItems(
+            fullConvertedLoans ?? [],
+            cashflowMonthlyByPropertyId,
+            portfolioPilotageIndex,
+            4
+          )
+        : [],
+    [mode, fullConvertedLoans, cashflowMonthlyByPropertyId, portfolioPilotageIndex],
+  );
+
+  /** Moyenne par bien (cashflow brut moy. − mensualités) — vue globale App Shell */
+  const portfolioCashflowNetMoyenApresCredit = useMemo(
+    () =>
+      mode === 'app-shell'
+        ? computePortfolioCashflowNetMoyenApresCredit(
+            fullConvertedLoans ?? [],
+            cashflowMonthlyByPropertyId,
+          )
+        : null,
+    [mode, fullConvertedLoans, cashflowMonthlyByPropertyId],
+  );
+
+  /** Biens en cashflow négatif — liens « Voir le bien » dans la barre de pilotage */
+  const negativeCashflowPropertyLinks = useMemo(() => {
+    const ids = portfolioPilotageIndex.negativeCashflowPropertyIds;
+    if (ids.size === 0) return [];
+    const nameById = new Map<string, string>();
+    for (const p of properties as { id?: string; name?: string }[]) {
+      if (p?.id && ids.has(p.id) && p.name) nameById.set(p.id, p.name);
+    }
+    for (const l of fullConvertedLoans ?? []) {
+      if (!ids.has(l.propertyId)) continue;
+      if (!nameById.has(l.propertyId) && l.propertyName) {
+        nameById.set(l.propertyId, l.propertyName);
+      }
+    }
+    return [...ids]
+      .map((id) => ({ id, name: nameById.get(id) ?? 'Bien' }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  }, [portfolioPilotageIndex.negativeCashflowPropertyIds, properties, fullConvertedLoans]);
+
+  const showVoirLeBienInTable = pilotageQuickFilter === 'negative_cf';
+
+  const renderPropertyColumn = useCallback(
+    (loan: Loan, alignEnd?: boolean) => {
+      const href = propertyLoansTabHref(loan.propertyId);
+      return (
+        <div className={alignEnd ? 'flex flex-col gap-0.5 items-end' : 'flex flex-col gap-0.5 items-start'}>
+          <Link
+            href={href}
+            className="text-primary-600 hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {loan.propertyName}
+          </Link>
+          {showVoirLeBienInTable && (
+            <Link
+              href={href}
+              className="text-xs font-medium text-orange-600 hover:text-orange-700 hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Voir le bien
+            </Link>
+          )}
+        </div>
+      );
+    },
+    [showVoirLeBienInTable],
+  );
+
+  const loansForTable = useMemo(() => {
+    if (!pilotageQuickFilter) return loans;
+    switch (pilotageQuickFilter) {
+      case 'negative_cf':
+        return loans.filter((l) => portfolioPilotageIndex.negativeCashflowPropertyIds.has(l.propertyId));
+      case 'heavy_payment':
+        return loans.filter((l) => portfolioPilotageIndex.heavyPaymentLoanIds.has(l.id));
+      case 'high_rate':
+        return loans.filter((l) => portfolioPilotageIndex.highRateLoanIds.has(l.id));
+      default:
+        return loans;
+    }
+  }, [loans, pilotageQuickFilter, portfolioPilotageIndex]);
+
   // Charger les graphiques avec le hook
   const { data: chartsData, isLoading: chartsLoading } = useLoansCharts({
     mode, // ✅ Passer le mode pour détecter app-shell vs normal
@@ -114,9 +242,10 @@ export function LoansPageCore({
     scope: 'global', // ✅ Scope global pour la page globale
   });
 
-  // Gestion des filtres
+  // Gestion des filtres — toute modification des filtres classiques retire le filtre pilotage (évite double lecture ambiguë)
   const handleFiltersChange = useCallback((newFilters: LoansFilters) => {
     setFilters(newFilters);
+    setPilotageQuickFilter(null);
   }, []);
 
   const handleKpiFilterChange = useCallback((filterKey: string | null) => {
@@ -134,12 +263,22 @@ export function LoansPageCore({
       active: '1',
     });
     setActiveKpiFilter(null);
+    setPilotageQuickFilter(null);
   }, []);
 
-  const handlePeriodChange = (start: string, end: string) => {
+  const handleApplyPilotageFilter = useCallback((key: LoansPortfolioPilotageFilterKey) => {
+    setPilotageQuickFilter(key);
+  }, []);
+
+  const handleResetPilotageOnly = useCallback(() => {
+    setPilotageQuickFilter(null);
+  }, []);
+
+  const handlePeriodChange = useCallback((start: string, end: string) => {
     setPeriodStart(start);
     setPeriodEnd(end);
-  };
+    setPilotageQuickFilter(null);
+  }, []);
 
   // CRUD Handlers
   const handleCreate = () => {
@@ -458,7 +597,7 @@ export function LoansPageCore({
   };
 
   const handleSelectAll = (checked: boolean) => {
-    setSelectedLoanIds(checked ? loans.map((l) => l.id) : []);
+    setSelectedLoanIds(checked ? loansForTable.map((l) => l.id) : []);
   };
 
   const formatCurrency = (amount: number) => {
@@ -468,6 +607,17 @@ export function LoansPageCore({
   const formatDate = (date: string) => {
     const d = new Date(date);
     return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  const getStatusBadge = (loan: Loan) => {
+    const status = loan.loanBusinessStatus || 'inactif';
+    if (status === 'actif') {
+      return <Badge variant="success">Actif</Badge>;
+    }
+    if (status === 'solde') {
+      return <Badge variant="secondary">Soldé</Badge>;
+    }
+    return <Badge variant="warning">Inactif</Badge>;
   };
 
   // Helper pour générer le sous-texte hover (informations du prêt)
@@ -545,41 +695,103 @@ export function LoansPageCore({
       </div>
 
       <div className="p-6 space-y-6">
-        {/* Graphiques - Ligne 1 : 2+1+1 colonnes */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-          <LoansCRDTimelineChart
-            data={charts.crdTimeline}
-            isLoading={chartsLoading}
-          />
-          <LoansByPropertyChart
-            data={charts.crdByProperty}
-            isLoading={chartsLoading}
-          />
-          <LoansTopCostlyChart
-            data={charts.topCostlyLoans}
-            isLoading={chartsLoading}
-            onViewMore={() => setShowTopCostlyModal(true)}
+        {mode === 'app-shell' && (
+          <>
+            <LoansPriorityActionsCard
+              rows={loanPilotagePriorityRows}
+              isLoading={loading || isLoadingCashflowMap}
+              onAnalyze={handleRowClick}
+              onViewDetail={handleRowClick}
+              formatCurrency={formatCurrency}
+            >
+              <div className="border-t border-red-200/80 pt-3">
+                <LoansPortfolioPilotageBar
+                  compact
+                  negativeCashflowPropertyCount={portfolioPilotageIndex.negativeCashflowPropertyCount}
+                  heavyPaymentLoanCount={portfolioPilotageIndex.heavyPaymentLoanCount}
+                  highRateLoanCount={portfolioPilotageIndex.highRateLoanCount}
+                  activeFilter={pilotageQuickFilter}
+                  onApplyFilter={handleApplyPilotageFilter}
+                  onResetPilotage={handleResetPilotageOnly}
+                  isLoading={loading || isLoadingCashflowMap}
+                  negativeCashflowPropertyLinks={negativeCashflowPropertyLinks}
+                />
+              </div>
+            </LoansPriorityActionsCard>
+
+            <GlobalPilotageAlertsSection>
+              <p className="text-sm text-gray-700">
+                Analysez les biens en cashflow négatif, les mensualités lourdes et les taux élevés avant
+                d&apos;ajuster le tableau.
+              </p>
+              {portfolioCashflowNetMoyenApresCredit != null && (
+                <p className="text-xs text-gray-600 mt-2 tabular-nums">
+                  Cashflow net moyen après crédit :{' '}
+                  <span className="font-semibold text-gray-900">
+                    {formatCurrency(portfolioCashflowNetMoyenApresCredit)}
+                  </span>
+                </p>
+              )}
+            </GlobalPilotageAlertsSection>
+          </>
+        )}
+
+        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+          <h3 className="text-base font-semibold text-gray-900 mb-3">Synthèse</h3>
+          <LoansKpiBar
+            kpis={kpis}
+            activeFilter={activeKpiFilter}
+            onFilterChange={handleKpiFilterChange}
+            isLoading={kpisLoading}
+            sustainabilityKpi={
+              mode === 'app-shell'
+                ? {
+                    loading: loading || isLoadingCashflowMap,
+                    value: portfolioCashflowNetMoyenApresCredit,
+                  }
+                : undefined
+            }
           />
         </div>
 
-        {/* KPIs - Cartes filtrantes */}
-        <LoansKpiBar
-          kpis={kpis}
-          activeFilter={activeKpiFilter}
-          onFilterChange={handleKpiFilterChange}
-          isLoading={kpisLoading}
-        />
+        <GlobalPilotageDetailAccordion
+          open={loansDetailOpen}
+          onToggle={() => setLoansDetailOpen((v) => !v)}
+          title="Détail complet (graphiques, filtres et tableau)"
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <LoansCRDTimelineChart
+              data={charts.crdTimeline}
+              isLoading={chartsLoading}
+            />
+            <LoansByPropertyChart
+              data={charts.crdByProperty}
+              isLoading={chartsLoading}
+              financingNavigation={mode === 'app-shell'}
+            />
+            <LoansTopCostlyChart
+              data={charts.topCostlyLoans}
+              isLoading={chartsLoading}
+              onViewMore={() => setShowTopCostlyModal(true)}
+              financingNavigation={mode === 'app-shell'}
+            />
+          </div>
 
-        {/* Filtres */}
-        <LoansFilters
-          filters={filters}
-          onFiltersChange={handleFiltersChange}
-          onResetFilters={handleResetFilters}
-          properties={properties}
-          periodStart={periodStart}
-          periodEnd={periodEnd}
-          onPeriodChange={handlePeriodChange}
-        />
+          <LoansFilters
+            filters={filters}
+            onFiltersChange={handleFiltersChange}
+            onResetFilters={handleResetFilters}
+            properties={properties}
+            periodStart={periodStart}
+            periodEnd={periodEnd}
+            onPeriodChange={handlePeriodChange}
+            pilotageFilterLabel={
+              mode === 'app-shell' && pilotageQuickFilter
+                ? PILOTAGE_FILTER_LABELS[pilotageQuickFilter]
+                : null
+            }
+            onClearPilotageFilter={mode === 'app-shell' ? handleResetPilotageOnly : undefined}
+          />
 
         {/* Tableau */}
         <div className="bg-white rounded-xl border border-gray-200">
@@ -588,7 +800,7 @@ export function LoansPageCore({
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-semibold text-gray-900">Prêts immobiliers</h3>
               <div className="text-sm text-gray-600">
-                {loans.length} prêt{loans.length > 1 ? 's' : ''} au total
+                {loansForTable.length} prêt{loansForTable.length > 1 ? 's' : ''} au total
               </div>
             </div>
 
@@ -620,13 +832,13 @@ export function LoansPageCore({
                   <div className="h-12 bg-gray-100 rounded animate-pulse"></div>
                 </div>
               ))
-            ) : loans.length === 0 ? (
+            ) : loansForTable.length === 0 ? (
               <div className="text-center text-gray-500 py-12">
                 Aucun prêt trouvé
               </div>
             ) : (
               <>
-                {loans.slice(0, mobileLimit).map((loan) => (
+                {loansForTable.slice(0, mobileLimit).map((loan) => (
                   <div
                     key={loan.id}
                     onClick={() => handleRowClick(loan)}
@@ -647,19 +859,22 @@ export function LoansPageCore({
                           />
                           <h4 className="text-sm font-semibold text-gray-900 truncate">{loan.label}</h4>
                         </div>
+                        <div className="mb-2">{getStatusBadge(loan)}</div>
                         <div className="space-y-1 mb-2">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-gray-600">Bien:</span>
-                            <span className="font-medium text-gray-900">{loan.propertyName}</span>
-                          </div>
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-gray-600">Capital initial:</span>
-                            <span className="font-medium text-gray-900">{formatCurrency(loan.principal)}</span>
+                          <div className="flex items-start justify-between gap-2 text-sm">
+                            <span className="text-gray-600 shrink-0 pt-0.5">Bien:</span>
+                            <div className="min-w-0 text-right">{renderPropertyColumn(loan, true)}</div>
                           </div>
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-gray-600">Mensualité:</span>
                             <span className="font-semibold text-cyan-600">
-                              {loan.monthlyPayment ? formatCurrency(loan.monthlyPayment) : '—'}
+                              {formatCurrency(loan.loanDisplay?.monthlyPayment || loan.monthlyPayment || 0)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-600">CRD actuel:</span>
+                            <span className="font-medium text-gray-900">
+                              {formatCurrency(loan.loanDisplay?.currentCRD || 0)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-sm">
@@ -667,82 +882,49 @@ export function LoansPageCore({
                             <span className="text-gray-900">{loan.annualRatePct}%</span>
                           </div>
                           <div className="flex items-center justify-between text-sm">
-                            <span className="text-gray-600">Durée:</span>
-                            <span className="text-gray-900">{loan.durationMonths} mois</span>
+                            <span className="text-gray-600">Durée restante:</span>
+                            <span className="text-gray-900">{loan.loanDisplay?.remainingMonths ?? 0} mois</span>
                           </div>
-                          {loan.endDate && (
+                          {typeof loan.loanDisplay?.repaidPercent === 'number' && (
                             <div className="flex items-center justify-between text-sm">
-                              <span className="text-gray-600">Date de fin:</span>
-                              <span className="text-gray-900">{formatDate(loan.endDate)}</span>
-                            </div>
-                          )}
-                          {loan.insurancePct && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-gray-600">Assurance:</span>
-                              <span className="text-gray-900">{loan.insurancePct}%/an</span>
+                              <span className="text-gray-600">% remboursé:</span>
+                              <span className="text-gray-900">{Math.round(loan.loanDisplay.repaidPercent)}%</span>
                             </div>
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <Switch
-                          checked={loan.isActive}
-                          onCheckedChange={async (checked) => {
-                            if (!organizationId) {
-                              notify2.error('Organisation requise');
-                              return;
-                            }
-
-                            try {
-                              const loanRepo = getLoanRepositoryOffline();
-                              
-                              // Mettre à jour dans IndexedDB (crée automatiquement une pendingOp)
-                              await loanRepo.upsert({ ...loan, id: loan.id, isActive: checked, organizationId }, organizationId);
-                              
-                              // ✅ Émettre un événement ciblé avec payload scope global
-                              window.dispatchEvent(new CustomEvent('loans:refresh', { 
-                                detail: { scope: 'global', reason: 'update' } 
-                              }));
-                            } catch (error: any) {
-                              console.error('Erreur lors de la mise à jour:', error);
-                              notify2.error('Erreur lors de la mise à jour');
-                            }
-                          }}
-                        />
+                      <div className="flex flex-col gap-2 flex-shrink-0 w-full min-w-0" onClick={(e) => e.stopPropagation()}>
                         <Button
-                          variant="ghost"
+                          type="button"
                           size="sm"
+                          className="w-full bg-orange-600 hover:bg-orange-700 text-white text-xs"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleEdit(loan);
+                            handleRowClick(loan);
                           }}
-                          title="Éditer"
-                          className="h-8 w-8 p-0"
                         >
-                          <Edit className="h-4 w-4" />
+                          Analyser
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
+                        <button
+                          type="button"
+                          className={GLOBAL_ROW_DETAIL_LINK_CLASS}
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDelete(loan);
+                            handleRowClick(loan);
                           }}
-                          title="Supprimer"
-                          className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                          Voir détail
+                        </button>
                       </div>
                     </div>
                   </div>
                 ))}
-                {loans.length > mobileLimit && (
+                {loansForTable.length > mobileLimit && (
                   <button
                     onClick={() => setMobileLimit(prev => prev + 10)}
                     className="w-full py-2 text-sm font-medium text-orange-600 hover:text-orange-700 hover:bg-orange-50 rounded-lg border border-orange-200 transition-colors"
                   >
-                    Voir plus ({loans.length - mobileLimit} restantes)
+                    Voir plus ({loansForTable.length - mobileLimit} restantes)
                   </button>
                 )}
               </>
@@ -759,40 +941,38 @@ export function LoansPageCore({
                     <TableHeaderCellV2>
                       <input
                         type="checkbox"
-                        checked={selectedLoanIds.length === loans.length && loans.length > 0}
+                        checked={selectedLoanIds.length === loansForTable.length && loansForTable.length > 0}
                         onChange={(e) => handleSelectAll(e.target.checked)}
                         className="rounded border-gray-300"
                       />
                     </TableHeaderCellV2>
                     <TableHeaderCellV2>Libellé</TableHeaderCellV2>
                     <TableHeaderCellV2>Bien</TableHeaderCellV2>
-                    <TableHeaderCellV2 className="text-right">Capital Initial</TableHeaderCellV2>
                     <TableHeaderCellV2 className="text-right">Mensualité</TableHeaderCellV2>
+                    <TableHeaderCellV2 className="text-right">CRD Actuel</TableHeaderCellV2>
                     <TableHeaderCellV2 className="text-right">Taux</TableHeaderCellV2>
-                    <TableHeaderCellV2 className="text-right">Durée</TableHeaderCellV2>
-                    <TableHeaderCellV2>Date de fin</TableHeaderCellV2>
-                    <TableHeaderCellV2>Assurance</TableHeaderCellV2>
-                    <TableHeaderCellV2 className="text-center">Actif</TableHeaderCellV2>
-                    <TableHeaderCellV2 className="text-center">Actions</TableHeaderCellV2>
+                    <TableHeaderCellV2 className="text-right">Durée restante</TableHeaderCellV2>
+                    <TableHeaderCellV2 className="text-center">Statut</TableHeaderCellV2>
+                    <TableHeaderCellV2 className="text-center whitespace-nowrap">Action</TableHeaderCellV2>
                   </tr>
                 </TableHeaderV2>
                 <TableBodyV2>
                   {loading ? (
                     [...Array(5)].map((_, i) => (
                       <tr key={i}>
-                        <td colSpan={11} className="px-4 py-3">
+                        <td colSpan={9} className="px-4 py-3">
                           <div className="h-12 bg-gray-100 rounded animate-pulse"></div>
                         </td>
                       </tr>
                     ))
-                  ) : loans.length === 0 ? (
+                  ) : loansForTable.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
                         Aucun prêt trouvé
                       </td>
                     </tr>
                   ) : (
-                    loans.map((loan) => (
+                    loansForTable.map((loan) => (
                       <TableRowV2
                         key={loan.id}
                         onClick={() => handleRowClick(loan)}
@@ -811,27 +991,17 @@ export function LoansPageCore({
                         </TableCellV2>
                         <TableCellV2>
                           <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out text-sm">
-                            {mode === 'normal' ? (
-                              <Link
-                                href={`/app?view=property&propertyId=${loan.propertyId}&tab=loans`}
-                                className="text-primary-600 hover:underline"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {loan.propertyName}
-                              </Link>
-                            ) : (
-                              <span className="text-gray-900">{loan.propertyName}</span>
-                            )}
-                          </div>
-                        </TableCellV2>
-                        <TableCellV2 className="text-right">
-                          <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out font-medium text-gray-900">
-                            {formatCurrency(loan.principal)}
+                            {renderPropertyColumn(loan)}
                           </div>
                         </TableCellV2>
                         <TableCellV2 className="text-right">
                           <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out font-semibold text-cyan-600">
-                            {loan.monthlyPayment ? formatCurrency(loan.monthlyPayment) : '—'}
+                            {formatCurrency(loan.loanDisplay?.monthlyPayment || loan.monthlyPayment || 0)}
+                          </div>
+                        </TableCellV2>
+                        <TableCellV2 className="text-right">
+                          <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out font-medium text-gray-900">
+                            {formatCurrency(loan.loanDisplay?.currentCRD || 0)}
                           </div>
                         </TableCellV2>
                         <TableCellV2 className="text-right">
@@ -841,87 +1011,38 @@ export function LoansPageCore({
                         </TableCellV2>
                         <TableCellV2 className="text-right">
                           <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out text-sm text-gray-600">
-                            {loan.durationMonths} mois
+                            {loan.loanDisplay?.remainingMonths ?? 0} mois
                           </div>
                         </TableCellV2>
-                        <TableCellV2>
-                          <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out text-sm text-gray-600">
-                            {loan.endDate ? formatDate(loan.endDate) : '—'}
-                          </div>
-                        </TableCellV2>
-                        <TableCellV2>
-                          <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out text-sm text-gray-600">
-                            {loan.insurancePct ? `${loan.insurancePct}%/an` : '—'}
-                          </div>
-                        </TableCellV2>
-                        <TableCellV2 className="text-center" onClick={(e) => e.stopPropagation()}>
+                        <TableCellV2 className="text-center">
                           <div className="ui2-table-cell-content opacity-100 group-hover:opacity-20 transition-opacity duration-150 ease-in-out">
-                            <Switch
-                              checked={loan.isActive}
-                              onCheckedChange={async (checked) => {
-                                try {
-                                  if (mode === 'app-shell' || !navigator.onLine) {
-                                    const repo = getLoanRepositoryOffline();
-                                    const orgId = organizationId || 'default';
-                                    await repo.upsert({
-                                      ...loan,
-                                      isActive: checked,
-                                    }, orgId);
-                                    
-                                    if (mode === 'app-shell') {
-                                      // ✅ Émettre un événement ciblé avec payload scope global
-                                      window.dispatchEvent(new CustomEvent('loans:refresh', { 
-                                        detail: { scope: 'global', reason: 'update' } 
-                                      }));
-                                    } else if (mode === 'normal' && router) {
-                                      router.refresh();
-                                    }
-                                    setRefreshKey((k) => k + 1);
-                                    return;
-                                  }
-
-                                  const response = await fetch(`/api/loans/${loan.id}`, {
-                                    method: 'PATCH',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ isActive: checked }),
-                                  });
-                                  if (response.ok) {
-                                    queryClient.invalidateQueries({ queryKey: ['loans-kpis'] });
-                                    queryClient.invalidateQueries({ queryKey: ['loans-charts'] });
-                                    queryClient.invalidateQueries({ queryKey: ['dashboard-patrimoine'] });
-                                    setRefreshKey((k) => k + 1);
-                                  }
-                                } catch (error) {
-                                  notify2.error('Erreur lors de la mise à jour');
-                                }
-                              }}
-                            />
+                            {getStatusBadge(loan)}
                           </div>
                         </TableCellV2>
-                        <TableCellV2 className="text-center" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-center gap-1">
+                        <TableCellV2 className="text-center align-top" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-col items-center max-w-[9rem] mx-auto py-0.5">
                             <Button
-                              variant="outline"
+                              type="button"
+                              variant="default"
                               size="sm"
+                              className="h-8 w-full max-w-[8rem] bg-orange-600 hover:bg-orange-700 text-white text-xs"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleEdit(loan);
+                                handleRowClick(loan);
                               }}
-                              className="h-8 w-8 p-0"
                             >
-                              <Edit className="h-4 w-4" />
+                              Analyser
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
+                            <button
+                              type="button"
+                              className={`${GLOBAL_ROW_DETAIL_LINK_CLASS} !text-[11px]`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleDelete(loan);
+                                handleRowClick(loan);
                               }}
-                              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                             >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                              Voir détail
+                            </button>
                           </div>
                         </TableCellV2>
                       </TableRowV2>
@@ -937,40 +1058,38 @@ export function LoansPageCore({
                     <th className="px-4 py-3 text-left">
                       <input
                         type="checkbox"
-                        checked={selectedLoanIds.length === loans.length && loans.length > 0}
+                        checked={selectedLoanIds.length === loansForTable.length && loansForTable.length > 0}
                         onChange={(e) => handleSelectAll(e.target.checked)}
                         className="rounded border-gray-300"
                       />
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Libellé</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bien</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Capital Initial</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Mensualité</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">CRD Actuel</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Taux</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Durée</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date de fin</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assurance</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actif</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Durée restante</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Statut</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {loading ? (
                     [...Array(5)].map((_, i) => (
                       <tr key={i}>
-                        <td colSpan={11} className="px-4 py-3">
+                        <td colSpan={9} className="px-4 py-3">
                           <div className="h-12 bg-gray-100 rounded animate-pulse"></div>
                         </td>
                       </tr>
                     ))
-                  ) : loans.length === 0 ? (
+                  ) : loansForTable.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
                         Aucun prêt trouvé
                       </td>
                     </tr>
                   ) : (
-                    loans.map((loan) => (
+                    loansForTable.map((loan) => (
                       <tr
                         key={loan.id}
                         className="hover:bg-gray-50 cursor-pointer"
@@ -985,99 +1104,44 @@ export function LoansPageCore({
                           />
                         </td>
                         <td className="px-4 py-3 text-sm font-medium text-gray-900">{loan.label}</td>
-                        <td className="px-4 py-3 text-sm">
-                          {mode === 'normal' ? (
-                            <Link
-                              href={`/app?view=property&propertyId=${loan.propertyId}&tab=loans`}
-                              className="text-primary-600 hover:underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {loan.propertyName}
-                            </Link>
-                          ) : (
-                            <span className="text-gray-900">{loan.propertyName}</span>
-                          )}
+                        <td className="px-4 py-3 text-sm">{renderPropertyColumn(loan)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-semibold text-cyan-600">
+                          {formatCurrency(loan.loanDisplay?.monthlyPayment || loan.monthlyPayment || 0)}
                         </td>
                         <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
-                          {formatCurrency(loan.principal)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-semibold text-cyan-600">
-                          {loan.monthlyPayment ? formatCurrency(loan.monthlyPayment) : '—'}
+                          {formatCurrency(loan.loanDisplay?.currentCRD || 0)}
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-gray-600">{loan.annualRatePct}%</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">{loan.durationMonths} mois</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{loan.endDate ? formatDate(loan.endDate) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {loan.insurancePct ? `${loan.insurancePct}%/an` : '—'}
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">
+                          {loan.loanDisplay?.remainingMonths ?? 0} mois
                         </td>
-                        <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                          <Switch
-                            checked={loan.isActive}
-                            onCheckedChange={async (checked) => {
-                              try {
-                                if (mode === 'app-shell' || !navigator.onLine) {
-                                  const repo = getLoanRepositoryOffline();
-                                  const orgId = organizationId || 'default';
-                                  await repo.upsert({
-                                    ...loan,
-                                    isActive: checked,
-                                  }, orgId);
-                                  
-                                  if (mode === 'app-shell') {
-                                    // ✅ Émettre un événement ciblé avec payload scope global
-                                    window.dispatchEvent(new CustomEvent('loans:refresh', { 
-                                      detail: { scope: 'global', reason: 'update' } 
-                                    }));
-                                  } else if (mode === 'normal' && router) {
-                                    router.refresh();
-                                  }
-                                  setRefreshKey((k) => k + 1);
-                                  return;
-                                }
-
-                                const response = await fetch(`/api/loans/${loan.id}`, {
-                                  method: 'PATCH',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ isActive: checked }),
-                                });
-                                if (response.ok) {
-                                  queryClient.invalidateQueries({ queryKey: ['loans-kpis'] });
-                                  queryClient.invalidateQueries({ queryKey: ['loans-charts'] });
-                                  queryClient.invalidateQueries({ queryKey: ['dashboard-patrimoine'] });
-                                  setRefreshKey((k) => k + 1);
-                                }
-                              } catch (error) {
-                                notify2.error('Erreur lors de la mise à jour');
-                              }
-                            }}
-                          />
+                        <td className="px-4 py-3 text-center">
+                          {getStatusBadge(loan)}
                         </td>
-                        <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-center gap-1">
+                        <td className="px-4 py-3 text-center align-top" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-col items-center max-w-[9rem] mx-auto py-0.5">
                             <Button
-                              variant="ghost"
+                              type="button"
+                              variant="default"
                               size="sm"
+                              className="h-8 w-full max-w-[8rem] bg-orange-600 hover:bg-orange-700 text-white text-xs"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleEdit(loan);
+                                handleRowClick(loan);
                               }}
-                              title="Éditer"
-                              className="h-8 w-8 p-0"
                             >
-                              <Edit className="h-4 w-4" />
+                              Analyser
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
+                            <button
+                              type="button"
+                              className={`${GLOBAL_ROW_DETAIL_LINK_CLASS} !text-[11px]`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleDelete(loan);
+                                handleRowClick(loan);
                               }}
-                              title="Archiver"
-                              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                             >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                              Voir détail
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1088,6 +1152,7 @@ export function LoansPageCore({
             )}
           </div>
         </div>
+        </GlobalPilotageDetailAccordion>
       </div>
 
       {/* Modal de formulaire */}
@@ -1133,6 +1198,7 @@ export function LoansPageCore({
         isOpen={showTopCostlyModal}
         onClose={() => setShowTopCostlyModal(false)}
         data={charts.topCostlyLoans}
+        financingNavigation={mode === 'app-shell'}
       />
     </div>
   );

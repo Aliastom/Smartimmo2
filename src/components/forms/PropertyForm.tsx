@@ -655,6 +655,43 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
                   </p>
                 </div>
               )}
+
+              {/* Mode d'exploitation : distinct du type fiscal (canal location vs catégorie IR/IS) */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Mode d&apos;exploitation
+                </label>
+                <SmartSelect
+                  value={formData.rentalMode || 'LONG_TERM'}
+                  onChange={(value) => handleChange('rentalMode', value)}
+                  options={[
+                    { value: 'LONG_TERM', label: 'Location classique (bail)' },
+                    { value: 'SEASONAL_AIRBNB', label: 'Location saisonnière (Airbnb)' },
+                  ]}
+                  placeholder="Sélectionner un mode"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  Indépendant du type fiscal. En saisonnière / Airbnb, pas de bail et import CSV Airbnb possible sur la page Transactions.
+                </p>
+              </div>
+
+              {formData.rentalMode === 'SEASONAL_AIRBNB' && (
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    ID de l&apos;annonce Airbnb (optionnel)
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.airbnbListingId || ''}
+                    onChange={(e) => handleChange('airbnbListingId', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
+                    placeholder="Ex: 12345678"
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    Identifiant de votre annonce Airbnb (optionnel, pour référence)
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -864,44 +901,6 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
               />
               <p className="text-sm text-gray-500 mt-1">
                 Si vous sélectionnez une société de gestion, les commissions seront calculées automatiquement sur les loyers.
-              </p>
-            </div>
-          )}
-
-          {/* Mode d'exploitation / Canal de location */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Mode d'exploitation
-            </label>
-            <SmartSelect
-              value={formData.rentalMode || 'LONG_TERM'}
-              onChange={(value) => handleChange('rentalMode', value)}
-              options={[
-                { value: 'LONG_TERM', label: 'Location classique (bail)' },
-                { value: 'SEASONAL_AIRBNB', label: 'Location saisonnière (Airbnb)' },
-              ]}
-              placeholder="Sélectionner un mode"
-            />
-            <p className="text-sm text-gray-500 mt-1">
-              Définit le mode d'exploitation du bien. Les biens Airbnb n'ont pas besoin de bail.
-            </p>
-          </div>
-
-          {/* ID de l'annonce Airbnb (si mode Airbnb) */}
-          {formData.rentalMode === 'SEASONAL_AIRBNB' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                ID de l'annonce Airbnb (optionnel)
-              </label>
-              <input
-                type="text"
-                value={formData.airbnbListingId || ''}
-                onChange={(e) => handleChange('airbnbListingId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white outline-none focus:ring-0 focus:border-orange-500 transition-colors"
-                placeholder="Ex: 12345678"
-              />
-              <p className="text-sm text-gray-500 mt-1">
-                Identifiant de votre annonce Airbnb (optionnel, pour référence)
               </p>
             </div>
           )}

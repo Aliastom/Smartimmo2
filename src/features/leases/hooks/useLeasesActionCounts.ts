@@ -7,17 +7,17 @@ import { getLocalDB } from '@/lib/offline/db';
 import { computeLeaseHealthStatut, type EcheanceForHealth, type TransactionForHealth } from '../utils/leaseHealthCalculator';
 import type { LeaseWithDetails } from '@/lib/services/leasesService';
 import { getLeaseIndexationStatus } from '../utils/leaseIndexationStatus';
+import {
+  buildLeasePriorityActions,
+  type LeasePriorityAction,
+  type LeasePilotageRowMeta,
+  type LeasePaymentPilotageMeta,
+} from '../utils/buildLeasePriorityActions';
+import { deriveCritiquePriorityActionsFromPilotage } from '../utils/leasePilotageSection';
+import type { LeasesActionCounts } from '../types/leasesActionCounts';
 
-export interface LeasesActionCounts {
-  partiels: number;
-  retards: number;
-  expirant90: number;
-  indexations: number;
-  leaseIdsPartiels: Set<string>;
-  leaseIdsRetards: Set<string>;
-  leaseIdsExpirant90: Set<string>;
-  leaseIdsIndexations: Set<string>;
-}
+export type { LeasePriorityAction, LeasePilotageRowMeta, LeasePaymentPilotageMeta };
+export type { LeasesActionCounts };
 
 const EMPTY: LeasesActionCounts = {
   partiels: 0,
@@ -36,11 +36,19 @@ export function useLeasesActionCounts(
   mode: 'normal' | 'app-shell'
 ) {
   const [counts, setCounts] = useState<LeasesActionCounts>(EMPTY);
+  const [priorityActions, setPriorityActions] = useState<LeasePriorityAction[]>([]);
+  const [leasePilotageById, setLeasePilotageById] = useState<Record<string, LeasePilotageRowMeta>>({});
+  const [leasePaymentPilotageById, setLeasePaymentPilotageById] = useState<
+    Record<string, LeasePaymentPilotageMeta>
+  >({});
   const [loading, setLoading] = useState(true);
 
   const compute = useCallback(async () => {
     if (!organizationId || leases.length === 0) {
       setCounts(EMPTY);
+      setPriorityActions([]);
+      setLeasePilotageById({});
+      setLeasePaymentPilotageById({});
       setLoading(false);
       return;
     }
@@ -102,6 +110,9 @@ export function useLeasesActionCounts(
         leaseIdsExpirant90,
         leaseIdsIndexations,
       });
+      setPriorityActions([]);
+      setLeasePilotageById({});
+      setLeasePaymentPilotageById({});
       setLoading(false);
       return;
     }
@@ -123,7 +134,6 @@ export function useLeasesActionCounts(
         indexationsByLease.set(item.leaseId, cur);
       });
 
-      const leaseIds = new Set(leases.map((l) => l.id));
       const leaseIdsPartiels = new Set<string>();
       const leaseIdsRetards = new Set<string>();
       const leaseIdsExpirant90 = new Set<string>();
@@ -183,7 +193,14 @@ export function useLeasesActionCounts(
         if (idx.status === 'UPCOMING' || idx.status === 'DUE') leaseIdsIndexations.add(lease.id);
       }
 
-      setCounts({
+      const pilotage = buildLeasePriorityActions({
+        leases,
+        allEcheances: allEcheances as EcheanceForHealth[],
+        allTransactions: allTransactions as TransactionForHealth[],
+        indexationsByLease,
+        now,
+      });
+      const nextCounts: LeasesActionCounts = {
         partiels: leaseIdsPartiels.size,
         retards: leaseIdsRetards.size,
         expirant90: leaseIdsExpirant90.size,
@@ -192,10 +209,19 @@ export function useLeasesActionCounts(
         leaseIdsRetards,
         leaseIdsExpirant90,
         leaseIdsIndexations,
-      });
+      };
+      setLeasePilotageById(pilotage.leasePilotageById);
+      setLeasePaymentPilotageById(pilotage.leasePaymentPilotageById);
+      setCounts(nextCounts);
+      setPriorityActions(
+        deriveCritiquePriorityActionsFromPilotage(leases, pilotage.leasePilotageById, nextCounts)
+      );
     } catch (err) {
       console.error('[useLeasesActionCounts]', err);
       setCounts(EMPTY);
+      setPriorityActions([]);
+      setLeasePilotageById({});
+      setLeasePaymentPilotageById({});
     } finally {
       setLoading(false);
     }
@@ -208,70 +234,20 @@ export function useLeasesActionCounts(
   // ✅ Rafraîchir quand une transaction est créée (ex: "Payer le reste")
   // OPTIM: mise à jour incrémentale si leaseId présent (un seul bail concerné)
   useEffect(() => {
-    const handleRefresh = async (event: Event) => {
-      const detail = (event instanceof CustomEvent && event.detail) 
-        ? (event.detail as { leaseId?: string; scope?: string; propertyId?: string; reason?: string }) 
-        : null;
-      const leaseId = detail?.leaseId;
-
-      // leases:refresh avec reason='tx' est redondant avec transactions:refresh, éviter double traitement
+    const handleRefresh = (event: Event) => {
+      const detail = event instanceof CustomEvent && event.detail ? (event.detail as { reason?: string }) : null;
       const isLeasesTx = event.type === 'leases:refresh' && detail?.reason === 'tx';
       if (isLeasesTx) return;
-
-      if (leaseId && organizationId && mode === 'app-shell') {
-        const lease = leases.find((l) => l.id === leaseId);
-        if (!lease) return;
-
-        try {
-          const echRepo = getEcheanceRepositoryOffline();
-          const txRepo = getTransactionRepositoryOffline();
-          const [echForLease, txForLease] = await Promise.all([
-            echRepo.getAll(organizationId, { leaseId, isActive: true }) as Promise<EcheanceForHealth[]>,
-            txRepo.getAll(organizationId, { leaseId }) as Promise<TransactionForHealth[]>,
-          ]);
-
-          const newStatut = computeLeaseHealthStatut(
-            {
-              leaseId: lease.id,
-              paymentDay: lease.paymentDay ?? 5,
-              rentAmount: lease.rentAmount,
-              chargesRecupMensuelles: lease.chargesRecupMensuelles ?? 0,
-            },
-            echForLease,
-            txForLease
-          );
-
-          setCounts((prev) => {
-            const next = {
-              ...prev,
-              leaseIdsPartiels: new Set(prev.leaseIdsPartiels),
-              leaseIdsRetards: new Set(prev.leaseIdsRetards),
-            };
-            next.leaseIdsPartiels.delete(leaseId);
-            next.leaseIdsRetards.delete(leaseId);
-            if (newStatut === 'retard') next.leaseIdsRetards.add(leaseId);
-            else if (newStatut === 'partiel') next.leaseIdsPartiels.add(leaseId);
-            next.partiels = next.leaseIdsPartiels.size;
-            next.retards = next.leaseIdsRetards.size;
-            return next;
-          });
-        } catch (err) {
-          console.warn('[useLeasesActionCounts] Incrémental échoué, fallback full:', err);
-          compute();
-        }
-      } else {
-        compute();
-      }
+      void compute();
     };
 
-    const bound = (e: Event) => handleRefresh(e);
-    window.addEventListener('transactions:refresh', bound);
-    window.addEventListener('leases:refresh', bound);
+    window.addEventListener('transactions:refresh', handleRefresh);
+    window.addEventListener('leases:refresh', handleRefresh);
     return () => {
-      window.removeEventListener('transactions:refresh', bound);
-      window.removeEventListener('leases:refresh', bound);
+      window.removeEventListener('transactions:refresh', handleRefresh);
+      window.removeEventListener('leases:refresh', handleRefresh);
     };
-  }, [organizationId, leases, mode, compute]);
+  }, [compute]);
 
-  return { counts, loading };
+  return { counts, priorityActions, leasePilotageById, leasePaymentPilotageById, loading };
 }

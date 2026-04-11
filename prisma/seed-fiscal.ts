@@ -163,7 +163,12 @@ async function main() {
         { lower: 177106, upper: null, rate: 0.45 },
       ],
       irDecote: {
-        threshold: 1929,
+        threshold: 1917,
+        seuilCelibataire: 1917,
+        seuilCouple: 3177,
+        plafondCelibataire: 833,
+        plafondCouple: 1378,
+        taux: 0.45,
       },
       psRate: 0.172,
       micro: {
@@ -215,6 +220,79 @@ async function main() {
     console.log(`✅ Version fiscale 2025.1 créée et publiée`);
   } else {
     console.log(`ℹ️  Version fiscale 2025 déjà existante`);
+  }
+
+  const existing2026 = await prisma.fiscalVersion.findFirst({
+    where: { code: '2026.1' },
+  });
+
+  if (!existing2026) {
+    const fiscalParams2026 = {
+      version: '2026.1',
+      year: 2026,
+      irBrackets: [
+        { lower: 0, upper: 11600, rate: 0 },
+        { lower: 11600, upper: 29579, rate: 0.11 },
+        { lower: 29579, upper: 84577, rate: 0.3 },
+        { lower: 84577, upper: 181917, rate: 0.41 },
+        { lower: 181917, upper: null, rate: 0.45 },
+      ],
+      irDecote: {
+        seuilCelibataire: 1983,
+        seuilCouple: 3278,
+        plafondCelibataire: 897,
+        plafondCouple: 1483,
+        taux: 0.4525,
+      },
+      psRate: 0.172,
+      micro: {
+        foncierAbattement: 0.3,
+        foncierPlafond: 15000,
+        bicAbattement: 0.5,
+        bicPlafond: 77700,
+        meubleTourismeAbattement: 0.71,
+        meubleTourismePlafond: 188700,
+      },
+      deficitFoncier: {
+        plafondImputationRevenuGlobal: 10700,
+        dureeReport: 10,
+      },
+      per: {
+        tauxPlafond: 0.1,
+        plancherLegal: 4399,
+        dureeReportReliquats: 3,
+      },
+      lmp: {
+        recettesMin: 23000,
+        tauxRecettesProMin: 0.5,
+        inscriptionRCSObligatoire: true,
+      },
+      sciIS: {
+        tauxReduit: 0.15,
+        plafondTauxReduit: 42500,
+        tauxNormal: 0.25,
+      },
+      source: 'DGFiP 2026.1 (barème IR + décote revenus 2025 / décl. 2026)',
+    };
+
+    await prisma.fiscalVersion.create({
+      data: {
+        code: '2026.1',
+        year: 2026,
+        source: 'DGFiP 2026',
+        status: 'published',
+        validatedBy: 'system',
+        notes: 'Version publiée 2026.1',
+        params: {
+          create: {
+            jsonData: JSON.stringify(fiscalParams2026),
+          },
+        },
+      },
+    });
+    console.log(`✅ Version fiscale 2026.1 créée et publiée`);
+  } else {
+    console.log(`ℹ️  Version fiscale 2026.1 déjà existante`);
   }
 
   console.log('\n✨ Initialisation terminée !');

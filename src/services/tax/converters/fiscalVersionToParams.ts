@@ -6,6 +6,16 @@
  */
 
 import type { TaxParams } from '@/types/fiscal';
+import { buildIrDecoteFromStored } from '@/services/tax/irDecoteDGFiP';
+
+/** Repli uniquement si `jsonData.irBrackets` est absent (aligné version publiée 2026.1, revenus 2025 / décl. 2026). */
+const FALLBACK_IR_BRACKETS_WHEN_JSON_MISSING: TaxParams['irBrackets'] = [
+  { lower: 0, upper: 11600, rate: 0.0 },
+  { lower: 11600, upper: 29579, rate: 0.11 },
+  { lower: 29579, upper: 84577, rate: 0.3 },
+  { lower: 84577, upper: 181917, rate: 0.41 },
+  { lower: 181917, upper: null, rate: 0.45 },
+];
 
 interface FiscalVersionWithParams {
   id: string;
@@ -33,41 +43,21 @@ export function fiscalVersionToTaxParams(
     year: version.year,
     
     // ========== BARÈME IR ==========
-    irBrackets: jsonData.irBrackets || [
-      { lower: 0, upper: 11294, rate: 0.00 },
-      { lower: 11294, upper: 28797, rate: 0.11 },
-      { lower: 28797, upper: 82341, rate: 0.30 },
-      { lower: 82341, upper: 177106, rate: 0.41 },
-      { lower: 177106, upper: null, rate: 0.45 },
-    ],
+    irBrackets: jsonData.irBrackets?.length
+      ? jsonData.irBrackets
+      : FALLBACK_IR_BRACKETS_WHEN_JSON_MISSING,
     
-    // ========== DÉCOTE IR ==========
-    irDecote: jsonData.irDecote ? {
-      threshold: jsonData.irDecote.seuilCelibataire || 1929,
-      formula: (tax: number, parts: number) => {
-        const seuilCelib = jsonData.irDecote.seuilCelibataire || 1929;
-        const seuilCouple = jsonData.irDecote.seuilCouple || 3858;
-        const facteur = jsonData.irDecote.facteur || 0.75;
-        
-        const seuil = parts === 1 ? seuilCelib : seuilCouple;
-        const decote = seuil - (facteur * tax);
-        return Math.max(0, decote);
-      }
-    } : {
-      threshold: 1929,
-      formula: (tax: number, parts: number) => {
-        const seuil = parts === 1 ? 1929 : 3858;
-        const decote = seuil - (0.75 * tax);
-        return Math.max(0, decote);
-      }
-    },
+    // ========== DÉCOTE IR (JSON admin — formule DGFiP côté moteur) ==========
+    irDecote: buildIrDecoteFromStored(jsonData.irDecote ?? {}),
     
     // ========== ABATTEMENT FORFAITAIRE SALAIRES ==========
     salaryDeduction: jsonData.salaryDeduction || {
-      taux: 0.10,      // 10% (Article 83 CGI)
-      min: 472,        // Minimum 2025
-      max: 13522,      // Maximum 2025
+      taux: 0.1,
+      min: 472,
+      max: 13522,
     },
+
+    pensionSocialesDeductiblesEstime: jsonData.pensionSocialesDeductiblesEstime,
     
     // ========== PRÉLÈVEMENTS SOCIAUX ==========
     psRate: jsonData.psRate || 0.172,
@@ -136,16 +126,9 @@ export function normalizedToTaxParams(
     
     irBrackets: normalized.irBrackets || [],
     
-    irDecote: normalized.irDecote ? {
-      threshold: normalized.irDecote.seuilCelibataire,
-      formula: (tax: number, parts: number) => {
-        const seuil = parts === 1 
-          ? normalized.irDecote.seuilCelibataire 
-          : normalized.irDecote.seuilCouple;
-        const facteur = normalized.irDecote.facteur || 0.75;
-        return Math.max(0, seuil - (facteur * tax));
-      }
-    } : undefined,
+    irDecote: normalized.irDecote
+      ? buildIrDecoteFromStored(normalized.irDecote)
+      : undefined,
     
     psRate: normalized.psRate,
     micro: normalized.micro || {},

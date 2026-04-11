@@ -51,7 +51,7 @@ export async function getOrCreateFiscalSession(organizationId: string): Promise<
 
   const declarationYear = defaultDeclarationYear();
   const incomeYear = declarationYear - 1;
-  const baremeCode = await pickDefaultBaremeForYear(incomeYear);
+  const baremeCode = await pickDefaultBaremeForDeclarationYear(declarationYear);
 
   session = await fiscalSession.create({
     data: {
@@ -89,12 +89,11 @@ export async function updateFiscalSession(
     declarationYear = payload.declarationYear;
     incomeYear = declarationYear - 1;
     if (payload.baremeCode === undefined) {
-      baremeCode = await pickDefaultBaremeForYear(incomeYear);
+      baremeCode = await pickDefaultBaremeForDeclarationYear(declarationYear);
     }
   }
   if (payload.baremeCode !== undefined) {
     baremeCode = payload.baremeCode;
-    incomeYear = existing.incomeYear;
   }
 
   const session = await fiscalSession.update({
@@ -105,20 +104,27 @@ export async function updateFiscalSession(
 }
 
 /**
- * Choisit le barème publié le plus récent pour l'année (ou fallback)
+ * Barème par défaut pour une campagne de déclaration : `FiscalVersion.year` = année de déclaration
+ * (ex. déclaration 2026 → revenus 2025, barème publié avec year=2026 type « tranches IR 2026 »).
  */
-async function pickDefaultBaremeForYear(incomeYear: number): Promise<string> {
-  const list = await TaxParamsService.listPublishedByYear(incomeYear);
+async function pickDefaultBaremeForDeclarationYear(declarationYear: number): Promise<string> {
+  const list = await TaxParamsService.listPublishedByYear(declarationYear);
   if (list.length > 0) {
     return list[0].code;
   }
   try {
-    const params = await TaxParamsService.get(incomeYear);
+    const params = await TaxParamsService.get(declarationYear);
     return params.version;
   } catch {
-    const latestYear = Math.max(...[2024, 2025]); // années en fallback hardcodé
-    const params = await TaxParamsService.get(latestYear);
-    return params.version;
+    for (const y of [2026, 2025, 2024] as const) {
+      try {
+        const params = await TaxParamsService.get(y);
+        return params.version;
+      } catch {
+        /* essai année suivante */
+      }
+    }
+    return '2026.1';
   }
 }
 

@@ -14,7 +14,8 @@ import type { FiscalInputs, TaxParams } from '@/types/fiscal';
 let taxParams2025: TaxParams;
 
 beforeAll(async () => {
-  taxParams2025 = await TaxParamsService.get(2025);
+  // Revenus 2025 → campagne / barème déclaration 2026 (`FiscalVersion.year` = 2026)
+  taxParams2025 = await TaxParamsService.get(2026);
 });
 
 // ============================================================================

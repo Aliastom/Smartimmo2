@@ -16,7 +16,13 @@ interface LoansChartsParams {
 export interface LoansChartsData {
   crdTimeline: { month: string; crd: number }[];
   crdByProperty: { propertyName: string; crd: number; propertyId: string }[];
-  topCostlyLoans: { loanId: string; label: string; totalInterest: number; borrowers?: Array<{ name: string; pct: number | null }> }[];
+  topCostlyLoans: {
+    loanId: string;
+    propertyId: string;
+    label: string;
+    totalInterest: number;
+    borrowers?: Array<{ name: string; pct: number | null }>;
+  }[];
 }
 
 // ✅ OFFLINE-FIRST: Données vides par défaut
@@ -270,9 +276,15 @@ export function useLoansCharts(params: LoansChartsParams = {}) {
           // Trier par CRD décroissant
           crdByProperty.sort((a, b) => b.crd - a.crd);
 
-          // 3. Classement par coût d'intérêts (top 5)
-          const loanCosts: { loanId: string; label: string; totalInterest: number; borrowers?: Array<{ name: string; pct: number | null }> }[] = [];
-          
+          // 3. Classement par coût d'intérêts (liste complète triée)
+          const loanCosts: {
+            loanId: string;
+            propertyId: string;
+            label: string;
+            totalInterest: number;
+            borrowers?: Array<{ name: string; pct: number | null }>;
+          }[] = [];
+
           for (const loan of filteredLoans) {
             const loanStartDate = new Date(loan.startDate);
             const schedule = buildSchedule({
@@ -294,6 +306,7 @@ export function useLoansCharts(params: LoansChartsParams = {}) {
               // (nécessiterait un repository LoanBorrower offline)
               loanCosts.push({
                 loanId: loan.id,
+                propertyId: loan.propertyId,
                 label: loan.label,
                 totalInterest: Math.round(totalInterest * 100) / 100,
                 borrowers: undefined, // TODO: Charger depuis IndexedDB si nécessaire
@@ -301,9 +314,9 @@ export function useLoansCharts(params: LoansChartsParams = {}) {
             }
           }
           
-          // Trier par coût décroissant et prendre le top 5
+          // Trier par coût décroissant (liste complète)
           loanCosts.sort((a, b) => b.totalInterest - a.totalInterest);
-          const topCostlyLoans = loanCosts.slice(0, 5);
+          const topCostlyLoans = loanCosts;
 
           // ✅ Anti-spam : Vérifier que la requête n'est pas obsolète avant setState
           if (currentToken !== requestTokenRef.current || cancelled) {

@@ -29,6 +29,8 @@ import type { TransactionFormData } from '@/lib/validations/transaction';
 import type { LeaseWithDetails } from '@/lib/services/leasesService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { normalizeLeaseContractStatus } from '@/features/leases/utils/leaseWorkflowStatus';
+import { buildLeaseRenewalInitialData } from '@/features/leases/utils/buildLeaseRenewalInitialData';
 
 interface Filters {
   search: string;
@@ -108,6 +110,8 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
     chargesRecup?: number;
     paymentDate?: string;
   } | null>(null);
+  const [showRenewModal, setShowRenewModal] = useState(false);
+  const [renewBaseLease, setRenewBaseLease] = useState<LeaseWithDetails | null>(null);
   const { organizationId } = useCurrentOrganization();
   
   // État pour le filtre KPI actif
@@ -435,6 +439,36 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
     }
   };
 
+  const handleRenewalSubmit = useCallback(
+    async (data: any) => {
+      await handleModalSubmit({
+        ...data,
+        id: undefined,
+        status: 'BROUILLON',
+        notes: `Renouvellement du bail ${renewBaseLease?.id ?? ''}${data.notes ? `\n\n${data.notes}` : ''}`.trim(),
+      });
+      setShowRenewModal(false);
+      setRenewBaseLease(null);
+    },
+    [handleModalSubmit, renewBaseLease?.id]
+  );
+
+  const handleRequestAmendmentFromEditModal = useCallback(() => {
+    if (!selectedLease) return;
+    const contract = normalizeLeaseContractStatus(selectedLease.status);
+    if (contract !== 'ACTIF') {
+      notify2.warning('Action indisponible', 'Seul un bail actif peut être renouvelé.');
+      return;
+    }
+    if (!selectedLease.endDate) {
+      notify2.warning('Action indisponible', 'Le bail doit avoir une date de fin pour être renouvelé.');
+      return;
+    }
+    setIsEditModalOpen(false);
+    setRenewBaseLease(selectedLease);
+    setShowRenewModal(true);
+  }, [selectedLease]);
+
   // ✅ APP-SHELL: Résiliation via repository offline (local-first)
   const handleTerminateMultiple = async (leaseIds: string[]) => {
     try {
@@ -707,6 +741,23 @@ export default function PropertyLeasesClient({ propertyId, propertyName }: Prope
           onClose={handleCloseModal}
           lease={selectedLease}
           onSubmit={handleModalSubmit}
+          properties={properties}
+          tenants={tenants}
+          onRequestAmendment={handleRequestAmendmentFromEditModal}
+        />
+      )}
+
+      {showRenewModal && renewBaseLease && (
+        <LeaseFormComplete
+          isOpen={showRenewModal}
+          onClose={() => {
+            setShowRenewModal(false);
+            setRenewBaseLease(null);
+          }}
+          onSubmit={handleRenewalSubmit}
+          title="Créer un avenant / renouvellement"
+          initialData={buildLeaseRenewalInitialData(renewBaseLease)}
+          defaultPropertyId={propertyId}
           properties={properties}
           tenants={tenants}
         />

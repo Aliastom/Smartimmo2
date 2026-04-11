@@ -26,21 +26,22 @@ export async function GET(
 
     // Vérifier s'il y a des transactions liées
     const transactionCount = await prisma.transaction.count({
-      where: { leaseId }
+      where: {
+        organizationId: lease.organizationId,
+        OR: [{ leaseId }, { bailId: leaseId }],
+      },
     });
 
-    // Un bail est supprimable si :
-    // - Il est RÉSILIÉ (même avec des transactions, car c'est la fin du cycle de vie), OU
-    // - Il n'est PAS ACTIF et n'a pas de transactions (BROUILLON, ENVOYÉ, etc.)
-    const deletable = lease.status === 'RÉSILIÉ' || 
-                      (lease.status !== 'ACTIF' && transactionCount === 0);
+    // Un bail est supprimable seulement s'il n'est pas actif
+    // ET qu'il n'a aucune transaction liée.
+    const deletable = lease.status !== 'ACTIF' && transactionCount === 0;
     
     let reason = null;
     if (!deletable) {
       if (lease.status === 'ACTIF') {
         reason = 'Ce bail est actif et ne peut pas être supprimé directement. Résiliez-le d\'abord.';
       } else if (transactionCount > 0) {
-        reason = 'Ce bail contient des transactions et ne peut pas être supprimé. Résiliez-le d\'abord.';
+        reason = 'Ce bail contient des transactions et ne peut pas être supprimé.';
       }
     }
 

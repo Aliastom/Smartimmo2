@@ -477,6 +477,7 @@ export function useLeasesData(options: UseLeasesDataOptions) {
             phone: undefined,
           },
           hasSignedLease: !!lease.signedPdfUrl,
+          pilotageIgnored: Boolean((lease as LocalLease).pilotageIgnored),
           createdAt: lease.createdAt || new Date().toISOString(),
           // ✅ CRITIQUE: updatedAt est TOUJOURS une string ISO dans IndexedDB
           // Normaliser pour garantir la cohérence (string ISO ou Date → string ISO)

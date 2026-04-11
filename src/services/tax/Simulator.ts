@@ -20,8 +20,9 @@ import type {
   PERResult,
   TaxParams,
   RentalPropertyInput,
-  IRBracket,
 } from '@/types/fiscal';
+import { computeIRResult } from '@/services/tax/computeIRResult';
+import { computeRevenuProFoyerIR } from '@/services/tax/computeRevenuProFoyerIR';
 
 // ============================================================================
 // SERVICE PRINCIPAL
@@ -45,10 +46,12 @@ class SimulatorClass {
     // 2. Consolider les revenus fonciers et BIC
     const consolidation = this.consolidateRevenues(biens, taxParams);
     
-    // 3. Calculer le revenu imposable total
-    let revenuImposableTotal = 
-      inputs.foyer.salaire +
-      inputs.foyer.autresRevenus +
+    // 3. Base foyer avant quotient / barème (revenus d’activité nets + chaîne pensions si `pensionsBrutes` > 0)
+    const revenuProFoyer = computeRevenuProFoyerIR(inputs.foyer, taxParams);
+
+    // 4. Calculer le revenu imposable total
+    let revenuImposableTotal =
+      revenuProFoyer +
       consolidation.revenusFonciers +
       consolidation.revenusBIC;
     
@@ -63,7 +66,7 @@ class SimulatorClass {
     
     // 🆕 Calcul de l'IR supplémentaire dû aux revenus immobiliers
     // 1. IR sans revenus immobiliers (juste salaire)
-    let revenuSansFoncier = inputs.foyer.salaire + inputs.foyer.autresRevenus - (inputs.per?.versementPrevu || 0);
+    let revenuSansFoncier = revenuProFoyer - (inputs.per?.versementPrevu || 0);
     const irSansFoncier = this.calculateIR(
       revenuSansFoncier,
       inputs.foyer.parts,
@@ -570,68 +573,7 @@ class SimulatorClass {
     isCouple: boolean,
     taxParams: TaxParams
   ): IRResult {
-    if (revenuImposable <= 0) {
-      return {
-        revenuImposable: 0,
-        revenuParPart: 0,
-        impotBrut: 0,
-        decote: 0,
-        impotNet: 0,
-        tauxMoyen: 0,
-        trancheMarginate: 0,
-        detailsTranches: [],
-      };
-    }
-    
-    // Revenu par part
-    const revenuParPart = revenuImposable / parts;
-    
-    // Calcul de l'impôt par tranche
-    const detailsTranches: IRResult['detailsTranches'] = [];
-    let impotBrut = 0;
-    let trancheMarginate = 0;
-    
-    for (const tranche of taxParams.irBrackets) {
-      const lower = tranche.lower;
-      const upper = tranche.upper || Infinity;
-      
-      if (revenuParPart > lower) {
-        const baseTrancheImposable = Math.min(revenuParPart, upper) - lower;
-        const impotTranche = baseTrancheImposable * tranche.rate;
-        
-        detailsTranches.push({
-          tranche,
-          baseTrancheImposable,
-          impotTranche,
-        });
-        
-        impotBrut += impotTranche;
-        trancheMarginate = tranche.rate;
-      }
-    }
-    
-    // Multiplier par le nombre de parts
-    impotBrut *= parts;
-    
-    // Appliquer la décote si applicable
-    let decote = 0;
-    if (taxParams.irDecote && impotBrut > 0) {
-      decote = taxParams.irDecote.formula(impotBrut, parts);
-    }
-    
-    const impotNet = Math.max(0, impotBrut - decote);
-    const tauxMoyen = revenuImposable > 0 ? impotNet / revenuImposable : 0;
-    
-    return {
-      revenuImposable,
-      revenuParPart,
-      impotBrut,
-      decote,
-      impotNet,
-      tauxMoyen,
-      trancheMarginate,
-      detailsTranches,
-    };
+    return computeIRResult(revenuImposable, parts, taxParams, isCouple);
   }
   
   // ============================================================================

@@ -9,10 +9,10 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { notify2 } from '@/lib/notify2';
-import { Plus, ArrowUpDown, ArrowUp, ArrowDown, Loader2, Menu, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, ArrowUpDown, ArrowUp, ArrowDown, Loader2, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { LeasesKpiBar } from '@/components/leases/LeasesKpiBar';
@@ -23,14 +23,33 @@ import { useLeasesKpis } from '@/hooks/useLeasesKpis';
 import { useLeasesCharts } from '@/hooks/useLeasesCharts';
 import LeasesFilters from '@/components/leases/LeasesFilters';
 import { LeasesTableNew } from '@/components/leases/LeasesTableNew';
-import { LeasesActionBanner, type ActionFilterKey } from '@/features/leases/components/LeasesActionBanner';
+import type { ActionFilterKey } from '@/features/leases/components/LeasesActionBanner';
+import { LeasesPriorityActionsBlock } from '@/features/leases/components/LeasesPriorityActionsBlock';
+import { LeasesGlobalActionsBar } from '@/features/leases/components/LeasesGlobalActionsBar';
+import {
+  LeasesToolbar,
+  type PilotageBucketFilterKey,
+} from '@/features/leases/components/LeasesToolbar';
+import {
+  groupLeasesByPilotageBucket,
+  partitionSortedLeasesByPilotageBucket,
+  classifyLeasePilotageBucket,
+  type LeasePilotageBucket,
+} from '@/features/leases/utils/leasePilotageSection';
+import { scrollToLeaseTableRow } from '@/features/leases/utils/scrollToLeaseTableRow';
 import { useLeasesActionCounts } from '@/features/leases/hooks/useLeasesActionCounts';
+import {
+  toLeasePriorityAction,
+  type LeasePriorityAction,
+  type LeasePilotageRowMeta,
+} from '@/features/leases/utils/buildLeasePriorityActions';
 import LeaseDetailView from '@/features/leases/components/LeaseDetailView';
 import { LeaseIndexationModal } from '@/features/leases/components/LeaseIndexationModal';
 import LeaseFormComplete from '@/components/forms/LeaseFormComplete';
 import LeaseEditModal from '@/components/forms/LeaseEditModal';
 import LeaseActionsManager from '@/components/forms/LeaseActionsManager';
 import CannotDeleteLeaseModal from '@/components/leases/CannotDeleteLeaseModal';
+import type { CannotDeleteLeaseItem } from '@/components/leases/cannotDeleteLeaseTypes';
 import DeleteConfirmModal from '@/components/leases/DeleteConfirmModal';
 import { TransactionModal } from '@/components/transactions/TransactionModalV2';
 import { createTransactionServiceWithMode } from '@/domain/services/transactionServiceFactory';
@@ -44,6 +63,13 @@ import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useAlert } from '@/hooks/useAlert';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
 import { normalizeLeaseContractStatus } from './utils/leaseWorkflowStatus';
+import { buildLeaseRenewalInitialData } from './utils/buildLeaseRenewalInitialData';
+import { classifySmartimmoId } from '@/lib/offline/leaseSignatureWorkflowDiag';
+import { getLocalDB } from '@/lib/offline/db';
+import {
+  GlobalPilotageDetailAccordion,
+  GlobalPilotageAlertsSection,
+} from '@/components/global-pilotage';
 
 export interface LeasesPageCoreProps {
   mode: 'normal' | 'app-shell';
@@ -57,6 +83,31 @@ export function LeasesPageCore({
   const router = mode === 'normal' ? useRouter() : null;
   const searchParamsHook = mode === 'normal' ? useSearchParams() : null;
   const { showAlert } = useAlert();
+  const findPendingCreateLeaseError = useCallback(async (lease: LeaseWithDetails) => {
+    if (!organizationId) return null;
+    const db = await getLocalDB();
+    const errorOps = await db.pendingOperations
+      .where('[organizationId+status]')
+      .equals([organizationId, 'error'])
+      .toArray();
+    const blockedOps = await db.pendingOperations
+      .where('[organizationId+status]')
+      .equals([organizationId, 'blocked_permanent'])
+      .toArray();
+    const ops = [...errorOps, ...blockedOps];
+
+    const match = ops.find((op: any) => {
+      if (op.entity !== 'lease' || op.operation !== 'create') return false;
+      const p = op.payload || {};
+      return (
+        op.entityId === lease.id ||
+        (p.propertyId === lease.propertyId &&
+          p.tenantId === lease.tenantId &&
+          String(p.startDate || '').slice(0, 10) === String(lease.startDate || '').slice(0, 10))
+      );
+    });
+    return match?.errorMessage || null;
+  }, [organizationId]);
 
   // États de sélection multiple
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -75,12 +126,7 @@ export function LeasesPageCore({
   const [showActionsModal, setShowActionsModal] = useState(false);
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
-  const [protectedLeasesForModal, setProtectedLeasesForModal] = useState<Array<{
-    id: string;
-    propertyName: string;
-    tenantName: string;
-    reason: string;
-  }>>([]);
+  const [protectedLeasesForModal, setProtectedLeasesForModal] = useState<CannotDeleteLeaseItem[]>([]);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showTerminateModal, setShowTerminateModal] = useState(false);
   const [renewBaseLease, setRenewBaseLease] = useState<LeaseWithDetails | null>(null);
@@ -103,8 +149,13 @@ export function LeasesPageCore({
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
   // État pour le bandeau "À traiter" (filtre le tableau)
   const [actionFilter, setActionFilter] = useState<ActionFilterKey>(null);
-  // Analytics repliables pour laisser la priorité au bandeau À traiter et au tableau
-  const [chartsExpanded, setChartsExpanded] = useState(true);
+  // Détail graphiques / filtres / tableau — fermé par défaut (aligné Échéances)
+  const [leasesDetailOpen, setLeasesDetailOpen] = useState(false);
+  const [showAllPriorityActions, setShowAllPriorityActions] = useState(false);
+  const [pilotageBucketFilter, setPilotageBucketFilter] = useState<PilotageBucketFilterKey>(null);
+  const [leasePilotageLayout, setLeasePilotageLayout] = useState<'grouped' | 'compact'>('grouped');
+  const batchPayRemainderRef = useRef<LeasePriorityAction[]>([]);
+  const openPaymentFromPriorityItemRef = useRef<(lease: LeaseWithDetails, item: LeasePriorityAction) => void>(() => {});
 
   // États des filtres
   const [filters, setFilters] = useState<LeasesFilters>({
@@ -157,11 +208,44 @@ export function LeasesPageCore({
   });
 
   // Compteurs "À traiter" (partiels, retards, expirant, indexations)
-  const { counts: actionCounts, loading: actionCountsLoading } = useLeasesActionCounts(
-    organizationId ?? null,
-    leases,
-    mode
-  );
+  const {
+    counts: actionCounts,
+    priorityActions,
+    leasePilotageById,
+    leasePaymentPilotageById,
+    loading: actionCountsLoading,
+  } = useLeasesActionCounts(organizationId ?? null, leases, mode);
+
+  const pilotageBucketCounts = useMemo(() => {
+    const g = groupLeasesByPilotageBucket(leases, leasePilotageById, actionCounts);
+    return {
+      critique: g.critique.length,
+      surveiller: g.surveiller.length,
+      ok: g.ok.length,
+      ignored: g.ignored.length,
+    } as Record<'critique' | 'surveiller' | 'ok' | 'ignored', number>;
+  }, [leases, leasePilotageById, actionCounts]);
+
+  const leasePilotageBucketById = useMemo(() => {
+    const m: Record<string, LeasePilotageBucket> = {};
+    for (const l of leases) {
+      m[l.id] = classifyLeasePilotageBucket(l, leasePilotageById[l.id], actionCounts);
+    }
+    return m;
+  }, [leases, leasePilotageById, actionCounts]);
+
+  useEffect(() => {
+    if (priorityActions.length <= 5) setShowAllPriorityActions(false);
+  }, [priorityActions.length]);
+
+  useEffect(() => {
+    if (!selectedLease) return;
+    const fresh = leases.find((l) => l.id === selectedLease.id);
+    if (!fresh) return;
+    if (fresh.status !== selectedLease.status || fresh.updatedAt !== selectedLease.updatedAt) {
+      setSelectedLease(fresh);
+    }
+  }, [leases, selectedLease]);
 
   // Nettoyer l'URL au montage (mode normal uniquement)
   useEffect(() => {
@@ -239,6 +323,14 @@ export function LeasesPageCore({
     setIsDrawerOpen(true);
   }, []);
 
+  const handleViewLeaseById = useCallback(
+    (leaseId: string) => {
+      const lease = leases.find((l) => l.id === leaseId);
+      if (lease) handleViewLease(lease);
+    },
+    [leases, handleViewLease]
+  );
+
   const handleEditLease = useCallback((lease: LeaseWithDetails) => {
     const contract = normalizeLeaseContractStatus(lease.status);
     if (contract === 'RESILIE' || contract === 'ARCHIVE') {
@@ -249,10 +341,92 @@ export function LeasesPageCore({
     setIsEditModalOpen(true);
   }, []);
 
+  const assessLeaseDeletion = useCallback(async (lease: LeaseWithDetails) => {
+    const tenantName = `${lease.Tenant?.firstName || ''} ${lease.Tenant?.lastName || ''}`.trim();
+    const base = {
+      id: lease.id,
+      propertyName: lease.Property?.name || 'Bien',
+      tenantName,
+    };
+
+    // Pré-check local app-shell pour éviter la double modal.
+    if (mode === 'app-shell' && organizationId) {
+      const contract = normalizeLeaseContractStatus(lease.status);
+      if (contract === 'ACTIF') {
+        return {
+          deletable: false,
+          protected: {
+            ...base,
+            reason: "Ce bail est actif et ne peut pas être supprimé directement. Résiliez-le d'abord.",
+            offerTerminate: true,
+          },
+        };
+      }
+      try {
+        const db = await getLocalDB();
+        const txTable = db.tables.find((t: any) => t.name === 'Transaction');
+        const txCount = txTable
+          ? await txTable
+              .where('organizationId')
+              .equals(organizationId)
+              .filter((tx: any) => tx.leaseId === lease.id || tx.bailId === lease.id)
+              .count()
+          : 0;
+
+        if (txCount > 0) {
+          return {
+            deletable: false,
+            protected: {
+              ...base,
+              reason: 'Ce bail contient des transactions et ne peut pas être supprimé.',
+              offerTerminate: false,
+            },
+          };
+        }
+      } catch {
+        // fallback: laisser la protection service faire foi
+      }
+      return { deletable: true };
+    }
+
+    // En mode normal, utiliser le check API dédié.
+    if (mode === 'normal') {
+      try {
+        const response = await fetch(`/api/leases/${lease.id}/check-deletable`);
+        if (response.ok) {
+          const result = await response.json();
+          if (!result?.deletable) {
+            const contract = normalizeLeaseContractStatus(lease.status);
+            return {
+              deletable: false,
+              protected: {
+                ...base,
+                reason: result?.reason || 'Ce bail ne peut pas être supprimé.',
+                offerTerminate: contract === 'ACTIF',
+              },
+            };
+          }
+        }
+      } catch {
+        // fallback: on garde la protection service
+      }
+    }
+    return { deletable: true };
+  }, [mode, organizationId]);
+
   const handleDeleteLease = useCallback((lease: LeaseWithDetails) => {
-    setLeasesToConfirmDelete([lease]);
-    setShowDeleteConfirmModal(true);
-  }, []);
+    const openDeleteFlow = async () => {
+      const verdict = await assessLeaseDeletion(lease);
+      if (!verdict.deletable && verdict.protected) {
+        setProtectedLeasesForModal([verdict.protected]);
+        setShowCannotDeleteModal(true);
+        return;
+      }
+      setLeasesToConfirmDelete([lease]);
+      setShowDeleteConfirmModal(true);
+    };
+    void openDeleteFlow();
+  }, [assessLeaseDeletion]);
 
   // Fonction pour effectuer la suppression après confirmation
   const handleConfirmDelete = useCallback(async () => {
@@ -274,16 +448,19 @@ export function LeasesPageCore({
       const failed = results.filter(r => r.status === 'rejected').length;
 
       // Gérer les erreurs de protection (baux actifs ou avec transactions)
-      const protectedLeases: any[] = [];
+      const protectedLeases: CannotDeleteLeaseItem[] = [];
       results.forEach((result, index) => {
         if (result.status === 'rejected') {
           const error = result.reason as Error;
           if (error.message.includes('actif') || error.message.includes('transactions')) {
+            const leaseRow = leasesToProcess[index];
+            if (!leaseRow) return;
             protectedLeases.push({
-              id: leasesToProcess[index].id,
-              propertyName: leasesToProcess[index].Property.name,
-              tenantName: `${leasesToProcess[index].Tenant.firstName} ${leasesToProcess[index].Tenant.lastName}`,
+              id: leaseRow.id,
+              propertyName: leaseRow.Property.name,
+              tenantName: `${leaseRow.Tenant.firstName} ${leaseRow.Tenant.lastName}`,
               reason: error.message,
+              offerTerminate: normalizeLeaseContractStatus(leaseRow.status) === 'ACTIF',
             });
           }
         }
@@ -360,13 +537,11 @@ export function LeasesPageCore({
     console.log('Actions pour le bail:', lease.id);
   }, []);
 
-  // Fonction pour rafraîchir un bail spécifique
-  const handleLeaseUpdate = useCallback(async () => {
+  const refreshLeaseAfterWorkflow = useCallback(async (leaseId: string, reason: string) => {
     setRefreshKey(prev => prev + 1);
-    
-    if (selectedLease && mode === 'normal') {
+    if (mode === 'normal') {
       try {
-        const response = await fetch(`/api/leases/${selectedLease.id}`);
+        const response = await fetch(`/api/leases/${leaseId}`);
         if (response.ok) {
           const updatedLease = await response.json();
           setSelectedLease(updatedLease.data || updatedLease);
@@ -374,8 +549,209 @@ export function LeasesPageCore({
       } catch (error) {
         console.error('Erreur lors du rechargement du bail:', error);
       }
+    } else {
+      window.dispatchEvent(new CustomEvent('leases:refresh', { detail: { scope: 'global', reason, leaseId } }));
     }
-  }, [selectedLease, mode]);
+  }, [mode]);
+
+  const runLeaseRoundTrip = useCallback(async (
+    reason: string,
+    options?: { pullLease?: boolean; pullDocument?: boolean; pullDocumentLink?: boolean }
+  ) => {
+    if (mode !== 'app-shell') return;
+    if (!organizationId) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    try {
+      const { getGlobalSyncService } = await import('@/lib/offline/syncGlobal');
+      const syncService = getGlobalSyncService();
+      await syncService.syncAllPendingToRemote(organizationId);
+      if (options?.pullLease) {
+        await syncService.syncEntityFromRemoteByName('lease', organizationId);
+      }
+      if (options?.pullDocument) {
+        await syncService.syncEntityFromRemoteByName('document', organizationId);
+      }
+      if (options?.pullDocumentLink) {
+        await syncService.syncEntityFromRemoteByName('documentLink', organizationId);
+      }
+    } catch (error) {
+      console.warn(`[LeasesPageCore] round-trip échoué (${reason})`, error);
+    }
+  }, [mode, organizationId]);
+
+  const handleSendForSignatureFromDrawer = useCallback(async (lease: LeaseWithDetails) => {
+    try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        notify2.error('Action indisponible', "L'envoi pour signature nécessite une connexion internet.");
+        return;
+      }
+      let leaseIdForSend = lease.id;
+      if (mode === 'app-shell' && classifySmartimmoId(lease.id) === 'uuid_local') {
+        const { getGlobalSyncService } = await import('@/lib/offline/syncGlobal');
+        const syncService = getGlobalSyncService();
+        await syncService.syncAllPendingToRemote(organizationId || '');
+
+        const pendingCreateError = await findPendingCreateLeaseError(lease);
+        if (pendingCreateError) {
+          notify2.error('Impossible de synchroniser le bail', pendingCreateError);
+          return;
+        }
+
+        const { getLeaseRepositoryOffline } = await import('@/lib/offline/repositories/LeaseRepositoryOffline');
+        const leaseRepo = getLeaseRepositoryOffline();
+        let allLeases = await leaseRepo.getAll(organizationId || '', { propertyId: lease.propertyId });
+        let syncedMatch = allLeases.find((l: any) =>
+          l.propertyId === lease.propertyId &&
+          l.tenantId === lease.tenantId &&
+          String(l.startDate).slice(0, 10) === String(lease.startDate).slice(0, 10) &&
+          classifySmartimmoId(l.id) === 'cuid_remote'
+        );
+        if (!syncedMatch) {
+          await syncService.syncEntityFromRemoteByName('lease', organizationId || '');
+          allLeases = await leaseRepo.getAll(organizationId || '', { propertyId: lease.propertyId });
+          syncedMatch = allLeases.find((l: any) =>
+            l.propertyId === lease.propertyId &&
+            l.tenantId === lease.tenantId &&
+            String(l.startDate).slice(0, 10) === String(lease.startDate).slice(0, 10) &&
+            classifySmartimmoId(l.id) === 'cuid_remote'
+          );
+        }
+        if (syncedMatch?.id) {
+          leaseIdForSend = syncedMatch.id;
+        } else {
+          notify2.error(
+            'Bail non encore synchronisé',
+            "Le bail vient d'être créé localement. Vérifie la page Sync si le problème persiste."
+          );
+          return;
+        }
+      }
+
+      const response = await fetch(`/api/leases/${leaseIdForSend}/send-for-signature`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: lease.Tenant?.email || undefined }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Impossible d'envoyer le bail pour signature");
+      }
+      const result = await response.json().catch(() => ({} as any));
+      const emlUrl: string | undefined = result?.files?.eml || result?.downloadUrl;
+      if (emlUrl) {
+        try {
+          const emlResponse = await fetch(emlUrl);
+          if (emlResponse.ok) {
+            const blob = await emlResponse.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = `bail-signature-${leaseIdForSend}.eml`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(blobUrl);
+          }
+        } catch (downloadError) {
+          console.warn('[LeasesPageCore] Téléchargement EML impossible:', downloadError);
+        }
+      }
+      if (mode === 'app-shell') {
+        if (!organizationId) throw new Error('Organisation requise');
+        const { createLeaseServiceWithMode } = await import('@/domain/services/leaseServiceFactory');
+        const leaseService = createLeaseServiceWithMode('app-shell');
+        await leaseService.updateLease(lease.id, organizationId, { status: 'ENVOYÉ' });
+        await runLeaseRoundTrip('send_for_signature_local_status', {
+          pullLease: true,
+          pullDocument: true,
+          pullDocumentLink: true,
+        });
+      }
+      setSelectedLease((prev) => (prev && prev.id === lease.id ? { ...prev, status: 'ENVOYÉ' } : prev));
+      notify2.success('Bail envoye pour signature');
+      await refreshLeaseAfterWorkflow(lease.id, 'send_for_signature');
+    } catch (error) {
+      notify2.error(error instanceof Error ? error.message : "Erreur d'envoi pour signature");
+    }
+  }, [findPendingCreateLeaseError, mode, organizationId, refreshLeaseAfterWorkflow, runLeaseRoundTrip]);
+
+  const handleCancelSendFromDrawer = useCallback(async (lease: LeaseWithDetails) => {
+    try {
+      if (!organizationId) throw new Error('Organisation requise');
+      const { createLeaseServiceWithMode } = await import('@/domain/services/leaseServiceFactory');
+      const leaseService = createLeaseServiceWithMode(mode === 'app-shell' ? 'app-shell' : 'normal');
+      await leaseService.updateLease(lease.id, organizationId, { status: 'BROUILLON' });
+      await runLeaseRoundTrip('cancel_send', { pullLease: true });
+      setSelectedLease((prev) => (prev && prev.id === lease.id ? { ...prev, status: 'BROUILLON' } : prev));
+      notify2.success('Envoi annule');
+      await refreshLeaseAfterWorkflow(lease.id, 'cancel_send');
+    } catch (error) {
+      notify2.error(error instanceof Error ? error.message : "Erreur lors de l'annulation");
+    }
+  }, [organizationId, mode, refreshLeaseAfterWorkflow, runLeaseRoundTrip]);
+
+  const handleUploadSignedFromDrawer = useCallback(async (lease: LeaseWithDetails, file: File) => {
+    try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        notify2.error('Action indisponible', "L'upload du bail signe nécessite une connexion internet.");
+        return;
+      }
+      const formData = new FormData();
+      formData.append('signedPdf', file);
+      const response = await fetch(`/api/leases/${lease.id}/upload-signed`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Impossible d'uploader le bail signe");
+      }
+      const payload = await response.json().catch(() => ({}));
+      if (mode === 'app-shell') {
+        if (!organizationId) throw new Error('Organisation requise');
+        const { createLeaseServiceWithMode } = await import('@/domain/services/leaseServiceFactory');
+        const leaseService = createLeaseServiceWithMode('app-shell');
+        await leaseService.updateLease(lease.id, organizationId, {
+          status: payload?.lease?.status || 'SIGNÉ',
+          signedPdfUrl: payload?.lease?.signedPdfUrl || lease.signedPdfUrl || null,
+        });
+        await runLeaseRoundTrip('upload_signed', {
+          pullLease: true,
+          pullDocument: true,
+          pullDocumentLink: true,
+        });
+      }
+      setSelectedLease((prev) =>
+        prev && prev.id === lease.id
+          ? {
+              ...prev,
+              status: payload?.lease?.status || 'SIGNÉ',
+              signedPdfUrl: payload?.lease?.signedPdfUrl || prev.signedPdfUrl,
+            }
+          : prev
+      );
+      notify2.success('Bail signe uploade');
+      await refreshLeaseAfterWorkflow(lease.id, 'upload_signed');
+      window.dispatchEvent(new CustomEvent('documents:refresh', { detail: { scope: 'global', reason: 'create' } }));
+    } catch (error) {
+      notify2.error(error instanceof Error ? error.message : "Erreur lors de l'upload du bail signe");
+    }
+  }, [mode, organizationId, refreshLeaseAfterWorkflow, runLeaseRoundTrip]);
+
+  const handleActivateFromDrawer = useCallback(async (lease: LeaseWithDetails) => {
+    try {
+      if (!organizationId) throw new Error('Organisation requise');
+      const { createLeaseServiceWithMode } = await import('@/domain/services/leaseServiceFactory');
+      const leaseService = createLeaseServiceWithMode(mode === 'app-shell' ? 'app-shell' : 'normal');
+      await leaseService.updateLease(lease.id, organizationId, { status: 'ACTIF' });
+      await runLeaseRoundTrip('activate', { pullLease: true });
+      setSelectedLease((prev) => (prev && prev.id === lease.id ? { ...prev, status: 'ACTIF' } : prev));
+      notify2.success('Bail active');
+      await refreshLeaseAfterWorkflow(lease.id, 'mark_active');
+    } catch (error) {
+      notify2.error(error instanceof Error ? error.message : "Erreur d'activation du bail");
+    }
+  }, [organizationId, mode, refreshLeaseAfterWorkflow, runLeaseRoundTrip]);
 
   // Gestion de la sélection
   const handleSelectLease = useCallback((leaseId: string, selected: boolean) => {
@@ -423,6 +799,13 @@ export function LeasesPageCore({
       }
     }
 
+    if (mode === 'app-shell' && pilotageBucketFilter) {
+      toSort = toSort.filter(
+        (l) =>
+          classifyLeasePilotageBucket(l, leasePilotageById[l.id], actionCounts) === pilotageBucketFilter
+      );
+    }
+
     // 2. Trier
     const getBusinessPriority = (lease: LeaseWithDetails): number => {
       if (actionCounts.leaseIdsRetards.has(lease.id)) return 0;
@@ -462,7 +845,12 @@ export function LeasesPageCore({
 
       return sortOrder === 'asc' ? comparison : -comparison;
     });
-  }, [leases, sortField, sortOrder, actionFilter, actionCounts]);
+  }, [leases, sortField, sortOrder, actionFilter, actionCounts, mode, pilotageBucketFilter, leasePilotageById]);
+
+  const pilotageGroupsSorted = useMemo(() => {
+    if (mode !== 'app-shell' || leasePilotageLayout !== 'grouped') return null;
+    return partitionSortedLeasesByPilotageBucket(sortedLeases, leasePilotageById, actionCounts);
+  }, [mode, leasePilotageLayout, sortedLeases, leasePilotageById, actionCounts]);
 
   // Map leaseId -> santé pour surlignage et action rapide
   const leaseHealthMap = useMemo(() => {
@@ -731,7 +1119,7 @@ export function LeasesPageCore({
         }
       }
     }
-    const svc = createTransactionServiceWithMode('app-shell');
+    const svc = createTransactionServiceWithMode(mode === 'app-shell' ? 'app-shell' : 'normal');
     const d = new Date(data.date);
     const accountingMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     await svc.createTransaction({
@@ -751,21 +1139,60 @@ export function LeasesPageCore({
       monthsCovered: 1,
       skipAutoCommissions: true,
     });
-    setShowPaymentModal(false);
-    setPaymentPrefill(null);
-    notify2.success('Paiement enregistré');
+    await runLeaseRoundTrip('lease_payment_create', { pullLease: true });
     const leaseId = data.leaseId || null;
     window.dispatchEvent(new CustomEvent('leases:refresh', { detail: { scope: 'global', leaseId, reason: 'tx' } }));
     window.dispatchEvent(new CustomEvent('transactions:refresh', { detail: { scope: 'global', leaseId } }));
-    setRefreshKey(prev => prev + 1);
-  }, [organizationId, leases]);
+
+    const rest = batchPayRemainderRef.current;
+    if (rest.length > 0) {
+      const [first, ...more] = rest;
+      batchPayRemainderRef.current = more;
+      const nextLease = leases.find((l) => l.id === first.leaseId);
+      if (nextLease) {
+        openPaymentFromPriorityItemRef.current(nextLease, first);
+        notify2.success('Paiement enregistré');
+        setRefreshKey((prev) => prev + 1);
+        return;
+      }
+    }
+    batchPayRemainderRef.current = [];
+    setShowPaymentModal(false);
+    setPaymentPrefill(null);
+    notify2.success('Paiement enregistré');
+    setRefreshKey((prev) => prev + 1);
+  }, [organizationId, leases, mode, runLeaseRoundTrip]);
 
   // Gestion de la suppression multiple
   const handleDeleteMultiple = useCallback(() => {
-    const toDelete = leases.filter(l => selectedIds.has(l.id));
-    setLeasesToConfirmDelete(toDelete);
-    setShowDeleteConfirmModal(true);
-  }, [leases, selectedIds]);
+    const openDeleteFlow = async () => {
+      const toProcess = leases.filter(l => selectedIds.has(l.id));
+      const deletable: LeaseWithDetails[] = [];
+      const protectedLeases: CannotDeleteLeaseItem[] = [];
+
+      for (const lease of toProcess) {
+        const verdict = await assessLeaseDeletion(lease);
+        if (verdict.deletable) deletable.push(lease);
+        else if (verdict.protected) protectedLeases.push(verdict.protected);
+      }
+
+      if (protectedLeases.length > 0) {
+        setProtectedLeasesForModal(protectedLeases);
+        setShowCannotDeleteModal(true);
+      }
+
+      if (deletable.length > 0) {
+        if (protectedLeases.length > 0) {
+          notify2.warning(`${protectedLeases.length} bail(x) non supprimable(s) exclu(s) de la sélection.`);
+        }
+        setLeasesToConfirmDelete(deletable);
+        setShowDeleteConfirmModal(true);
+      } else if (protectedLeases.length === 0) {
+        notify2.info('Aucun bail sélectionné');
+      }
+    };
+    void openDeleteFlow();
+  }, [assessLeaseDeletion, leases, selectedIds]);
 
   const handleIndexLease = useCallback((lease: LeaseWithDetails) => {
     const contract = normalizeLeaseContractStatus(lease.status);
@@ -775,33 +1202,6 @@ export function LeasesPageCore({
     }
     setSelectedLease(lease);
     setShowIndexationModal(true);
-  }, []);
-
-  const buildRenewalInitialData = useCallback((lease: LeaseWithDetails) => {
-    const baseEnd = lease.endDate ? new Date(lease.endDate) : new Date();
-    const nextStart = new Date(baseEnd);
-    nextStart.setDate(nextStart.getDate() + 1);
-
-    const nextEnd = new Date(nextStart);
-    const isOneYear = lease.furnishedType === 'MEUBLE' || lease.furnishedType === 'meuble' || lease.furnishedType === 'garage';
-    nextEnd.setFullYear(nextEnd.getFullYear() + (isOneYear ? 1 : 3));
-
-    return {
-      propertyId: lease.propertyId,
-      tenantId: lease.tenantId,
-      type: lease.type || 'residential',
-      furnishedType: (lease.furnishedType || 'vide').toLowerCase(),
-      startDate: nextStart.toISOString().slice(0, 10),
-      endDate: nextEnd.toISOString().slice(0, 10),
-      rentAmount: lease.rentAmount,
-      deposit: lease.deposit || 0,
-      paymentDay: lease.paymentDay || 1,
-      indexationType: (lease.indexationType || 'none').toLowerCase(),
-      chargesRecupMensuelles: lease.chargesRecupMensuelles || 0,
-      chargesNonRecupMensuelles: lease.chargesNonRecupMensuelles || 0,
-      status: 'BROUILLON',
-      notes: `Renouvellement du bail ${lease.id}${lease.notes ? `\n\n${lease.notes}` : ''}`,
-    };
   }, []);
 
   const handleOpenRenewLease = useCallback((lease: LeaseWithDetails) => {
@@ -818,6 +1218,135 @@ export function LeasesPageCore({
     setShowRenewModal(true);
   }, []);
 
+  const openPaymentFromPriorityItem = useCallback((lease: LeaseWithDetails, item: LeasePriorityAction) => {
+    const ym = item.targetYearMonth;
+    if (!ym) {
+      handleViewLease(lease);
+      return;
+    }
+    const [yStr, mStr] = ym.split('-');
+    const y = parseInt(yStr, 10);
+    const mNum = parseInt(mStr, 10);
+    const label = new Date(y, mNum - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    const fullExpected = lease.rentAmount + (lease.chargesRecupMensuelles ?? 0);
+    const amount =
+      item.nextActionType === 'PAY_REMAINING' && item.amountValue > 0 ? item.amountValue : fullExpected;
+    const paymentDay = lease.paymentDay ?? 5;
+    const dueDate = `${yStr}-${mStr}-${String(Math.min(paymentDay, 28)).padStart(2, '0')}`;
+    setPaymentPrefill({
+      propertyId: lease.propertyId,
+      leaseId: lease.id,
+      nature: 'RECETTE_LOYER',
+      amount,
+      date: `${yStr}-${mStr}-01`,
+      periodMonth: mStr,
+      periodYear: y,
+      label: `Loyer ${label}`,
+      montantLoyer: lease.rentAmount,
+      chargesRecup: lease.chargesRecupMensuelles ?? 0,
+      paymentDate: dueDate,
+    });
+    setShowPaymentModal(true);
+  }, [handleViewLease]);
+
+  openPaymentFromPriorityItemRef.current = openPaymentFromPriorityItem;
+
+  const startBatchPriorityPayments = useCallback(
+    (items: LeasePriorityAction[]) => {
+      if (items.length === 0) return;
+      const [first, ...rest] = items;
+      batchPayRemainderRef.current = rest;
+      const lease = leases.find((l) => l.id === first.leaseId);
+      if (lease) openPaymentFromPriorityItem(lease, first);
+    },
+    [leases, openPaymentFromPriorityItem]
+  );
+
+  const startBatchCritiques = useCallback(
+    (items: LeasePriorityAction[]) => {
+      if (items.length === 0) return;
+      const payLike = items.filter(
+        (i) => i.nextActionType === 'PAY_FULL' || i.nextActionType === 'PAY_REMAINING'
+      );
+      const rest = items.filter(
+        (i) => i.nextActionType !== 'PAY_FULL' && i.nextActionType !== 'PAY_REMAINING'
+      );
+      if (payLike.length > 0) startBatchPriorityPayments(payLike);
+      if (rest.length > 0 && payLike.length === 0) {
+        notify2.info(
+          'Aucun encaissement groupé pour cette sélection. Utilisez Indexer ou Renouveler sur chaque bail concerné.'
+        );
+      } else if (rest.length > 0) {
+        notify2.info(
+          `${rest.length} bail(x) avec indexation ou renouvellement : à traiter depuis le bandeau ou le tableau après les encaissements.`
+        );
+      }
+    },
+    [startBatchPriorityPayments]
+  );
+
+  const transactionsHrefForLease = useCallback(
+    (lease: { id: string; propertyId: string }) =>
+      mode === 'app-shell'
+        ? `/app?view=property&propertyId=${encodeURIComponent(lease.propertyId)}&tab=transactions&leaseId=${encodeURIComponent(lease.id)}`
+        : `/transactions?propertyId=${encodeURIComponent(lease.propertyId)}&leaseId=${encodeURIComponent(lease.id)}`,
+    [mode]
+  );
+
+  const handleTogglePilotageIgnore = useCallback(
+    async (lease: LeaseWithDetails, ignored: boolean) => {
+      if (!organizationId) return;
+      try {
+        const { createLeaseServiceWithMode } = await import('@/domain/services/leaseServiceFactory');
+        const leaseService = createLeaseServiceWithMode(mode === 'app-shell' ? 'app-shell' : 'normal');
+        await leaseService.updateLease(lease.id, organizationId, { pilotageIgnored: ignored });
+        if (mode === 'app-shell' && typeof navigator !== 'undefined' && navigator.onLine) {
+          try {
+            const { getGlobalSyncService } = await import('@/lib/offline/syncGlobal');
+            await getGlobalSyncService().syncAllPendingToRemote(organizationId);
+          } catch {
+            /* sync best-effort */
+          }
+        }
+        notify2.success(ignored ? 'Bail ignoré' : 'Bail réactivé dans le pilotage');
+        window.dispatchEvent(
+          new CustomEvent('leases:refresh', { detail: { scope: 'global', reason: 'pilotage_ignore' } })
+        );
+        setRefreshKey((prev) => prev + 1);
+        if (mode === 'normal' && router) router.refresh();
+      } catch (e) {
+        notify2.error(e instanceof Error ? e.message : 'Impossible de mettre à jour le bail');
+      }
+    },
+    [organizationId, mode, router]
+  );
+
+  const handlePriorityActionCta = useCallback(
+    (item: LeasePriorityAction) => {
+      const lease = leases.find((l) => l.id === item.leaseId);
+      if (!lease) return;
+      if (item.ctaKind === 'encaisser' || item.ctaKind === 'completer') {
+        openPaymentFromPriorityItem(lease, item);
+        return;
+      }
+      if (item.ctaKind === 'renouveler') {
+        handleOpenRenewLease(lease);
+        return;
+      }
+      if (item.ctaKind === 'indexer') {
+        handleIndexLease(lease);
+      }
+    },
+    [leases, openPaymentFromPriorityItem, handleOpenRenewLease, handleIndexLease]
+  );
+
+  const handlePilotageTablePrimaryCta = useCallback(
+    (lease: LeaseWithDetails, meta: LeasePilotageRowMeta) => {
+      handlePriorityActionCta(toLeasePriorityAction(lease, meta));
+    },
+    [handlePriorityActionCta]
+  );
+
   const handleRenewalSubmit = useCallback(async (data: any) => {
     await handleModalSubmit({
       ...data,
@@ -828,6 +1357,22 @@ export function LeasesPageCore({
     setShowRenewModal(false);
     setRenewBaseLease(null);
   }, [handleModalSubmit, renewBaseLease?.id]);
+
+  const handleRequestAmendmentFromEditModal = useCallback(() => {
+    if (!selectedLease) return;
+    const contract = normalizeLeaseContractStatus(selectedLease.status);
+    if (contract !== 'ACTIF') {
+      notify2.warning('Action indisponible', 'Seul un bail actif peut être renouvelé.');
+      return;
+    }
+    if (!selectedLease.endDate) {
+      notify2.warning('Action indisponible', 'Le bail doit avoir une date de fin pour être renouvelé.');
+      return;
+    }
+    setIsEditModalOpen(false);
+    setRenewBaseLease(selectedLease);
+    setShowRenewModal(true);
+  }, [selectedLease]);
 
   const handleOpenTerminateLease = useCallback((lease: LeaseWithDetails) => {
     const contract = normalizeLeaseContractStatus(lease.status);
@@ -848,6 +1393,7 @@ export function LeasesPageCore({
         endDate: effectiveEndDate,
         notes: `${existingNotes}${reasonLine}`.trim(),
       });
+      await runLeaseRoundTrip('terminate_from_modal', { pullLease: true });
       notify2.success('Bail résilié', 'La résiliation a été enregistrée.');
       window.dispatchEvent(
         new CustomEvent('leases:refresh', { detail: { scope: 'global', reason: 'terminate', leaseId: selectedLease.id } })
@@ -855,7 +1401,7 @@ export function LeasesPageCore({
       setRefreshKey((prev) => prev + 1);
       setShowTerminateModal(false);
     },
-    [selectedLease, organizationId, mode]
+    [selectedLease, organizationId, mode, runLeaseRoundTrip]
   );
 
   // États de chargement et erreur
@@ -919,65 +1465,95 @@ export function LeasesPageCore({
         <p className="text-sm sm:text-base text-gray-600">Suivi global des baux et de leurs conditions financières</p>
       </div>
 
-      {/* Bandeau À traiter - PRIORITÉ : avant les graphiques */}
-      <LeasesActionBanner
-        counts={actionCounts}
-        activeFilter={actionFilter}
-        onFilterChange={handleActionFilterChange}
+      {/* Actions prioritaires (pilotage App Shell, aligné Échéances) */}
+      <LeasesPriorityActionsBlock
+        actions={priorityActions}
         isLoading={actionCountsLoading}
+        showAll={showAllPriorityActions}
+        onToggleShowAll={() => setShowAllPriorityActions((v) => !v)}
+        onPrimaryCta={handlePriorityActionCta}
+        onNavigateToLeaseRow={mode === 'app-shell' ? scrollToLeaseTableRow : undefined}
+        onViewLease={mode === 'app-shell' ? handleViewLeaseById : undefined}
+        leasePaymentPilotageById={leasePaymentPilotageById}
+        leasePilotageById={leasePilotageById}
+        pilotageAvailable={mode === 'app-shell'}
       />
 
-      {/* Analytics repliables */}
-      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setChartsExpanded((e) => !e)}
-          className="w-full flex items-center justify-between px-4 py-3 text-left text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
-          <span>Synthèse et graphiques</span>
-          {chartsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </button>
-        {chartsExpanded && (
-          <>
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-4 p-4 pt-0 border-t border-gray-100">
-              {/* Graphique 1 : Évolution des loyers (2 colonnes) */}
-              <div className="md:col-span-2">
-                <LeasesRentEvolutionChart
-                  monthlyData={chartsData?.rentEvolution?.monthly || []}
-                  yearlyData={chartsData?.rentEvolution?.yearly || []}
-                  isLoading={chartsLoading}
-                />
-              </div>
-              {/* Graphique 2 : Répartition par type de meublé (1 colonne) */}
-              <div className="md:col-span-1">
-                <LeasesByFurnishedChart
-                  data={chartsData?.byFurnished || []}
-                  isLoading={chartsLoading}
-                />
-              </div>
-              {/* Graphique 3 : Cautions & Loyers cumulés (1 colonne) */}
-              <div className="md:col-span-1">
-                <LeasesDepositsRentsChart
-                  data={chartsData?.depositsRents || {
-                    totalDeposits: 0,
-                    monthlyTotal: 0,
-                    yearlyTotal: 0,
-                  }}
-                  isLoading={chartsLoading}
-                />
-              </div>
-            </div>
-            <div className="px-4 pb-4 pt-2 border-t border-gray-100">
-              <LeasesKpiBar
-                kpis={kpis}
-                activeFilter={activeKpiFilter}
-                onFilterChange={handleKpiFilterChange}
-                isLoading={kpisLoading}
-              />
-            </div>
-          </>
+      <LeasesGlobalActionsBar
+        priorityActions={priorityActions}
+        isLoading={actionCountsLoading}
+        pilotageAvailable={mode === 'app-shell'}
+        onBatchEncaisserRetards={startBatchPriorityPayments}
+        onBatchCompleterPartiels={startBatchPriorityPayments}
+        onTraiterCritiques={startBatchCritiques}
+      />
+
+      <GlobalPilotageAlertsSection>
+        {mode === 'app-shell' && !actionCountsLoading ? (
+          <div className="space-y-2 text-sm text-gray-700">
+            {actionCounts.leaseIdsRetards.size > 0 && (
+              <p>
+                <span className="font-semibold text-amber-950">{actionCounts.leaseIdsRetards.size}</span>{' '}
+                bail(aux) avec loyer en retard — prioriser l&apos;encaissement.
+              </p>
+            )}
+            {actionCounts.leaseIdsPartiels.size > 0 && (
+              <p>
+                <span className="font-semibold text-amber-950">{actionCounts.leaseIdsPartiels.size}</span>{' '}
+                paiement(s) partiel(s) détecté(s) — compléter les montants attendus.
+              </p>
+            )}
+            {actionCounts.leaseIdsRetards.size === 0 && actionCounts.leaseIdsPartiels.size === 0 && (
+              <p>Aucune anomalie de paiement globale détectée sur le périmètre chargé.</p>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-700">
+            Les alertes de paiement sont calculées à partir des données locales (App Shell).
+          </p>
         )}
+      </GlobalPilotageAlertsSection>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+        <h3 className="text-base font-semibold text-gray-900 mb-3">Synthèse</h3>
+        <LeasesKpiBar
+          kpis={kpis}
+          activeFilter={activeKpiFilter}
+          onFilterChange={handleKpiFilterChange}
+          isLoading={kpisLoading}
+        />
       </div>
+
+      <GlobalPilotageDetailAccordion
+        open={leasesDetailOpen}
+        onToggle={() => setLeasesDetailOpen((v) => !v)}
+        title="Détail complet (graphiques, filtres et tableau)"
+      >
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-4 bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+          <div className="md:col-span-2">
+            <LeasesRentEvolutionChart
+              monthlyData={chartsData?.rentEvolution?.monthly || []}
+              yearlyData={chartsData?.rentEvolution?.yearly || []}
+              isLoading={chartsLoading}
+            />
+          </div>
+          <div className="md:col-span-1">
+            <LeasesByFurnishedChart
+              data={chartsData?.byFurnished || []}
+              isLoading={chartsLoading}
+            />
+          </div>
+          <div className="md:col-span-1">
+            <LeasesDepositsRentsChart
+              data={chartsData?.depositsRents || {
+                totalDeposits: 0,
+                monthlyTotal: 0,
+                yearlyTotal: 0,
+              }}
+              isLoading={chartsLoading}
+            />
+          </div>
+        </div>
 
       {/* Filtres avancés */}
       <LeasesFilters
@@ -1019,14 +1595,37 @@ export function LeasesPageCore({
       {/* Tableau */}
       <Card>
         <CardHeader>
-          <CardTitle>Liste des Baux ({totalCount})</CardTitle>
-          <p className="text-sm text-gray-600">
-            {totalCount > 0
-              ? `Affichage de 1 à ${sortedLeases.length} sur ${totalCount}`
-              : 'Aucun bail'}
-          </p>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+            <div>
+              <CardTitle>Liste des Baux ({totalCount})</CardTitle>
+              <p className="text-sm text-gray-600">
+                {totalCount > 0
+                  ? `Affichage de 1 à ${sortedLeases.length} sur ${totalCount}`
+                  : 'Aucun bail'}
+              </p>
+            </div>
+            {mode === 'app-shell' && (
+              <button
+                type="button"
+                onClick={() => setLeasePilotageLayout((v) => (v === 'grouped' ? 'compact' : 'grouped'))}
+                className="text-xs font-semibold text-orange-700 hover:text-orange-800 whitespace-nowrap"
+              >
+                {leasePilotageLayout === 'grouped' ? 'Vue tableau compact' : 'Vue pilotage par blocs'}
+              </button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
+          <LeasesToolbar
+            showPilotage={mode === 'app-shell'}
+            pilotageCounts={pilotageBucketCounts}
+            pilotageActive={pilotageBucketFilter}
+            onPilotageChange={setPilotageBucketFilter}
+            actionCounts={actionCounts}
+            actionActive={actionFilter}
+            onActionFilterChange={handleActionFilterChange}
+            disabled={actionCountsLoading}
+          />
           {/* Tri rapide */}
           <div className="flex items-center justify-between mb-4 pb-3 border-b">
             <p className="text-sm text-gray-700">
@@ -1082,23 +1681,83 @@ export function LeasesPageCore({
           </div>
 
           {/* Tableau des baux */}
-          <LeasesTableNew
-            leases={sortedLeases}
-            organizationId={organizationId}
-            loading={loading}
-            onView={handleViewLease}
-            onEdit={handleEditLease}
-            onDelete={handleDeleteLease}
-            onActions={handleActionsLease}
-            onSelect={handleSelectLease}
-            onSelectAll={handleSelectAll}
-            selectedIds={selectedIds}
-            showSelection={true}
-            leaseHealthMap={leaseHealthMap}
-            onQuickPay={handleViewLease}
-          />
+          {mode === 'app-shell' && leasePilotageLayout === 'grouped' && pilotageGroupsSorted ? (
+            <div className="space-y-8">
+              {[
+                { key: 'critique' as const, title: 'À traiter', emoji: '🔴', tone: 'text-red-800' },
+                { key: 'surveiller' as const, title: 'À surveiller', emoji: '🟠', tone: 'text-amber-900' },
+                { key: 'ok' as const, title: 'OK', emoji: '🟢', tone: 'text-emerald-900' },
+                { key: 'ignored' as const, title: 'Ignorés (pilotage)', emoji: '⏸', tone: 'text-gray-700' },
+              ].map((section) => {
+                const subset = pilotageGroupsSorted[section.key];
+                if (subset.length === 0) return null;
+                return (
+                  <section key={section.key} className="space-y-2">
+                    <h3 className={`text-sm font-bold flex flex-wrap items-center gap-2 ${section.tone}`}>
+                      <span>{section.emoji}</span>
+                      {section.title}
+                      <span className="text-gray-500 font-normal">({subset.length})</span>
+                    </h3>
+                    <LeasesTableNew
+                      leases={subset}
+                      organizationId={organizationId}
+                      loading={loading}
+                      onView={handleViewLease}
+                      onEdit={handleEditLease}
+                      onDelete={handleDeleteLease}
+                      onActions={handleActionsLease}
+                      onSelect={handleSelectLease}
+                      onSelectAll={(sel) => {
+                        setSelectedIds((prev) => {
+                          const n = new Set(prev);
+                          if (sel) subset.forEach((l) => n.add(l.id));
+                          else subset.forEach((l) => n.delete(l.id));
+                          return n;
+                        });
+                      }}
+                      selectedIds={selectedIds}
+                      showSelection={true}
+                      leaseHealthMap={leaseHealthMap}
+                      onQuickPay={handleViewLease}
+                      leasePilotageById={leasePilotageById}
+                      leasePaymentPilotageById={leasePaymentPilotageById}
+                      leasePilotageBucketById={leasePilotageBucketById}
+                      pageMode={mode}
+                      transactionsHrefForLease={transactionsHrefForLease}
+                      onPilotageIgnoreToggle={handleTogglePilotageIgnore}
+                      onPilotagePrimaryCta={mode === 'app-shell' ? handlePilotageTablePrimaryCta : undefined}
+                    />
+                  </section>
+                );
+              })}
+            </div>
+          ) : (
+            <LeasesTableNew
+              leases={sortedLeases}
+              organizationId={organizationId}
+              loading={loading}
+              onView={handleViewLease}
+              onEdit={handleEditLease}
+              onDelete={handleDeleteLease}
+              onActions={handleActionsLease}
+              onSelect={handleSelectLease}
+              onSelectAll={handleSelectAll}
+              selectedIds={selectedIds}
+              showSelection={true}
+              leaseHealthMap={leaseHealthMap}
+              onQuickPay={handleViewLease}
+              leasePilotageById={leasePilotageById}
+              leasePaymentPilotageById={mode === 'app-shell' ? leasePaymentPilotageById : undefined}
+              leasePilotageBucketById={leasePilotageBucketById}
+              pageMode={mode}
+              transactionsHrefForLease={mode === 'app-shell' ? transactionsHrefForLease : undefined}
+              onPilotageIgnoreToggle={handleTogglePilotageIgnore}
+              onPilotagePrimaryCta={mode === 'app-shell' ? handlePilotageTablePrimaryCta : undefined}
+            />
+          )}
         </CardContent>
       </Card>
+      </GlobalPilotageDetailAccordion>
 
       {/* Modale de création */}
       {isModalOpen && (
@@ -1123,7 +1782,8 @@ export function LeasesPageCore({
           onSubmit={handleModalSubmit}
           properties={properties}
           tenants={tenants}
-          mode={mode} // ✅ Passer le mode
+          mode={mode}
+          onRequestAmendment={handleRequestAmendmentFromEditModal}
         />
       )}
 
@@ -1146,6 +1806,10 @@ export function LeasesPageCore({
           }}
           onIndexLease={handleIndexLease}
           onEnregistrerPaiement={handleEnregistrerPaiement}
+          onSendForSignature={handleSendForSignatureFromDrawer}
+          onCancelSend={handleCancelSendFromDrawer}
+          onUploadSignedLease={handleUploadSignedFromDrawer}
+          onActivateLease={handleActivateFromDrawer}
         />
       )}
 
@@ -1157,8 +1821,8 @@ export function LeasesPageCore({
             setRenewBaseLease(null);
           }}
           onSubmit={handleRenewalSubmit}
-          title="Renouveler le bail"
-          initialData={buildRenewalInitialData(renewBaseLease)}
+          title="Créer un avenant / renouvellement"
+          initialData={buildLeaseRenewalInitialData(renewBaseLease)}
           properties={properties}
           tenants={tenants}
           mode={mode}
@@ -1169,6 +1833,7 @@ export function LeasesPageCore({
       <TransactionModal
         isOpen={showPaymentModal}
         onClose={() => {
+          batchPayRemainderRef.current = [];
           setShowPaymentModal(false);
           setPaymentPrefill(null);
         }}

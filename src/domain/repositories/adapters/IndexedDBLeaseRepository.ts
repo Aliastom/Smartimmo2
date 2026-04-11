@@ -61,6 +61,7 @@ export class IndexedDBLeaseRepository implements ILeaseRepository {
       signedPdfUrl: data.signedPdfUrl ?? null,
       chargesRecupMensuelles: data.chargesRecupMensuelles ?? null,
       chargesNonRecupMensuelles: data.chargesNonRecupMensuelles ?? null,
+      pilotageIgnored: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -95,6 +96,7 @@ export class IndexedDBLeaseRepository implements ILeaseRepository {
       signedPdfUrl: created.signedPdfUrl ?? null,
       chargesRecupMensuelles: created.chargesRecupMensuelles ?? null,
       chargesNonRecupMensuelles: created.chargesNonRecupMensuelles ?? null,
+      pilotageIgnored: created.pilotageIgnored ?? false,
       createdAt: created.createdAt instanceof Date ? created.createdAt : new Date(created.createdAt),
       // ✅ updatedAt reste string ISO (comme dans IndexedDB) pour cohérence
       updatedAt: typeof created.updatedAt === 'string' ? created.updatedAt : (created.updatedAt instanceof Date ? created.updatedAt.toISOString() : new Date(created.updatedAt).toISOString()),
@@ -172,6 +174,7 @@ export class IndexedDBLeaseRepository implements ILeaseRepository {
       signedPdfUrl: updated.signedPdfUrl ?? null,
       chargesRecupMensuelles: updated.chargesRecupMensuelles ?? null,
       chargesNonRecupMensuelles: updated.chargesNonRecupMensuelles ?? null,
+      pilotageIgnored: updated.pilotageIgnored ?? false,
       createdAt: updated.createdAt instanceof Date ? updated.createdAt : new Date(updated.createdAt),
       // ✅ updatedAt reste string ISO (comme dans IndexedDB) pour cohérence
       updatedAt: typeof updated.updatedAt === 'string' ? updated.updatedAt : (updated.updatedAt instanceof Date ? updated.updatedAt.toISOString() : new Date(updated.updatedAt).toISOString()),

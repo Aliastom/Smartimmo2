@@ -37,7 +37,7 @@ const leaseSchema = z.object({
   furnishedType: z.enum(['vide', 'meuble', 'garage']),
   startDate: z.string().min(1, 'La date de début est requise'),
   endDate: z.string().optional(),
-  rentAmount: z.number().min(0, 'Le loyer doit être positif'),
+  rentAmount: z.number().gt(0, 'Le loyer doit être supérieur à 0'),
   deposit: z.number().min(0, 'La caution doit être positive'),
   paymentDay: z.number().min(1).max(31, 'Le jour de paiement doit être entre 1 et 31'),
   indexationType: z.enum(['none', 'insee', 'manual']).optional(),

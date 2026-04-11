@@ -372,6 +372,8 @@ model Lease {
   signedPdfUrl                           String?
   chargesRecupMensuelles                 Float?
   chargesNonRecupMensuelles              Float?
+  /** Masque le bail des actions prioritaires du pilotage (locatif) sans supprimer le bail. */
+  pilotageIgnored                        Boolean              @default(false)
   createdAt                              DateTime             @default(now())
   updatedAt                              DateTime             @updatedAt
   Document                               Document[]
