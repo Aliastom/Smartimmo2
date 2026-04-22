@@ -29,6 +29,14 @@ import { computeRevenuProFoyerIR } from '@/services/tax/computeRevenuProFoyerIR'
 // ============================================================================
 
 class SimulatorClass {
+  private toCents(amount: number): number {
+    return Math.round((Number(amount) + Number.EPSILON) * 100);
+  }
+
+  private fromCents(cents: number): number {
+    return cents / 100;
+  }
+
   /**
    * Lance une simulation fiscale complète
    */
@@ -186,19 +194,25 @@ class SimulatorClass {
     }
     
     // Router vers la bonne méthode selon la catégorie
+    let result: RentalPropertyResult;
     switch (category) {
       case 'FONCIER':
-        return this.simulateFoncier(property, regime, regimeSuggere, taxParams);
-      
+        result = this.simulateFoncier(property, regime, regimeSuggere, taxParams);
+        break;
       case 'BIC':
-        return this.simulateMeuble(property, regime, regimeSuggere, taxParams);
-      
+        result = this.simulateMeuble(property, regime, regimeSuggere, taxParams);
+        break;
       case 'IS':
-        return this.simulateSCIIS(property, taxParams);
-      
+        result = this.simulateSCIIS(property, taxParams);
+        break;
       default:
         throw new Error(`Catégorie fiscale non supportée : ${category} (type: ${property.type})`);
     }
+
+    return {
+      ...result,
+      declaration2044: property.declaration2044,
+    };
   }
   
   /**
@@ -210,12 +224,15 @@ class SimulatorClass {
     regimeSuggere: 'micro' | 'reel',
     taxParams: TaxParams
   ): RentalPropertyResult {
-    const recettesBrutes = property.loyers + (property.autresRevenus || 0);
+    const recettesBrutesCents = this.toCents(property.loyers) + this.toCents(property.autresRevenus || 0);
+    const recettesBrutes = this.fromCents(recettesBrutesCents);
     
     if (regime === 'micro' || regime === 'MICRO') {
       // Micro-foncier : abattement 30%
-      const abattement = recettesBrutes * taxParams.micro.foncierAbattement;
-      const resultatFiscal = recettesBrutes - abattement;
+      const abattementCents = Math.round(recettesBrutesCents * taxParams.micro.foncierAbattement);
+      const resultatFiscalCents = recettesBrutesCents - abattementCents;
+      const abattement = this.fromCents(abattementCents);
+      const resultatFiscal = this.fromCents(resultatFiscalCents);
       
       return {
         id: property.id,
@@ -239,40 +256,41 @@ class SimulatorClass {
       };
     } else {
       // Régime réel
-      const chargesDeductibles = 
-        property.charges +
-        property.interets +
-        property.assuranceEmprunt +
-        property.taxeFonciere +
-        property.fraisGestion +
-        property.assurancePNO +
-        property.chargesCopro +
-        property.autresCharges +
-        property.travaux.entretien;  // Travaux entretien/réparation déductibles
-      
-      const resultatFiscal = recettesBrutes - chargesDeductibles;
+      const chargesDeductiblesCents =
+        this.toCents(property.charges) +
+        this.toCents(property.interets) +
+        this.toCents(property.assuranceEmprunt) +
+        this.toCents(property.taxeFonciere) +
+        this.toCents(property.fraisGestion) +
+        this.toCents(property.assurancePNO) +
+        this.toCents(property.chargesCopro) +
+        this.toCents(property.autresCharges) +
+        this.toCents(property.travaux.entretien); // Travaux entretien/réparation déductibles
+
+      const resultatFiscalCents = recettesBrutesCents - chargesDeductiblesCents;
+      const chargesDeductibles = this.fromCents(chargesDeductiblesCents);
+      const resultatFiscal = this.fromCents(resultatFiscalCents);
       
       // Déficit foncier
       let deficit: number | undefined;
       let deficitImputableRevenuGlobal: number | undefined;
       let deficitReportable: number | undefined;
       
-      if (resultatFiscal < 0) {
-        deficit = Math.abs(resultatFiscal);
+      if (resultatFiscalCents < 0) {
+        deficit = this.fromCents(Math.abs(resultatFiscalCents));
         
         // ✅ Déficit imputable sur revenu global (hors intérêts d'emprunt)
         // Charges hors intérêts = charges totales - intérêts
-        const chargesHorsInterets = chargesDeductibles - property.interets;
+        const chargesHorsInteretsCents = chargesDeductiblesCents - this.toCents(property.interets);
         
         // Déficit hors intérêts = max(0, charges HI - recettes)
-        const deficitHorsInterets = Math.max(0, chargesHorsInterets - recettesBrutes);
+        const deficitHorsInteretsCents = Math.max(0, chargesHorsInteretsCents - recettesBrutesCents);
         
-        deficitImputableRevenuGlobal = Math.min(
-          deficitHorsInterets,
-          taxParams.deficitFoncier.plafondImputationRevenuGlobal
-        );
+        const plafondCents = this.toCents(taxParams.deficitFoncier.plafondImputationRevenuGlobal);
+        const imputableCents = Math.min(deficitHorsInteretsCents, plafondCents);
+        deficitImputableRevenuGlobal = this.fromCents(imputableCents);
         
-        deficitReportable = deficit - deficitImputableRevenuGlobal;
+        deficitReportable = this.fromCents(Math.abs(resultatFiscalCents) - imputableCents);
       }
       
       return {
@@ -286,8 +304,8 @@ class SimulatorClass {
         chargesDeductibles,
         amortissements: 0,
         resultatFiscal,
-        baseImposableIR: Math.max(0, resultatFiscal),
-        baseImposablePS: Math.max(0, resultatFiscal),
+        baseImposableIR: this.fromCents(Math.max(0, resultatFiscalCents)),
+        baseImposablePS: this.fromCents(Math.max(0, resultatFiscalCents)),
         deficit,
         deficitImputableRevenuGlobal,
         deficitReportable,
@@ -315,18 +333,22 @@ class SimulatorClass {
     regimeSuggere: 'micro' | 'reel',
     taxParams: TaxParams
   ): RentalPropertyResult {
-    const recettesBrutes = property.loyers + (property.autresRevenus || 0);
+    const recettesBrutesCents = this.toCents(property.loyers) + this.toCents(property.autresRevenus || 0);
+    const recettesBrutes = this.fromCents(recettesBrutesCents);
     
     if (regime === 'micro' || regime === 'MICRO' || regime === 'MICRO_BIC') {
-      // Micro-BIC : abattement 50% (ou 71% si meublé tourisme classé)
-      // ✅ Vérifier si éligible au taux majoré pour meublé de tourisme classé
-      const isEligibleTourisme = recettesBrutes <= (taxParams.micro.meubleTourismePlafond || 188700);
-      const tauxAbattement = isEligibleTourisme
-        ? (taxParams.micro.meubleTourismeAbattement || 0.71)
+      // Micro-BIC : 50 % par défaut ; 71 % si meubleTourismeClasse et sous plafond
+      const plafondTourisme = taxParams.micro.meubleTourismePlafond ?? 188700;
+      const eligibleMeubleTourismeClasse =
+        property.meubleTourismeClasse === true && recettesBrutes <= plafondTourisme;
+      const tauxAbattement = eligibleMeubleTourismeClasse
+        ? (taxParams.micro.meubleTourismeAbattement ?? 0.71)
         : taxParams.micro.bicAbattement;
       
-      const abattement = recettesBrutes * tauxAbattement;
-      const resultatFiscal = recettesBrutes - abattement;
+      const abattementCents = Math.round(recettesBrutesCents * tauxAbattement);
+      const resultatFiscalCents = recettesBrutesCents - abattementCents;
+      const abattement = this.fromCents(abattementCents);
+      const resultatFiscal = this.fromCents(resultatFiscalCents);
       
       return {
         id: property.id,
@@ -350,31 +372,34 @@ class SimulatorClass {
       };
     } else {
       // Régime réel avec amortissements
-      const chargesDeductibles = 
-        property.charges +
-        property.interets +
-        property.assuranceEmprunt +
-        property.taxeFonciere +
-        property.fraisGestion +
-        property.assurancePNO +
-        property.chargesCopro +
-        property.autresCharges +
-        property.travaux.entretien;
-      
-      const amortissements = property.amortissements
-        ? property.amortissements.batiment +
-          property.amortissements.mobilier +
-          property.amortissements.fraisAcquisition
+      const chargesDeductiblesCents =
+        this.toCents(property.charges) +
+        this.toCents(property.interets) +
+        this.toCents(property.assuranceEmprunt) +
+        this.toCents(property.taxeFonciere) +
+        this.toCents(property.fraisGestion) +
+        this.toCents(property.assurancePNO) +
+        this.toCents(property.chargesCopro) +
+        this.toCents(property.autresCharges) +
+        this.toCents(property.travaux.entretien);
+
+      const amortissementsCents = property.amortissements
+        ? this.toCents(property.amortissements.batiment) +
+          this.toCents(property.amortissements.mobilier) +
+          this.toCents(property.amortissements.fraisAcquisition)
         : 0;
-      
-      const resultatFiscal = recettesBrutes - chargesDeductibles - amortissements;
+
+      const resultatFiscalCents = recettesBrutesCents - chargesDeductiblesCents - amortissementsCents;
+      const chargesDeductibles = this.fromCents(chargesDeductiblesCents);
+      const amortissements = this.fromCents(amortissementsCents);
+      const resultatFiscal = this.fromCents(resultatFiscalCents);
       
       // Les déficits BIC ne sont imputables que sur les bénéfices BIC futurs
       let deficit: number | undefined;
       let deficitReportable: number | undefined;
       
-      if (resultatFiscal < 0) {
-        deficit = Math.abs(resultatFiscal);
+      if (resultatFiscalCents < 0) {
+        deficit = this.fromCents(Math.abs(resultatFiscalCents));
         deficitReportable = deficit;  // Reportable sur BIC futurs
       }
       
@@ -389,8 +414,8 @@ class SimulatorClass {
         chargesDeductibles,
         amortissements,
         resultatFiscal,
-        baseImposableIR: Math.max(0, resultatFiscal),
-        baseImposablePS: Math.max(0, resultatFiscal),
+        baseImposableIR: this.fromCents(Math.max(0, resultatFiscalCents)),
+        baseImposablePS: this.fromCents(Math.max(0, resultatFiscalCents)),
         deficit,
         deficitReportable,
         details: {
@@ -415,30 +440,33 @@ class SimulatorClass {
     property: RentalPropertyInput,
     taxParams: TaxParams
   ): RentalPropertyResult {
-    const recettesBrutes = property.loyers + (property.autresRevenus || 0);
-    
-    const chargesDeductibles = 
-      property.charges +
-      property.interets +
-      property.assuranceEmprunt +
-      property.taxeFonciere +
-      property.fraisGestion +
-      property.assurancePNO +
-      property.chargesCopro +
-      property.autresCharges +
-      property.travaux.entretien;
-    
-    const resultatFiscal = recettesBrutes - chargesDeductibles;
+    const recettesBrutesCents = this.toCents(property.loyers) + this.toCents(property.autresRevenus || 0);
+    const chargesDeductiblesCents =
+      this.toCents(property.charges) +
+      this.toCents(property.interets) +
+      this.toCents(property.assuranceEmprunt) +
+      this.toCents(property.taxeFonciere) +
+      this.toCents(property.fraisGestion) +
+      this.toCents(property.assurancePNO) +
+      this.toCents(property.chargesCopro) +
+      this.toCents(property.autresCharges) +
+      this.toCents(property.travaux.entretien);
+
+    const resultatFiscalCents = recettesBrutesCents - chargesDeductiblesCents;
+    const recettesBrutes = this.fromCents(recettesBrutesCents);
+    const chargesDeductibles = this.fromCents(chargesDeductiblesCents);
+    const resultatFiscal = this.fromCents(resultatFiscalCents);
     
     // Calcul IS
     let impotIS = 0;
-    if (resultatFiscal > 0) {
-      if (resultatFiscal <= taxParams.sciIS.plafondTauxReduit) {
-        impotIS = resultatFiscal * taxParams.sciIS.tauxReduit;
+    if (resultatFiscalCents > 0) {
+      const plafondCents = this.toCents(taxParams.sciIS.plafondTauxReduit);
+      if (resultatFiscalCents <= plafondCents) {
+        impotIS = this.fromCents(Math.round(resultatFiscalCents * taxParams.sciIS.tauxReduit));
       } else {
-        const parteTauxReduit = taxParams.sciIS.plafondTauxReduit * taxParams.sciIS.tauxReduit;
-        const parteTauxNormal = (resultatFiscal - taxParams.sciIS.plafondTauxReduit) * taxParams.sciIS.tauxNormal;
-        impotIS = parteTauxReduit + parteTauxNormal;
+        const partReduiteCents = Math.round(plafondCents * taxParams.sciIS.tauxReduit);
+        const partNormaleCents = Math.round((resultatFiscalCents - plafondCents) * taxParams.sciIS.tauxNormal);
+        impotIS = this.fromCents(partReduiteCents + partNormaleCents);
       }
     }
     
@@ -481,11 +509,18 @@ class SimulatorClass {
    * - Les intérêts ne peuvent JAMAIS créer de déficit imputable sur revenu global
    */
   private consolidateRevenues(biens: RentalPropertyResult[], taxParams: TaxParams) {
-    let resultatFoncierGlobal = 0;
-    let resultatBICGlobal = 0;
-    let loyersTotaux = 0;
-    let chargesHorsInteretsTotales = 0;
-    let interetsTotaux = 0;
+    let resultatFoncierGlobalCents = 0;
+    let resultatBICGlobalCents = 0;
+    let loyersTotauxCents = 0;
+    let chargesHorsInteretsTotalesCents = 0;
+    let interetsTotauxCents = 0;
+    const detailsParBien: Array<{
+      id: string;
+      nom: string;
+      type: string;
+      resultatFiscal: number;
+      resultatFiscalCentimes: number;
+    }> = [];
     
     // ✅ Additionner TOUS les résultats + tracker loyers/charges/intérêts
     for (const bien of biens) {
@@ -495,28 +530,39 @@ class SimulatorClass {
       
       if (isFoncier) {
         // Revenus fonciers : additionner (peut être positif ou négatif)
-        resultatFoncierGlobal += bien.resultatFiscal;
-        loyersTotaux += bien.recettesBrutes;
+        const resultatFiscalCents = this.toCents(bien.resultatFiscal);
+        resultatFoncierGlobalCents += resultatFiscalCents;
+        loyersTotauxCents += this.toCents(bien.recettesBrutes);
+        detailsParBien.push({
+          id: bien.id,
+          nom: bien.nom,
+          type: bien.type,
+          resultatFiscal: bien.resultatFiscal,
+          resultatFiscalCentimes: resultatFiscalCents,
+        });
         
         // ✅ Extraire les intérêts depuis le breakdown (si disponible)
         const interetsBien = bien.breakdown?.total?.interetsEmprunt || 0;
-        const chargesHorsInterets = bien.chargesDeductibles - interetsBien;
+        const interetsBienCents = this.toCents(interetsBien);
+        const chargesHorsInteretsCents = this.toCents(bien.chargesDeductibles) - interetsBienCents;
         
-        interetsTotaux += interetsBien;
-        chargesHorsInteretsTotales += chargesHorsInterets;
+        interetsTotauxCents += interetsBienCents;
+        chargesHorsInteretsTotalesCents += chargesHorsInteretsCents;
         
-        console.log(`[Consolidation] ${bien.nom} (FONCIER): Loyers ${bien.recettesBrutes.toFixed(2)}€, Charges HI ${chargesHorsInterets.toFixed(2)}€, Intérêts ${interetsBien.toFixed(2)}€ → Résultat: ${bien.resultatFiscal.toFixed(2)}€`);
+        console.log(`[Consolidation] ${bien.nom} (FONCIER): Loyers ${bien.recettesBrutes.toFixed(2)}€, Charges HI ${this.fromCents(chargesHorsInteretsCents).toFixed(2)}€, Intérêts ${interetsBien.toFixed(2)}€ → Résultat: ${bien.resultatFiscal.toFixed(2)}€`);
       } else if (isBIC) {
         // Revenus BIC : additionner (peut être positif ou négatif)
-        resultatBICGlobal += bien.resultatFiscal;
-        console.log(`[Consolidation] ${bien.nom} (BIC): ${bien.resultatFiscal.toFixed(2)}€ → Total BIC: ${resultatBICGlobal.toFixed(2)}€`);
+        resultatBICGlobalCents += this.toCents(bien.resultatFiscal);
+        console.log(`[Consolidation] ${bien.nom} (BIC): ${bien.resultatFiscal.toFixed(2)}€ → Total BIC: ${this.fromCents(resultatBICGlobalCents).toFixed(2)}€`);
       }
       // SCI_IS : déjà imposé à l'IS, ne rentre pas dans l'IR
     }
     
     // ✅ Si résultat global < 0 → déficit, sinon → revenus
-    const revenusFonciers = resultatFoncierGlobal >= 0 ? resultatFoncierGlobal : 0;
-    const deficitFoncierTotal = resultatFoncierGlobal < 0 ? Math.abs(resultatFoncierGlobal) : 0;
+    const resultatFoncierGlobal = this.fromCents(resultatFoncierGlobalCents);
+    const revenusFonciers = this.fromCents(Math.max(0, resultatFoncierGlobalCents));
+    const revenusFonciers4BA = resultatFoncierGlobal;
+    const deficitFoncierTotal = this.fromCents(resultatFoncierGlobalCents < 0 ? Math.abs(resultatFoncierGlobalCents) : 0);
     
     // 🆕 Si déficit foncier : calculer selon la VRAIE formule fiscale
     // ✅ Recalculer l'imputable APRÈS compensation entre biens
@@ -525,38 +571,57 @@ class SimulatorClass {
     
     if (deficitFoncierTotal > 0) {
       // Déficit hors intérêts GLOBAL (après compensation)
-      const deficitHorsInteretsGlobal = Math.max(0, chargesHorsInteretsTotales - loyersTotaux);
+      const deficitHorsInteretsGlobalCents = Math.max(0, chargesHorsInteretsTotalesCents - loyersTotauxCents);
       
       // Imputable = déficit hors intérêts (plafonné 10 700 €)
-      deficitImputableRevenuGlobal = Math.min(
-        deficitHorsInteretsGlobal,
-        taxParams.deficitFoncier.plafondImputationRevenuGlobal
-      );
+      const plafImputationCents = this.toCents(taxParams.deficitFoncier.plafondImputationRevenuGlobal);
+      const imputableCents = Math.min(deficitHorsInteretsGlobalCents, plafImputationCents);
+      deficitImputableRevenuGlobal = this.fromCents(imputableCents);
       
       // Reportable = déficit total - imputable
-      deficitReportable = deficitFoncierTotal - deficitImputableRevenuGlobal;
+      deficitReportable = this.fromCents(Math.max(0, Math.abs(resultatFoncierGlobalCents) - imputableCents));
       
-      console.log(`[Déficit foncier] Loyers totaux: ${loyersTotaux.toFixed(2)}€`);
-      console.log(`[Déficit foncier] Charges hors intérêts: ${chargesHorsInteretsTotales.toFixed(2)}€`);
-      console.log(`[Déficit foncier] Intérêts totaux: ${interetsTotaux.toFixed(2)}€`);
-      console.log(`[Déficit foncier] Déficit HI global (après compensation): ${deficitHorsInteretsGlobal.toFixed(2)}€`);
+      console.log(`[Déficit foncier] Loyers totaux: ${this.fromCents(loyersTotauxCents).toFixed(2)}€`);
+      console.log(`[Déficit foncier] Charges hors intérêts: ${this.fromCents(chargesHorsInteretsTotalesCents).toFixed(2)}€`);
+      console.log(`[Déficit foncier] Intérêts totaux: ${this.fromCents(interetsTotauxCents).toFixed(2)}€`);
+      console.log(`[Déficit foncier] Déficit HI global (après compensation): ${this.fromCents(deficitHorsInteretsGlobalCents).toFixed(2)}€`);
       console.log(`[Déficit foncier] Imputable revenu global: ${deficitImputableRevenuGlobal.toFixed(2)}€ (plafonné ${taxParams.deficitFoncier.plafondImputationRevenuGlobal}€)`);
       console.log(`[Déficit foncier] Reportable sur 10 ans: ${deficitReportable.toFixed(2)}€`);
     }
     
-    const revenusBIC = resultatBICGlobal >= 0 ? resultatBICGlobal : 0;
-    const deficitBIC = resultatBICGlobal < 0 ? Math.abs(resultatBICGlobal) : 0;
+    const resultatBICGlobal = this.fromCents(resultatBICGlobalCents);
+    const revenusBIC = this.fromCents(Math.max(0, resultatBICGlobalCents));
+    const deficitBIC = this.fromCents(resultatBICGlobalCents < 0 ? Math.abs(resultatBICGlobalCents) : 0);
     
     console.log(`[Consolidation] Résultat foncier global: ${resultatFoncierGlobal.toFixed(2)}€ → Revenus: ${revenusFonciers.toFixed(2)}€, Déficit: ${deficitFoncierTotal.toFixed(2)}€`);
     console.log(`[Consolidation] Résultat BIC global: ${resultatBICGlobal.toFixed(2)}€ → Revenus: ${revenusBIC.toFixed(2)}€, Déficit: ${deficitBIC.toFixed(2)}€`);
+    const sumResultatsBiens = this.fromCents(
+      detailsParBien.reduce((acc, d) => acc + d.resultatFiscalCentimes, 0),
+    );
+    const rawSumResultatsBiens = detailsParBien.reduce((acc, d) => acc + d.resultatFiscal, 0);
+    const montant4BA = revenusFonciers4BA;
+    const delta = Math.abs(sumResultatsBiens - montant4BA);
+    const deltaArrondi4BA = Math.abs(rawSumResultatsBiens - montant4BA);
+
+    if (delta > 0.01) {
+      console.error('[FISCAL_COHERENCE_ERROR]', {
+        sumResultatsBiens,
+        montant4BA,
+        delta,
+        detailsParBien,
+      });
+    }
     
     return {
       revenusFonciers,
+      revenusFonciers4BA,
       revenusBIC,
       deficitFoncier: deficitFoncierTotal,
       deficitBIC,
       deficitImputableRevenuGlobal,  // 🆕 Déficit imputable global
       deficitReportable,             // 🆕 Déficit reportable global
+      deltaArrondi4BA,
+      detailsParBien,
     };
   }
   
@@ -737,7 +802,12 @@ class SimulatorClass {
     amortissements: number,
     taxParams: TaxParams
   ): number {
-    const abattementMicro = recettesBrutes * taxParams.micro.bicAbattement;
+    const plafondTourisme = taxParams.micro.meubleTourismePlafond ?? 188700;
+    const tauxMicro =
+      property.meubleTourismeClasse === true && recettesBrutes <= plafondTourisme
+        ? (taxParams.micro.meubleTourismeAbattement ?? 0.71)
+        : taxParams.micro.bicAbattement;
+    const abattementMicro = recettesBrutes * tauxMicro;
     const resultatMicro = recettesBrutes - abattementMicro;
     const resultatReel = recettesBrutes - chargesReelles - amortissements;
     

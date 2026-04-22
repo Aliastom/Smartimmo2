@@ -43,6 +43,7 @@ import {
 import { SUGGESTION_LEVEL_LABELS, type EcheanceRecurrente } from '@/types/echeance';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import Link from 'next/link';
+import { cn } from '@/lib/utils';
 
 interface Transaction {
   id: string;

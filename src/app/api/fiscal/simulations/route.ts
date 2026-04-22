@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     
     const simulations = await prisma.fiscalSimulation.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { updatedAt: 'desc' },
       take: limit,
       select: {
         id: true,
@@ -125,6 +125,7 @@ export async function POST(request: NextRequest) {
         year: simulation.year,
         fiscalVersionId: simulation.fiscalVersionId,
         createdAt: simulation.createdAt,
+        updatedAt: simulation.updatedAt,
       },
       message: 'Simulation sauvegardée avec succès',
     });

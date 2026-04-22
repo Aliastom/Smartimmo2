@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
       key: category.slug,
       label: category.label,
       type: category.type,
+      fiscalLineHint: category.fiscalLineHint,
       active: category.actif,
       deductible: category.deductible,
       capitalizable: category.capitalizable
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     console.log('[CATEGORIES API] Body reçu POST:', body);
     
-    const { key, label, type, active = true, deductible = false, capitalizable = false } = body;
+    const { key, label, type, fiscalLineHint = null, active = true, deductible = false, capitalizable = false } = body;
 
     console.log('[CATEGORIES API] Création catégorie:', { key, label, type, deductible, capitalizable });
 
@@ -64,6 +65,7 @@ export async function POST(request: NextRequest) {
         slug: key,
         label,
         type,
+        fiscalLineHint,
         actif: active,
         deductible: deductible === true,
         capitalizable: capitalizable === true
@@ -77,6 +79,7 @@ export async function POST(request: NextRequest) {
       data: { 
         key: category.slug, 
         label: category.label,
+        fiscalLineHint: category.fiscalLineHint,
         deductible: category.deductible,
         capitalizable: category.capitalizable
       }
@@ -99,7 +102,7 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     console.log('[CATEGORIES API] Body reçu:', body);
     
-    const { key, label, type, active, deductible, capitalizable } = body;
+    const { key, label, type, fiscalLineHint = null, active, deductible, capitalizable } = body;
 
     console.log('[CATEGORIES API] Modification catégorie:', { key, label, type, active, deductible, capitalizable });
 
@@ -109,6 +112,7 @@ export async function PATCH(request: NextRequest) {
       data: { 
         label, 
         type, 
+        fiscalLineHint,
         actif: active,
         deductible: deductible === true,  // Force boolean
         capitalizable: capitalizable === true  // Force boolean
@@ -122,6 +126,7 @@ export async function PATCH(request: NextRequest) {
       data: { 
         key, 
         label,
+        fiscalLineHint: updated.fiscalLineHint,
         deductible: updated.deductible,
         capitalizable: updated.capitalizable
       }

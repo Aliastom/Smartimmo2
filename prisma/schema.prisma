@@ -53,6 +53,7 @@ model Category {
   slug                    String                    @unique
   label                   String
   type                    String
+  fiscalLineHint          String?
   deductible              Boolean                   @default(false)
   capitalizable           Boolean                   @default(false)
   system                  Boolean                   @default(false)

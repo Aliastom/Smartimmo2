@@ -27,17 +27,30 @@ interface FiscalProgressBarProps {
   activeTab: FiscalTab;
   hasSimulation: boolean;
   onTabChange?: (tab: FiscalTab) => void;
+  /** Intégré dans le header fiscal : pas de carte externe, padding réduit, ligne unique. */
+  embedded?: boolean;
 }
 
-export function FiscalProgressBar({ activeTab, hasSimulation, onTabChange }: FiscalProgressBarProps) {
+export function FiscalProgressBar({
+  activeTab,
+  hasSimulation,
+  onTabChange,
+  embedded = false,
+}: FiscalProgressBarProps) {
   const activeIndex = STEPS.findIndex((s) => s.id === activeTab);
   const progress = ((activeIndex + 1) / STEPS.length) * 100;
 
   return (
-    <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-4 overflow-x-auto">
-      <div className="max-w-6xl mx-auto flex flex-col gap-4">
+    <div
+      className={
+        embedded
+          ? 'overflow-x-auto -mx-0.5 px-0.5 py-1'
+          : 'bg-white border-b border-gray-200 px-4 md:px-6 py-4 overflow-x-auto'
+      }
+    >
+      <div className={embedded ? 'w-full flex flex-col gap-1' : 'max-w-6xl mx-auto flex flex-col gap-4'}>
         {/* Barre horizontale : étapes + compteur à droite */}
-        <div className="flex items-center justify-between gap-6">
+        <div className={`flex items-center justify-between ${embedded ? 'gap-3' : 'gap-6'}`}>
           {/* Étapes textuelles centrées / alignées */}
           <div className="relative flex-1 min-w-0">
             {/* Ligne de progression fine en arrière-plan (1px, subtle) */}
@@ -66,7 +79,7 @@ export function FiscalProgressBar({ activeTab, hasSimulation, onTabChange }: Fis
                     disabled={isDisabled || !onTabChange}
                     aria-current={isActive ? 'step' : undefined}
                     className={`
-                      relative flex flex-col items-center py-2 px-1 md:px-2
+                      relative flex flex-col items-center ${embedded ? 'py-1 px-0.5 md:px-1' : 'py-2 px-1 md:px-2'}
                       transition-colors duration-200 ease-out
                       focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1 rounded
                       ${isClickable ? 'cursor-pointer' : 'cursor-default'}
@@ -94,8 +107,7 @@ export function FiscalProgressBar({ activeTab, hasSimulation, onTabChange }: Fis
                       `}
                       aria-hidden
                     />
-                    {/* Badge "À venir" — étapes futures désactivées */}
-                    {step.disabled && (
+                    {!embedded && step.disabled && (
                       <span className="text-[10px] mt-0.5 text-gray-500 font-normal">
                         À venir
                       </span>
@@ -109,12 +121,16 @@ export function FiscalProgressBar({ activeTab, hasSimulation, onTabChange }: Fis
           {/* Compteur Étape X / Y — aligné à droite, badge discret */}
           <div className="flex-shrink-0">
             <div
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-gray-100/80 text-gray-600"
+              className={`inline-flex items-center gap-1 rounded-md bg-gray-100/80 text-gray-600 ${
+                embedded ? 'px-2 py-0.5' : 'px-2.5 py-1'
+              }`}
               aria-label={`Étape ${activeIndex + 1} sur ${STEPS.length}`}
             >
-              <span className="text-xs font-medium">Étape {activeIndex + 1}</span>
-              <span className="text-xs text-gray-400">/</span>
-              <span className="text-xs text-gray-500">{STEPS.length}</span>
+              <span className={`font-medium ${embedded ? 'text-[11px]' : 'text-xs'}`}>
+                Étape {activeIndex + 1}
+              </span>
+              <span className={`text-gray-400 ${embedded ? 'text-[10px]' : 'text-xs'}`}>/</span>
+              <span className={`text-gray-500 ${embedded ? 'text-[11px]' : 'text-xs'}`}>{STEPS.length}</span>
             </div>
           </div>
         </div>

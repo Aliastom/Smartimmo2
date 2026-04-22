@@ -2,6 +2,7 @@
  * API Routes : Gestion d'une simulation spécifique
  * 
  * GET /api/fiscal/simulations/[id] - Récupère une simulation complète
+ * PATCH /api/fiscal/simulations/[id] - Met à jour une simulation existante (nom et/ou contenu)
  * DELETE /api/fiscal/simulations/[id] - Supprime une simulation
  */
 
@@ -58,6 +59,7 @@ export async function GET(
         year: simulation.year,
         fiscalVersionId: simulation.fiscalVersionId,
         createdAt: simulation.createdAt,
+        updatedAt: simulation.updatedAt,
         createdBy: simulation.createdBy,
         inputs,
         result,
@@ -70,6 +72,99 @@ export async function GET(
         success: false,
         error: 'Erreur lors du chargement de la simulation',
         details: error.message 
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// ============================================================================
+// PATCH - Mettre à jour une simulation existante
+// ============================================================================
+
+export async function PATCH(
+  request: NextRequest,
+  context: { params: { id: string } }
+) {
+  try {
+    const user = await requireAuth();
+    const organizationId = user.organizationId;
+    const userId = user.id;
+    const { id } = context.params;
+
+    const body = await request.json();
+    const { name, inputs, result } = body as {
+      name?: string;
+      inputs?: FiscalInputs;
+      result?: SimulationResult;
+    };
+
+    const existing = await prisma.fiscalSimulation.findFirst({
+      where: {
+        id,
+        organizationId,
+        userId,
+      },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Simulation introuvable',
+        },
+        { status: 404 }
+      );
+    }
+
+    const dataToUpdate: Record<string, unknown> = {};
+    if (typeof name === 'string' && name.trim().length > 0) {
+      dataToUpdate.name = name.trim();
+    }
+    if (inputs) {
+      dataToUpdate.inputsJson = JSON.stringify(inputs);
+      dataToUpdate.year = inputs.year;
+    }
+    if (result) {
+      dataToUpdate.resultJson = JSON.stringify(result);
+      dataToUpdate.fiscalVersionId = result.taxParams.version;
+    }
+
+    if (Object.keys(dataToUpdate).length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Aucune donnée à mettre à jour',
+        },
+        { status: 400 }
+      );
+    }
+
+    const updated = await prisma.fiscalSimulation.update({
+      where: { id },
+      data: dataToUpdate,
+      select: {
+        id: true,
+        name: true,
+        year: true,
+        fiscalVersionId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      simulation: updated,
+      message: 'Simulation mise à jour avec succès',
+    });
+  } catch (error: any) {
+    console.error('[API Simulations PATCH] Erreur:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Erreur lors de la mise à jour de la simulation',
+        details: error.message,
       },
       { status: 500 }
     );

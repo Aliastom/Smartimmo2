@@ -1,0 +1,24 @@
+Extension déclaration 2044 par bien — intérêts & informations bail
+=====================================================================
+
+Cas couverts (intérêts)
+----------------------
+- Prêt à taux fixe, amortissement à mensualité constante (profil CONSTANT_PAYMENT ou vide).
+- Différé intérêt seul : pris en charge via buildSchedule (même bibliothèque que les prêts Smartimmo).
+- Plusieurs prêts sur un même bien : somme des intérêts de chaque échéancier pour l’année civile.
+- Filtrage par année civile sur la date de chaque ligne d’échéancier (YYYY-MM ou YYYY-MM-DD).
+- Prêt avec date de fin enregistrée : échéances après cette date sont ignorées pour l’agrégation.
+
+Cas exclus ou ambiguïtés explicites
+------------------------------------
+- Prêt in fine (IN_FINE) : pas de montant agrégé, ambiguïté.
+- Amortissement à capital constant : non modélisé, ambiguïté.
+- Taux non FIXE : ambiguïté.
+- Données minimales invalides (capital ≤ 0, durée ≤ 0, taux absent, date de début invalide) : 0 €, ambiguïté.
+- propertyId du prêt différent du bien agrégé : 0 € pour ce prêt, ambiguïté.
+
+Limites
+-------
+- Les intérêts ventilés en case 230 ne regroupent que la composante « intérêt » ; l’assurance emprunteur est affichée à part (indicatif) et n’est pas ajoutée au total « intérêts ».
+- Le moteur fiscal global (interets / breakdown) continue d’utiliser l’ancien calcul calculateLoanInterests : l’écart éventuel avec l’onglet Déclaration doit être interprété comme une différence de méthode (projection vs échéancier annuel).
+- « Lots » déclaratifs : seul un indicatif « pièces » (champ rooms) est disponible ; l’absence de pièces renseignées déclenche le badge « lots ».

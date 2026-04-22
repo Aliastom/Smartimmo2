@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
         slug: true,
         label: true,
         type: true,
+        fiscalLineHint: true,
         deductible: true,
         capitalizable: true,
         system: true,

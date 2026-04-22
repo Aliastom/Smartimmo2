@@ -1,0 +1,73 @@
+{
+  "propertyId": "clx_property_example",
+  "year": 2025,
+  "lines": {
+    "211": 14400,
+    "212": 0,
+    "213": 0,
+    "215": 0,
+    "221": 720,
+    "222": 0,
+    "223": 180,
+    "224": 0,
+    "225": 120,
+    "226": 0,
+    "227": 890,
+    "229": 2100,
+    "230": 190,
+    "420": 12300
+  },
+  "quality": {
+    "missingHintCount": 2,
+    "unmappedCount": 1,
+    "ambiguousTransactions": [
+      {
+        "transactionId": "tx_abc",
+        "label": "Charge diverse",
+        "amount": 45,
+        "reason": "charge sans fiscalLineHint: fallback vers 230",
+        "categoryLabel": "Divers",
+        "categorySlug": "divers",
+        "fiscalLineHint": null
+      }
+    ]
+  },
+  "interetsEmpruntAnnee": {
+    "annee": 2025,
+    "totalInteretsEmprunt": 190,
+    "totalAssuranceEmprunteur": 48,
+    "byLoan": [
+      {
+        "loanId": "loan_1",
+        "label": "Prêt principal",
+        "interetsPayesAnnee": 120,
+        "assurancePayeeAnnee": 30,
+        "nombreEcheancesDansAnnee": 12,
+        "source": "echeancier_amortissement"
+      },
+      {
+        "loanId": "loan_2",
+        "label": "Travaux",
+        "interetsPayesAnnee": 70,
+        "assurancePayeeAnnee": 18,
+        "nombreEcheancesDansAnnee": 12,
+        "source": "echeancier_amortissement"
+      }
+    ],
+    "ambiguities": [
+      {
+        "loanId": "loan_3",
+        "loanLabel": "Prêt relais",
+        "reason": "Remboursement in fine : modèle d'échéancier non pris en charge pour l'agrégation annuelle — montant exclu."
+      }
+    ]
+  },
+  "informationsBien": {
+    "adresseFormatee": "12 rue des Lilas, 75000 Paris",
+    "locatairesNoms": ["Jean Dupont", "Marie Martin"],
+    "dateAcquisition": "2018-06-15",
+    "nombrePiecesOuLotsIndicatif": 3,
+    "nombreBauxSurAnnee": 2,
+    "missingDeclarative": []
+  }
+}

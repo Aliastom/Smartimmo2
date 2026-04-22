@@ -166,103 +166,55 @@ export class IndexedDBTransactionRepository implements ITransactionRepository {
       throw new Error(`Transaction ${id} not found`);
     }
 
-    // 🔍 DIAGNOSTIC: Log pour tracer les champs method et paidAt
-    const { logToServer } = await import('@/lib/utils/logger');
-    await logToServer(`[IndexedDBTransactionRepository] 🔍 update - existing.method=${existing.method}, existing.paidAt=${existing.paidAt}, data.method=${data.method}, data.paidAt=${data.paidAt}`);
-    await logToServer(`[IndexedDBTransactionRepository] 🔍 update - data complet (keys): ${JSON.stringify(Object.keys(data))}`);
-    if (data.method !== undefined) {
-      await logToServer(`[IndexedDBTransactionRepository] 🔍 update - method sera mis à jour: ${data.method}`);
-    }
-    if (data.paidAt !== undefined) {
-      await logToServer(`[IndexedDBTransactionRepository] 🔍 update - paidAt sera mis à jour: ${data.paidAt} (type: ${typeof data.paidAt})`);
-    }
-
-    // ⚙️ NORMALISATION: Convertir les dates en string ISO complète pour IndexedDB
-    // IndexedDB doit stocker les dates au format ISO complet "2025-12-22T00:00:00.000Z"
-    // Le formulaire peut envoyer "2025-12-22" (format date HTML), il faut le convertir
+    // ⚙️ NORMALISATION: dates en string ISO complète pour IndexedDB (sans logs réseau / sans lecture totale de la table)
     const normalizedData = { ...data };
-    
-    // Normaliser date
+
     if (normalizedData.date !== null && normalizedData.date !== undefined) {
       if (normalizedData.date instanceof Date) {
         normalizedData.date = normalizedData.date.toISOString() as any;
-        await logToServer(`[IndexedDBTransactionRepository] ⚙️ date converti de Date vers ISO string: ${normalizedData.date}`);
       } else if (typeof normalizedData.date === 'string') {
-        // Format date HTML: "2025-12-22" (sans heure) → convertir en ISO complet
         if (normalizedData.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
           normalizedData.date = `${normalizedData.date}T00:00:00.000Z` as any;
-          await logToServer(`[IndexedDBTransactionRepository] ⚙️ date converti de date simple "${data.date}" vers ISO complet: ${normalizedData.date}`);
         } else if (!normalizedData.date.includes('T')) {
           try {
             const dateObj = new Date(normalizedData.date);
             if (!isNaN(dateObj.getTime())) {
               normalizedData.date = dateObj.toISOString() as any;
-              await logToServer(`[IndexedDBTransactionRepository] ⚙️ date converti vers ISO: ${normalizedData.date}`);
             }
-          } catch (e) {
-            await logToServer(`[IndexedDBTransactionRepository] ⚠️ Erreur conversion date: ${normalizedData.date}`, 'error');
+          } catch {
+            /* ignore */
           }
         }
       }
     }
-    
-    // Normaliser paidAt
+
     if (normalizedData.paidAt !== null && normalizedData.paidAt !== undefined) {
       if (normalizedData.paidAt instanceof Date) {
         normalizedData.paidAt = normalizedData.paidAt.toISOString() as any;
-        await logToServer(`[IndexedDBTransactionRepository] ⚙️ paidAt converti de Date vers ISO string: ${normalizedData.paidAt}`);
       } else if (typeof normalizedData.paidAt === 'string') {
-        // Si c'est une string, vérifier le format
-        // Format date HTML: "2025-12-22" (sans heure)
-        // Format ISO complet: "2025-12-22T00:00:00.000Z" (avec heure et timezone)
         if (normalizedData.paidAt.match(/^\d{4}-\d{2}-\d{2}$/)) {
-          // Format date simple "YYYY-MM-DD", convertir en ISO complet
           normalizedData.paidAt = `${normalizedData.paidAt}T00:00:00.000Z` as any;
-          await logToServer(`[IndexedDBTransactionRepository] ⚙️ paidAt converti de date simple "${data.paidAt}" vers ISO complet: ${normalizedData.paidAt}`);
         } else if (!normalizedData.paidAt.includes('T')) {
-          // Autre format sans 'T', essayer de le parser
           try {
             const dateObj = new Date(normalizedData.paidAt);
             if (!isNaN(dateObj.getTime())) {
               normalizedData.paidAt = dateObj.toISOString() as any;
-              await logToServer(`[IndexedDBTransactionRepository] ⚙️ paidAt converti vers ISO: ${normalizedData.paidAt}`);
             }
-          } catch (e) {
-            await logToServer(`[IndexedDBTransactionRepository] ⚠️ Erreur conversion paidAt: ${normalizedData.paidAt}`, 'error');
+          } catch {
+            /* ignore */
           }
         }
-        // Si c'est déjà un format ISO avec 'T', le garder tel quel
       }
     }
 
-    // ✅ CRITIQUE: updatedAt est TOUJOURS une string ISO dans IndexedDB
-    // Normaliser pour garantir la cohérence avec les autres repositories
     const updated: Transaction = {
       ...existing,
       ...normalizedData,
-      updatedAt: new Date().toISOString(), // String ISO (comme dans BaseOfflineRepository)
+      updatedAt: new Date().toISOString(),
     };
 
-    // 🔍 DIAGNOSTIC: Vérifier la valeur après merge
-    await logToServer(`[IndexedDBTransactionRepository] 🔍 update - updated.method après merge: ${updated.method}, updated.paidAt après merge: ${updated.paidAt} (type: ${typeof updated.paidAt})`);
-    
     await transactionTable.put(updated);
-    
-    // 🔍 DIAGNOSTIC: Vérifier dans IndexedDB après put
-    const verify = await transactionTable.get(id);
-    await logToServer(`[IndexedDBTransactionRepository] 🔍 update - verify.method dans IndexedDB après put: ${verify?.method}, verify.paidAt: ${verify?.paidAt}`);
-    await logToServer(`[IndexedDBTransactionRepository] 🔍 update - verify complet (keys): ${JSON.stringify(Object.keys(verify || {}))}`);
-    await logToServer(`[IndexedDBTransactionRepository] 🔍 update - verify.method type: ${typeof verify?.method}, verify.paidAt type: ${typeof verify?.paidAt}`);
-    
-    // 🔍 DIAGNOSTIC: Vérifier aussi via getAll pour voir si la transaction est bien récupérée
-    const allTransactions = await transactionTable.where('organizationId').equals(existing.organizationId).toArray();
-    const foundTransaction = allTransactions.find(t => t.id === id);
-    if (foundTransaction) {
-      await logToServer(`[IndexedDBTransactionRepository] 🔍 update - Transaction trouvée via getAll: id=${foundTransaction.id}, method="${foundTransaction.method}", paidAt="${foundTransaction.paidAt}"`);
-    } else {
-      await logToServer(`[IndexedDBTransactionRepository] ⚠️ update - Transaction ${id} NON trouvée via getAll après put`);
-    }
-    
+
     // ✅ Créer une pendingOp pour la synchronisation
     const organizationId = existing.organizationId || ctx?.organizationId;
     if (!organizationId) {

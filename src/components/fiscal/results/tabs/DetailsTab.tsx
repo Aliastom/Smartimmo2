@@ -24,6 +24,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useExpertModeStore } from '@/store/expertModeStore';
 import { ExpertCalculBlocks } from '../../expert/ExpertCalculBlocks';
 import type { SimulationResult, RentalPropertyResult } from '@/types/fiscal';
+import { allocateProRataTwoWeights } from '@/lib/fiscal/immoTaxDisplayAlloc';
 import { PilotagePASBlock } from '@/components/fiscal/PilotagePASBlock';
 import { 
   Home, 
@@ -273,11 +274,29 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
   const psTotal = simulation.ps.montant || 0;
   const psEuroAffichage = Math.round(psTotal);
   const totalImpotsEuroAffichage = irNetEuroAffichage + psEuroAffichage;
+
+  const irSupplementaire = simulation.resume?.irSupplementaire ?? 0;
+  const baseNuIrfPs = Math.max(0, simulation.consolidation.revenusFonciers);
+  const baseBicIrfPs = Math.max(0, simulation.consolidation.revenusBIC);
+  const irSuppAlloc = useMemo(
+    () => allocateProRataTwoWeights(irSupplementaire, baseNuIrfPs, baseBicIrfPs),
+    [irSupplementaire, baseNuIrfPs, baseBicIrfPs],
+  );
+  const psAlloc = useMemo(
+    () => allocateProRataTwoWeights(psTotal, baseNuIrfPs, baseBicIrfPs),
+    [psTotal, baseNuIrfPs, baseBicIrfPs],
+  );
+  const hasImmoFiscalNuOuBic =
+    Math.abs(simulation.consolidation.revenusFonciers) > 0.005 ||
+    Math.abs(simulation.consolidation.revenusBIC) > 0.005 ||
+    Math.abs(irSupplementaire) > 0.005 ||
+    psTotal > 0.005;
   
   const prelevementSourceDejaPaye = simulation.inputs?.options?.prelevementSourceDejaPaye || 0;
   const acomptesDejaPayes = simulation.inputs?.options?.acomptesDejaPayes || 0;
   const totalDejaPaye = prelevementSourceDejaPaye + acomptesDejaPayes;
-  const resteAPayerEuroAffichage = Math.max(0, totalImpotsEuroAffichage - totalDejaPaye);
+  /** Solde réel (peut être négatif si trop-perçu) — affichage uniquement, sans modifier le moteur. */
+  const soldeFiscalEstimeEuro = totalImpotsEuroAffichage - totalDejaPaye;
 
   /** IR : barème appliqué sur le quotient, puis × parts, puis décote (même ordre que le moteur) */
   const impotCalculeParPart =
@@ -314,7 +333,9 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                 <div>
                   <p className="text-sm text-gray-600 mb-1">Montant utilisé pour le calcul de l'impôt</p>
                   <p className="font-semibold text-gray-900">Base imposable totale</p>
-                  <p className="text-xs text-gray-500 mt-1 italic">Salaire + Immobilier – PER</p>
+                  <p className="text-xs text-gray-500 mt-1 italic">
+                    Salaire + résultat foncier (NU) + résultat BIC (LMNP/LMP) – déficit foncier imputable – PER
+                  </p>
                 </div>
                 <span className="text-2xl font-bold text-purple-600">
                   {formatEuro(baseImposable)}
@@ -474,33 +495,58 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
               <CardContent className="p-5">
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Base PS immobilière</span>
+                    <span className="text-sm text-gray-600">Assiette PS (revenus immobiliers retenus)</span>
                     <span className="font-semibold text-gray-700">
                       {formatEuro(simulation.ps.baseImposable || 0)}
                     </span>
                   </div>
-                  
+                  <div className="ml-1 space-y-1 rounded-md bg-orange-50/60 px-2 py-1.5 text-[11px] text-gray-700">
+                    <div className="flex justify-between gap-2">
+                      <span>· Part location nue (NU), base retenue</span>
+                      <span className="font-medium shrink-0">{formatEuro(baseNuIrfPs)}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span>· Part LMNP / LMP (BIC), base retenue</span>
+                      <span className="font-medium shrink-0">{formatEuro(baseBicIrfPs)}</span>
+                    </div>
+                  </div>
+
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-gray-600">Taux PS</span>
                     <span className="font-semibold text-gray-700">
                       {formatPercent(simulation.ps.taux || 0.172)}
                     </span>
                   </div>
-                  
+
                   <Separator className="bg-orange-300" />
-                  
-                  {/* Total PS */}
+
                   <div className="bg-orange-100 border-2 border-orange-400 rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-gray-900">Total prélèvements sociaux sur revenus immobiliers</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900">Prélèvements sociaux (PS) sur l’immobilier</p>
                         <p className="text-xs text-gray-500 mt-1.5">
-                          Les prélèvements sociaux s&apos;appliquent ici aux revenus immobiliers. Ils ne sont pas réduits par le PER.
+                          Montant unique calculé par le moteur sur l’assiette NU + BIC. Ventilation ci-dessous
+                          <strong> indicative</strong> (même prorata que les bases retenues).
+                        </p>
+                        {(psAlloc.nu > 0.5 || psAlloc.bic > 0.5) && (
+                          <ul className="mt-2 space-y-0.5 text-[11px] text-gray-600">
+                            {psAlloc.nu > 0.5 && (
+                              <li>
+                                · Part liée à la <strong>location nue (NU)</strong> : {formatEuro(psAlloc.nu)}
+                              </li>
+                            )}
+                            {psAlloc.bic > 0.5 && (
+                              <li>
+                                · Part liée au <strong>LMNP / BIC</strong> : {formatEuro(psAlloc.bic)}
+                              </li>
+                            )}
+                          </ul>
+                        )}
+                        <p className="text-[10px] text-gray-500 mt-2">
+                          Les PS ne sont pas réduits par le PER.
                         </p>
                       </div>
-                      <span className="text-2xl font-bold text-orange-600">
-                        {formatEuro(psTotal)}
-                      </span>
+                      <span className="text-2xl font-bold text-orange-600 shrink-0">{formatEuro(psTotal)}</span>
                     </div>
                   </div>
                 </div>
@@ -512,7 +558,8 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
               <div>
                 <p className="font-semibold text-emerald-800">Non applicable cette année</p>
                 <p className="text-xs text-emerald-700">
-                  Aucun revenu foncier positif soumis aux prélèvements sociaux
+                  Aucune base positive (location nue + LMNP/BIC) pour les prélèvements sociaux sur les revenus
+                  immobiliers
                 </p>
               </div>
             </div>
@@ -533,7 +580,7 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                 </div>
                 
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-700">+ Prélèvements sociaux sur revenus immobiliers</span>
+                  <span className="text-gray-700">+ Prélèvements sociaux (bases immobilières NU + BIC)</span>
                   <span className="font-semibold text-gray-700">{formatEuro(psEuroAffichage)}</span>
                 </div>
                 
@@ -543,24 +590,54 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-bold text-gray-900">TOTAL IMPÔTS</p>
-                      {(() => {
-                        const irSupplementaire = simulation.resume?.irSupplementaire || 0;
-                        const irSalaire = irTotalMoteur - irSupplementaire;
-                        const impotsSalaire = irSalaire; // PS = 0 sur salaire
-                        const impotsImpactFoncier = irSupplementaire + psTotal; // IR supp + PS fonciers
-                        const hasFoncier = simulation.consolidation.revenusFonciers !== 0;
-                        
-                        return hasFoncier ? (
-                          <>
-                            <p className="text-xs text-gray-600 mt-1">
-                              Impôts de base (salaire seul) : {formatEuro(impotsSalaire)}
-                            </p>
-                            <p className="text-xs text-gray-600 mt-1">
-                              Impact revenus fonciers : <span className={impotsImpactFoncier >= 0 ? 'text-orange-600' : 'text-emerald-600'}>{impotsImpactFoncier >= 0 ? '+' : ''}{formatEuro(impotsImpactFoncier)}</span>
-                            </p>
-                          </>
-                        ) : null;
-                      })()}
+                      {hasImmoFiscalNuOuBic ? (
+                        <>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Impôt sur le revenu sans apport immobilier (référence barème) :{' '}
+                            {formatEuro(irTotalMoteur - irSupplementaire)}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">
+                            <span className="font-medium text-gray-700">Impact fiscal immobilier (IR + PS)</span> :{' '}
+                            <span
+                              className={
+                                irSupplementaire + psTotal >= 0 ? 'text-orange-600' : 'text-emerald-600'
+                              }
+                            >
+                              {irSupplementaire + psTotal >= 0 ? '+' : ''}
+                              {formatEuro(irSupplementaire + psTotal)}
+                            </span>
+                          </p>
+                          {(Math.abs(irSupplementaire) > 0.5 || psTotal > 0.5) && (
+                            <ul className="mt-1.5 space-y-0.5 text-[11px] text-gray-600 pl-1 border-l border-orange-200">
+                              {Math.abs(irSupplementaire) > 0.5 && (
+                                <>
+                                  <li>
+                                    · IR supplémentaire · <strong>location nue (NU)</strong> (indicatif) :{' '}
+                                    {formatEuro(irSuppAlloc.nu)}
+                                  </li>
+                                  <li>
+                                    · IR supplémentaire · <strong>LMNP / BIC</strong> (indicatif) :{' '}
+                                    {formatEuro(irSuppAlloc.bic)}
+                                  </li>
+                                </>
+                              )}
+                              {psTotal > 0.5 && (
+                                <>
+                                  <li>
+                                    · PS · part <strong>NU</strong> (indicatif) : {formatEuro(psAlloc.nu)}
+                                  </li>
+                                  <li>
+                                    · PS · part <strong>LMNP / BIC</strong> (indicatif) : {formatEuro(psAlloc.bic)}
+                                  </li>
+                                </>
+                              )}
+                              <li className="text-[10px] text-gray-500 italic pt-0.5">
+                                Ventilation IR au prorata des bases retenues (non linéaire ; ordre réel du barème).
+                              </li>
+                            </ul>
+                          )}
+                        </>
+                      ) : null}
                     </div>
                     <span className="text-2xl font-bold text-orange-600">{formatEuro(totalImpotsEuroAffichage)}</span>
                   </div>
@@ -609,48 +686,125 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
           </BlockCard>
         )}
 
-        {/* BLOC 6 : RESTE À PAYER */}
+        {/* BLOC 6 : solde fiscal (reste à payer / remboursement / équilibre) */}
         <BlockCard
-          title="Reste à payer"
-          icon={<DollarSign className="h-5 w-5 text-orange-600" />}
+          title={
+            soldeFiscalEstimeEuro > 0
+              ? 'Reste à payer'
+              : soldeFiscalEstimeEuro < 0
+                ? 'Remboursement estimé'
+                : 'Situation équilibrée'
+          }
+          icon={
+            soldeFiscalEstimeEuro > 0 ? (
+              <DollarSign className="h-5 w-5 text-orange-600" />
+            ) : soldeFiscalEstimeEuro < 0 ? (
+              <Coins className="h-5 w-5 text-emerald-600" />
+            ) : (
+              <CheckCircle2 className="h-5 w-5 text-gray-500" />
+            )
+          }
         >
-          <Card className={`border-2 shadow-sm ${resteAPayerEuroAffichage > 0 ? 'border-orange-300' : 'border-emerald-300'} bg-white`}>
+          <Card
+            className={`border-2 shadow-sm bg-white ${
+              soldeFiscalEstimeEuro > 0
+                ? 'border-orange-300'
+                : soldeFiscalEstimeEuro < 0
+                  ? 'border-emerald-300'
+                  : 'border-gray-300'
+            }`}
+          >
             <CardContent className="p-6">
               <div className="space-y-3">
-                {totalDejaPaye > 0 && (
-                  <>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-700">Total impôts calculés</span>
-                      <span className="font-semibold text-gray-700">{formatEuro(totalImpotsEuroAffichage)}</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700">Total impôts calculés</span>
+                  <span className="font-semibold text-gray-700">{formatEuro(totalImpotsEuroAffichage)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700">Déjà payé</span>
+                  <span className="font-semibold text-gray-700">
+                    {totalDejaPaye > 0 ? `– ${formatEuro(totalDejaPaye)}` : formatEuro(0)}
+                  </span>
+                </div>
+                <Separator
+                  className={
+                    soldeFiscalEstimeEuro > 0
+                      ? 'bg-orange-300'
+                      : soldeFiscalEstimeEuro < 0
+                        ? 'bg-emerald-300'
+                        : 'bg-gray-200'
+                  }
+                />
+                <div className="flex justify-between items-center rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+                  <span className="font-medium text-gray-800">Solde fiscal estimé</span>
+                  <span
+                    className={`text-lg font-bold tabular-nums ${
+                      soldeFiscalEstimeEuro > 0
+                        ? 'text-orange-600'
+                        : soldeFiscalEstimeEuro < 0
+                          ? 'text-emerald-600'
+                          : 'text-gray-700'
+                    }`}
+                  >
+                    {soldeFiscalEstimeEuro > 0 ? '+' : ''}
+                    {formatEuro(soldeFiscalEstimeEuro)}
+                  </span>
+                </div>
+
+                <div
+                  className={`rounded-lg p-4 ${
+                    soldeFiscalEstimeEuro > 0
+                      ? 'bg-orange-100 border-2 border-orange-400'
+                      : soldeFiscalEstimeEuro < 0
+                        ? 'bg-emerald-100 border-2 border-emerald-400'
+                        : 'bg-gray-100 border-2 border-gray-300'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-2xl shrink-0" aria-hidden>
+                        {soldeFiscalEstimeEuro > 0 ? '💸' : soldeFiscalEstimeEuro < 0 ? '💰' : '✅'}
+                      </span>
+                      <span className="font-bold text-gray-900">
+                        {soldeFiscalEstimeEuro > 0
+                          ? 'Reste à payer'
+                          : soldeFiscalEstimeEuro < 0
+                            ? 'Remboursement estimé'
+                            : 'Situation équilibrée'}
+                      </span>
                     </div>
-                    
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-700">– Déjà payé</span>
-                      <span className="font-semibold text-gray-700">– {formatEuro(totalDejaPaye)}</span>
-                    </div>
-                    
-                    <Separator className={resteAPayerEuroAffichage > 0 ? "bg-orange-300" : "bg-emerald-300"} />
-                  </>
-                )}
-                
-                <div className={`rounded-lg p-4 ${resteAPayerEuroAffichage > 0 ? 'bg-orange-100 border-2 border-orange-400' : 'bg-emerald-100 border-2 border-emerald-400'}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl animate-pulse">🎯</span>
-                      <div>
-                        <p className="text-sm text-gray-600 mb-1">
-                          {resteAPayerEuroAffichage > 0 ? 'Montant restant à régler' : 'Vous êtes à jour !'}
-                        </p>
-                        <span className="font-bold text-gray-900">RESTE À PAYER</span>
-                      </div>
-                    </div>
-                    <span className={`text-2xl font-bold ${resteAPayerEuroAffichage > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
-                      {formatEuro(resteAPayerEuroAffichage)}
+                    <span
+                      className={`text-2xl font-bold tabular-nums shrink-0 ${
+                        soldeFiscalEstimeEuro > 0
+                          ? 'text-orange-600'
+                          : soldeFiscalEstimeEuro < 0
+                            ? 'text-emerald-600'
+                            : 'text-gray-600'
+                      }`}
+                    >
+                      {soldeFiscalEstimeEuro < 0
+                        ? formatEuro(Math.abs(soldeFiscalEstimeEuro))
+                        : formatEuro(soldeFiscalEstimeEuro)}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 italic">
-                    Ce montant correspond à l'avis d'imposition final estimé
-                  </p>
+                  {soldeFiscalEstimeEuro > 0 && (
+                    <p className="text-sm text-gray-700">Ce montant correspond à l&apos;impôt restant à régler.</p>
+                  )}
+                  {soldeFiscalEstimeEuro < 0 && (
+                    <>
+                      <p className="text-sm text-gray-700">
+                        Vous avez trop payé. Ce montant devrait vous être remboursé par l&apos;administration fiscale.
+                      </p>
+                      <p className="text-xs text-gray-600 mt-2 italic">
+                        Le remboursement intervient généralement après la validation de votre déclaration.
+                      </p>
+                    </>
+                  )}
+                  {soldeFiscalEstimeEuro === 0 && (
+                    <p className="text-sm text-gray-700">
+                      Vos paiements correspondent exactement à votre impôt estimé.
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -708,47 +862,59 @@ export function DetailsTab({ simulation, onOpenProjectionModal, onExportPDF }: D
                     const chargesTotal = simulation.biens?.reduce((sum, b) => sum + (b.chargesDeductibles || 0), 0) || 0;
                     const impotsSuppTotal = simulation.resume?.impotsSuppTotal || 0;
                     const beneficeNet = simulation.resume?.beneficeNetImmobilier || 0;
-                    const resultatFoncier = loyersBruts - chargesTotal;
-                    const tauxMargeLocative = loyersBruts > 0 ? resultatFoncier / loyersBruts : 0;
-                    const tauxFiscaliteImmobiliere = resultatFoncier > 0 ? Math.max(0, impotsSuppTotal) / resultatFoncier : 0;
-                    
+                    const baseFiscalNette =
+                      Math.max(0, simulation.consolidation.revenusFonciers) +
+                      Math.max(0, simulation.consolidation.revenusBIC);
+                    const tauxMargeComptable = loyersBruts > 0 ? (loyersBruts - chargesTotal) / loyersBruts : 0;
+                    const tauxFiscaliteSurBasesIr =
+                      baseFiscalNette > 0 ? Math.max(0, impotsSuppTotal) / baseFiscalNette : 0;
+
                     return (
                       <div className="space-y-2 text-xs">
                         <div className="flex justify-between items-center">
                           <span className="text-gray-600">Loyers bruts annuels</span>
                           <span className="font-bold text-gray-800">{formatEuro(loyersBruts)}</span>
                         </div>
-                        
+
                         <div className="flex justify-between items-center">
-                          <span className="text-gray-600">– Charges déductibles</span>
+                          <span className="text-gray-600">– Charges (tous biens, saisie agrégée)</span>
                           <span className="font-medium text-gray-600">-{formatEuro(chargesTotal)}</span>
                         </div>
-                        
+
                         <div className="flex justify-between items-center">
-                          <span className="text-gray-600">– IR + PS dus à l'immobilier</span>
+                          <span className="text-gray-600">– IR + PS liés à l&apos;immobilier (estimation)</span>
                           <span className="font-medium text-gray-600">-{formatEuro(Math.max(0, impotsSuppTotal))}</span>
                         </div>
-                        
+
                         <Separator className="bg-amber-200 my-1" />
-                        
+
                         <div className="flex justify-between items-center">
                           <span className="font-semibold text-gray-800">= Résultat net après impôt</span>
                           <span className="font-bold text-gray-900">{formatEuro(beneficeNet)}</span>
                         </div>
-                        
+
                         <div className="bg-amber-100 rounded p-2 mt-2">
                           <p className="text-[10px] text-amber-900 font-mono">
-                            <span className="font-semibold">Formule :</span> ({formatEuro(beneficeNet)} / {formatEuro(loyersBruts)}) × 100 = {formatPercent(simulation.resume?.rendementNet || 0)}
+                            <span className="font-semibold">Formule :</span> ({formatEuro(beneficeNet)} /{' '}
+                            {formatEuro(loyersBruts)}) × 100 = {formatPercent(simulation.resume?.rendementNet || 0)}
                           </p>
                         </div>
-                        
+
                         <div className="mt-2 pt-2 border-t border-amber-200/70 space-y-1 text-[10px] text-amber-800/90">
-                          <p>Taux de marge locative = Résultat foncier / Loyers → <strong>{formatPercent(tauxMargeLocative)}</strong></p>
-                          <p>Taux de fiscalité immobilière = IR + PS / Résultat foncier → <strong>~{formatPercent(tauxFiscaliteImmobiliere)}</strong></p>
+                          <p>
+                            Taux de marge comptable (loyers − charges saisies) / loyers →{' '}
+                            <strong>{formatPercent(tauxMargeComptable)}</strong>
+                          </p>
+                          <p>
+                            Taux de fiscalité immo. (IR+PS suppl.) / bases IR (NU + BIC retenues) →{' '}
+                            <strong>~{formatPercent(tauxFiscaliteSurBasesIr)}</strong>
+                          </p>
                         </div>
-                        
+
                         <p className="text-[10px] text-amber-700 italic mt-2">
-                          💡 Sur 100 € de loyers encaissés, vous conservez {((simulation.resume?.rendementNet || 0) * 100).toFixed(1).replace('.', ',')} € après charges et fiscalité.
+                          💡 Sur 100 € de loyers encaissés, vous conservez{' '}
+                          {((simulation.resume?.rendementNet || 0) * 100).toFixed(1).replace('.', ',')} € après charges
+                          et fiscalité.
                         </p>
                       </div>
                     );

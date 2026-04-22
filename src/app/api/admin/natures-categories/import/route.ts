@@ -203,6 +203,12 @@ export async function POST(request: NextRequest) {
             const categoryLabel = category.label;
             const categoryType = category.type || 'OTHER';
             const categoryActive = category.actif !== false && category.active !== false && category.isActive !== false;
+            const categoryFiscalLineHint =
+              typeof category.fiscalLineHint === 'string' ? category.fiscalLineHint.trim() || null : null;
+            const categoryDeductible =
+              'deductible' in category ? Boolean((category as { deductible?: boolean }).deductible) : undefined;
+            const categoryCapitalizable =
+              'capitalizable' in category ? Boolean((category as { capitalizable?: boolean }).capitalizable) : undefined;
             
             console.log(`[IMPORT API] 🔄 Traitement catégorie: ${categorySlug} (${categoryLabel}) - type: ${categoryType}`);
             
@@ -214,7 +220,10 @@ export async function POST(request: NextRequest) {
                   slug: categorySlug,
                   label: categoryLabel,
                   type: categoryType,
-                  actif: categoryActive
+                  actif: categoryActive,
+                  fiscalLineHint: categoryFiscalLineHint,
+                  ...(categoryDeductible !== undefined ? { deductible: categoryDeductible } : {}),
+                  ...(categoryCapitalizable !== undefined ? { capitalizable: categoryCapitalizable } : {}),
                 }
               });
               console.log(`[IMPORT API] ✅ Catégorie créée avec ID: ${newCategory.id} (slug: ${newCategory.slug})`);
@@ -232,7 +241,12 @@ export async function POST(request: NextRequest) {
                   data: {
                     label: categoryLabel,
                     type: categoryType,
-                    actif: categoryActive
+                    actif: categoryActive,
+                    ...(categoryFiscalLineHint !== null || 'fiscalLineHint' in category
+                      ? { fiscalLineHint: categoryFiscalLineHint }
+                      : {}),
+                    ...(categoryDeductible !== undefined ? { deductible: categoryDeductible } : {}),
+                    ...(categoryCapitalizable !== undefined ? { capitalizable: categoryCapitalizable } : {}),
                   }
                 });
                 console.log(`[IMPORT API] ✅ Catégorie mise à jour: ${categorySlug}`);
@@ -244,7 +258,10 @@ export async function POST(request: NextRequest) {
                     slug: categorySlug,
                     label: categoryLabel,
                     type: categoryType,
-                    actif: categoryActive
+                    actif: categoryActive,
+                    fiscalLineHint: categoryFiscalLineHint,
+                    ...(categoryDeductible !== undefined ? { deductible: categoryDeductible } : {}),
+                    ...(categoryCapitalizable !== undefined ? { capitalizable: categoryCapitalizable } : {}),
                   }
                 });
                 console.log(`[IMPORT API] ✅ Catégorie créée avec ID: ${newCategory.id} (slug: ${newCategory.slug})`);

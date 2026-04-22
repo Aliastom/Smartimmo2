@@ -5,7 +5,7 @@
  */
 
 import type { ITransactionRepository, Transaction, CreateTransactionData } from '../repositories/interfaces/ITransactionRepository';
-import { logToServer } from '@/lib/utils/logger';
+import { txHotPathDebugLog, txPerfMeasureZone } from '@/lib/utils/logger';
 import type { IPropertyRepository } from '../repositories/interfaces/IPropertyRepository';
 import type { ILeaseRepository } from '../repositories/interfaces/ILeaseRepository';
 import type { ICategoryRepository } from '../repositories/interfaces/ICategoryRepository';
@@ -140,6 +140,8 @@ export class TransactionService {
    * Crée une ou plusieurs transactions (multi-mois) avec gestion déléguée et documents
    */
   async createTransaction(params: CreateTransactionParams): Promise<CreateTransactionResult> {
+    const __txEndCreate = txPerfMeasureZone('tx:TransactionService.createTransaction');
+    try {
     // Validation
     if (!params.propertyId) {
       throw new Error('PropertyId est requis');
@@ -362,18 +364,18 @@ export class TransactionService {
     // (ils sont créés côté serveur via /api/upload-staged). Le serveur créera les liens lors de la sync.
     // On ne traite les documents localement que s'ils existent dans IndexedDB.
     if (params.stagedDocumentIds && params.stagedDocumentIds.length > 0) {
-      await logToServer(`[TransactionService] 📎 Traitement stagedDocumentIds: ${params.stagedDocumentIds.length} document(s) - IDs: ${params.stagedDocumentIds.join(', ')} - Transaction IDs: ${transactions.map(t => t.id).join(', ')}`);
+      await txHotPathDebugLog(`[TransactionService] 📎 Traitement stagedDocumentIds: ${params.stagedDocumentIds.length} document(s) - IDs: ${params.stagedDocumentIds.join(', ')} - Transaction IDs: ${transactions.map(t => t.id).join(', ')}`);
       
       // Vérifier quels documents existent localement
       // 🔍 DIAGNOSTIC: Log AVANT recherche des documents
-      await logToServer(`[TransactionService] 🔍 RECHERCHE documents - stagedDocumentIds: ${params.stagedDocumentIds.join(', ')}`);
+      await txHotPathDebugLog(`[TransactionService] 🔍 RECHERCHE documents - stagedDocumentIds: ${params.stagedDocumentIds.join(', ')}`);
       
       // ⚠️ CRITIQUE: Vérifier d'abord TOUS les documents par ID (sans filtre status) pour diagnostiquer
       const { getLocalDB } = await import('@/lib/offline/db');
       const db = await getLocalDB();
       for (const docId of params.stagedDocumentIds) {
         const docCheck = await db.Document.get(docId);
-        await logToServer(`[TransactionService] 🔍 VÉRIFICATION docId=${docId} - status=${docCheck?.status || 'NOT_FOUND'}, documentTypeId=${docCheck?.documentTypeId || 'null'}, fileName=${docCheck?.fileName || 'N/A'}`);
+        await txHotPathDebugLog(`[TransactionService] 🔍 VÉRIFICATION docId=${docId} - status=${docCheck?.status || 'NOT_FOUND'}, documentTypeId=${docCheck?.documentTypeId || 'null'}, fileName=${docCheck?.fileName || 'N/A'}`);
       }
       
       const existingDocs = await this.deps.documentRepo.findMany({
@@ -384,10 +386,10 @@ export class TransactionService {
 
       // 🔍 DIAGNOSTIC: Log l'état de chaque document trouvé AVANT finalisation
       for (const doc of existingDocs) {
-        await logToServer(`[TransactionService] 🔍 AVANT finalisation (draft→active) - docId=${doc.id}, status=${doc.status}, documentTypeId=${doc.documentTypeId}, fileName=${doc.fileName}`);
+        await txHotPathDebugLog(`[TransactionService] 🔍 AVANT finalisation (draft→active) - docId=${doc.id}, status=${doc.status}, documentTypeId=${doc.documentTypeId}, fileName=${doc.fileName}`);
       }
 
-      await logToServer(`[TransactionService] 📎 Documents brouillons trouvés localement: ${existingDocs.length}/${params.stagedDocumentIds.length} - Trouvés: ${existingDocs.map(d => d.id).join(', ')} - Demandés: ${params.stagedDocumentIds.join(', ')}`);
+      await txHotPathDebugLog(`[TransactionService] 📎 Documents brouillons trouvés localement: ${existingDocs.length}/${params.stagedDocumentIds.length} - Trouvés: ${existingDocs.map(d => d.id).join(', ')} - Demandés: ${params.stagedDocumentIds.join(', ')}`);
 
       // ⚠️ PROBLÈME 2: Ne traiter que les documents qui existent localement
       // Les autres seront gérés par le serveur lors de la création de la transaction
@@ -409,7 +411,7 @@ export class TransactionService {
 
         // Finaliser les documents (draft → active) - uniquement ceux qui existent localement
         const localDocIds = existingDocs.map(doc => doc.id);
-        await logToServer(`[TransactionService] 🔍 APPEL updateMany (draft→active) - docIds: ${localDocIds.join(', ')}`);
+        await txHotPathDebugLog(`[TransactionService] 🔍 APPEL updateMany (draft→active) - docIds: ${localDocIds.join(', ')}`);
         
         await this.deps.documentRepo.updateMany(
           {
@@ -425,22 +427,22 @@ export class TransactionService {
         // 🔍 DIAGNOSTIC: Log APRÈS finalisation (vérification dans IndexedDB)
         for (const docId of localDocIds) {
           const docAfter = await db.Document.get(docId);
-          await logToServer(`[TransactionService] 🔍 APRÈS finalisation (draft→active) - docId=${docId}, status=${docAfter?.status || 'NOT_FOUND'}, documentTypeId=${docAfter?.documentTypeId || 'null'}, fileName=${docAfter?.fileName || 'N/A'}`);
+          await txHotPathDebugLog(`[TransactionService] 🔍 APRÈS finalisation (draft→active) - docId=${docId}, status=${docAfter?.status || 'NOT_FOUND'}, documentTypeId=${docAfter?.documentTypeId || 'null'}, fileName=${docAfter?.fileName || 'N/A'}`);
           
           // ⚠️ VÉRIFICATION CRITIQUE: S'assurer que le status est bien 'active' dans IndexedDB
           if (docAfter?.status !== 'active') {
-            await logToServer(`[TransactionService] ❌ ERREUR: Le document ${docId} devrait être 'active' mais est '${docAfter?.status}' - Vérifiez la table Document dans IndexedDB`, 'error');
+            await txHotPathDebugLog(`[TransactionService] ❌ ERREUR: Le document ${docId} devrait être 'active' mais est '${docAfter?.status}' - Vérifiez la table Document dans IndexedDB`, 'error');
           } else {
-            await logToServer(`[TransactionService] ✅ CONFIRMATION: Le document ${docId} est bien en 'active' dans IndexedDB (table Document)`);
+            await txHotPathDebugLog(`[TransactionService] ✅ CONFIRMATION: Le document ${docId} est bien en 'active' dans IndexedDB (table Document)`);
           }
         }
 
         // Créer les liens vers toutes les transactions créées - uniquement pour les documents locaux
-        await logToServer(`[TransactionService] 🔗 Finalisation et création de liens pour ${localDocIds.length} document(s) - DocIds: ${localDocIds.join(', ')}`);
+        await txHotPathDebugLog(`[TransactionService] 🔗 Finalisation et création de liens pour ${localDocIds.length} document(s) - DocIds: ${localDocIds.join(', ')}`);
         for (const transaction of transactions) {
           for (const docId of localDocIds) {
             try {
-              await logToServer(`[TransactionService] 🔗 Création lien transaction: docId=${docId}, transactionId=${transaction.id}`);
+              await txHotPathDebugLog(`[TransactionService] 🔗 Création lien transaction: docId=${docId}, transactionId=${transaction.id}`);
             await this.deps.documentLinkRepo.create({
               documentId: docId,
               linkedType: 'transaction',
@@ -448,7 +450,7 @@ export class TransactionService {
             });
               
             if (transaction.propertyId) {
-                await logToServer(`[TransactionService] 🔗 Création lien property: docId=${docId}, propertyId=${transaction.propertyId}`);
+                await txHotPathDebugLog(`[TransactionService] 🔗 Création lien property: docId=${docId}, propertyId=${transaction.propertyId}`);
               await this.deps.documentLinkRepo.create({
                 documentId: docId,
                 linkedType: 'property',
@@ -456,7 +458,7 @@ export class TransactionService {
               });
             }
             if (transaction.leaseId) {
-                await logToServer(`[TransactionService] 🔗 Création lien lease: docId=${docId}, leaseId=${transaction.leaseId}`);
+                await txHotPathDebugLog(`[TransactionService] 🔗 Création lien lease: docId=${docId}, leaseId=${transaction.leaseId}`);
               await this.deps.documentLinkRepo.create({
                 documentId: docId,
                 linkedType: 'lease',
@@ -464,32 +466,32 @@ export class TransactionService {
               });
             }
               
-              await logToServer(`[TransactionService] 🔗 Création lien global: docId=${docId}`);
+              await txHotPathDebugLog(`[TransactionService] 🔗 Création lien global: docId=${docId}`);
             await this.deps.documentLinkRepo.create({
               documentId: docId,
               linkedType: 'global',
               linkedId: 'global',
             });
               
-              await logToServer(`[TransactionService] ✅ Tous les liens créés pour docId=${docId}, transactionId=${transaction.id}`);
+              await txHotPathDebugLog(`[TransactionService] ✅ Tous les liens créés pour docId=${docId}, transactionId=${transaction.id}`);
             } catch (linkError: any) {
-              await logToServer(`[TransactionService] ❌ Erreur lors de la création des liens pour docId=${docId}, transactionId=${transaction.id}, erreur=${linkError.message || linkError}`, 'error');
+              await txHotPathDebugLog(`[TransactionService] ❌ Erreur lors de la création des liens pour docId=${docId}, transactionId=${transaction.id}, erreur=${linkError.message || linkError}`, 'error');
               throw linkError;
           }
         }
         }
-        await logToServer(`[TransactionService] ✅ Finalisation et création de liens terminée pour ${localDocIds.length} document(s)`);
+        await txHotPathDebugLog(`[TransactionService] ✅ Finalisation et création de liens terminée pour ${localDocIds.length} document(s)`);
       } else {
         // ⚠️ PROBLÈME 2: Aucun document local trouvé (documents créés côté serveur uniquement)
         // Les liens seront créés par le serveur lors de la création de la transaction
         // et seront récupérés lors du pull des documentLinks
-        await logToServer(`[TransactionService] ⚠️ Aucun document brouillon local trouvé pour stagedDocumentIds - Demandés: ${params.stagedDocumentIds.join(', ')} - Les documents sont probablement uniquement côté serveur, les liens seront créés lors du push vers le serveur`, 'warn');
+        await txHotPathDebugLog(`[TransactionService] ⚠️ Aucun document brouillon local trouvé pour stagedDocumentIds - Demandés: ${params.stagedDocumentIds.join(', ')} - Les documents sont probablement uniquement côté serveur, les liens seront créés lors du push vers le serveur`, 'warn');
       }
     }
 
     // Gérer les liens vers documents existants (stagedLinkItemIds)
     if (params.stagedLinkItemIds && params.stagedLinkItemIds.length > 0) {
-      await logToServer(`[TransactionService] 📎 Traitement stagedLinkItemIds: ${params.stagedLinkItemIds.length} document(s) - IDs: ${params.stagedLinkItemIds.join(', ')} - Transaction IDs: ${transactions.map(t => t.id).join(', ')}`);
+      await txHotPathDebugLog(`[TransactionService] 📎 Traitement stagedLinkItemIds: ${params.stagedLinkItemIds.length} document(s) - IDs: ${params.stagedLinkItemIds.join(', ')} - Transaction IDs: ${transactions.map(t => t.id).join(', ')}`);
       
       // ✅ Vérifier quels documents existent localement dans IndexedDB
       // (les documents peuvent exister côté serveur mais pas encore dans IndexedDB si pas sync)
@@ -498,7 +500,7 @@ export class TransactionService {
         organizationId: params.organizationId,
       });
       
-      await logToServer(`[TransactionService] 📎 Documents trouvés localement: ${existingDocs.length}/${params.stagedLinkItemIds.length} - Trouvés: ${existingDocs.map(d => d.id).join(', ')} - Demandés: ${params.stagedLinkItemIds.join(', ')}`);
+      await txHotPathDebugLog(`[TransactionService] 📎 Documents trouvés localement: ${existingDocs.length}/${params.stagedLinkItemIds.length} - Trouvés: ${existingDocs.map(d => d.id).join(', ')} - Demandés: ${params.stagedLinkItemIds.join(', ')}`);
       
       const existingDocIds = new Set(existingDocs.map(doc => doc.id));
       
@@ -506,22 +508,22 @@ export class TransactionService {
       const docIdsToLink = params.stagedLinkItemIds.filter(docId => existingDocIds.has(docId));
       
       if (docIdsToLink.length === 0) {
-        await logToServer(`[TransactionService] ⚠️ Aucun document local trouvé pour stagedLinkItemIds - Demandés: ${params.stagedLinkItemIds.join(', ')} - Trouvés: ${existingDocs.map(d => d.id).join(', ')} - Les liens seront créés par le serveur lors de la sync`, 'warn');
+        await txHotPathDebugLog(`[TransactionService] ⚠️ Aucun document local trouvé pour stagedLinkItemIds - Demandés: ${params.stagedLinkItemIds.join(', ')} - Trouvés: ${existingDocs.map(d => d.id).join(', ')} - Les liens seront créés par le serveur lors de la sync`, 'warn');
       } else {
-        await logToServer(`[TransactionService] ✅ Création de liens pour ${docIdsToLink.length} document(s) local(aux) existant(s) - DocIds: ${docIdsToLink.join(', ')} - TransactionIds: ${transactions.map(t => t.id).join(', ')}`);
+        await txHotPathDebugLog(`[TransactionService] ✅ Création de liens pour ${docIdsToLink.length} document(s) local(aux) existant(s) - DocIds: ${docIdsToLink.join(', ')} - TransactionIds: ${transactions.map(t => t.id).join(', ')}`);
         // Créer les liens uniquement pour les documents qui existent localement
         for (const docId of docIdsToLink) {
         for (const transaction of transactions) {
-            await logToServer(`[TransactionService] 📎 Création lien: docId=${docId}, transactionId=${transaction.id}`);
+            await txHotPathDebugLog(`[TransactionService] 📎 Création lien: docId=${docId}, transactionId=${transaction.id}`);
             try {
               const linkResult = await this.deps.documentLinkRepo.create({
             documentId: docId,
             linkedType: 'transaction',
             linkedId: transaction.id,
           });
-              await logToServer(`[TransactionService] ✅ Lien transaction créé avec succès: docId=${linkResult.documentId}, linkedType=${linkResult.linkedType}, linkedId=${linkResult.linkedId}`);
+              await txHotPathDebugLog(`[TransactionService] ✅ Lien transaction créé avec succès: docId=${linkResult.documentId}, linkedType=${linkResult.linkedType}, linkedId=${linkResult.linkedId}`);
             } catch (linkError: any) {
-              await logToServer(`[TransactionService] ❌ Erreur lors de la création du lien: docId=${docId}, transactionId=${transaction.id}, erreur=${linkError.message || linkError}`, 'error');
+              await txHotPathDebugLog(`[TransactionService] ❌ Erreur lors de la création du lien: docId=${docId}, transactionId=${transaction.id}, erreur=${linkError.message || linkError}`, 'error');
               throw linkError;
             }
             
@@ -546,10 +548,10 @@ export class TransactionService {
           });
         }
       }
-        await logToServer(`[TransactionService] ✅ Liens créés avec succès pour ${docIdsToLink.length} document(s)`);
+        await txHotPathDebugLog(`[TransactionService] ✅ Liens créés avec succès pour ${docIdsToLink.length} document(s)`);
       }
     } else {
-      await logToServer('[TransactionService] ℹ️ Aucun stagedLinkItemIds fourni');
+      await txHotPathDebugLog('[TransactionService] ℹ️ Aucun stagedLinkItemIds fourni');
     }
 
     // Séparer les transactions principales des commissions
@@ -561,12 +563,17 @@ export class TransactionService {
       allTransactions: transactions, // Toutes (principales + commissions) pour compatibilité API
       commissionTransaction,
     };
+    } finally {
+      __txEndCreate();
+    }
   }
 
   /**
    * Met à jour une transaction avec gestion déléguée et documents
    */
   async updateTransaction(id: string, params: UpdateTransactionParams): Promise<UpdateTransactionResult> {
+    const __txEndUpdate = txPerfMeasureZone('tx:TransactionService.updateTransaction');
+    try {
     // Vérifier que la transaction existe
     const existingTransaction = await this.deps.transactionRepo.findById(id);
     if (!existingTransaction) {
@@ -621,17 +628,14 @@ export class TransactionService {
       // Le repository IndexedDB va gérer la conversion Date → string ISO si nécessaire
       // Ici, on garde paidAt tel quel (string ISO ou Date, le repository s'en occupera)
       updateData.paidAt = params.paidAt;
-      const { logToServer } = await import('@/lib/utils/logger');
-      await logToServer(`[TransactionService] 🔍 updateTransaction - paidAt inclus dans updateData: ${updateData.paidAt} (type: ${typeof updateData.paidAt}, isDate: ${updateData.paidAt instanceof Date})`);
+      await txHotPathDebugLog(`[TransactionService] 🔍 updateTransaction - paidAt inclus dans updateData: ${updateData.paidAt} (type: ${typeof updateData.paidAt}, isDate: ${updateData.paidAt instanceof Date})`);
     }
     if (params.method !== undefined) {
       updateData.method = params.method;
       // 🔍 DIAGNOSTIC: Log pour tracer le champ method
-      const { logToServer } = await import('@/lib/utils/logger');
-      await logToServer(`[TransactionService] 🔍 updateTransaction - method inclus dans updateData: ${params.method} (type: ${typeof params.method})`);
+      await txHotPathDebugLog(`[TransactionService] 🔍 updateTransaction - method inclus dans updateData: ${params.method} (type: ${typeof params.method})`);
     } else {
-      const { logToServer } = await import('@/lib/utils/logger');
-      await logToServer(`[TransactionService] 🔍 updateTransaction - method NON inclus (params.method est undefined)`);
+      await txHotPathDebugLog(`[TransactionService] 🔍 updateTransaction - method NON inclus (params.method est undefined)`);
     }
     if (params.accountingMonth !== undefined) updateData.accounting_month = params.accountingMonth;
     if (params.monthsCovered !== undefined) updateData.monthsCovered = params.monthsCovered;
@@ -875,12 +879,17 @@ export class TransactionService {
       transaction,
       ...commissionUpdateResult,
     };
+    } finally {
+      __txEndUpdate();
+    }
   }
 
   /**
    * Supprime une transaction avec gestion cascade (commissions, documents)
    */
   async deleteTransaction(id: string, params: DeleteTransactionParams = {}): Promise<DeleteTransactionResult> {
+    const __txEndDelete = txPerfMeasureZone('tx:TransactionService.deleteTransaction');
+    try {
     const mode = params.mode || 'keep_docs_globalize';
     const deleteChildren = params.deleteChildren || false;
 
@@ -1003,6 +1012,9 @@ export class TransactionService {
       documentsAffected: documentLinks.length,
       ...childrenInfo,
     };
+    } finally {
+      __txEndDelete();
+    }
   }
 }
 

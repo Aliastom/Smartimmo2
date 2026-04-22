@@ -59,7 +59,10 @@ export async function GET(request: NextRequest) {
         key: category.slug,
         label: category.label,
         type: category.type,
-        active: category.actif
+        active: category.actif,
+        fiscalLineHint: category.fiscalLineHint ?? null,
+        deductible: category.deductible,
+        capitalizable: category.capitalizable,
       })),
       mappings: natures.map(nature => ({
         nature: nature.code,

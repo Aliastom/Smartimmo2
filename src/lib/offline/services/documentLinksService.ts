@@ -7,6 +7,7 @@
 
 import { getLocalDB } from '../db';
 import type { LocalDocument, LocalDocumentLink } from '../db';
+import { txPerfMeasureZone } from '@/lib/utils/logger';
 
 export interface LinkedDocument {
   id: string;
@@ -425,6 +426,8 @@ export async function getDocumentCountsForTransactions(
   transactionIds: string[],
   organizationId: string
 ): Promise<Map<string, number>> {
+  const endMeasure = txPerfMeasureZone('tx:getDocumentCountsForTransactions');
+  try {
   const db = await getLocalDB();
   const result = new Map<string, number>();
   
@@ -432,12 +435,12 @@ export async function getDocumentCountsForTransactions(
     return result;
   }
   
-  // 1. Récupérer tous les liens pour ces transactions
-  // ⚠️ Normaliser linkedType: peut être en majuscules (TRANSACTION) ou minuscules (transaction)
-  const allLinks = await db.DocumentLink.toArray();
-  const filteredLinks = allLinks.filter(link => 
-    link.linkedType.toLowerCase() === 'transaction' && transactionIds.includes(link.linkedId)
-  );
+  // 1. Liens ciblés par linkedId (index Dexie sur linkedId) — évite DocumentLink.toArray() sur toute la table
+  const filteredLinks = await db.DocumentLink
+    .where('linkedId')
+    .anyOf(transactionIds)
+    .filter((link) => link.linkedType.toLowerCase() === 'transaction')
+    .toArray();
   
   // 2. Grouper les liens par transactionId
   const linksByTransaction = new Map<string, string[]>(); // transactionId -> documentIds[]
@@ -466,5 +469,8 @@ export async function getDocumentCountsForTransactions(
   });
   
   return result;
+  } finally {
+    endMeasure();
+  }
 }
 

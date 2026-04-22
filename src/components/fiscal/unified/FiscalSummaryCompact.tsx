@@ -172,15 +172,15 @@ export function FiscalSummaryCompact({ simulation, loading, onGoToSynthese }: Fi
                 <span className="font-medium">-{formatEuro(chargesTotal)}</span>
               </div>
               <div className="flex justify-between text-blue-700">
-                <span>- IR + PS dus à l'immobilier</span>
+                <span>- IR + PS liés à l&apos;immobilier (NU + LMNP/BIC)</span>
                 <span className="font-medium">-{formatEuro(totalImpots)}</span>
               </div>
               <div className="flex justify-between text-xs text-gray-400 ml-4">
-                <span>└ dont IR supplémentaire</span>
+                <span>└ dont IR supplémentaire (immobilier)</span>
                 <span>-{formatEuro(irSupp)}</span>
               </div>
               <div className="flex justify-between text-xs text-gray-400 ml-4">
-                <span>└ dont PS fonciers</span>
+                <span>└ dont PS (bases NU + BIC)</span>
                 <span>-{formatEuro(psTotal)}</span>
               </div>
               <div className="flex justify-between pt-1 border-t border-blue-300 font-semibold text-blue-900">

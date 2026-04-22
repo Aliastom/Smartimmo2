@@ -66,6 +66,7 @@ export interface CachedCategory {
   slug: string;
   label: string;
   type: string;
+  fiscalLineHint?: string | null;
   deductible?: boolean | null;
   capitalizable?: boolean | null;
   system?: boolean | null;

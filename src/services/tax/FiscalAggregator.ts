@@ -7,6 +7,8 @@
 
 import { prisma } from '@/lib/prisma';
 import { calcCommission } from '@/lib/gestion/calcCommission'; // 🆕 Import du service de calcul de commission
+import { Fiscal2044Aggregator } from '@/services/tax/Fiscal2044Aggregator';
+import { LoanInterestYearAggregator } from '@/services/tax/LoanInterestYearAggregator';
 import type {
   FiscalInputs,
   HouseholdInfo,
@@ -16,6 +18,10 @@ import type {
   TypeBien,
   RegimeFiscal,
   TypeTravaux,
+  Fiscal2044DeclarativeMissingKey,
+  Fiscal2044InformationsBien,
+  Fiscal2044UiHintLine,
+  Fiscal2044UiDelegatedHints,
 } from '@/types/fiscal';
 
 // ============================================================================
@@ -60,6 +66,21 @@ interface AggregationOptions {
 // ============================================================================
 
 class FiscalAggregatorClass {
+  private createEmptyUiDelegatedHints(): Fiscal2044UiDelegatedHints {
+    return {
+      byFiscalLine: {
+        '211': { count: 0, labels: [] },
+        '221': { count: 0, labels: [] },
+        '222': { count: 0, labels: [] },
+        '223': { count: 0, labels: [] },
+        '224': { count: 0, labels: [] },
+        '225': { count: 0, labels: [] },
+        '227': { count: 0, labels: [] },
+        '230': { count: 0, labels: [] },
+      },
+    };
+  }
+
   /**
    * Cache des codes système et natures pour éviter les requêtes multiples
    */
@@ -227,6 +248,24 @@ class FiscalAggregatorClass {
     }
     
     console.log(`✅ ${biens.length} bien(s) agrégé(s)`);
+
+    const sumResultatsBiens = biens.reduce((sum, bien) => sum + ((bien.loyers || 0) - (bien.charges || 0)), 0);
+    const montant4BA = sumResultatsBiens;
+    const delta = Math.abs(sumResultatsBiens - montant4BA);
+    if (delta > 0.01) {
+      console.error('[FISCAL_COHERENCE_ERROR]', {
+        sumResultatsBiens,
+        montant4BA,
+        delta,
+        detailsParBien: biens.map((b) => ({
+          id: b.id,
+          nom: b.nom,
+          recettes: b.loyers || 0,
+          charges: b.charges || 0,
+          resultatFiscal: (b.loyers || 0) - (b.charges || 0),
+        })),
+      });
+    }
     
     // TODO: Implémenter l'agrégation des sociétés IS
     return { 
@@ -273,6 +312,48 @@ class FiscalAggregatorClass {
    * 2. Mapping Lease.type → FiscalType depuis cache BDD (fallback si pas défini)
    * 3. Fallback : 'NU'
    */
+  /**
+   * Libellés déclaratifs (2044) : locataires, adresse, acquisition, pièces — sans impact sur les calculs IR/PS.
+   */
+  private buildFiscal2044InformationsBien(property: any): Fiscal2044InformationsBien {
+    const leases = property.Lease || [];
+    const line1 = [property.address].filter(Boolean).join(' ').trim();
+    const line2 = [property.postalCode, property.city].filter(Boolean).join(' ').trim();
+    const adresseFormatee =
+      [line1, line2].filter((s) => s.length > 0).join(', ') || null;
+
+    const namesSet = new Set<string>();
+    for (const lease of leases) {
+      const t = lease.Tenant;
+      if (t) {
+        const n = `${t.firstName || ''} ${t.lastName || ''}`.trim();
+        if (n) namesSet.add(n);
+      }
+    }
+    const locatairesNoms = [...namesSet];
+
+    const acq = property.acquisitionDate ? new Date(property.acquisitionDate) : null;
+    const dateAcquisition =
+      acq && Number.isFinite(acq.getTime()) ? acq.toISOString().slice(0, 10) : null;
+
+    const rooms = typeof property.rooms === 'number' ? property.rooms : null;
+    const nombrePiecesOuLotsIndicatif = rooms && rooms > 0 ? rooms : null;
+
+    const missing: Fiscal2044DeclarativeMissingKey[] = [];
+    if (leases.length === 0) missing.push('bail');
+    if (!dateAcquisition) missing.push('dateAcquisition');
+    if (nombrePiecesOuLotsIndicatif == null) missing.push('lots');
+
+    return {
+      adresseFormatee,
+      locatairesNoms,
+      dateAcquisition,
+      nombrePiecesOuLotsIndicatif,
+      nombreBauxSurAnnee: leases.length,
+      missingDeclarative: missing,
+    };
+  }
+
   private determinePropertyType(property: any): TypeBien {
     const propertyName = property.name || property.id;
     
@@ -310,6 +391,29 @@ class FiscalAggregatorClass {
     // Par défaut, considérer comme location nue
     return 'NU';
   }
+
+  private parseRegimeChoisi(property: any): RegimeFiscal | undefined {
+    let regimeChoisi: RegimeFiscal | undefined;
+    if (property.fiscalRegimeId) {
+      const regimeId = String(property.fiscalRegimeId).toUpperCase();
+      if (regimeId.includes('MICRO')) {
+        regimeChoisi = 'micro';
+      } else if (regimeId.includes('REEL')) {
+        regimeChoisi = 'reel';
+      }
+    }
+
+    if (property.FiscalRegime && typeof property.FiscalRegime === 'object' && 'code' in property.FiscalRegime) {
+      const code = (property.FiscalRegime as any).code?.toLowerCase() || '';
+      if (code.includes('micro')) {
+        regimeChoisi = 'micro';
+      } else if (code.includes('reel') || code.includes('réel')) {
+        regimeChoisi = 'reel';
+      }
+    }
+
+    return regimeChoisi;
+  }
   
   /**
    * Agrège les données fiscales pour un bien spécifique
@@ -327,6 +431,9 @@ class FiscalAggregatorClass {
     baseCalcul: 'encaisse' | 'exigible',
     taxParams: any // TaxParams depuis la BDD
   ): Promise<RentalPropertyInput | null> {
+    const toCents = (amount: number) => Math.round((Number(amount) + Number.EPSILON) * 100);
+    const fromCents = (cents: number) => cents / 100;
+
     // Récupérer le bien avec son agence de gestion et configuration fiscale
     const property = await prisma.property.findUnique({
       where: { id: propertyId },
@@ -336,23 +443,20 @@ class FiscalAggregatorClass {
         FiscalRegime: true,       // ✅ Régime fiscal du bien (micro, réel)
         Lease: {
           where: {
-            OR: [
-              { status: 'ACTIF' },
+            AND: [
+              { startDate: { lte: new Date(`${year}-12-31T23:59:59.999Z`) } },
               {
-                AND: [
-                  { startDate: { lte: new Date(`${year}-12-31`) } },
-                  {
-                    OR: [
-                      { endDate: { gte: new Date(`${year}-01-01`) } },
-                      { endDate: null },
-                    ],
-                  },
+                OR: [
+                  { endDate: null },
+                  { endDate: { gte: new Date(`${year}-01-01T00:00:00.000Z`) } },
                 ],
               },
             ],
           },
           orderBy: { startDate: 'desc' },
-          take: 1,
+          include: {
+            Tenant: { select: { firstName: true, lastName: true } },
+          },
         },
       },
     });
@@ -370,28 +474,33 @@ class FiscalAggregatorClass {
     const jan1 = new Date(`${year}-01-01T00:00:00.000Z`);
     const dec31 = new Date(`${year}-12-31T23:59:59.999Z`);
     
-    const whereClause: any = {
-      propertyId,
-      organizationId,
-      OR: [
-        { paidAt: { gte: jan1, lte: dec31 } },
-        { paidAt: { equals: null }, date: { gte: jan1, lte: dec31 } },
-      ],
-    };
-    
-    // ✅ Pour base "encaissé", filtrer uniquement les transactions rapprochées
-    if (baseCalcul === 'encaisse') {
-      whereClause.rapprochementStatus = 'rapprochee';
-    }
-    
-    const transactions = await prisma.transaction.findMany({
-      where: whereClause,
+    const transactionsRaw = await prisma.transaction.findMany({
+      where: {
+        propertyId,
+        organizationId,
+        OR: [
+          { paidAt: { gte: jan1, lte: dec31 } },
+          { paidAt: { equals: null }, date: { gte: jan1, lte: dec31 } },
+        ],
+      },
       include: {
         Category: true,
         // Note: nature est un champ String, pas une relation
       },
       orderBy: { date: 'asc' },
     });
+
+    // Déduplication stricte : une transaction (id) ne peut être comptée qu'une seule fois.
+    const uniqueTransactionsById = new Map<string, (typeof transactionsRaw)[number]>();
+    const duplicateTransactionIds: string[] = [];
+    for (const tx of transactionsRaw) {
+      if (uniqueTransactionsById.has(tx.id)) {
+        duplicateTransactionIds.push(tx.id);
+        continue;
+      }
+      uniqueTransactionsById.set(tx.id, tx);
+    }
+    const transactions = Array.from(uniqueTransactionsById.values());
     
     // Log supprimé pour réduire la verbosité
     
@@ -400,11 +509,32 @@ class FiscalAggregatorClass {
     // ✅ CORRECTION : Filtrer selon NatureEntity.flow (RECETTE/DEPENSE) et non amount > 0
     const natures = this.naturesCache!;
     const systemCodes = this.systemCodesCache!;
+
+    const norm = (v: string | null | undefined) => String(v || '').trim().toLowerCase();
+    const rentNatureCode = norm(systemCodes.rentNature);
+    const rentCategorySlug = norm(systemCodes.rentCategory);
+    const mgmtNatureCode = norm(systemCodes.mgmtNature);
+    const mgmtCategorySlug = norm(systemCodes.mgmtCategory);
+
+    const uiDelegatedHints = this.createEmptyUiDelegatedHints();
+
+    const includedTransactionsForSynthese: Array<{
+      id: string;
+      label: string;
+      amountAbs: number;
+      reason: string;
+    }> = [];
+    const excludedTransactionsForSynthese: Array<{
+      id: string;
+      label: string;
+      amountAbs: number;
+      reason: string;
+    }> = [];
     
-    let recettesTotales = 0;
-    let recettesLoyer = 0; // 🆕 Séparer les loyers des autres recettes
-    let chargesDeductibles = 0;
-    let chargesCapitalisables = 0;
+    let recettesTotalesCents = 0;
+    let chargesDeductiblesCents = 0;
+    let chargesCapitalisablesCents = 0;
+    let sumTransactionsUsedForSyntheseCents = 0;
     
     // 🆕 Breakdown par catégorie
     const recettesParCategorie: Record<string, { label: string; amount: number }> = {};
@@ -417,29 +547,53 @@ class FiscalAggregatorClass {
       // ✅ Règle DGFiP : année fiscale = année d'encaissement (paymentDate). Filtre défensif.
       const fiscalDate = transaction.paidAt ?? transaction.date ?? transaction.createdAt;
       const fiscalYear = new Date(fiscalDate).getFullYear();
-      if (fiscalYear !== year) continue;
+      if (fiscalYear !== year) {
+        excludedTransactionsForSynthese.push({
+          id: transaction.id,
+          label: transaction.label || 'Transaction',
+          amountAbs: Math.abs(transaction.amount),
+          reason: `hors année fiscale ${year}`,
+        });
+        continue;
+      }
       
       const dateStr = typeof fiscalDate === 'string' ? fiscalDate.split('T')[0] : new Date(fiscalDate).toISOString().split('T')[0];
       const source: 'paidAt' | 'date' | 'createdAt' = transaction.paidAt ? 'paidAt' : transaction.date ? 'date' : 'createdAt';
       debugPaidAtDates.push({ date: dateStr, source });
       
-      const montant = Math.abs(transaction.amount);  // Toujours positif pour les calculs
+      const montantCents = Math.abs(toCents(transaction.amount)); // Toujours positif pour les calculs
+      const montant = fromCents(montantCents);
       const natureCode = transaction.nature || '';
+      const natureCodeNorm = norm(natureCode);
       const nature = natures.get(natureCode);
-      
-      if (!nature) {
-        console.warn(`⚠️ Nature inconnue: ${natureCode} pour transaction ${transaction.label}`);
+
+      // ✅ Filtrer par FLOW (RECETTE/DEPENSE ou INCOME/EXPENSE) et non par signe du montant.
+      // Fallback robuste : si nature manquante/inconnue, on infère via le signe.
+      let flowUpper = (nature?.flow || '').toUpperCase();
+      if (!flowUpper) {
+        flowUpper = transaction.amount >= 0 ? 'INCOME' : 'EXPENSE';
+      }
+      const isRecette = flowUpper === 'RECETTE' || flowUpper === 'INCOME';
+      const isDepense = flowUpper === 'DEPENSE' || flowUpper === 'EXPENSE';
+      if (!isRecette && !isDepense) {
+        excludedTransactionsForSynthese.push({
+          id: transaction.id,
+          label: transaction.label || 'Transaction',
+          amountAbs: montant,
+          reason: `flow indéterminé (nature=${natureCode || 'vide'})`,
+        });
         continue;
       }
       
-      // ✅ Filtrer par FLOW (RECETTE/DEPENSE ou INCOME/EXPENSE) et non par signe du montant
-      const flowUpper = (nature.flow || '').toUpperCase();
-      const isRecette = flowUpper === 'RECETTE' || flowUpper === 'INCOME';
-      const isDepense = flowUpper === 'DEPENSE' || flowUpper === 'EXPENSE';
-      
       // Récupérer la catégorie pour le breakdown (utiliser slug comme clé unique)
       const categorySlug = transaction.Category?.slug || 'AUTRE';
+      const categorySlugNorm = norm(transaction.Category?.slug);
       const categoryLabel = transaction.Category?.label || 'Autres';
+
+      const matchesRentByNature = !!rentNatureCode && natureCodeNorm === rentNatureCode;
+      const matchesRentByCategory = !!rentCategorySlug && categorySlugNorm === rentCategorySlug;
+      const matchesMgmtByNature = !!mgmtNatureCode && natureCodeNorm === mgmtNatureCode;
+      const matchesMgmtByCategory = !!mgmtCategorySlug && categorySlugNorm === mgmtCategorySlug;
       
       // 🔍 Debug : logger chaque transaction pour voir sa catégorie ET l'objet Category complet
       if (!transaction.Category?.slug) {
@@ -449,52 +603,192 @@ class FiscalAggregatorClass {
       
       if (isRecette) {
         // Recette
-        recettesTotales += montant;
+        recettesTotalesCents += montantCents;
+        sumTransactionsUsedForSyntheseCents += montantCents;
+        includedTransactionsForSynthese.push({
+          id: transaction.id,
+          label: transaction.label || 'Transaction',
+          amountAbs: montant,
+          reason: matchesRentByNature || matchesRentByCategory
+            ? 'recette loyer (code système)'
+            : 'recette (flow)',
+        });
         
         // 🆕 Ajouter au breakdown par catégorie
         if (!recettesParCategorie[categorySlug]) {
           recettesParCategorie[categorySlug] = { label: categoryLabel, amount: 0 };
         }
-        recettesParCategorie[categorySlug].amount += montant;
+        recettesParCategorie[categorySlug].amount = fromCents(
+          toCents(recettesParCategorie[categorySlug].amount) + montantCents,
+        );
         
         // ✅ Identifier les loyers UNIQUEMENT par la CATÉGORIE définie dans les codes système
-        // La commission s'applique sur les transactions de la catégorie loyer (pas juste la nature)
-        if (categorySlug === systemCodes.rentCategory) {
-          recettesLoyer += montant;
-        }
+        // (utile pour le forcing 211 appliqué plus bas lors de la préparation 2044).
       } else if (isDepense) {
         // Dépense - utiliser Category.deductible et Category.capitalizable
         if (transaction.Category?.capitalizable === true) {
-          chargesCapitalisables += montant;
+          chargesCapitalisablesCents += montantCents;
+          excludedTransactionsForSynthese.push({
+            id: transaction.id,
+            label: transaction.label || 'Transaction',
+            amountAbs: montant,
+            reason: 'charge capitalisable (hors synthèse fiscale courante)',
+          });
         } else if (transaction.Category?.deductible === true) {
-          chargesDeductibles += montant;
+          chargesDeductiblesCents += montantCents;
+          sumTransactionsUsedForSyntheseCents += montantCents;
+          includedTransactionsForSynthese.push({
+            id: transaction.id,
+            label: transaction.label || 'Transaction',
+            amountAbs: montant,
+            reason: matchesMgmtByNature || matchesMgmtByCategory
+              ? 'charge déductible frais de gestion (code système)'
+              : 'charge déductible',
+          });
           
           // 🆕 Ajouter au breakdown par catégorie (seulement les déductibles)
           if (!chargesParCategorie[categorySlug]) {
             chargesParCategorie[categorySlug] = { label: categoryLabel, amount: 0 };
           }
-          chargesParCategorie[categorySlug].amount += montant;
+          chargesParCategorie[categorySlug].amount = fromCents(
+            toCents(chargesParCategorie[categorySlug].amount) + montantCents,
+          );
         } else {
           // Si catégorie non définie → considérer comme déductible par défaut
-          chargesDeductibles += montant;
+          chargesDeductiblesCents += montantCents;
+          sumTransactionsUsedForSyntheseCents += montantCents;
+          includedTransactionsForSynthese.push({
+            id: transaction.id,
+            label: transaction.label || 'Transaction',
+            amountAbs: montant,
+            reason: 'charge sans catégorie fiscale explicite -> déductible par défaut',
+          });
           
           // 🆕 Ajouter au breakdown
           if (!chargesParCategorie[categorySlug]) {
             chargesParCategorie[categorySlug] = { label: categoryLabel, amount: 0 };
           }
-          chargesParCategorie[categorySlug].amount += montant;
+          chargesParCategorie[categorySlug].amount = fromCents(
+            toCents(chargesParCategorie[categorySlug].amount) + montantCents,
+          );
         }
       }
     }
+
+    const recettesTotales = fromCents(recettesTotalesCents);
+    const chargesDeductiblesBase = fromCents(chargesDeductiblesCents);
+    const chargesCapitalisables = fromCents(chargesCapitalisablesCents);
     
     // ✅ Résumé concis uniquement
-    console.log(`📊 ${property.name}: ${transactions.length} transaction(s) rapprochée(s) → Recettes ${recettesTotales.toFixed(2)}€, Charges ${chargesDeductibles.toFixed(2)}€`);
+    console.log(`📊 ${property.name}: ${transactions.length} transaction(s) (rapprochées + non rapprochées) → Recettes ${recettesTotales.toFixed(2)}€, Charges ${chargesDeductiblesBase.toFixed(2)}€`);
     console.log(`   📋 Recettes par catégorie:`, Object.entries(recettesParCategorie).map(([code, data]) => `${data.label}: ${data.amount.toFixed(2)}€`).join(', '));
     console.log(`   📋 Charges par catégorie:`, Object.entries(chargesParCategorie).map(([code, data]) => `${data.label}: ${data.amount.toFixed(2)}€`).join(', '));
+    if (duplicateTransactionIds.length > 0) {
+      console.warn(`⚠️ [FiscalAggregator] ${duplicateTransactionIds.length} doublon(s) transaction.id détecté(s) puis ignoré(s) pour ${property.name}.`);
+    }
     
-    // 🆕 Calculer les intérêts d'emprunt (passé + projection)
+    // 🆕 Calculer les intérêts d'emprunt (passé + projection) — logique historique simulation
     const interets = await this.calculateLoanInterests(propertyId, year);
-    
+
+    const loansForDeclaration = await prisma.loan.findMany({
+      where: {
+        propertyId,
+        organizationId,
+        isActive: true,
+        startDate: { lte: new Date(`${year}-12-31`) },
+        OR: [{ endDate: null }, { endDate: { gte: new Date(`${year}-01-01`) } }],
+      },
+    });
+
+    const interetsEmpruntAnnee = LoanInterestYearAggregator.aggregate({
+      loans: loansForDeclaration,
+      year,
+      expectedPropertyId: propertyId,
+    });
+
+    const chargesTotalPourSuggestion = chargesDeductiblesBase + interets.passe;
+    const regimeSuggere = this.suggestRegime(typeBien, recettesTotales, chargesTotalPourSuggestion, taxParams);
+
+    let regimeChoisi: RegimeFiscal | undefined;
+    try {
+      regimeChoisi = this.parseRegimeChoisi(property);
+    } catch (e) {
+      console.warn(`[FiscalAggregator] Impossible de parser le régime fiscal du bien ${property.name}:`, e);
+    }
+
+    const regimeEffectif = regimeChoisi || regimeSuggere;
+    const rentedLotCount = (property.Lease || []).filter((lease: any) => lease?.Tenant != null).length;
+    const shouldApplyForfait222 = typeBien === 'NU' && regimeEffectif === 'reel' && rentedLotCount > 0;
+    const forfait222Cents = shouldApplyForfait222 ? rentedLotCount * 2000 : 0;
+    if (forfait222Cents > 0) {
+      chargesDeductiblesCents += forfait222Cents;
+      sumTransactionsUsedForSyntheseCents += forfait222Cents;
+      const forfaitLabel = `Forfait fiscal 20€ × ${rentedLotCount} lot(s)`;
+      includedTransactionsForSynthese.push({
+        id: `FORFAIT_222_${propertyId}`,
+        label: forfaitLabel,
+        amountAbs: fromCents(forfait222Cents),
+        reason: 'forfait fiscal ligne 222 (charge calculée)',
+      });
+      const currentForfait = chargesParCategorie['FORFAIT_222']?.amount || 0;
+      chargesParCategorie['FORFAIT_222'] = {
+        label: 'Forfait fiscal 20€/local (ligne 222)',
+        amount: fromCents(toCents(currentForfait) + forfait222Cents),
+      };
+    }
+
+    const chargesDeductibles = fromCents(chargesDeductiblesCents);
+
+    const preparedTransactionsFor2044 = transactions.map((tx) => {
+      const txNature = norm(tx.nature);
+      const txCategory = norm(tx.Category?.slug);
+      const rentMatch = (!!rentNatureCode && txNature === rentNatureCode) || (!!rentCategorySlug && txCategory === rentCategorySlug);
+      const mgmtMatch = (!!mgmtNatureCode && txNature === mgmtNatureCode) || (!!mgmtCategorySlug && txCategory === mgmtCategorySlug);
+
+      let forcedHint = tx.Category?.fiscalLineHint ?? null;
+      if (rentMatch) forcedHint = '2044_211';
+      else if (mgmtMatch) forcedHint = '2044_221';
+
+      return {
+        ...tx,
+        Category: tx.Category
+          ? {
+              ...tx.Category,
+              fiscalLineHint: forcedHint,
+            }
+          : tx.Category,
+      };
+    });
+
+    const declaration2044Base = Fiscal2044Aggregator.aggregate({
+      propertyId,
+      year,
+      transactions: preparedTransactionsFor2044,
+      interetsEmprunt: interetsEmpruntAnnee.totalInteretsEmprunt,
+      rentedLotCount,
+      applyForfait222: shouldApplyForfait222,
+    });
+
+    const uiTrace = declaration2044Base.uiLineUsageTrace;
+    const uiHintLines: Fiscal2044UiHintLine[] = ['211', '221', '222', '223', '224', '225', '227', '230'];
+    for (const line of uiHintLines) {
+      const trace = uiTrace?.[line];
+      if (!trace) continue;
+      const uniqueIds = Array.from(new Set(trace.transactionIds));
+      const labels = Array.from(new Set(trace.labels)).slice(0, 2);
+      uiDelegatedHints.byFiscalLine[line] = {
+        count: trace.isSynthetic ? Math.max(0, trace.syntheticUnits || 0) : uniqueIds.length,
+        labels,
+      };
+    }
+
+    const declaration2044 = {
+      ...declaration2044Base,
+      interetsEmpruntAnnee,
+      informationsBien: this.buildFiscal2044InformationsBien(property),
+      uiDelegatedHints,
+    };
+
     // 🆕 Projeter le reste de l'année (loyers + charges futurs)
     const projection = await this.projectRemainingYear(propertyId, year, baseCalcul);
     
@@ -543,43 +837,32 @@ class FiscalAggregatorClass {
         charges: chargesParCategorie,
       },
     };
+
+    // Garde-fou de cohérence : ce qui est "utilisé" pour la synthèse doit égaler ce qui est affiché.
+    const totalTransactionsUtilisees = fromCents(sumTransactionsUsedForSyntheseCents);
+    const totalFiscal = fromCents(toCents(breakdown.passe.recettes) + toCents(breakdown.passe.chargesDeductibles));
+    const coherenceGap = Math.abs(totalTransactionsUtilisees - totalFiscal);
+    if (coherenceGap > 0.01) {
+      console.error('[FiscalAggregator][COHERENCE_MISMATCH]', {
+        propertyId,
+        propertyName: property.name,
+        year,
+        totalTransactionsUtilisees,
+        totalFiscal,
+        coherenceGap,
+        includedCount: includedTransactionsForSynthese.length,
+        excludedCount: excludedTransactionsForSynthese.length,
+        duplicateTransactionIds,
+        includedTransactionsForSynthese,
+        excludedTransactionsForSynthese,
+      });
+    }
     
     // ✅ Calculer les amortissements pour les biens de catégorie BIC (meublé)
     const fiscalType = this.fiscalTypesCache?.get(typeBien);
     const amortissements = (fiscalType?.category === 'BIC')
       ? await this.calculateAmortizations(propertyId, year)
       : undefined;
-    
-    // ✅ Suggérer le régime avec données PASSÉES uniquement (cohérent avec les calculs)
-    // Note : chargesTotal = charges BDD + intérêts (car Simulator les additionne)
-    const chargesTotal = breakdown.passe.chargesDeductibles + breakdown.passe.interetsEmprunt;
-    const regimeSuggere = this.suggestRegime(typeBien, breakdown.passe.recettes, chargesTotal, taxParams);
-    
-    // 🆕 Récupérer le régime choisi sur le bien (s'il existe)
-    let regimeChoisi: RegimeFiscal | undefined;
-    try {
-      // Lire directement fiscalRegimeId
-      if (property.fiscalRegimeId) {
-        const regimeId = String(property.fiscalRegimeId).toUpperCase();
-        if (regimeId.includes('MICRO')) {
-          regimeChoisi = 'micro';
-        } else if (regimeId.includes('REEL')) {
-          regimeChoisi = 'reel';
-        }
-      }
-      
-      if (property.FiscalRegime && typeof property.FiscalRegime === 'object' && 'code' in property.FiscalRegime) {
-        const code = (property.FiscalRegime as any).code?.toLowerCase() || '';
-        if (code.includes('micro')) {
-          regimeChoisi = 'micro';
-        } else if (code.includes('reel') || code.includes('réel')) {
-          regimeChoisi = 'reel';
-        }
-      }
-    } catch (e) {
-      // Ignorer les erreurs de parsing du régime
-      console.warn(`[FiscalAggregator] Impossible de parser le régime fiscal du bien ${property.name}:`, e);
-    }
     
     return {
       id: propertyId,
@@ -617,6 +900,7 @@ class FiscalAggregatorClass {
       
       // 🔍 DEBUG temporaire : dates d'encaissement des transactions incluses (pour vérification fiscale)
       _debugPaidAtDates: debugPaidAtDates,
+      declaration2044,
     };
   }
   

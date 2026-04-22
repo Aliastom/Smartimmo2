@@ -22,28 +22,25 @@ export default function AppShellWrapper({
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
+
+  // Toujours avant tout return : même nombre de hooks quel que soit le pathname (ex. /app vs /transactions).
+  const currentView = useMemo(() => {
+    if (!pathname) return 'dashboard';
+
+    const item = sidebarConfig.find((item) => {
+      if (item.normalPath === pathname) return true;
+      if (pathname.startsWith(item.normalPath + '/')) return true;
+      return false;
+    });
+
+    return item?.appView || 'dashboard';
+  }, [pathname]);
+
   // Si on est sur /app, ne pas wrapper dans AppShell car AppShellClient le fait déjà
   if (pathname?.startsWith('/app')) {
     return <>{children}</>;
   }
-  
-  // Déterminer currentView depuis le pathname pour UI2Sidebar
-  const currentView = useMemo(() => {
-    if (!pathname) return 'dashboard';
-    
-    // Trouver l'item de sidebar correspondant au pathname
-    const item = sidebarConfig.find((item) => {
-      // Match exact
-      if (item.normalPath === pathname) return true;
-      // Match avec sous-routes (ex: /biens/123)
-      if (pathname.startsWith(item.normalPath + '/')) return true;
-      return false;
-    });
-    
-    return item?.appView || 'dashboard';
-  }, [pathname]);
-  
+
   // Gérer la navigation : convertir appView → normalPath
   const handleNavigate = (view: ViewType) => {
     const item = sidebarConfig.find((item) => item.appView === view);

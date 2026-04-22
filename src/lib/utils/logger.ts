@@ -44,6 +44,68 @@ export async function logToServer(message: string, level: 'info' | 'warn' | 'err
   }
 }
 
+/** Logs réseau (/api/log) sur le CRUD transaction — désactivé par défaut. Activer : NEXT_PUBLIC_TX_DEBUG_LOGS=true */
+export function isTransactionHotPathRemoteDebugEnabled(): boolean {
+  return typeof process !== 'undefined' && process.env.NEXT_PUBLIC_TX_DEBUG_LOGS === 'true';
+}
+
+/** No-op sauf si NEXT_PUBLIC_TX_DEBUG_LOGS=true (évite tout POST de debug sur le chemin chaud). */
+export async function txHotPathDebugLog(
+  message: string,
+  level: 'info' | 'warn' | 'error' = 'info'
+): Promise<void> {
+  if (!isTransactionHotPathRemoteDebugEnabled()) return;
+  await logToServer(message, level);
+}
+
+let __txPerfSeq = 0;
+
+/** Mesures Performance API pour le CRUD transaction. Activer : NEXT_PUBLIC_TX_PERF=true */
+export function isTransactionPerfEnabled(): boolean {
+  return typeof process !== 'undefined' && process.env.NEXT_PUBLIC_TX_PERF === 'true';
+}
+
+export function txPerfMark(name: string): void {
+  if (!isTransactionPerfEnabled() || typeof performance === 'undefined') return;
+  try {
+    performance.mark(name);
+  } catch {
+    /* noop */
+  }
+}
+
+/**
+ * Démarre une mesure ; appeler la fonction retournée à la fin de la zone (try/finally).
+ * Le nom apparaît dans performance.getEntriesByType('measure') sous measureName.
+ */
+export function txPerfMeasureZone(measureName: string): () => void {
+  if (!isTransactionPerfEnabled() || typeof performance === 'undefined') {
+    return () => {};
+  }
+  const id = `${++__txPerfSeq}`;
+  const start = `tx:${measureName}:start:${id}`;
+  const end = `tx:${measureName}:end:${id}`;
+  try {
+    performance.mark(start);
+  } catch {
+    return () => {};
+  }
+  return () => {
+    try {
+      performance.mark(end);
+      performance.measure(measureName, start, end);
+    } catch {
+      /* noop */
+    }
+    try {
+      performance.clearMarks(start);
+      performance.clearMarks(end);
+    } catch {
+      /* noop */
+    }
+  };
+}
+
 /**
  * Fonction de debug (pour compatibilité avec l'ancien code)
  * TODO: À supprimer une fois le companion complètement retiré

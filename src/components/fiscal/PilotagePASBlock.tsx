@@ -19,6 +19,7 @@ import {
 } from '@/lib/fiscal/withholdingOptimizer';
 import { type WithholdingGoal } from '@/lib/fiscal/withholdingRecommendations';
 import type { SimulationResult } from '@/types/fiscal';
+import { allocateProRataTwoWeights } from '@/lib/fiscal/immoTaxDisplayAlloc';
 
 const GOAL_LABELS: Record<WithholdingGoal, string> = {
   avoid_catchup: 'Éviter tout rattrapage',
@@ -277,28 +278,50 @@ export function PilotagePASBlock({
               const realEstateSocialTax = Math.max(0, realEstateTotalTax - realEstateIncomeTax);
               const salaryTax = Math.max(0, totalTax - realEstateTotalTax);
               const fiscaliteImmobilier = realEstateIncomeTax + realEstateSocialTax;
-              const resultatFoncierNet = (simulation.consolidation?.revenusFonciers ?? 0) + (simulation.consolidation?.revenusBIC ?? 0);
+              const baseNu = Math.max(0, simulation.consolidation?.revenusFonciers ?? 0);
+              const baseBic = Math.max(0, simulation.consolidation?.revenusBIC ?? 0);
+              const resultatFoncierNet = baseNu + baseBic;
               const tauxImpositionImmobilier = resultatFoncierNet > 0 ? fiscaliteImmobilier / resultatFoncierNet : 0;
+              const irAllocImmo = allocateProRataTwoWeights(realEstateIncomeTax, baseNu, baseBic);
+              const psAllocImmo = allocateProRataTwoWeights(realEstateSocialTax, baseNu, baseBic);
               return (
                 <div className="rounded-lg bg-white/80 border border-indigo-100 p-3">
                   <p className="text-xs font-semibold text-gray-700 mb-2">Origine de l&apos;impôt estimé</p>
                   <p className="text-sm font-medium text-gray-800 mb-2">Impôt total estimé : {formatEuro(totalTax)}</p>
                   <p className="text-[11px] text-gray-600 mb-1.5">dont :</p>
                   <ul className="space-y-0.5 text-xs text-gray-700">
-                    <li>• Impôt sur le revenu lié aux revenus salariés : {formatEuro(salaryTax)}</li>
-                    <li>• Impôt sur le revenu lié aux revenus immobiliers : {formatEuro(realEstateIncomeTax)}</li>
-                    <li>• Prélèvements sociaux sur revenus immobiliers : {formatEuro(realEstateSocialTax)}</li>
+                    <li>• IR estimé sur le foyer hors apport immobilier (référence) : {formatEuro(salaryTax)}</li>
+                    <li>
+                      • IR supplémentaire lié à la <strong>location nue (NU)</strong> (indicatif) :{' '}
+                      {formatEuro(irAllocImmo.nu)}
+                    </li>
+                    <li>
+                      • IR supplémentaire lié au <strong>LMNP / BIC</strong> (indicatif) :{' '}
+                      {formatEuro(irAllocImmo.bic)}
+                    </li>
+                    <li>
+                      • PS liés à la base <strong>NU</strong> (indicatif) : {formatEuro(psAllocImmo.nu)}
+                    </li>
+                    <li>
+                      • PS liés à la base <strong>LMNP / BIC</strong> (indicatif) : {formatEuro(psAllocImmo.bic)}
+                    </li>
+                    <li className="text-[10px] text-gray-500 pt-1">
+                      Les montants IR/PS « par nature » sont une ventilation au prorata des bases retenues par le moteur
+                      (non linéaire pour l&apos;IR).
+                    </li>
                     <li className="font-medium text-indigo-800 pt-1 mt-1 border-t border-indigo-100">
-                      • Fiscalité totale liée à l&apos;immobilier : {formatEuro(fiscaliteImmobilier)}
+                      • Fiscalité totale liée à l&apos;immobilier (IR supp. + PS) : {formatEuro(fiscaliteImmobilier)}
                     </li>
                     {resultatFoncierNet > 0 && (
                       <li className="font-medium text-indigo-800">
-                        • Taux réel d&apos;imposition immobilier : {formatPercent(tauxImpositionImmobilier)}
+                        • Taux réel d&apos;imposition immobilier (sur bases NU + BIC) :{' '}
+                        {formatPercent(tauxImpositionImmobilier)}
                       </li>
                     )}
                   </ul>
                   <p className="text-[11px] text-gray-600 mt-2 pt-2 border-t border-indigo-100">
-                    Le PAS couvre principalement l&apos;impôt sur les revenus salariés. Les acomptes couvrent généralement la fiscalité liée aux revenus immobiliers.
+                    Le PAS couvre principalement l&apos;impôt sur les revenus salariés. Les acomptes couvrent souvent la
+                    fiscalité liée aux revenus fonciers (2044) et au BIC (2042 C PRO).
                   </p>
                 </div>
               );

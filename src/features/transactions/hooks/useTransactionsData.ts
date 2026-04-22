@@ -14,6 +14,48 @@ import { getTenantRepositoryOffline } from '@/lib/offline/repositories/TenantRep
 import { getLocalDB } from '@/lib/offline/db';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import type { LocalTransaction, LocalProperty, LocalLease, LocalTenant, CachedNature } from '@/lib/offline/db';
+import { txPerfMeasureZone } from '@/lib/utils/logger';
+import type { TransactionsRefreshDetail } from '../txLocalRefresh';
+
+function sortLocalTransactionsByDateDesc(rows: LocalTransaction[]): LocalTransaction[] {
+  return [...rows].sort((a, b) => {
+    const cmp = String(b.date || '').localeCompare(String(a.date || ''));
+    if (cmp !== 0) return cmp;
+    return String(b.id).localeCompare(String(a.id));
+  });
+}
+
+function localRowMatchesTransactionRepoFilters(
+  row: LocalTransaction,
+  filters: TransactionsFilters | undefined
+): boolean {
+  if (!filters) return true;
+  if (filters.propertyId && row.propertyId !== filters.propertyId) return false;
+  if (filters.leaseId && row.leaseId !== filters.leaseId) return false;
+  if (filters.natureId && row.nature !== filters.natureId) return false;
+  if (filters.dateFrom && new Date(row.date) < new Date(filters.dateFrom)) return false;
+  if (filters.dateTo && new Date(row.date) > new Date(filters.dateTo)) return false;
+  return true;
+}
+
+/** Filtres alignés sur `TransactionRepositoryOffline.getAll` (même contrat que refresh liste / compteurs). */
+function transactionRepoFiltersFromUiFilters(
+  filters: TransactionsFilters | undefined
+): { propertyId?: string; leaseId?: string; dateFrom?: string; dateTo?: string; nature?: string } {
+  const transactionFilters: {
+    propertyId?: string;
+    leaseId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    nature?: string;
+  } = {};
+  if (filters?.propertyId) transactionFilters.propertyId = filters.propertyId;
+  if (filters?.leaseId) transactionFilters.leaseId = filters.leaseId;
+  if (filters?.dateFrom) transactionFilters.dateFrom = filters.dateFrom;
+  if (filters?.dateTo) transactionFilters.dateTo = filters.dateTo;
+  if (filters?.natureId) transactionFilters.nature = filters.natureId;
+  return transactionFilters;
+}
 
 export interface Transaction {
   id: string;
@@ -402,12 +444,6 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
                 });
 
                 if (!cancelled) {
-                  // 🔍 DIAGNOSTIC: Vérifier method dans les transactions chargées après transactions:refresh (offline fallback)
-                  if (transactionsData.length > 0) {
-                    const { logToServer } = await import('@/lib/utils/logger');
-                    const sample = transactionsData.find(t => t.id) || transactionsData[0];
-                    await logToServer(`[useTransactionsData] 🔍 Après transactions:refresh (offline fallback) - Transaction chargée: id=${sample.id}, method=${sample.method}, method type=${typeof sample.method}`);
-                  }
                   setTransactions(transactionsData);
                   setProperties(propertiesData);
                   setLeases(leasesData);
@@ -442,157 +478,190 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
     // sortBy, sortOrder, page : tri et pagination côté serveur
   }, [mode, organizationId, filtersProp?.propertyId, filtersProp?.leaseId, filtersProp?.dateFrom, filtersProp?.dateTo, filtersProp?.natureId, activeKpiFilter, periodStart, periodEnd, enabled, sortBy, sortOrder, page, limit]);
 
-  // Écouter les événements de refresh en mode app-shell
-  // ⚙️ OPTIMISATION: Au lieu d'utiliser refreshKey (qui déclenche un rechargement complet),
-  // mettre à jour directement les données depuis IndexedDB pour éviter un remount complet
-  // ✅ FILTRE STRICT : Filtrer les events par propertyId si spécifié
-  // ✅ Anti-loop : ignorer les refresh identiques trop rapprochés
+  // Écouter les événements de refresh en mode app-shell (patch local ou relecture IDB en fallback)
   const lastRefreshRef = useRef<{ propertyId?: string; reason?: string; timestamp: number } | null>(null);
-  
+
   useEffect(() => {
     if (mode === 'app-shell' && enabled && organizationId) {
       const handleRefresh = async (event?: Event) => {
-        // ⚙️ OPTIMISATION: Recharger uniquement les transactions depuis IndexedDB
-        // sans déclencher un remount complet via refreshKey
-        
-        // ✅ FILTRE STRICT : Si propertyId est défini dans les filtres, accepter UNIQUEMENT les events avec scope='property' ET propertyId correspondant
         const currentFilters = filtersRef.current;
+        let detail: TransactionsRefreshDetail | undefined;
+
         if (event instanceof CustomEvent && event.detail) {
-          const detail = event.detail as { scope?: string; propertyId?: string; reason?: string };
-          
+          detail = event.detail as TransactionsRefreshDetail;
+
           if (currentFilters?.propertyId) {
             if (detail.scope !== 'property' || !detail.propertyId || detail.propertyId !== currentFilters.propertyId) {
-              return; // Ignorer les events sans scope, scope différent, ou propertyId différent/absent
+              return;
             }
           }
-          
-          // Anti-loop : ignorer les refresh identiques < 300ms
-          const now = Date.now();
-          const lastRefresh = lastRefreshRef.current;
-          if (lastRefresh && 
-              lastRefresh.propertyId === detail.propertyId && 
+
+          if (!detail.patch) {
+            const now = Date.now();
+            const lastRefresh = lastRefreshRef.current;
+            if (
+              lastRefresh &&
+              lastRefresh.propertyId === detail.propertyId &&
               lastRefresh.reason === detail.reason &&
-              now - lastRefresh.timestamp < 300) {
+              now - lastRefresh.timestamp < 300
+            ) {
+              return;
+            }
+            lastRefreshRef.current = {
+              propertyId: detail.propertyId,
+              reason: detail.reason,
+              timestamp: now,
+            };
+          }
+        }
+
+        const transRepo = getTransactionRepositoryOffline();
+
+        const loadFullFromRepo = async () => {
+          const endFull = txPerfMeasureZone('tx:useTransactionsData.refreshFull');
+          try {
+            const transactionFilters = transactionRepoFiltersFromUiFilters(currentFilters);
+
+            const transactionsData = await transRepo.getAll(organizationId, transactionFilters);
+            setTransactions(transactionsData);
+          } catch (error) {
+            console.error('[useTransactionsData] Erreur lors du refresh:', error);
+          } finally {
+            endFull();
+          }
+        };
+
+        if (detail?.patch?.action === 'upsert') {
+          const rows = detail.patch.rows;
+          if (rows.some((r) => !localRowMatchesTransactionRepoFilters(r, currentFilters))) {
+            await loadFullFromRepo();
             return;
           }
-          
-          lastRefreshRef.current = {
-            propertyId: detail.propertyId,
-            reason: detail.reason,
-            timestamp: now,
-          };
+          const endPatch = txPerfMeasureZone('tx:useTransactionsData.refreshPatch');
+          try {
+            setTransactions((prev) => {
+              const map = new Map(prev.map((t) => [t.id, t]));
+              for (const row of rows) {
+                map.set(row.id, row);
+              }
+              return sortLocalTransactionsByDateDesc(Array.from(map.values()));
+            });
+            // Compteurs docs : ids explicites du patch (pas de closure sur l’ancienne liste)
+            const affectedIds = rows.map((r) => r.id).filter(Boolean);
+            if (affectedIds.length > 0) {
+              const { getDocumentCountsForTransactions } = await import(
+                '@/lib/offline/services/documentLinksService'
+              );
+              const partial = await getDocumentCountsForTransactions(affectedIds, organizationId);
+              setDocumentCounts((prev) => {
+                const next = new Map(prev);
+                partial.forEach((count, id) => next.set(id, count));
+                return next;
+              });
+            }
+          } finally {
+            endPatch();
+          }
+          return;
         }
-        
-        try {
-          const transRepo = getTransactionRepositoryOffline();
-          
-          // Utiliser les filtres actuels depuis la ref (pas depuis les dépendances)
-          const transactionFilters: { propertyId?: string; leaseId?: string; dateFrom?: string; dateTo?: string; nature?: string } = {};
-          if (currentFilters?.propertyId) {
-            transactionFilters.propertyId = currentFilters.propertyId;
-          }
-          if (currentFilters?.leaseId) {
-            transactionFilters.leaseId = currentFilters.leaseId;
-          }
-          if (currentFilters?.dateFrom) {
-            transactionFilters.dateFrom = currentFilters.dateFrom;
-          }
-          if (currentFilters?.dateTo) {
-            transactionFilters.dateTo = currentFilters.dateTo;
-          }
-          if (currentFilters?.natureId) {
-            transactionFilters.nature = currentFilters.natureId;
-          }
 
-          // Recharger uniquement les transactions (les autres données changent rarement)
-          const transactionsData = await transRepo.getAll(organizationId, transactionFilters);
-          
-          // Mettre à jour l'état directement sans recharger tout
-          setTransactions(transactionsData);
-        } catch (error) {
-          console.error('[useTransactionsData] Erreur lors du refresh:', error);
-          // En cas d'erreur critique, ne rien faire (les données restent telles quelles)
-          // On ne veut pas déclencher un remount complet avec refreshKey
+        if (detail?.patch?.action === 'delete') {
+          const ids = new Set(detail.patch.ids);
+          const endPatch = txPerfMeasureZone('tx:useTransactionsData.refreshPatch');
+          try {
+            setTransactions((prev) => prev.filter((t) => !ids.has(t.id)));
+            setDocumentCounts((prev) => {
+              const next = new Map(prev);
+              for (const id of ids) {
+                next.delete(id);
+              }
+              return next;
+            });
+          } finally {
+            endPatch();
+          }
+          return;
         }
+
+        await loadFullFromRepo();
       };
-      
-      // ⚠️ CRITIQUE: Ne pas écouter sync:refresh (événement global qui déclencherait des recalculs inutiles)
-      // Utiliser uniquement transactions:refresh avec filtrage par propertyId
+
       window.addEventListener('transactions:refresh', handleRefresh);
       return () => {
         window.removeEventListener('transactions:refresh', handleRefresh);
       };
     }
-    // ⚙️ OPTIMISATION: Ne pas inclure filtersProp dans les dépendances pour éviter de recréer le listener
-    // On utilise une ref pour accéder aux valeurs actuelles
   }, [mode, enabled, organizationId]);
 
-  // État pour les compteurs de documents (calculés via documentLinks)
   const [documentCounts, setDocumentCounts] = useState<Map<string, number>>(new Map());
-  
-  // Charger les compteurs de documents en mode app-shell
+
+  const transactionIdsSortedKey = useMemo(
+    () => (transactions.length === 0 ? '' : transactions.map((t) => t.id).sort().join(',')),
+    [transactions]
+  );
+
+  const propertyById = useMemo(() => new Map(properties.map((p) => [p.id, p] as const)), [properties]);
+  const leaseById = useMemo(() => new Map(leases.map((l) => [l.id, l] as const)), [leases]);
+  const tenantById = useMemo(() => new Map(tenants.map((t) => [t.id, t] as const)), [tenants]);
+  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c] as const)), [categories]);
+
   useEffect(() => {
-    if (mode === 'app-shell' && organizationId && transactions.length > 0) {
-      let cancelled = false;
-      
-      async function loadDocumentCounts() {
-        try {
-          const { getDocumentCountsForTransactions } = await import('@/lib/offline/services/documentLinksService');
-          const transactionIds = transactions.map(t => t.id);
-          const counts = await getDocumentCountsForTransactions(transactionIds, organizationId!);
-          
-          if (!cancelled) {
-            setDocumentCounts(counts);
-          }
-        } catch (error) {
-          console.error('Error loading document counts:', error);
-        }
-      }
-      
-      loadDocumentCounts();
-      
-      return () => {
-        cancelled = true;
-      };
+    if (mode !== 'app-shell' || !organizationId) {
+      return;
     }
-  }, [mode, organizationId, transactions.map(t => t.id).join(',')]);
-  
-  // Écouter les événements de refresh pour mettre à jour les compteurs
-  useEffect(() => {
-    if (mode === 'app-shell' && organizationId && transactions.length > 0) {
-      const handleRefresh = async () => {
-        try {
-          const { getDocumentCountsForTransactions } = await import('@/lib/offline/services/documentLinksService');
-          const transactionIds = transactions.map(t => t.id);
-          const counts = await getDocumentCountsForTransactions(transactionIds, organizationId!);
+
+    let cancelled = false;
+
+    async function refreshDocumentCountsFromRepo() {
+      const end = txPerfMeasureZone('tx:useTransactionsData.documentCounts');
+      try {
+        const transRepo = getTransactionRepositoryOffline();
+        const transactionFilters = transactionRepoFiltersFromUiFilters(filtersRef.current);
+        const txs = await transRepo.getAll(organizationId, transactionFilters);
+        const ids = txs.map((t) => t.id);
+        if (ids.length === 0) {
+          if (!cancelled) setDocumentCounts(new Map());
+          return;
+        }
+        const { getDocumentCountsForTransactions } = await import('@/lib/offline/services/documentLinksService');
+        const counts = await getDocumentCountsForTransactions(ids, organizationId);
+        if (!cancelled) {
           setDocumentCounts(counts);
-        } catch (error) {
-          console.error('Error refreshing document counts:', error);
         }
-      };
-      
-      window.addEventListener('sync:refresh', handleRefresh);
-      window.addEventListener('documents:refresh', handleRefresh);
-      window.addEventListener('transactions:refresh', handleRefresh);
-      
-      return () => {
-        window.removeEventListener('sync:refresh', handleRefresh);
-        window.removeEventListener('documents:refresh', handleRefresh);
-        window.removeEventListener('transactions:refresh', handleRefresh);
-      };
+      } catch (error) {
+        console.error('Error loading document counts:', error);
+      } finally {
+        end();
+      }
     }
-  }, [mode, organizationId, transactions.map(t => t.id).join(',')]);
+
+    void refreshDocumentCountsFromRepo();
+
+    const onExternal = () => {
+      if (!cancelled) void refreshDocumentCountsFromRepo();
+    };
+    // Pas d’écoute sur transactions:refresh : le listener liste met à jour les compteurs au patch
+    // (ids explicites) ; ici on recharge depuis l’IDB après sync / changements documents.
+    window.addEventListener('sync:refresh', onExternal);
+    window.addEventListener('documents:refresh', onExternal);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('sync:refresh', onExternal);
+      window.removeEventListener('documents:refresh', onExternal);
+    };
+  }, [mode, organizationId, transactionIdsSortedKey]);
 
   // Convertir LocalTransaction vers Transaction pour compatibilité
   const convertedTransactions: Transaction[] = useMemo(() => {
     if (mode === 'app-shell') {
       // En mode app-shell, construire Transaction depuis les données locales
       return transactions.map(trans => {
-        const property = properties.find(p => p.id === trans.propertyId);
-        const lease = trans.leaseId ? leases.find(l => l.id === trans.leaseId) : null;
-        const tenant = trans.tenantId ? tenants.find(t => t.id === trans.tenantId) : null;
+        const property = trans.propertyId ? propertyById.get(trans.propertyId) : undefined;
+        const lease = trans.leaseId ? leaseById.get(trans.leaseId) : undefined;
+        const tenant = trans.tenantId ? tenantById.get(trans.tenantId) : undefined;
         const nature = trans.nature ? natures.get(trans.nature) : null;
-        const category = categories.find(c => c.id === trans.categoryId);
+        const category = trans.categoryId ? categoryById.get(trans.categoryId) : undefined;
 
         // Debug: vérifier si la nature est trouvée
         if (trans.nature && !nature) {
@@ -690,7 +759,7 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
     }
     // En mode normal, utiliser directement les données de l'API
     return transactions as any;
-  }, [mode, transactions, properties, leases, tenants, categories, natures, documentCounts]);
+  }, [mode, transactions, propertyById, leaseById, tenantById, categoryById, natures, documentCounts]);
 
   // Filtrer les transactions selon les filtres (en mode app-shell)
   const filteredTransactions = useMemo(() => {

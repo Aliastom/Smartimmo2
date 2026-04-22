@@ -9,7 +9,7 @@
 
 'use client';
 
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useFiscalStore } from '@/store/fiscalStore';
 import { useFiscalTabs } from '@/hooks/useFiscalTabs';
 import { useExpertModeStore } from '@/store/expertModeStore';
@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Switch } from '@/components/ui/Switch';
+import { Input } from '@/components/ui/Input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 import { 
@@ -48,6 +49,14 @@ import { DeclarationTab } from '@/components/fiscal/results/tabs/DeclarationTab'
 import { ProjectionsTab } from '@/components/fiscal/results/tabs/ProjectionsTab';
 import { OptimisationsTab } from '@/components/fiscal/results/tabs/OptimisationsTab';
 import { useToast } from '@/hooks/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/Dialog';
 
 export interface FiscalPageCoreProps {
   mode: 'normal' | 'app-shell';
@@ -116,10 +125,91 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
   const [optimizationSuggestions, setOptimizationSuggestions] = useState<any[]>([]);
   const [isOptimizationLoading, setIsOptimizationLoading] = useState(false);
   const [loadingSimulationId, setLoadingSimulationId] = useState<string | null>(null);
+  const [saveAsPending, setSaveAsPending] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState<string | null>(null);
+  const [pendingOpenId, setPendingOpenId] = useState<string | null>(null);
+  const [dirtyConfirmOpen, setDirtyConfirmOpen] = useState(false);
+  const [saveActionOpen, setSaveActionOpen] = useState(false);
+  const [saveActionType, setSaveActionType] = useState<'saveAs' | 'rename' | 'duplicate' | 'delete' | null>(null);
+  const [saveActionTargetId, setSaveActionTargetId] = useState<string | null>(null);
+  const [saveActionName, setSaveActionName] = useState('');
+  const [saveActionBusy, setSaveActionBusy] = useState(false);
   const optimizationAbortControllerRef = useRef<AbortController | null>(null);
   const optimizationLoadedRef = useRef<string | null>(null);
   const optimizationJustLoadedInCalculateRef = useRef<boolean>(false);
   const { toast } = useToast();
+
+  const currentSaveId = savedSimulationId;
+  const currentSave = useMemo(
+    () => savedSimulations.find((s) => s.id === currentSaveId) ?? null,
+    [savedSimulations, currentSaveId]
+  );
+
+  const buildSnapshot = useCallback(() => {
+    if (!simulationResult) return null;
+    const payload = {
+      inputs: { ...simulationResult.inputs, ...simulationDraft },
+      result: simulationResult,
+    };
+    return JSON.stringify(payload);
+  }, [simulationDraft, simulationResult]);
+
+  const isDirty = useMemo(() => {
+    if (!simulationResult) return false;
+    if (!currentSaveId) return true;
+    const currentSnapshot = buildSnapshot();
+    if (!currentSnapshot || !lastSavedSnapshot) return true;
+    return currentSnapshot !== lastSavedSnapshot;
+  }, [buildSnapshot, currentSaveId, lastSavedSnapshot, simulationResult]);
+
+  const openSaveAsDialog = useCallback(() => {
+    if (!simulationResult) return;
+    const defaultName = currentSave?.name
+      ? `Copie de ${currentSave.name}`
+      : `Simulation ${simulationResult.inputs.year + 1}`;
+    setSaveActionType('saveAs');
+    setSaveActionTargetId(null);
+    setSaveActionName(defaultName);
+    setSaveActionOpen(true);
+  }, [currentSave?.name, simulationResult]);
+
+  const openRenameDialog = useCallback(
+    (simulationId: string) => {
+      const sim = savedSimulations.find((s) => s.id === simulationId);
+      if (!sim) return;
+      setSaveActionType('rename');
+      setSaveActionTargetId(simulationId);
+      setSaveActionName(sim.name);
+      setSaveActionOpen(true);
+    },
+    [savedSimulations]
+  );
+
+  const openDuplicateDialog = useCallback(
+    (simulationId: string) => {
+      const sim = savedSimulations.find((s) => s.id === simulationId);
+      if (!sim) return;
+      setSaveActionType('duplicate');
+      setSaveActionTargetId(simulationId);
+      setSaveActionName(`Copie de ${sim.name}`);
+      setSaveActionOpen(true);
+    },
+    [savedSimulations]
+  );
+
+  const openDeleteDialog = useCallback(
+    (simulationId: string) => {
+      const sim = savedSimulations.find((s) => s.id === simulationId);
+      if (!sim) return;
+      setSaveActionType('delete');
+      setSaveActionTargetId(simulationId);
+      setSaveActionName(sim.name);
+      setSaveActionOpen(true);
+    },
+    [savedSimulations]
+  );
   
   // États pour le suivi de progression du calcul
   const [calculatingProgress, setCalculatingProgress] = useState({
@@ -219,6 +309,11 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
     localStorage.removeItem('fiscal-simulation-cache');
     localStorage.removeItem('fiscal-store');
     resetSimulation();
+    setLastSavedAt(null);
+    setLastSavedSnapshot(null);
+    setSaveMessage(null);
+    setPendingOpenId(null);
+    setDirtyConfirmOpen(false);
     loadSavedSimulations();
   }, [mode]);
 
@@ -238,6 +333,12 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
         const data = await response.json();
         const sims = data.simulations || [];
         setSavedSimulations(sims);
+        if (currentSaveId) {
+          const active = sims.find((s: any) => s.id === currentSaveId);
+          if (active?.updatedAt) {
+            setLastSavedAt(active.updatedAt);
+          }
+        }
       }
     } catch (error) {
       console.error('Erreur chargement simulations:', error);
@@ -246,7 +347,7 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
     }
   };
 
-  const handleLoadSimulation = async (simulationId: string) => {
+  const performLoadSimulation = async (simulationId: string) => {
     setLoadingSimulationId(simulationId);
     try {
       optimizationJustLoadedInCalculateRef.current = false;
@@ -279,6 +380,14 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
       });
       setResult(result);
       setSavedSimulationId(simulationId);
+      setLastSavedAt(simulationData.updatedAt || simulationData.createdAt || null);
+      setLastSavedSnapshot(
+        JSON.stringify({
+          inputs: { ...result.inputs, ...inputs },
+          result,
+        })
+      );
+      setSaveMessage(null);
 
       setActiveTab('synthese');
     } catch (error) {
@@ -290,8 +399,18 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
     }
   };
 
+  const handleLoadSimulation = async (simulationId: string) => {
+    if (!simulationResult || !isDirty || simulationId === currentSaveId) {
+      await performLoadSimulation(simulationId);
+      return;
+    }
+    setPendingOpenId(simulationId);
+    setDirtyConfirmOpen(true);
+  };
+
   const handleDeleteSimulation = async (simulationId: string) => {
     try {
+      const wasActive = currentSaveId === simulationId;
       const response = await fetch(`/api/fiscal/simulations/${simulationId}`, {
         method: 'DELETE',
       });
@@ -300,11 +419,23 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
         throw new Error('Erreur lors de la suppression');
       }
 
-      if (savedSimulationId === simulationId) {
+      if (wasActive) {
         setSavedSimulationId(null);
+        setLastSavedAt(null);
+        setLastSavedSnapshot(null);
+        setSaveMessage(null);
       }
 
       await loadSavedSimulations();
+      const remaining = savedSimulations.filter((s) => s.id !== simulationId);
+      if (wasActive) {
+        if (remaining.length > 0) {
+          await performLoadSimulation(remaining[0].id);
+        } else {
+          resetSimulation();
+          setActiveTab('simulation');
+        }
+      }
     } catch (error) {
       console.error('Erreur suppression simulation:', error);
       throw error;
@@ -476,37 +607,200 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
   };
 
   // Sauvegarder la simulation
-  const handleSave = async () => {
-    if (!simulationResult) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!simulationResult) return false;
 
     setSaving(true);
     setSaved(false);
 
     try {
+      const payload = {
+        inputs: { ...simulationResult.inputs, ...simulationDraft },
+        result: simulationResult,
+      };
+      const defaultName = `Simulation ${simulationResult.inputs.year + 1} (revenus ${simulationResult.inputs.year})`;
+      const isUpdate = !!currentSaveId;
+
+      const response = await fetch(
+        isUpdate ? `/api/fiscal/simulations/${currentSaveId}` : '/api/fiscal/simulations',
+        {
+          method: isUpdate ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: currentSave?.name || defaultName,
+            ...payload,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Erreur lors de l’enregistrement');
+      }
+
+      const data = await response.json();
+      const id = isUpdate ? currentSaveId : data.simulation.id;
+      const timestamp = data.simulation?.updatedAt || new Date().toISOString();
+
+      setSavedSimulationId(id);
+      setLastSavedAt(timestamp);
+      const snap = buildSnapshot();
+      setLastSavedSnapshot(snap);
+      setSaved(true);
+      setSaveMessage(isUpdate ? 'Sauvegarde mise à jour' : 'Nouvelle sauvegarde créée');
+      setTimeout(() => setSaved(false), 2500);
+      await loadSavedSimulations();
+      return true;
+    } catch (error) {
+      console.error('Erreur sauvegarde:', error);
+      if (toast?.error) toast.error("Impossible d'enregistrer la sauvegarde");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveAs = async () => {
+    if (!simulationResult || saveAsPending || !saveActionName.trim()) return;
+    setSaveAsPending(true);
+    try {
       const response = await fetch('/api/fiscal/simulations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: `Simulation ${simulationResult.inputs.year + 1} (revenus ${simulationResult.inputs.year})`,
+          name: saveActionName.trim(),
           inputs: { ...simulationResult.inputs, ...simulationDraft },
           result: simulationResult,
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setSavedSimulationId(data.simulation.id);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
-        
-        await loadSavedSimulations();
-      }
+      if (!response.ok) throw new Error('Erreur Enregistrer sous');
+      const data = await response.json();
+      setSavedSimulationId(data.simulation.id);
+      setLastSavedAt(data.simulation.updatedAt || data.simulation.createdAt || new Date().toISOString());
+      setLastSavedSnapshot(buildSnapshot());
+      setSaveMessage(`Nouvelle sauvegarde créée : ${saveActionName.trim()}`);
+      await loadSavedSimulations();
+      setSaveActionOpen(false);
     } catch (error) {
-      console.error('Erreur sauvegarde:', error);
+      console.error('Erreur Enregistrer sous:', error);
+      if (toast?.error) toast.error("Impossible de créer la nouvelle sauvegarde");
     } finally {
-      setSaving(false);
+      setSaveAsPending(false);
     }
   };
+
+  const handleRenameSimulation = async (simulationId: string) => {
+    if (!saveActionName.trim()) return;
+    try {
+      const sim = savedSimulations.find((s) => s.id === simulationId);
+      if (!sim) return;
+      const nextName = saveActionName.trim();
+      if (nextName === sim.name) {
+        setSaveActionOpen(false);
+        return;
+      }
+      const response = await fetch(`/api/fiscal/simulations/${simulationId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nextName }),
+      });
+      if (!response.ok) {
+        throw new Error('Erreur de renommage');
+      }
+      await loadSavedSimulations();
+      if (simulationId === currentSaveId) {
+        setSaveMessage(`Sauvegarde renommée : ${nextName}`);
+      }
+      setSaveActionOpen(false);
+    } catch (error) {
+      console.error('Erreur renommage:', error);
+      if (toast?.error) toast.error('Impossible de renommer la sauvegarde');
+    }
+  };
+
+  const handleDuplicateSimulation = async (simulationId: string) => {
+    if (!saveActionName.trim()) return;
+    try {
+      const sim = savedSimulations.find((s) => s.id === simulationId);
+      if (!sim) return;
+      const requestedName = saveActionName.trim();
+      const response = await fetch(`/api/fiscal/simulations/${simulationId}/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: requestedName }),
+      });
+      if (!response.ok) {
+        throw new Error('Erreur de duplication');
+      }
+      await loadSavedSimulations();
+      const data = await response.json();
+      setSaveMessage(`Sauvegarde dupliquée : ${data.simulation?.name || requestedName}`);
+      setSaveActionOpen(false);
+    } catch (error) {
+      console.error('Erreur duplication:', error);
+      if (toast?.error) toast.error('Impossible de dupliquer la sauvegarde');
+    }
+  };
+
+  const handleDirtyConfirmSaveAndContinue = async () => {
+    if (!pendingOpenId) {
+      setDirtyConfirmOpen(false);
+      return;
+    }
+    const ok = await handleSave();
+    if (!ok) return;
+    setDirtyConfirmOpen(false);
+    const targetId = pendingOpenId;
+    setPendingOpenId(null);
+    await performLoadSimulation(targetId);
+  };
+
+  const handleDirtyConfirmDiscardAndContinue = async () => {
+    if (!pendingOpenId) {
+      setDirtyConfirmOpen(false);
+      return;
+    }
+    const targetId = pendingOpenId;
+    setDirtyConfirmOpen(false);
+    setPendingOpenId(null);
+    await performLoadSimulation(targetId);
+  };
+
+  const executeSaveAction = async () => {
+    if (!saveActionType) return;
+    setSaveActionBusy(true);
+    try {
+      if (saveActionType === 'saveAs') {
+        await handleSaveAs();
+        return;
+      }
+      if (!saveActionTargetId) return;
+      if (saveActionType === 'rename') {
+        await handleRenameSimulation(saveActionTargetId);
+        return;
+      }
+      if (saveActionType === 'duplicate') {
+        await handleDuplicateSimulation(saveActionTargetId);
+        return;
+      }
+      if (saveActionType === 'delete') {
+        await handleDeleteSimulation(saveActionTargetId);
+        setSaveActionOpen(false);
+      }
+    } finally {
+      setSaveActionBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isDirty]);
 
   // Exporter en PDF
   const handleExportPDF = async () => {
@@ -573,155 +867,239 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
       <div className="min-h-screen bg-gray-50">
       {/* Header sticky avec fond glassy/transparent */}
       <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-md shadow-sm border-b border-gray-200/50">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          {/* Titre + Dropdown sauvegardes */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
-              {/* Bouton hamburger mobile - Discret, aligné à gauche du titre */}
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          {/* Ligne haute : titre + badges alignés, sous-titre ; à droite (lg+) les sélecteurs Déclaration / Revenus / Barème */}
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
+            <div className="flex min-w-0 gap-2 lg:min-w-0 lg:flex-1">
               {sidebarContext && (
                 <button
+                  type="button"
                   onClick={sidebarContext.toggleSidebar}
-                  className="lg:hidden flex items-center justify-center w-10 h-10 min-w-[40px] min-h-[40px] flex-shrink-0 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
-                  aria-label={sidebarContext.sidebarOpen ? "Fermer le menu" : "Ouvrir le menu"}
+                  className="lg:hidden flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                  aria-label={sidebarContext.sidebarOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
                 >
-                  {sidebarContext.sidebarOpen ? (
-                    <X className="h-5 w-5" />
-                  ) : (
-                    <Menu className="h-5 w-5" />
-                  )}
+                  {sidebarContext.sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
                 </button>
               )}
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate min-w-0">Espace fiscal</h1>
-              
-              {/* Mini-dropdown des simulations sauvegardées */}
-              <SavedSimulationsDropdown
-                simulations={savedSimulations}
-                currentSimulationId={savedSimulationId}
-                onLoad={handleLoadSimulation}
-                onDelete={handleDeleteSimulation}
-                loading={!!loadingSimulationId}
-              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+                  <h1 className="text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">Espace fiscal</h1>
+                  {simulationResult && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge
+                        variant="outline"
+                        className="border-purple-200/70 bg-purple-50/80 px-2 py-0.5 text-[11px] font-medium text-purple-900 shadow-none"
+                      >
+                        Revenus {simulationResult.inputs.year}
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className="border-sky-200/70 bg-sky-50/80 px-2 py-0.5 text-[11px] font-medium text-sky-900 shadow-none"
+                      >
+                        Barème {simulationResult.taxParams.version}
+                      </Badge>
+                      {optimizationCount > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="border-orange-200/70 bg-orange-50/80 px-2 py-0.5 text-[11px] font-medium text-orange-900 shadow-none"
+                        >
+                          {optimizationCount} optimisation{optimizationCount > 1 ? 's' : ''}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-gray-600 sm:text-[13px]">
+                  Déclaration, revenus et barème : une session unique avant les onglets de résultats.
+                </p>
+              </div>
             </div>
-
-            {/* Actions */}
-            <div className="flex items-center gap-2">
-              {/* Calculer (visible dans onglet Simulation) */}
-              {activeTab === 'simulation' && (
-                <Button
-                  onClick={handleCalculate}
-                  disabled={status === 'calculating'}
-                  size="lg"
-                  className="gap-2"
-                >
-                  {status === 'calculating' ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Calcul en cours...
-                    </>
-                  ) : (
-                    <>
-                      <Calculator className="h-4 w-4" />
-                      {hasSimulation ? 'Mettre à jour' : 'Calculer la simulation'}
-                    </>
-                  )}
-                </Button>
-              )}
-
-              {/* Sauvegarder */}
-              {hasSimulation && (
-                <Button
-                  onClick={handleSave}
-                  variant="outline"
-                  disabled={saving || saved}
-                  className="gap-2"
-                >
-                  {saving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Sauvegarde...
-                    </>
-                  ) : saved ? (
-                    <>
-                      <Check className="h-4 w-4 text-green-600" />
-                      Sauvegardé !
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4" />
-                      Sauvegarder
-                    </>
-                  )}
-                </Button>
-              )}
-
-              {/* Export PDF */}
-              {hasSimulation && (
-                <Button
-                  onClick={handleExportPDF}
-                  variant="outline"
-                  className="gap-2"
-                >
-                  <FileDown className="h-4 w-4" />
-                  Export PDF
-                </Button>
-              )}
-              
-              {/* Toggle Mode Expert */}
-              {hasSimulation && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 transition-colors">
-                        <Switch
-                          checked={isExpertMode}
-                          onCheckedChange={toggleExpertMode}
-                        />
-                        <span className="text-sm font-medium text-gray-700">
-                          Mode expert
-                        </span>
-                        {isExpertMode && (
-                          <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-300 text-xs">
-                            ON
-                          </Badge>
-                        )}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="max-w-xs text-xs">
-                        Active des détails avancés : calculs tranche par tranche, cohérence fiscale, scénarios, overrides, etc.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
+            <div className="flex w-full min-w-0 shrink-0 justify-start lg:w-auto lg:justify-end">
+              <FiscalHeaderControls variant="cockpit" />
             </div>
           </div>
 
-          {/* Barre de progression cliquable (remplace les onglets) */}
-          <div className="mt-4">
-            {/* Sélecteurs Déclaration / Barème + badges session */}
-            <div className="mb-3">
-              <FiscalHeaderControls />
-            </div>
-            {/* Badges résultat simulation (si calcul effectué) */}
-            {simulationResult && (
-              <div className="flex items-center justify-end gap-2 mb-3">
-                <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-300">
-                  Revenus {simulationResult.inputs.year}
-                </Badge>
-                <Badge variant="outline" className="bg-sky-100 text-sky-700 border-sky-300">
-                  Barème {simulationResult.taxParams.version}
-                </Badge>
-                {optimizationCount > 0 && (
-                  <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
-                    {optimizationCount} optimisation{optimizationCount > 1 ? 's' : ''}
-                  </Badge>
-                )}
+          {/* Panneau Sauvegardes / session / actions — pleine largeur, directement sous le bloc titre */}
+          <div className="mt-2 w-full rounded-2xl border border-gray-200/80 bg-gradient-to-br from-white via-white to-gray-50/90 p-2.5 shadow-[0_1px_0_rgba(15,23,42,0.04),0_10px_28px_-14px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.05] backdrop-blur-md sm:p-2 sm:py-2">
+            <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2 lg:flex-nowrap lg:items-stretch">
+              {/* Sauvegardes */}
+              <div className="flex min-w-0 shrink-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-400">
+                  Sauvegardes
+                </span>
+                <div className="min-w-0 sm:max-w-[min(100%,20rem)]">
+                  <SavedSimulationsDropdown
+                    simulations={savedSimulations}
+                    currentSaveId={currentSaveId}
+                    onOpen={handleLoadSimulation}
+                    onRename={openRenameDialog}
+                    onDuplicate={openDuplicateDialog}
+                    onDelete={async (id) => {
+                      openDeleteDialog(id);
+                    }}
+                    loading={!!loadingSimulationId}
+                  />
+                </div>
               </div>
-            )}
-            
-            <FiscalProgressBar 
-              activeTab={activeTab} 
+
+              {hasSimulation && (
+                <>
+                  <span className="hidden h-9 w-px shrink-0 self-center bg-gray-200/90 sm:inline" aria-hidden />
+                  <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-gray-200/70 bg-white/80 px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] sm:min-h-[2.5rem]">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                        Sauvegarde active
+                      </p>
+                      <p className="truncate text-[13px] font-semibold leading-snug text-gray-900">
+                        {currentSave ? currentSave.name : 'État non sauvegardé'}
+                      </p>
+                      {lastSavedAt && (
+                        <p className="mt-0.5 truncate text-[10px] leading-snug text-gray-500">
+                          Dernière sauvegarde · {new Date(lastSavedAt).toLocaleString('fr-FR')}
+                        </p>
+                      )}
+                    </div>
+                    <span
+                      title={
+                        isDirty
+                          ? 'Modifications non enregistrées'
+                          : 'Synchronisé avec la dernière sauvegarde'
+                      }
+                      className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none ${
+                        isDirty
+                          ? 'border-amber-300/90 bg-amber-50 text-amber-950'
+                          : 'border-emerald-300/90 bg-emerald-50 text-emerald-950'
+                      }`}
+                    >
+                      {isDirty ? 'Non enregistré' : 'Synchronisé'}
+                    </span>
+                  </div>
+                </>
+              )}
+
+              <span className="hidden h-9 w-px shrink-0 self-center bg-gray-200/90 lg:inline" aria-hidden />
+
+              {/* Actions : calcul + enregistrement / export / expert */}
+              <div
+                className={`flex w-full min-w-0 flex-wrap items-center gap-1.5 border-t border-gray-200/60 pt-2 sm:w-auto sm:border-t-0 sm:pt-0 lg:ml-auto lg:flex-nowrap lg:justify-end lg:border-l lg:border-gray-200/60 lg:pl-4 ${
+                  activeTab === 'simulation' ? 'sm:justify-between lg:justify-end' : 'sm:justify-end'
+                }`}
+              >
+                {activeTab === 'simulation' && (
+                  <Button
+                    onClick={handleCalculate}
+                    disabled={status === 'calculating'}
+                    size="md"
+                    className="shrink-0 gap-1.5"
+                  >
+                    {status === 'calculating' ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Calcul en cours...
+                      </>
+                    ) : (
+                      <>
+                        <Calculator className="h-4 w-4" />
+                        {hasSimulation ? 'Mettre à jour' : 'Calculer la simulation'}
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-initial">
+                  {hasSimulation && (
+                    <Button
+                      onClick={handleSave}
+                      variant="outline"
+                      size="sm"
+                      disabled={saving || saveAsPending}
+                      className="shrink-0 gap-1.5"
+                    >
+                      {saving ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Enregistrement…
+                        </>
+                      ) : saved ? (
+                        <>
+                          <Check className="h-3.5 w-3.5 text-green-600" />
+                          Enregistré
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-3.5 w-3.5" />
+                          Enregistrer
+                        </>
+                      )}
+                    </Button>
+                  )}
+
+                  {hasSimulation && (
+                    <Button
+                      onClick={openSaveAsDialog}
+                      variant="outline"
+                      size="sm"
+                      disabled={saving || saveAsPending}
+                      className="shrink-0 gap-1.5"
+                    >
+                      {saveAsPending ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Enregistrer sous...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-3.5 w-3.5" />
+                          Enregistrer sous…
+                        </>
+                      )}
+                    </Button>
+                  )}
+
+                  {hasSimulation && (
+                    <Button onClick={handleExportPDF} variant="outline" size="sm" className="shrink-0 gap-1.5">
+                      <FileDown className="h-3.5 w-3.5" />
+                      Export PDF
+                    </Button>
+                  )}
+
+                  {hasSimulation && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-200/90 bg-white/90 px-2 py-1.5 shadow-sm transition-colors hover:bg-white">
+                            <Switch checked={isExpertMode} onCheckedChange={toggleExpertMode} />
+                            <span className="text-xs font-medium text-gray-800">Mode expert</span>
+                            {isExpertMode && (
+                              <Badge
+                                variant="outline"
+                                className="border-indigo-300/80 bg-indigo-50 px-1 py-0 text-[10px] font-semibold text-indigo-800"
+                              >
+                                ON
+                              </Badge>
+                            )}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="max-w-xs text-xs">
+                            Active des détails avancés : calculs tranche par tranche, cohérence fiscale, scénarios,
+                            overrides, etc.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <div className="mt-2.5 border-t border-gray-200/80 pt-2">
+            {saveMessage && <p className="mb-1 text-xs text-emerald-700">{saveMessage}</p>}
+            <FiscalProgressBar
+              embedded
+              activeTab={activeTab}
               hasSimulation={hasSimulation}
               onTabChange={setActiveTab}
             />
@@ -873,6 +1251,117 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
         </div>
       </div>
     </div>
+
+    <Dialog
+      open={saveActionOpen}
+      onOpenChange={(open) => {
+        if (saveActionBusy) return;
+        setSaveActionOpen(open);
+      }}
+    >
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {saveActionType === 'saveAs' && 'Enregistrer sous…'}
+            {saveActionType === 'rename' && 'Renommer la sauvegarde'}
+            {saveActionType === 'duplicate' && 'Dupliquer la sauvegarde'}
+            {saveActionType === 'delete' && 'Supprimer la sauvegarde'}
+          </DialogTitle>
+          <DialogDescription>
+            {saveActionType === 'saveAs' &&
+              'Crée une nouvelle sauvegarde à partir de l’état actuel (sans écraser la sauvegarde active).'}
+            {saveActionType === 'rename' && 'Modifiez uniquement le nom de cette sauvegarde.'}
+            {saveActionType === 'duplicate' &&
+              'Crée une copie complète (données + résultat) de cette sauvegarde.'}
+            {saveActionType === 'delete' &&
+              'Cette action est irréversible. La sauvegarde sélectionnée sera supprimée définitivement.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {(saveActionType === 'saveAs' || saveActionType === 'rename' || saveActionType === 'duplicate') && (
+          <div className="space-y-2">
+            <label htmlFor="save-action-name" className="text-sm font-medium text-gray-800">
+              Nom de la sauvegarde
+            </label>
+            <Input
+              id="save-action-name"
+              value={saveActionName}
+              onChange={(e) => setSaveActionName(e.target.value)}
+              placeholder="Nom de la sauvegarde"
+              autoFocus
+            />
+          </div>
+        )}
+
+        {saveActionType === 'delete' && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+            Sauvegarde concernée : <strong>{saveActionName}</strong>
+          </div>
+        )}
+
+        <DialogFooter className="flex gap-2 sm:justify-end">
+          <Button
+            variant="outline"
+            disabled={saveActionBusy}
+            onClick={() => {
+              setSaveActionOpen(false);
+            }}
+          >
+            Annuler
+          </Button>
+          <Button
+            onClick={executeSaveAction}
+            disabled={
+              saveActionBusy ||
+              ((saveActionType === 'saveAs' || saveActionType === 'rename' || saveActionType === 'duplicate') &&
+                !saveActionName.trim())
+            }
+            variant={saveActionType === 'delete' ? 'destructive' : 'default'}
+          >
+            {saveActionBusy ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Traitement...
+              </>
+            ) : (
+              <>
+                {saveActionType === 'saveAs' && 'Créer la sauvegarde'}
+                {saveActionType === 'rename' && 'Renommer'}
+                {saveActionType === 'duplicate' && 'Dupliquer'}
+                {saveActionType === 'delete' && 'Supprimer'}
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog open={dirtyConfirmOpen} onOpenChange={setDirtyConfirmOpen}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Modifications non enregistrées</DialogTitle>
+          <DialogDescription>
+            Vous avez des changements non enregistrés sur la sauvegarde en cours. Que souhaitez-vous faire avant
+            d&apos;ouvrir une autre sauvegarde ?
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="flex gap-2 sm:justify-end">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setDirtyConfirmOpen(false);
+              setPendingOpenId(null);
+            }}
+          >
+            Annuler
+          </Button>
+          <Button variant="outline" onClick={handleDirtyConfirmDiscardAndContinue}>
+            Ignorer les modifications
+          </Button>
+          <Button onClick={handleDirtyConfirmSaveAndContinue}>Enregistrer</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }

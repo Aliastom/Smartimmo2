@@ -40,9 +40,11 @@ import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/Tran
 import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/PropertyRepositoryOffline';
 import { getEcheanceRepositoryOffline } from '@/lib/offline/repositories/EcheanceRepositoryOffline';
 import { getLocalDB } from '@/lib/offline/db';
+import type { LocalTransaction } from '@/lib/offline/db';
 import { calcCommission } from '@/lib/gestion/calcCommission';
-import { logToServer } from '@/lib/utils/logger';
+import { txHotPathDebugLog, txPerfMeasureZone } from '@/lib/utils/logger';
 import { navigateToView } from '@/utils/appShellNavigation';
+import { dispatchTransactionsLocalRefresh } from './txLocalRefresh';
 
 // ✅ IMPORT STATIQUE pour garantir le fonctionnement offline (évite ChunkLoadError en app-shell)
 import { TransactionModal } from '@/components/transactions/TransactionModalV2';
@@ -867,10 +869,12 @@ export function TransactionsPageCore({
         }
 
         if (mode === 'app-shell') {
-          // ⚠️ CRITIQUE: Émettre uniquement l'événement ciblé, pas de refreshKey
-          window.dispatchEvent(new CustomEvent('transactions:refresh', {
-            detail: { scope: 'property', propertyId: propPropertyId || initialPropertyId || filters.propertyId }
-          }));
+          dispatchTransactionsLocalRefresh({
+            scope: 'property',
+            propertyId: propPropertyId || initialPropertyId || filters.propertyId,
+            reason: 'crud-delete-one',
+            patch: { action: 'delete', ids: [transactionToDelete.id] },
+          });
           if (deleteMode === 'delete_docs' || deleteMode === 'unlink_only') {
             window.dispatchEvent(new CustomEvent('documents:refresh'));
           }
@@ -1104,12 +1108,14 @@ export function TransactionsPageCore({
         // Traitement séquentiel pour mettre à jour le progrès et gérer les erreurs individuellement
         let deletedCount = 0;
         let errorCount = 0;
+        const deletedIds: string[] = [];
         
         for (let i = 0; i < transactionsToDeleteFiltered.length; i++) {
           try {
             // Suppression transaction - log supprimé
             await transactionService.deleteTransaction(transactionsToDeleteFiltered[i].id, { mode: modeDelete });
             deletedCount++;
+            deletedIds.push(transactionsToDeleteFiltered[i].id);
             // Transaction supprimée avec succès - log supprimé
           } catch (error) {
             // Erreur lors de la suppression de la transaction - log supprimé
@@ -1129,11 +1135,13 @@ export function TransactionsPageCore({
           setShowDeleteMultipleModal(false);
         };
 
-        if (mode === 'app-shell') {
-          // ⚠️ CRITIQUE: Émettre uniquement l'événement ciblé, pas de refreshKey
-          window.dispatchEvent(new CustomEvent('transactions:refresh', {
-            detail: { scope: 'property', propertyId: propPropertyId || initialPropertyId || filters.propertyId }
-          }));
+        if (mode === 'app-shell' && deletedIds.length > 0) {
+          dispatchTransactionsLocalRefresh({
+            scope: 'property',
+            propertyId: propPropertyId || initialPropertyId || filters.propertyId,
+            reason: 'crud-delete-multiple',
+            patch: { action: 'delete', ids: deletedIds },
+          });
         }
 
         const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
@@ -1372,12 +1380,12 @@ export function TransactionsPageCore({
   }, []);
 
   const handleModalSubmit = useCallback(async (data: any) => {
-    // Log côté serveur pour debug
-    await logToServer(`[TransactionsPageCore] 📎 handleModalSubmit appelé avec stagedLinkItemIds: ${data.stagedLinkItemIds?.length || 0} - IDs: ${data.stagedLinkItemIds?.join(', ') || 'aucun'}`);
+    const endModal = txPerfMeasureZone('tx:handleModalSubmit');
+    try {
+      await txHotPathDebugLog(`[TransactionsPageCore] 📎 handleModalSubmit appelé avec stagedLinkItemIds: ${data.stagedLinkItemIds?.length || 0} - IDs: ${data.stagedLinkItemIds?.join(', ') || 'aucun'}`);
     // ⚠️ PROBLÈME 3: Cette fonction est appelée depuis TransactionModal
     // TransactionModal gère déjà son état isSubmitting et affiche "Enregistrement..."
     // On garde la modal ouverte pendant push+pull pour que l'utilisateur voie le chargement
-    try {
       if (mode === 'app-shell' || !navigator.onLine) {
         // Mode app-shell ou offline : utiliser TransactionService
         // ✅ IMPORT STATIQUE : Ne pas utiliser dynamic import en offline (ChunkLoadError)
@@ -1405,8 +1413,8 @@ export function TransactionsPageCore({
               ? ((data as any).paymentMethod || null) // "" devient null
               : undefined);
           
-          await logToServer(`[TransactionsPageCore] 🔍 DEBUG payment fields: data.paidAt=${(data as any).paidAt}, data.paymentDate=${(data as any).paymentDate}, normalizedPaidAt=${normalizedPaidAt}`);
-          await logToServer(`[TransactionsPageCore] 🔍 DEBUG method: data.method=${(data as any).method}, data.paymentMethod=${(data as any).paymentMethod}, normalizedMethod=${normalizedMethod}`);
+          await txHotPathDebugLog(`[TransactionsPageCore] 🔍 DEBUG payment fields: data.paidAt=${(data as any).paidAt}, data.paymentDate=${(data as any).paymentDate}, normalizedPaidAt=${normalizedPaidAt}`);
+          await txHotPathDebugLog(`[TransactionsPageCore] 🔍 DEBUG method: data.method=${(data as any).method}, data.paymentMethod=${(data as any).paymentMethod}, normalizedMethod=${normalizedMethod}`);
           
           const updateParams: any = {};
           
@@ -1428,11 +1436,11 @@ export function TransactionsPageCore({
           if (data.notes !== undefined) updateParams.notes = data.notes || null;
           if (normalizedPaidAt !== undefined) {
             updateParams.paidAt = normalizedPaidAt;
-            await logToServer(`[TransactionsPageCore] ✅ paidAt inclus dans updateParams: ${normalizedPaidAt}`);
+            await txHotPathDebugLog(`[TransactionsPageCore] ✅ paidAt inclus dans updateParams: ${normalizedPaidAt}`);
           }
           if (normalizedMethod !== undefined) {
             updateParams.method = normalizedMethod;
-            await logToServer(`[TransactionsPageCore] ✅ method inclus dans updateParams: ${normalizedMethod}`);
+            await txHotPathDebugLog(`[TransactionsPageCore] ✅ method inclus dans updateParams: ${normalizedMethod}`);
           }
           if (data.accountingMonth !== undefined) updateParams.accountingMonth = data.accountingMonth || null;
           if (data.monthsCovered !== undefined) updateParams.monthsCovered = data.monthsCovered;
@@ -1460,7 +1468,7 @@ export function TransactionsPageCore({
             // Le serveur créera la commission lors de la sync (server-only creation)
           updateParams.skipAutoCommissions = mode === 'app-shell';
           
-          await transactionService.updateTransaction(selectedTransaction.id, updateParams);
+          const updateResult = await transactionService.updateTransaction(selectedTransaction.id, updateParams);
           
           // ⚠️ APP-SHELL OFFLINE-FIRST : Pas de refresh, les données sont déjà dans IndexedDB
           const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
@@ -1481,11 +1489,13 @@ export function TransactionsPageCore({
           setIsModalOpen(false);
           notify2.success('Transaction modifiée');
           
-          // ⚠️ APP-SHELL : Recharger les données depuis IndexedDB (local, rapide)
-          // Ce n'est pas un "refresh de page", juste un rechargement local des données
-          window.dispatchEvent(new CustomEvent('transactions:refresh', {
-            detail: { scope: 'property', propertyId: propPropertyId || initialPropertyId || filters.propertyId }
-          }));
+          const scopePid = propPropertyId || initialPropertyId || filters.propertyId;
+          dispatchTransactionsLocalRefresh({
+            scope: 'property',
+            propertyId: scopePid,
+            reason: 'crud-update',
+            patch: { action: 'upsert', rows: [updateResult.transaction as unknown as LocalTransaction] },
+          });
           return;
         } else {
           // Mode création : utiliser createTransaction
@@ -1534,8 +1544,7 @@ export function TransactionsPageCore({
             skipAutoCommissions: mode === 'app-shell',
           };
           
-          // Log côté serveur pour debug
-          await logToServer(`[TransactionsPageCore] 📎 createTransaction params.stagedLinkItemIds: ${params.stagedLinkItemIds?.length || 0} - IDs: ${params.stagedLinkItemIds?.join(', ') || 'aucun'}`);
+          await txHotPathDebugLog(`[TransactionsPageCore] 📎 createTransaction params.stagedLinkItemIds: ${params.stagedLinkItemIds?.length || 0} - IDs: ${params.stagedLinkItemIds?.join(', ') || 'aucun'}`);
           
           const result = await transactionService.createTransaction(params);
           
@@ -1580,7 +1589,7 @@ export function TransactionsPageCore({
             try {
               const syncService = getGlobalSyncService();
               
-              await logToServer('[TransactionsPageCore] 🔄 Début round-trip : push pendingOps → pull transactions (commissions) → refresh UI');
+              await txHotPathDebugLog('[TransactionsPageCore] 🔄 Début round-trip : push pendingOps → pull transactions (commissions) → refresh UI');
               
               // 1. Push des pendingOps vers Supabase (transaction mère uniquement, commissions server-only)
               await syncService.syncAllPendingToRemote(organizationId);
@@ -1588,18 +1597,28 @@ export function TransactionsPageCore({
               // 2. Pull immédiat des transactions pour récupérer les commissions créées côté serveur
               await syncService.syncEntityFromRemoteByName('transaction', organizationId);
               
-              // 3. Compter les commissions récupérées (transactions auto avec parentTransactionId correspondant aux transactions créées)
               const transactionRepo = getTransactionRepositoryOffline();
-              const allTransactions = await transactionRepo.getAll(organizationId);
-              // Pour multi-mois, utiliser tous les IDs des transactions créées
-              const createdTransactionIds = result.allTransactions?.map((t: any) => t.id) || [result.transaction?.id].filter(Boolean);
-              const pulledCommissions = allTransactions.filter((t: any) => 
-                t.isAuto === true && 
-                t.autoSource === 'gestion' && 
-                createdTransactionIds.includes(t.parentTransactionId)
+              const createdTransactionIds = (result.allTransactions?.map((t: any) => t.id) || [result.transaction?.id]).filter(Boolean);
+              const scoped = await transactionRepo.getAll(organizationId, { propertyId: params.propertyId });
+              const pulledCommissions = scoped.filter(
+                (t: any) =>
+                  t.isAuto === true &&
+                  t.autoSource === 'gestion' &&
+                  createdTransactionIds.includes(t.parentTransactionId)
               );
-              
-              await logToServer(`[TransactionsPageCore] ✅ Round-trip terminé - Commissions récupérées: ${pulledCommissions.length}`);
+
+              const freshMain: LocalTransaction[] = [];
+              for (const cid of createdTransactionIds) {
+                const row = await transactionRepo.getById(cid, organizationId);
+                if (row) freshMain.push(row);
+              }
+              const mergedById = new Map<string, LocalTransaction>();
+              for (const r of [...freshMain, ...pulledCommissions]) {
+                mergedById.set(r.id, r as LocalTransaction);
+              }
+              const mergedRows = Array.from(mergedById.values());
+
+              await txHotPathDebugLog(`[TransactionsPageCore] ✅ Round-trip terminé - Commissions récupérées: ${pulledCommissions.length}`);
               
               // ⚠️ OPTION B - UX: Retirer les IDs des transactions créées du state (commissions récupérées)
               if (createdTransactionIds.length > 0) {
@@ -1617,13 +1636,15 @@ export function TransactionsPageCore({
                 // Ignorer les erreurs de sync docs, non bloquant
               }
               
-              // 5. Émettre les events pour refresh UI
-              // ⚠️ CRITIQUE: Émettre uniquement des événements ciblés, pas sync:refresh global
-              window.dispatchEvent(new CustomEvent('transactions:refresh', {
-                detail: { scope: 'property', propertyId: propPropertyId || initialPropertyId || filters.propertyId }
-              }));
+              const scopePidRt = propPropertyId || initialPropertyId || filters.propertyId;
+              dispatchTransactionsLocalRefresh({
+                scope: 'property',
+                propertyId: scopePidRt,
+                reason: 'create-roundtrip',
+                patch: { action: 'upsert', rows: mergedRows },
+              });
               window.dispatchEvent(new CustomEvent('documents:refresh', {
-                detail: { scope: 'property', propertyId: propPropertyId || initialPropertyId || filters.propertyId }
+                detail: { scope: 'property', propertyId: scopePidRt }
               }));
               
               // Fermer la modal après le round-trip
@@ -1640,13 +1661,14 @@ export function TransactionsPageCore({
               notify2.success(message);
               return;
             } catch (syncError) {
-              await logToServer(`[TransactionsPageCore] ⚠️ Erreur lors du round-trip: ${syncError}`, 'warn');
-              // En cas d'erreur, fermer la modal quand même
+              await txHotPathDebugLog(`[TransactionsPageCore] ⚠️ Erreur lors du round-trip: ${syncError}`, 'warn');
               setIsModalOpen(false);
               notify2.success('Transaction créée localement, commission sera créée lors de la prochaine sync');
-              window.dispatchEvent(new CustomEvent('transactions:refresh', {
-                detail: { scope: 'property', propertyId: propPropertyId || initialPropertyId || filters.propertyId }
-              }));
+              dispatchTransactionsLocalRefresh({
+                scope: 'property',
+                propertyId: propPropertyId || initialPropertyId || filters.propertyId,
+                reason: 'create-roundtrip-fallback',
+              });
               return;
             }
           }
@@ -1676,14 +1698,17 @@ export function TransactionsPageCore({
           }
           notify2.success(message);
           
-          // Rafraîchir les données
           if (mode === 'app-shell') {
-            // ⚠️ CRITIQUE: Émettre uniquement des événements ciblés, pas sync:refresh global
-            window.dispatchEvent(new CustomEvent('transactions:refresh', {
-              detail: { scope: 'property', propertyId: propPropertyId || initialPropertyId || filters.propertyId }
-            }));
+            const scopePidCr = propPropertyId || initialPropertyId || filters.propertyId;
+            const createdRows = (result.allTransactions || [result.transaction]) as unknown as LocalTransaction[];
+            dispatchTransactionsLocalRefresh({
+              scope: 'property',
+              propertyId: scopePidCr,
+              reason: 'crud-create',
+              patch: { action: 'upsert', rows: createdRows },
+            });
             window.dispatchEvent(new CustomEvent('documents:refresh', {
-              detail: { scope: 'property', propertyId: propPropertyId || initialPropertyId || filters.propertyId }
+              detail: { scope: 'property', propertyId: scopePidCr }
             }));
           }
           return;
@@ -1760,6 +1785,8 @@ export function TransactionsPageCore({
     } catch (error) {
       // Erreur silencieuse
       throw error;
+    } finally {
+      endModal();
     }
   }, [modalMode, selectedTransaction, mode, organizationId, showAlert, router, isDrawerOpen, transactions, gestionEnabled, gestionCodes]);
 

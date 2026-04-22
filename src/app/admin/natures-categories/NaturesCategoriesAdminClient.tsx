@@ -44,6 +44,7 @@ interface Category {
   key: string;
   label: string;
   type: string;
+  fiscalLineHint?: string | null;
   active: boolean;
   deductible?: boolean;
   capitalizable?: boolean;
@@ -110,6 +111,7 @@ export default function NaturesCategoriesAdminClient() {
         key: cat.key,
         label: cat.label,
         type: cat.type,
+        fiscalLineHint: cat.fiscalLineHint || null,
         active: cat.active,
         deductible: cat.deductible,
         capitalizable: cat.capitalizable
@@ -652,6 +654,7 @@ export default function NaturesCategoriesAdminClient() {
                   <TableHeaderCell>Code</TableHeaderCell>
                   <TableHeaderCell>Libellé</TableHeaderCell>
                   <TableHeaderCell>Type</TableHeaderCell>
+                  <TableHeaderCell>Ligne 2044</TableHeaderCell>
                   <TableHeaderCell>Statut</TableHeaderCell>
                   <TableHeaderCell>Actions</TableHeaderCell>
                 </TableRow>
@@ -671,6 +674,15 @@ export default function NaturesCategoriesAdminClient() {
                       <Badge variant="outline" className="text-xs">
                         {category.type}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {category.fiscalLineHint ? (
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                          {category.fiscalLineHint}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-amber-700">Non mappé</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {getStatusBadge(category.active)}

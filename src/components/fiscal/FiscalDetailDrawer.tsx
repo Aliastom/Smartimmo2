@@ -588,7 +588,9 @@ export function FiscalDetailDrawer({
           {/* ========== 4️⃣ PRÉLÈVEMENTS SOCIAUX ========== */}
           <section>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-semibold">Prélèvements sociaux (revenus immobiliers positifs uniquement)</h3>
+              <h3 className="text-base font-semibold">
+                Prélèvements sociaux (bases location nue + LMNP/BIC retenues)
+              </h3>
               <span className="text-xs text-gray-500">Taux 17,2%</span>
             </div>
             
@@ -603,7 +605,7 @@ export function FiscalDetailDrawer({
                 <CardContent className="p-4">
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-gray-700">Base PS immobilière :</span>
+                      <span className="text-gray-700">Assiette PS (NU + BIC) :</span>
                       <span className="font-medium text-gray-900">
                         {formatEuro(simulation.ps.baseImposable)}
                       </span>
@@ -617,14 +619,15 @@ export function FiscalDetailDrawer({
                     <Separator />
                     
                     <div className="flex justify-between font-bold text-base">
-                      <span className="text-gray-900">Total prélèvements sociaux sur revenus immobiliers :</span>
+                      <span className="text-gray-900">Total PS sur l&apos;immobilier :</span>
                       <span className="text-orange-600">
                         {formatEuro(simulation.ps.montant)}
                       </span>
                     </div>
                   </div>
                   <p className="text-[11px] text-gray-600 mt-3 pt-2 border-t border-orange-200">
-                    Les prélèvements sociaux s&apos;appliquent ici aux revenus immobiliers. Ils ne sont pas réduits par le PER.
+                    Le moteur applique le taux sur la somme des bases positives location nue et LMNP/BIC. Non réduit par
+                    le PER.
                   </p>
                 </CardContent>
               </Card>
@@ -638,7 +641,7 @@ export function FiscalDetailDrawer({
               >
                 <div className="flex items-center gap-2 text-green-700">
                   <span className="text-lg">✅</span>
-                  <span className="font-medium">Non applicable cette année (aucun revenu foncier positif)</span>
+                  <span className="font-medium">Non applicable cette année (aucune base NU + BIC positive)</span>
                 </div>
               </div>
             )}

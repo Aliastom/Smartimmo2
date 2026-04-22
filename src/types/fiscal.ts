@@ -13,7 +13,8 @@ export type TaxYear = number;
 export type TaxVersion = `${TaxYear}.${number}`;
 
 export type RegimeFiscal = 'micro' | 'reel';
-export type TypeBien = 'NU' | 'LMNP' | 'LMP' | 'SCI_IS';
+/** Identifiants `FiscalType.id` (BDD) ; `MEUBLE` = location meublée / BIC (hors 2044 foncière). */
+export type TypeBien = 'NU' | 'MEUBLE' | 'LMNP' | 'LMP' | 'SCI_IS';
 export type TypeTravaux = 'entretien' | 'reparation' | 'amelioration' | 'construction';
 
 // ============================================================================
@@ -211,6 +212,9 @@ export interface RentalPropertyInput {
   // Régime fiscal suggéré (calculé ou choisi)
   regimeSuggere: RegimeFiscal;
   regimeChoisi?: RegimeFiscal;     // Permet de forcer un régime
+
+  /** Micro-BIC : meublé de tourisme classé → abattement majoré (ex. 71 %), sinon taux BIC standard (50 %) */
+  meubleTourismeClasse?: boolean;
   
   // 🆕 Breakdown détaillé (passé + projection)
   breakdown?: {
@@ -243,6 +247,9 @@ export interface RentalPropertyInput {
   // Société (pour SCI IS)
   societeId?: string;
   societeName?: string;
+
+  // Ventilation declarative 2044 par bien
+  declaration2044?: Fiscal2044PropertySummary;
 }
 
 /**
@@ -363,6 +370,130 @@ export interface RentalPropertyResult {
       charges: Record<string, { label: string; amount: number }>;
     };
   };
+
+  // Ventilation declarative 2044 par bien (copiee depuis l'input)
+  declaration2044?: Fiscal2044PropertySummary;
+}
+
+export interface Fiscal2044Lines {
+  '211': number;
+  '212': number;
+  '213': number;
+  '215': number;
+  '221': number;
+  '222': number;
+  '223': number;
+  '224': number;
+  '225': number;
+  '226': number;
+  '227': number;
+  '229': number;
+  '230': number;
+  '420': number;
+}
+
+export interface Fiscal2044Ambiguity {
+  transactionId: string;
+  label: string;
+  amount: number;
+  reason: string;
+  categoryLabel?: string;
+  categorySlug?: string;
+  fiscalLineHint?: string | null;
+}
+
+export interface Fiscal2044Quality {
+  missingHintCount: number;
+  unmappedCount: number;
+  ambiguousTransactions: Fiscal2044Ambiguity[];
+}
+
+/** Ambiguïté sur un prêt (hors transactions) — affichage déclaratif / qualité. */
+export interface Fiscal2044LoanInterestAmbiguity {
+  loanId: string;
+  loanLabel: string;
+  reason: string;
+}
+
+/** Détail des intérêts (et assurance emprunteur) issus de l'échéancier pour une année civile. */
+export interface Fiscal2044LoanInterestPerLoan {
+  loanId: string;
+  label: string;
+  /** Somme des `paymentInterest` des échéances de l'année (hors capital). */
+  interetsPayesAnnee: number;
+  assurancePayeeAnnee: number;
+  nombreEcheancesDansAnnee: number;
+  source: 'echeancier_amortissement';
+}
+
+export interface Fiscal2044InteretsEmpruntAnnuel {
+  annee: number;
+  /** Intérêts uniquement (assurance exclue de ce total). */
+  totalInteretsEmprunt: number;
+  totalAssuranceEmprunteur: number;
+  byLoan: Fiscal2044LoanInterestPerLoan[];
+  ambiguities: Fiscal2044LoanInterestAmbiguity[];
+}
+
+export type Fiscal2044DeclarativeMissingKey = 'bail' | 'dateAcquisition' | 'lots';
+
+/** Données d'affichage déclaratif (ne pilote pas les calculs IR/PS). */
+export interface Fiscal2044InformationsBien {
+  adresseFormatee: string | null;
+  locatairesNoms: string[];
+  dateAcquisition: string | null;
+  /** Indicatif pièces (modèle bien) — non équivalent à un lot de copropriété. */
+  nombrePiecesOuLotsIndicatif: number | null;
+  nombreBauxSurAnnee: number;
+  missingDeclarative: Fiscal2044DeclarativeMissingKey[];
+}
+
+/** Détails UI (non fiscaux) pour expliquer certaines lignes 2044 dans la modal par bien. */
+export interface Fiscal2044UiLineMatchInfo {
+  count: number;
+  /** Libellés transaction retenus pour la modal (max 2, purement UI). */
+  labels: string[];
+}
+
+export type Fiscal2044UiHintLine = '211' | '221' | '222' | '223' | '224' | '225' | '227' | '230';
+
+/** Trace UI des transactions réellement retenues pour une ligne 2044 (sans impact fiscal). */
+export interface Fiscal2044UiLineUsageTrace {
+  transactionIds: string[];
+  labels: string[];
+  duplicateIds: string[];
+  amountFromTransactions: number;
+  /** Ligne calculée fiscalement (sans source transactionnelle). */
+  isSynthetic?: boolean;
+  /** Nombre d'unités fiscales associées à la ligne synthétique (ex: nb lots loués). */
+  syntheticUnits?: number;
+  /** Détail unitaire par transaction retenue (pour UI de transparence). */
+  transactionItems?: Array<{
+    id: string;
+    label: string;
+    amount: number;
+    isSynthetic?: boolean;
+  }>;
+}
+
+/** Restitution UI par ligne 2044 (sans impact sur le calcul fiscal). */
+export interface Fiscal2044UiDelegatedHints {
+  byFiscalLine: Record<Fiscal2044UiHintLine, Fiscal2044UiLineMatchInfo>;
+}
+
+export interface Fiscal2044PropertySummary {
+  propertyId: string;
+  year: number;
+  lines: Fiscal2044Lines;
+  quality: Fiscal2044Quality;
+  /** Intérêts payés sur l'année civile (échéancier), détail par prêt et ambiguïtés. */
+  interetsEmpruntAnnee?: Fiscal2044InteretsEmpruntAnnuel;
+  /** Locataire(s), adresse, acquisition, pièces — restitution déclarative uniquement. */
+  informationsBien?: Fiscal2044InformationsBien;
+  /** Indications UI des sous-textes par ligne 2044 (affichage modal uniquement). */
+  uiDelegatedHints?: Fiscal2044UiDelegatedHints;
+  /** Trace des transactions réellement ventilées par ligne 2044 (source de vérité UI). */
+  uiLineUsageTrace?: Partial<Record<Fiscal2044UiHintLine, Fiscal2044UiLineUsageTrace>>;
 }
 
 /**
@@ -428,9 +559,21 @@ export interface SimulationResult {
   // Consolidation revenus fonciers / BIC
   consolidation: {
     revenusFonciers: number;       // Revenus fonciers nets (€)
+    /** Case 4BA (somme des résultats fiscaux par bien, en sortie moteur). */
+    revenusFonciers4BA?: number;
     revenusBIC: number;            // Revenus BIC nets (€)
     deficitFoncier: number;        // Déficit foncier total (€)
     deficitBIC: number;            // Déficit BIC total (€)
+    /** Écart arrondi corrigé automatiquement sur 4BA (en €). */
+    deltaArrondi4BA?: number;
+    /** Détail moteur par bien (source debug / explicabilité). */
+    detailsParBien?: Array<{
+      id: string;
+      nom: string;
+      type: string;
+      resultatFiscal: number;
+      resultatFiscalCentimes: number;
+    }>;
   };
   
   // Impôts

@@ -26,6 +26,7 @@ interface Category {
   label: string;
   type: string;
   active: boolean;
+  fiscalLineHint?: string | null;
 }
 
 interface NatureCategoryFormModalProps {
@@ -58,6 +59,7 @@ export default function NatureCategoryFormModal({
     compatibleTypes: [] as string[],
     defaultCategory: '',
     type: '', // Pour les catégories
+    fiscalLineHint: '',
     deductible: false, // Charge déductible
     capitalizable: false // Charge capitalizable
   });
@@ -126,7 +128,8 @@ export default function NatureCategoryFormModal({
           active: nature.active,
           compatibleTypes: nature.compatibleTypes,
           defaultCategory: nature.defaultCategory || '',
-          type: ''
+          type: '',
+          fiscalLineHint: ''
         });
       } else {
         const category = item as any;
@@ -138,6 +141,7 @@ export default function NatureCategoryFormModal({
           compatibleTypes: [],
           defaultCategory: '',
           type: category.type,
+          fiscalLineHint: category.fiscalLineHint || '',
           deductible: category.deductible || false,
           capitalizable: category.capitalizable || false
         });
@@ -152,6 +156,7 @@ export default function NatureCategoryFormModal({
         compatibleTypes: [],
         defaultCategory: '',
         type: '',
+        fiscalLineHint: '',
         deductible: false,
         capitalizable: false
       });
@@ -223,6 +228,7 @@ export default function NatureCategoryFormModal({
       compatibleTypes: [],
       defaultCategory: '',
       type: '',
+          fiscalLineHint: '',
       deductible: false,
       capitalizable: false
     });
@@ -253,6 +259,7 @@ export default function NatureCategoryFormModal({
           key: formData.key,
           label: formData.label,
           type: formData.type,
+          fiscalLineHint: formData.fiscalLineHint || null,
           active: formData.active,
           deductible: formData.deductible,
           capitalizable: formData.capitalizable
@@ -370,7 +377,7 @@ export default function NatureCategoryFormModal({
                   </Select>
                 </div>
               ) : (
-                <div>
+                <div className="space-y-4">
                   <Label htmlFor="type" className="text-sm font-medium text-gray-700">
                     Type (taxonomie) *
                   </Label>
@@ -406,6 +413,21 @@ export default function NatureCategoryFormModal({
                   {errors.type && (
                     <p className="text-red-500 text-sm mt-1">{errors.type}</p>
                   )}
+
+                  <div>
+                    <Label htmlFor="fiscalLineHint" className="text-sm font-medium text-gray-700">
+                      Ligne fiscale 2044 (optionnel)
+                    </Label>
+                    <Input
+                      id="fiscalLineHint"
+                      value={formData.fiscalLineHint}
+                      onChange={(e) => handleInputChange('fiscalLineHint', e.target.value.toUpperCase())}
+                      placeholder="Ex: 2044_221"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Permet une ventilation declarative directe (2044_221, 2044_223, 2044_224, 2044_227, 2044_230...).
+                    </p>
+                  </div>
                 </div>
               )}
 
