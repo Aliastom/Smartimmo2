@@ -24,6 +24,15 @@ function makeSettings(overrides: Partial<InvestmentSettings> = {}): InvestmentSe
     cashReferenceAmount: 10000,
     currency: 'EUR',
     updatedAt: '2026-01-01T00:00:00.000Z',
+    investmentStrategy: {
+      monthlyDca: 1000,
+      reinforceLevels: [
+        { threshold: -10, allocationPercent: 10 },
+        { threshold: -20, allocationPercent: 20 },
+        { threshold: -30, allocationPercent: 30 },
+        { threshold: -40, allocationPercent: 40 },
+      ],
+    },
     ...overrides,
   };
 }
@@ -33,6 +42,7 @@ function makeSnapshot(overrides: Partial<MarketSnapshot> = {}): MarketSnapshot {
     id: 'snap-1',
     organizationId: 'org-1',
     symbol: 'CW8.PA',
+    athPeriod: '5Y',
     currentPrice: 82,
     athPrice: 100,
     drawdownPercent: -18,
@@ -77,65 +87,86 @@ describe('marketDecisionService: statut marché', () => {
   });
 });
 
-describe('marketDecisionService: recommandations', () => {
-  it('NORMAL => pas de suggestion d’investissement', () => {
-    const rec = computeRecommendation(
-      makeSettings(),
-      makeSnapshot({ drawdownPercent: -5 })
-    );
+describe('marketDecisionService: recommandations V2', () => {
+  it('marché haut => DCA uniquement, montant = DCA', () => {
+    const rec = computeRecommendation(makeSettings(), makeSnapshot({ drawdownPercent: -5 }), []);
+    expect(rec.decisionType).toBe('DCA_ONLY');
     expect(rec.status).toBe('NORMAL');
-    expect(rec.suggestedAmount).toBe(0);
-    expect(rec.baseAmount).toBe(1000);
-    expect(rec.message).toBe('RAS marché');
+    expect(rec.suggestedAmount).toBe(1000);
+    expect(rec.monthlyDcaPortion).toBe(1000);
+    expect(rec.reinforcePortion).toBe(0);
     expect(rec.actionType).toBe('DCA');
+    expect(rec.score).toBeGreaterThan(70);
   });
 
-  it('OPPORTUNITE => DCA + renfort -10', () => {
-    const rec = computeRecommendation(
-      makeSettings(),
-      makeSnapshot({ drawdownPercent: -15 })
-    );
+  it('OPPORTUNITE légère => DCA + 10% du cash', () => {
+    const rec = computeRecommendation(makeSettings(), makeSnapshot({ drawdownPercent: -15 }), []);
+    expect(rec.decisionType).toBe('LIGHT_REINFORCE');
     expect(rec.status).toBe('OPPORTUNITE');
-    expect(rec.suggestedAmount).toBe(1500);
+    expect(rec.suggestedAmount).toBe(2000);
     expect(rec.actionType).toBe('REINFORCE_10');
   });
 
-  it('FORTE_OPPORTUNITE => DCA + renfort -20', () => {
-    const rec = computeRecommendation(
-      makeSettings(),
-      makeSnapshot({ drawdownPercent: -22 })
-    );
+  it('correction marquée => DCA + 20% du cash', () => {
+    const rec = computeRecommendation(makeSettings(), makeSnapshot({ drawdownPercent: -22 }), []);
+    expect(rec.decisionType).toBe('MEDIUM_REINFORCE');
     expect(rec.status).toBe('FORTE_OPPORTUNITE');
-    expect(rec.suggestedAmount).toBe(2200);
+    expect(rec.suggestedAmount).toBe(3000);
     expect(rec.actionType).toBe('REINFORCE_20');
+  });
+
+  it('forte baisse => DCA + 30% du cash', () => {
+    const rec = computeRecommendation(makeSettings(), makeSnapshot({ drawdownPercent: -35 }), []);
+    expect(rec.decisionType).toBe('STRONG_REINFORCE');
+    expect(rec.suggestedAmount).toBe(4000);
+    expect(rec.actionType).toBe('REINFORCE_30');
   });
 
   it('plafonne au cash disponible', () => {
     const rec = computeRecommendation(
-      makeSettings({ availableCash: 1300 }),
-      makeSnapshot({ drawdownPercent: -22 })
+      makeSettings({ availableCash: 1300, cashReferenceAmount: 6500 }),
+      makeSnapshot({ drawdownPercent: -35 }),
+      []
     );
     expect(rec.suggestedAmount).toBe(1300);
     expect(rec.cashLimited).toBe(true);
   });
 
-  it('DCA_ONLY => DCA même si drawdown <= -20', () => {
+  it('DCA_ONLY stratégie => seulement le DCA même si drawdown profond', () => {
     const rec = computeRecommendation(
       makeSettings({ strategy: 'DCA_ONLY' }),
-      makeSnapshot({ drawdownPercent: -25 })
+      makeSnapshot({ drawdownPercent: -25 }),
+      []
     );
-    expect(rec.status).toBe('FORTE_OPPORTUNITE');
+    expect(rec.decisionType).toBe('DCA_ONLY');
     expect(rec.suggestedAmount).toBe(1000);
-    expect(rec.baseAmount).toBe(1000);
+    expect(rec.reinforcePortion).toBe(0);
   });
 
-  it('à -0.3% => NORMAL et aucune opportunité', () => {
-    const rec = computeRecommendation(
-      makeSettings(),
-      makeSnapshot({ drawdownPercent: -0.3 })
-    );
-    expect(rec.status).toBe('NORMAL');
-    expect(rec.suggestedAmount).toBe(0);
+  it('renfort similaire récent => renfort divisé par 2', () => {
+    const history = [
+      {
+        id: '1',
+        organizationId: 'org-1',
+        date: new Date().toISOString(),
+        type: 'REINFORCE_10' as const,
+        recommendedAmount: 2000,
+        validatedAmount: 2000,
+        cashBefore: 10000,
+        cashAfter: 8000,
+        reason: 'test',
+        drawdownAtDecision: -15,
+        athPriceAtDecision: 100,
+        currentPriceAtDecision: 85,
+        symbolAtDecision: 'CW8.PA',
+        marketStatusAtDecision: 'OPPORTUNITE' as const,
+        athPeriodAtDecision: '5Y' as const,
+        status: 'validated' as const,
+        thresholdKey: 'CW8.PA:LIGHT_REINFORCE',
+      },
+    ];
+    const rec = computeRecommendation(makeSettings(), makeSnapshot({ drawdownPercent: -16 }), history);
+    expect(rec.recentSimilarReinforce).toBe(true);
+    expect(rec.suggestedAmount).toBe(1500);
   });
 });
-

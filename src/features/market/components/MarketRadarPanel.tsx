@@ -17,6 +17,10 @@ function formatCurrency(value: number, currency = 'EUR'): string {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
 }
 
+function formatActionAmount(value: number, currency: string): string {
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value);
+}
+
 /** Affichage principal : au plus 2 décimales (lisible). */
 function formatRadarDrawdownPercentShort(value: number): string {
   return `${new Intl.NumberFormat('fr-FR', {
@@ -35,13 +39,13 @@ function formatRadarDrawdownPercentTitle(value: number): string {
   }).format(value)}%`;
 }
 
-function actionLabel(entry: MarketRadarEntry, currency: string): string {
+function actionMainLine(entry: MarketRadarEntry, currency: string): string {
   if (!entry.recommendation) return 'Données indisponibles';
-  if (entry.recommendation.status === 'NORMAL') return 'Action : Rien à faire';
-  if (entry.recommendation.status === 'FORTE_OPPORTUNITE') {
-    return `Action : Renfort fort ${formatCurrency(entry.recommendation.suggestedAmount, currency)}`;
+  const rec = entry.recommendation;
+  if (rec.decisionType === 'DCA_ONLY') {
+    return `Action : Investissement mensuel (DCA ${formatActionAmount(rec.monthlyDcaPortion, currency)})`;
   }
-  return `Action : Renfort ${formatCurrency(entry.recommendation.suggestedAmount, currency)}`;
+  return `Action : DCA + renfort (${formatActionAmount(rec.suggestedAmount, currency)})`;
 }
 
 function badgeForStatus(status: MarketRadarEntry['recommendation'] extends infer R ? R : never) {
@@ -169,8 +173,13 @@ export function MarketRadarPanel({ entries, currency, lastUpdatedAt = null, athP
                   <footer className={`mt-3 rounded-lg border px-3 py-2 text-center ${actionBoxTone(entry.recommendation)}`}>
                     <p className={`text-sm font-semibold ${actionTone(entry.recommendation)}`}>
                       {entry.recommendation?.status === 'NORMAL' ? '✅ ' : entry.recommendation?.status === 'FORTE_OPPORTUNITE' ? '🔴 ' : '⚠️ '}
-                      {actionLabel(entry, currency)}
+                      {actionMainLine(entry, currency)}
                     </p>
+                    {entry.recommendation?.decisionType === 'DCA_ONLY' && (
+                      <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                        Stratégie principale recommandée à long terme
+                      </p>
+                    )}
                   </footer>
                 </>
               )}

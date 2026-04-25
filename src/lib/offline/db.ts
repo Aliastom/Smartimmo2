@@ -485,6 +485,11 @@ export interface LocalUserProfile {
   _syncedAt?: string;
 }
 
+export interface InvestmentStrategyConfigRow {
+  monthlyDca: number;
+  reinforceLevels: Array<{ threshold: number; allocationPercent: number }>;
+}
+
 export interface InvestmentSettings {
   id: string;
   organizationId: string;
@@ -502,6 +507,7 @@ export interface InvestmentSettings {
   cashReferenceAmount: number;
   currency: string;
   updatedAt: string;
+  investmentStrategy?: InvestmentStrategyConfigRow | null;
 }
 
 export interface MarketSnapshot {
@@ -521,7 +527,7 @@ export interface InvestmentActionLog {
   id: string;
   organizationId: string;
   date: string;
-  type: 'DCA' | 'REINFORCE_10' | 'REINFORCE_20' | 'MANUAL';
+  type: 'DCA' | 'REINFORCE_10' | 'REINFORCE_20' | 'REINFORCE_30' | 'REINFORCE_MAX' | 'MANUAL';
   recommendedAmount: number;
   validatedAmount: number;
   cashBefore: number;

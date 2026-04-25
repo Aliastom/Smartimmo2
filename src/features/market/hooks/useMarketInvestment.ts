@@ -83,7 +83,7 @@ export function useMarketInvestment(organizationId?: string) {
       presetSymbols,
       loadedSettings.athPeriod
     );
-    const loadedHistory = await marketInvestmentStorage.listActionLogs(organizationId, 12);
+    const loadedHistory = await marketInvestmentStorage.listActionLogs(organizationId, 24);
     const radarMap = loadedRadarSnapshots.reduce<Record<string, MarketSnapshot>>((acc, row) => {
       acc[row.symbol] = row;
       return acc;
@@ -120,8 +120,8 @@ export function useMarketInvestment(organizationId?: string) {
 
   const recommendation = useMemo(() => {
     if (!settings || !snapshot) return null;
-    return computeRecommendation(settings, snapshot);
-  }, [settings, snapshot]);
+    return computeRecommendation(settings, snapshot, history);
+  }, [settings, snapshot, history]);
 
   const refreshRadar = useCallback(
     async (options?: { force?: boolean; reason?: 'auto' | 'manual' | 'page-load' }) => {
@@ -403,12 +403,19 @@ export function useMarketInvestment(organizationId?: string) {
       const thresholdKey = recommendation.thresholdKey;
       const resolvedReason = (reason?.trim() || recommendation.reason).slice(0, 220);
 
+      const resolvedType =
+        amount !== recommendation.suggestedAmount
+          ? 'MANUAL'
+          : recommendation.decisionType === 'DCA_ONLY'
+            ? 'DCA'
+            : recommendation.actionType;
+
       const nextSettings = { ...settings, availableCash: cashAfter, updatedAt: new Date().toISOString() };
       await marketInvestmentStorage.saveSettings(nextSettings);
       await marketInvestmentStorage.addActionLog(
         marketInvestmentStorage.buildActionLog({
           organizationId,
-          type: amount === recommendation.suggestedAmount ? recommendation.actionType : 'MANUAL',
+          type: resolvedType,
           recommendedAmount: recommendation.suggestedAmount,
           validatedAmount: amount,
           cashBefore,
@@ -429,7 +436,7 @@ export function useMarketInvestment(organizationId?: string) {
       );
 
       setSettings(nextSettings);
-      setHistory(await marketInvestmentStorage.listActionLogs(organizationId, 12));
+      setHistory(await marketInvestmentStorage.listActionLogs(organizationId, 24));
     },
     [organizationId, recommendation, settings, snapshot]
   );
@@ -457,7 +464,7 @@ export function useMarketInvestment(organizationId?: string) {
         drawdownPercentAtAction: snapshot.drawdownPercent,
       })
     );
-    setHistory(await marketInvestmentStorage.listActionLogs(organizationId, 12));
+    setHistory(await marketInvestmentStorage.listActionLogs(organizationId, 24));
   }, [organizationId, recommendation, settings, snapshot]);
 
   useEffect(() => {
@@ -516,7 +523,7 @@ export function useMarketInvestment(organizationId?: string) {
     if (!settings) return [];
     return ETF_REFERENCE_ALIASES.map((alias) => {
       const row = radarSnapshots[alias.defaultProviderSymbol] ?? null;
-      const recommendationForRow = row ? computeRecommendation(settings, row) : null;
+      const recommendationForRow = row ? computeRecommendation(settings, row, []) : null;
       const isActive =
         resolveMarketSymbol(settings.referenceSymbol) === resolveMarketSymbol(alias.defaultProviderSymbol) ||
         settings.referenceSymbol === alias.defaultProviderSymbol;

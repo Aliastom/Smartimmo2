@@ -9,6 +9,7 @@ import type {
   MarketSnapshot,
   MarketOpportunityStatus,
 } from '@/features/market/types';
+import { defaultInvestmentStrategyConfig } from '@/features/market/services/marketInvestmentStrategy';
 
 const SETTINGS_ID = 'default';
 const MARKET_HISTORY_STORAGE_PREFIX = 'smartimmo.market.history';
@@ -34,6 +35,7 @@ export const defaultInvestmentSettings = (organizationId: string): InvestmentSet
   cashReferenceAmount: 15000,
   currency: 'EUR',
   updatedAt: nowIso(),
+  investmentStrategy: defaultInvestmentStrategyConfig(1000),
 });
 
 export class MarketInvestmentStorage {
@@ -45,6 +47,19 @@ export class MarketInvestmentStorage {
     const db = await getLocalDB();
     const existing = await db.InvestmentSettings.get([organizationId, SETTINGS_ID]);
     if (existing) {
+      const monthlyDca =
+        typeof existing.monthlyDcaAmount === 'number' && Number.isFinite(existing.monthlyDcaAmount)
+          ? existing.monthlyDcaAmount
+          : 0;
+      const rawIs = existing.investmentStrategy as InvestmentSettings['investmentStrategy'] | undefined;
+      const hasLevels = Boolean(rawIs?.reinforceLevels?.length);
+      const investmentStrategy: InvestmentSettings['investmentStrategy'] = hasLevels
+        ? {
+            monthlyDca: Number.isFinite(rawIs!.monthlyDca) && rawIs!.monthlyDca >= 0 ? rawIs!.monthlyDca : monthlyDca,
+            reinforceLevels: rawIs!.reinforceLevels,
+          }
+        : defaultInvestmentStrategyConfig(monthlyDca);
+      investmentStrategy.monthlyDca = monthlyDca;
       const normalized = {
         ...existing,
         strategy: existing.strategy ?? 'DCA_PLUS_REINFORCE',
@@ -53,6 +68,7 @@ export class MarketInvestmentStorage {
         reinforce20Threshold:
           typeof existing.reinforce20Threshold === 'number' ? existing.reinforce20Threshold : -20,
         cashReferenceAmount: typeof existing.cashReferenceAmount === 'number' ? existing.cashReferenceAmount : existing.availableCash ?? 0,
+        investmentStrategy,
       } as InvestmentSettings;
       await db.InvestmentSettings.put(normalized);
       return normalized;
@@ -64,7 +80,12 @@ export class MarketInvestmentStorage {
 
   async saveSettings(settings: InvestmentSettings): Promise<void> {
     const db = await getLocalDB();
-    await db.InvestmentSettings.put({ ...settings, updatedAt: nowIso() });
+    const baseStrategy = settings.investmentStrategy ?? defaultInvestmentStrategyConfig(settings.monthlyDcaAmount);
+    await db.InvestmentSettings.put({
+      ...settings,
+      investmentStrategy: { ...baseStrategy, monthlyDca: settings.monthlyDcaAmount },
+      updatedAt: nowIso(),
+    });
   }
 
   async getSnapshot(organizationId: string, symbol: string, athPeriod: AthPeriod): Promise<MarketSnapshot | null> {
@@ -182,7 +203,10 @@ export class MarketInvestmentStorage {
       organizationId: input.organizationId,
       symbol: input.symbol,
       level: input.level,
-      message: input.level === 'FORTE_OPPORTUNITE' ? 'Forte opportunité détectée (<= -20%).' : 'Opportunité détectée (<= -10%).',
+      message:
+        input.level === 'FORTE_OPPORTUNITE'
+          ? 'Forte opportunité : le marché a reculé d’au moins 20 % par rapport au plus haut de référence.'
+          : 'Opportunité : le marché a reculé d’au moins 10 % — moment intéressant pour revoir votre plan d’investissement.',
       drawdownPercent: input.drawdownPercent,
       createdAt: nowIso(),
       readAt: null,

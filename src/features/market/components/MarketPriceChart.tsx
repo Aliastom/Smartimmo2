@@ -20,6 +20,9 @@ interface MarketPriceChartProps {
   currentPrice: number;
   reinforce10Threshold: number;
   reinforce20Threshold: number;
+  /** Seuils drawdown additionnels pour repères visuels (zones V2) */
+  reinforce30Threshold?: number;
+  reinforce40Threshold?: number;
   isRefreshing?: boolean;
   etfLabel: string;
   etfSymbol: string;
@@ -56,6 +59,8 @@ export function MarketPriceChart({
   currentPrice,
   reinforce10Threshold,
   reinforce20Threshold,
+  reinforce30Threshold = -30,
+  reinforce40Threshold = -40,
   isRefreshing = false,
   etfLabel,
   etfSymbol,
@@ -74,6 +79,8 @@ export function MarketPriceChart({
 
   const threshold10Price = athPrice * (1 + reinforce10Threshold / 100);
   const threshold20Price = athPrice * (1 + reinforce20Threshold / 100);
+  const threshold30Price = athPrice * (1 + reinforce30Threshold / 100);
+  const threshold40Price = athPrice * (1 + reinforce40Threshold / 100);
   const latest = series[series.length - 1];
 
   return (
@@ -89,7 +96,10 @@ export function MarketPriceChart({
           <span className="h-2 w-2 rounded-full bg-blue-600" />
           Prix
         </span>
-        <span className="inline-flex items-center gap-1">
+        <span
+          className="inline-flex cursor-help items-center gap-1"
+          title="Plus haut historique sur la période sélectionnée"
+        >
           <span className="h-2 w-2 rounded-full bg-slate-900" />
           ATH
         </span>
@@ -99,7 +109,15 @@ export function MarketPriceChart({
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-red-600" />
-          Seuil forte opportunité ({formatPct(reinforce20Threshold)})
+          {formatPct(reinforce20Threshold)}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-violet-600" />
+          {formatPct(reinforce30Threshold)}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-fuchsia-700" />
+          {formatPct(reinforce40Threshold)}
         </span>
       </div>
       <ResponsiveContainer width="100%" height={220}>
@@ -124,6 +142,8 @@ export function MarketPriceChart({
           <ReferenceLine y={athPrice} stroke="#0f172a" strokeDasharray="4 4" ifOverflow="extendDomain" label={{ value: 'ATH', position: 'insideTopRight', fill: '#0f172a', fontSize: 11 }} />
           <ReferenceLine y={threshold10Price} stroke="#f59e0b" strokeDasharray="3 3" ifOverflow="extendDomain" />
           <ReferenceLine y={threshold20Price} stroke="#dc2626" strokeDasharray="3 3" ifOverflow="extendDomain" />
+          <ReferenceLine y={threshold30Price} stroke="#7c3aed" strokeDasharray="3 3" ifOverflow="extendDomain" />
+          <ReferenceLine y={threshold40Price} stroke="#a21caf" strokeDasharray="3 3" ifOverflow="extendDomain" />
           <Line type="monotone" dataKey="close" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
           <ReferenceDot x={latest.date} y={currentPrice} r={4} fill="#1d4ed8" stroke="#ffffff" strokeWidth={1.5} ifOverflow="visible" />
         </LineChart>
