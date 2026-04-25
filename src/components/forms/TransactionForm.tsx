@@ -1,8 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/Button';
+import React, { useState, useEffect, useId } from 'react';
 import { Modal } from '@/components/ui/Modal';
+import {
+  FormShellStandard,
+  FormShellStandardFooter,
+} from '@/components/ui/standards';
 import { z } from 'zod';
 
 const transactionSchema = z.object({
@@ -36,6 +39,7 @@ export default function TransactionForm({
   propertyId,
   leaseId 
 }: TransactionFormProps) {
+  const formId = useId();
   const [formData, setFormData] = useState(initialData || {
     propertyId: propertyId || '',
     leaseId: leaseId || '',
@@ -62,7 +66,7 @@ export default function TransactionForm({
     }
   }, [initialData, propertyId, leaseId]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setErrors({});
@@ -103,18 +107,22 @@ export default function TransactionForm({
       onClose={onClose}
       title={title}
       size="lg"
+      footerAlreadyStandardized
       footer={
-        <div className="flex gap-3">
-          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Annuler
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
-          </Button>
-        </div>
+        <FormShellStandardFooter
+          formId={formId}
+          onCancel={onClose}
+          saveActionProps={{
+            isLoading: isSubmitting,
+            disabled: isSubmitting,
+            mode: 'edit',
+            labelEdit: 'Enregistrer',
+            loadingLabel: 'Enregistrement...',
+          }}
+        />
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <FormShellStandard id={formId} onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -228,7 +236,7 @@ export default function TransactionForm({
             />
           </div>
         </div>
-      </form>
+      </FormShellStandard>
     </Modal>
   );
 }

@@ -1,0 +1,39 @@
+[
+  {
+    "organizationId": "org_xxx",
+    "exerciseYear": 2025,
+    "propertyId": null,
+    "natureCode": "RECETTE_LOYER",
+    "categoryId": null,
+    "lmnpBucket": "RECETTES_LOCATIVES",
+    "lmnpLabel": "Loyers encaisses",
+    "priority": 900,
+    "active": true,
+    "mappingVersion": "seed-lmnp-default-v1"
+  },
+  {
+    "organizationId": "org_xxx",
+    "exerciseYear": 2025,
+    "propertyId": null,
+    "natureCode": "DEPENSE_TAXE",
+    "categoryId": null,
+    "lmnpBucket": "CHARGES_FISCALES",
+    "lmnpLabel": "Taxes et impots (dont taxe fonciere)",
+    "priority": 800,
+    "active": true,
+    "mappingVersion": "seed-lmnp-default-v1"
+  },
+  {
+    "organizationId": "org_xxx",
+    "exerciseYear": 2025,
+    "propertyId": null,
+    "natureCode": null,
+    "categoryId": null,
+    "lmnpBucket": "A_CLASSER",
+    "lmnpLabel": "Non classe LMNP (validation manuelle)",
+    "priority": -1000,
+    "active": true,
+    "mappingVersion": "seed-lmnp-default-v1"
+  }
+]
+

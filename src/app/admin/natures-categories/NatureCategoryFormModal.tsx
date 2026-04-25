@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { X, Save, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shared/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { toast } from 'sonner';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 
 interface Nature {
   key: string;
@@ -46,6 +47,7 @@ export default function NatureCategoryFormModal({
   categories,
   onSave
 }: NatureCategoryFormModalProps) {
+  const formId = useId();
   const [activeTab, setActiveTab] = useState('general');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
@@ -179,7 +181,7 @@ export default function NatureCategoryFormModal({
     }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
     // Réinitialiser les erreurs
@@ -327,7 +329,7 @@ export default function NatureCategoryFormModal({
         </div>
 
         {/* Contenu du formulaire */}
-        <form onSubmit={handleSubmit} className="p-6">
+        <FormShellStandard id={formId} onSubmit={handleSubmit} className="p-6">
           {activeTab === 'general' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -579,23 +581,20 @@ export default function NatureCategoryFormModal({
           )}
 
           {/* Boutons d'action */}
-          <div className="flex justify-end gap-3 mt-8 pt-6 border-t">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleClose}
-              disabled={isSubmitting}
-            >
-              Annuler
-            </Button>
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Enregistrement...' : (item ? 'Modifier' : 'Créer')}
-            </Button>
-          </div>
-        </form>
+          <FormShellStandardFooter
+            formId={formId}
+            onCancel={handleClose}
+            cancelVariant="outline"
+            className="mt-8 pt-6"
+            saveActionProps={{
+              mode: item ? 'edit' : 'create',
+              isLoading: isSubmitting,
+              labelCreate: 'Créer',
+              labelEdit: 'Modifier',
+              loadingLabel: 'Enregistrement...',
+            }}
+          />
+        </FormShellStandard>
       </div>
     </div>
   );

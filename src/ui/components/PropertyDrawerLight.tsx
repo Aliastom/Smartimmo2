@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, ArrowRight, MapPin, Euro, TrendingUp, Home } from 'lucide-react';
+import { ArrowRight, MapPin, Euro, TrendingUp, Home } from 'lucide-react';
 import { Property } from '../../domain/entities/Property';
 import { Payment } from '../../domain/entities/Payment';
 import { Lease } from '../../domain/entities/Lease';
@@ -11,6 +11,7 @@ import KpiCard from './KpiCard';
 import { usePropertyRuntimeStatus } from '../hooks/usePropertyRuntimeStatus';
 import { usePropertySummary } from '../hooks/usePropertySummary';
 import { isLeaseActive } from '../../lib/leases';
+import { Drawer } from '@/components/ui/Drawer';
 
 interface PropertyDrawerLightProps {
   property: Property | null;
@@ -115,48 +116,41 @@ export default function PropertyDrawerLight({ property, isOpen, onClose }: Prope
   // Le statut est maintenant calculé automatiquement via usePropertyRuntimeStatus
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-base-content bg-opacity-50" onClick={onClose} />
-      
-      {/* Drawer */}
-      <div className="absolute right-0 top-0 h-full w-full max-w-3xl bg-base-100 shadow-xl overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 z-10 bg-base-100 border-b border-neutral-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center space-x-3">
-                <h2 className="text-2xl font-bold text-neutral-900">{property.name}</h2>
-                <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColor}`}>
-                  {statusLabel}
-                </span>
-              </div>
-              <div className="flex items-center space-x-2 text-neutral-600 mt-1">
-                <MapPin size={16} />
-                <span>{property.address}, {property.postalCode} {property.city}</span>
-              </div>
+    <Drawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title={property.name}
+      size="xl"
+      noPadding
+    >
+      <div className="sticky top-0 z-10 bg-base-100 border-b border-neutral-200 p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center space-x-3">
+              <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColor}`}>
+                {statusLabel}
+              </span>
             </div>
-            <div className="flex items-center space-x-2">
-              <Link
-                href={`/biens/${property.id}/transactions`}
-                onClick={onClose}
-                className="bg-primary-700 text-base-100 px-4 py-2 rounded-md shadow-md hover:bg-primary-800 transition-colors flex items-center space-x-2"
-              >
-                <span>Voir détails</span>
-                <ArrowRight size={16} />
-              </Link>
-              <button
-                onClick={onClose}
-                className="p-2 rounded-full hover:bg-neutral-100 transition-colors"
-              >
-                <X className="h-6 w-6" />
-              </button>
+            <div className="flex items-center space-x-2 text-neutral-600 mt-1">
+              <MapPin size={16} />
+              <span>{property.address}, {property.postalCode} {property.city}</span>
             </div>
           </div>
+          <div className="flex items-center space-x-2">
+            <Link
+              href={`/biens/${property.id}/transactions`}
+              onClick={onClose}
+              className="bg-primary-700 text-base-100 px-4 py-2 rounded-md shadow-md hover:bg-primary-800 transition-colors flex items-center space-x-2"
+            >
+              <span>Voir détails</span>
+              <ArrowRight size={16} />
+            </Link>
+          </div>
         </div>
+      </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-6">
+      {/* Content */}
+      <div className="p-6 space-y-6">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
@@ -279,9 +273,8 @@ export default function PropertyDrawerLight({ property, isOpen, onClose }: Prope
               </div>
             </>
           )}
-        </div>
       </div>
-    </div>
+    </Drawer>
   );
 }
 

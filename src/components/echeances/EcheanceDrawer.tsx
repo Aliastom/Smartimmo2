@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  X,
   Edit,
   Trash2,
   Copy,
@@ -69,6 +68,7 @@ import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/Tran
 import { getLocalDB } from '@/lib/offline/db';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
+import { Drawer } from '@/components/ui/Drawer';
 
 function SuggestionRow({
   suggestion,
@@ -549,36 +549,46 @@ export function EcheanceDrawer({
   };
 
   return (
-    <div className="fixed inset-0 z-50">
-      {/* Overlay */}
-      <div 
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
-      />
-      
-      {/* Drawer - Mobile: plein écran, Desktop: side panel */}
-      <div className="fixed right-0 top-0 h-screen w-full lg:w-auto lg:max-w-2xl bg-white shadow-xl transform transition-transform">
-        <div className="flex flex-col h-full">
-          {/* Header */}
-          <div className="flex items-start justify-between p-4 border-b border-gray-100 bg-gray-50/50">
-            <div className="min-w-0 flex-1 pr-3">
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Échéance</p>
-              <h2 className="text-lg font-semibold text-gray-900 truncate mt-0.5">{echeance.label}</h2>
-              <div className="flex flex-wrap items-center gap-2 mt-2">
-                <span className={`text-2xl font-bold tabular-nums ${getAmountColor()}`}>
-                  {echeance.sens === 'DEBIT' ? '' : '+'}{formatCurrency(echeance.montant)}
-                </span>
-                <span className="text-xs text-gray-500">par occurrence</span>
-              </div>
-            </div>
-            <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 shrink-0 p-1">
-              <X className="h-6 w-6" />
-            </button>
-          </div>
-
-          {/* Content : 3 blocs métier + suggestions repliables */}
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="space-y-4">
+    <Drawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Détail échéance"
+      size="xl"
+      footer={
+        <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 p-4 border-t border-gray-100 bg-gray-50/30">
+          <Button
+            variant="ghost"
+            onClick={() => onDelete(echeance)}
+            className="text-red-600 hover:text-red-700 hover:bg-red-50 sm:mr-auto"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Supprimer
+          </Button>
+          <Button variant="outline" onClick={() => onDuplicate(echeance)}>
+            <Copy className="h-4 w-4 mr-2" />
+            Dupliquer
+          </Button>
+          <Button className="bg-orange-600 hover:bg-orange-700 text-white" onClick={() => onEdit(echeance)}>
+            <Edit className="h-4 w-4 mr-2" />
+            Éditer
+          </Button>
+        </div>
+      }
+    >
+      {/* Content : 3 blocs métier + suggestions repliables */}
+      <div className="p-4">
+        <div className="space-y-4">
+              {/* Header métier conservé dans le body */}
+              <section className="space-y-2 border-b border-gray-100 bg-gray-50/50 p-4 rounded-lg">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Échéance</p>
+                <h2 className="text-lg font-semibold text-gray-900 truncate mt-0.5">{echeance.label}</h2>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <span className={`text-2xl font-bold tabular-nums ${getAmountColor()}`}>
+                    {echeance.sens === 'DEBIT' ? '' : '+'}{formatCurrency(echeance.montant)}
+                  </span>
+                  <span className="text-xs text-gray-500">par occurrence</span>
+                </div>
+              </section>
               <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Configuration</h3>
                 <div className="flex flex-wrap gap-2 mb-4">
@@ -955,29 +965,7 @@ export function EcheanceDrawer({
                 )}
               </details>
             </div>
-          </div>
-
-          {/* Footer */}
-          <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 p-4 border-t border-gray-100 bg-gray-50/30">
-            <Button
-              variant="ghost"
-              onClick={() => onDelete(echeance)}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50 sm:mr-auto"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Supprimer
-            </Button>
-            <Button variant="outline" onClick={() => onDuplicate(echeance)}>
-              <Copy className="h-4 w-4 mr-2" />
-              Dupliquer
-            </Button>
-            <Button className="bg-orange-600 hover:bg-orange-700 text-white" onClick={() => onEdit(echeance)}>
-              <Edit className="h-4 w-4 mr-2" />
-              Éditer
-            </Button>
-          </div>
         </div>
-      </div>
 
       <Dialog open={linkPickerOpen} onOpenChange={setLinkPickerOpen}>
         <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
@@ -1030,7 +1018,7 @@ export function EcheanceDrawer({
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </Drawer>
   );
 }
 

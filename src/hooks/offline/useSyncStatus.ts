@@ -41,11 +41,46 @@ export function useSyncStatus(organizationId?: string) {
         }));
         return;
       }
-      const [pendingCount, errorCount] = await Promise.all([
-        db.pendingOperations.where('status').equals('pending').count(),
-        db.pendingOperations.where('status').equals('error').count(),
-      ]);
-      
+
+      let pendingCount = 0;
+      let errorCount = 0;
+
+      if (organizationId) {
+        // Aligné sur PendingSyncView : uniquement l’organisation active (sinon le badge compte
+        // des pending d’une autre org / legacy sans org → « 1 en attente » alors que la liste est vide).
+        try {
+          pendingCount = await db.pendingOperations
+            .where('[organizationId+status]')
+            .equals([organizationId, 'pending'])
+            .count();
+          const err = await db.pendingOperations
+            .where('[organizationId+status]')
+            .equals([organizationId, 'error'])
+            .count();
+          const blocked = await db.pendingOperations
+            .where('[organizationId+status]')
+            .equals([organizationId, 'blocked_permanent'])
+            .count();
+          errorCount = err + blocked;
+        } catch {
+          const all = await db.pendingOperations.toArray();
+          pendingCount = all.filter((op) => op.organizationId === organizationId && op.status === 'pending').length;
+          errorCount = all.filter(
+            (op) =>
+              op.organizationId === organizationId &&
+              (op.status === 'error' || op.status === 'blocked_permanent')
+          ).length;
+        }
+      } else {
+        const [p, e] = await Promise.all([
+          db.pendingOperations.where('status').equals('pending').count(),
+          db.pendingOperations.where('status').equals('error').count(),
+        ]);
+        pendingCount = p;
+        const blockedGlobal = await db.pendingOperations.where('status').equals('blocked_permanent').count();
+        errorCount = e + blockedGlobal;
+      }
+
       setState(prev => ({
         ...prev,
         pendingOperationsCount: pendingCount,
@@ -60,7 +95,7 @@ export function useSyncStatus(organizationId?: string) {
         errorOperationsCount: 0,
       }));
     }
-  }, []);
+  }, [organizationId]);
 
   // Vérifier si la full sync a été effectuée
   const checkFullSyncStatus = useCallback(async () => {

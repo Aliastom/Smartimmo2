@@ -24,6 +24,7 @@ export interface Property {
   fiscalRegimeId?: string | null;
   rentalMode?: string | null;
   airbnbListingId?: string | null;
+  lmnpActivityId?: string | null;
   isArchived?: boolean;
   archivedAt?: Date | null;
   createdAt?: Date;
@@ -68,6 +69,7 @@ export interface CreatePropertyData {
   fiscalRegimeId?: string | null;
   rentalMode?: string | null;
   airbnbListingId?: string | null;
+  lmnpActivityId?: string | null;
 }
 
 export interface UpdatePropertyData {
@@ -90,6 +92,7 @@ export interface UpdatePropertyData {
   fiscalRegimeId?: string | null;
   rentalMode?: string | null;
   airbnbListingId?: string | null;
+  lmnpActivityId?: string | null;
   isArchived?: boolean;
   archivedAt?: Date | null;
 }

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Transaction } from '../../domain/entities/Transaction';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 interface TransactionFormProps {
   properties?: Array<{ id: string; name: string }>;
@@ -37,7 +38,7 @@ export default function TransactionForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <FormShellStandard onSubmit={handleSubmit} className="space-y-4">
       {!hidePropertySelect && (
         <div>
           <label htmlFor="propertyId" className="block text-sm font-medium text-neutral-700">
@@ -148,14 +149,17 @@ export default function TransactionForm({
         >
           Annuler
         </button>
-        <button
+        <SaveActionStandard
           type="submit"
           disabled={isLoading}
+          isLoading={isLoading}
+          mode={transaction ? 'edit' : 'create'}
+          labelCreate="Ajouter"
+          labelEdit="Modifier"
+          loadingLabel="Enregistrement..."
           className="px-4 py-2 bg-primary-700 text-base-100 rounded-md shadow-md hover:bg-primary-800 transition-colors disabled:opacity-50"
-        >
-          {isLoading ? 'Enregistrement...' : transaction ? 'Modifier' : 'Ajouter'}
-        </button>
+        />
       </div>
-    </form>
+    </FormShellStandard>
   );
 }

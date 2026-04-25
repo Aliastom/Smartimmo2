@@ -64,6 +64,7 @@ model Category {
   Payment                 Payment[]
   Transaction             Transaction[]
   nature_category_default nature_category_default[]
+  LmnpExportMappingRule   LmnpExportMappingRule[]
 }
 
 model Document {
@@ -129,6 +130,7 @@ model Document {
   Reminder               Reminder[]
   UploadStagedItem       UploadStagedItem[]
   Organization           Organization        @relation(fields: [organizationId], references: [id])
+  LmnpExportOverride     LmnpExportOverride[]
 
   @@index([deletedAt])
   @@index([detectedTypeId])
@@ -449,6 +451,7 @@ model Loan {
   Document        Document[]
   Organization    Organization @relation(fields: [organizationId], references: [id])
   LoanBorrower    LoanBorrower[]
+  LmnpExportOverride LmnpExportOverride[]
 
   @@index([propertyId])
   @@index([isActive])
@@ -634,6 +637,7 @@ model Property {
   managementCompanyId String?
   fiscalTypeId        String?
   fiscalRegimeId      String?
+  lmnpActivityId      String?
   rentalMode          String               @default("LONG_TERM")
   airbnbListingId     String?
   isArchived          Boolean              @default(false)
@@ -650,13 +654,32 @@ model Property {
   ManagementCompany   ManagementCompany?   @relation(fields: [managementCompanyId], references: [id])
   FiscalType          FiscalType?          @relation("PropertyFiscalType", fields: [fiscalTypeId], references: [id])
   FiscalRegime        FiscalRegime?        @relation("PropertyFiscalRegime", fields: [fiscalRegimeId], references: [id])
+  LmnpActivity        LmnpActivity?        @relation(fields: [lmnpActivityId], references: [id])
   Transaction         Transaction[]
   Organization        Organization         @relation(fields: [organizationId], references: [id])
+  LmnpExportMappingRule LmnpExportMappingRule[]
+  LmnpExportRun       LmnpExportRun[]
 
   @@index([isArchived])
   @@index([fiscalTypeId])
   @@index([fiscalRegimeId])
+  @@index([lmnpActivityId])
   @@index([organizationId])
+}
+
+model LmnpActivity {
+  id            String       @id @default(cuid())
+  organizationId String
+  name          String
+  siret         String       @db.VarChar(14)
+  fiscalRegime  String
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  Organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  Properties    Property[]
+
+  @@index([organizationId])
+  @@unique([organizationId, siret])
 }
 
 model Reminder {
@@ -946,6 +969,7 @@ model Transaction {
   Property                         Property     @relation(fields: [propertyId], references: [id])
   Organization                     Organization @relation(fields: [organizationId], references: [id])
   EcheanceLinks                    EcheanceTransactionLink[]
+  LmnpExportOverride               LmnpExportOverride[]
 
   @@index([bailId])
   @@index([date])
@@ -1041,6 +1065,114 @@ model Organization {
   UserProfiles        UserProfile[]
   ManagementCompanies ManagementCompany[]
   RentIndexations     RentIndexation[]
+  LmnpExportMappingRule LmnpExportMappingRule[]
+  LmnpExportOverride  LmnpExportOverride[]
+  LmnpExportRun       LmnpExportRun[]
+  LmnpLearningPattern LmnpLearningPattern[]
+  LmnpActivities      LmnpActivity[]
+}
+
+// ============================================
+// EXPORT LMNP (couche additive — aucune modification des tables métier existantes)
+// ============================================
+
+model LmnpExportMappingRule {
+  id               String       @id @default(cuid())
+  organizationId   String
+  exerciseYear     Int
+  propertyId       String?
+  natureCode       String?
+  categoryId       String?
+  lmnpBucket       String
+  lmnpLabel        String
+  priority         Int          @default(100)
+  active           Boolean      @default(true)
+  mappingVersion   String       @default("1")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  Organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  Property         Property?    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  Category         Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, exerciseYear, active])
+  @@index([organizationId, exerciseYear, propertyId])
+  @@map("lmnp_export_mapping_rule")
+}
+
+model LmnpExportOverride {
+  id             String       @id @default(cuid())
+  organizationId String
+  transactionId  String?
+  documentId     String?
+  loanId         String?
+  lmnpBucket     String
+  lmnpLabel      String
+  reason         String?
+  createdAt      DateTime     @default(now())
+  Organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  Transaction    Transaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  Document       Document?    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  Loan           Loan?        @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([transactionId])
+  @@index([documentId])
+  @@index([loanId])
+  @@map("lmnp_export_override")
+}
+
+model LmnpExportRun {
+  id               String               @id @default(cuid())
+  organizationId   String
+  propertyId       String
+  exerciseYear     Int
+  mappingVersion   String
+  status           String // dry_run | completed | failed
+  coverageRate     Float
+  anomalyCount     Int
+  manifestJson     String               @db.Text
+  createdByUserId  String?
+  createdAt        DateTime             @default(now())
+  Organization     Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  Property         Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  Anomalies        LmnpExportAnomaly[]
+
+  @@index([organizationId, propertyId, exerciseYear])
+  @@map("lmnp_export_run")
+}
+
+model LmnpExportAnomaly {
+  id         String        @id @default(cuid())
+  runId      String
+  entityType String
+  entityId   String
+  severity   String // blocking | warning
+  message    String        @db.Text
+  Run        LmnpExportRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@map("lmnp_export_anomaly")
+}
+
+/// Patterns appris depuis les corrections utilisateur (export LMNP), hors tables métier.
+model LmnpLearningPattern {
+  id             String       @id @default(cuid())
+  organizationId String
+  propertyId     String?
+  patternKey     String
+  patternJson    String       @db.Text
+  lmnpBucket     String
+  lmnpLabel      String
+  confidence     Float        @default(0.75)
+  usageCount     Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  Organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, patternKey])
+  @@index([organizationId])
+  @@index([organizationId, propertyId])
+  @@map("lmnp_learning_pattern")
 }
 
 model User {
@@ -1143,6 +1275,30 @@ model AdminBackupSchedule {
   updatedAt     DateTime  @updatedAt
 
   @@map("admin_backup_schedules")
+}
+
+model AdminBackupJob {
+  id              String   @id @default(cuid())
+  type            String // "export" | "import" | "restore"
+  scope           String   @default("admin")
+  state           String   @default("pending") // pending | running | completed | failed | cancelled
+  currentStep     String?
+  progressPercent Int      @default(0)
+  logs            Json?
+  result          Json?
+  error           Json?
+  createdById     String
+  backupRecordId  String?
+  startedAt       DateTime?
+  endedAt         DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([state])
+  @@index([type])
+  @@index([createdById])
+  @@map("admin_backup_jobs")
 }
 
 // ============================================

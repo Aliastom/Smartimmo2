@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/ui/shared/label';
@@ -13,12 +13,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Plus, Edit, Trash2, Save, X, Play, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { DocumentExtractionRule, POST_PROCESS_OPTIONS } from '@/types/document-types';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 interface RulesManagementProps {
   documentTypeId: string;
 }
 
 export default function RulesManagement({ documentTypeId }: RulesManagementProps) {
+  const formId = useId();
   const [rules, setRules] = useState<DocumentExtractionRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -153,7 +155,7 @@ export default function RulesManagement({ documentTypeId }: RulesManagementProps
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -298,7 +300,7 @@ export default function RulesManagement({ documentTypeId }: RulesManagementProps
             </DialogDescription>
           </DialogHeader>
           
-          <form onSubmit={handleSave} className="space-y-4">
+          <FormShellStandard id={formId} onSubmit={handleSave} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="fieldName">Nom du champ *</Label>
@@ -409,12 +411,14 @@ export default function RulesManagement({ documentTypeId }: RulesManagementProps
                 <X className="w-4 h-4 mr-2" />
                 Annuler
               </Button>
-              <Button type="submit" disabled={!testResults.isValid}>
-                <Save className="w-4 h-4 mr-2" />
-                Sauvegarder
-              </Button>
+              <SaveActionStandard
+                type="submit"
+                form={formId}
+                disabled={!testResults.isValid}
+                labelEdit="Sauvegarder"
+              />
             </div>
-          </form>
+          </FormShellStandard>
         </DialogContent>
       </Dialog>
     </div>

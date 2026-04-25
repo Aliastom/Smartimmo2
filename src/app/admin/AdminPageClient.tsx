@@ -2,8 +2,7 @@
 
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Settings, FileText, MapPin, Users, Database, Shield, BarChart3, Archive, Search, Calculator } from 'lucide-react';
+import { Settings, FileText, MapPin, Users, Database, Shield, BarChart3, Archive, Search, Calculator, FileSpreadsheet, AlertTriangle, SlidersHorizontal, History } from 'lucide-react';
 import toast from 'react-hot-toast';
 import BackupManagementCard from '@/components/admin/BackupManagementCard';
 
@@ -46,6 +45,11 @@ export default function AdminPageClient({ enablePrismaStudio }: AdminPageClientP
     { id: 'document-types', title: 'Types de Documents', description: "Gestion des types de documents, règles d'auto-suggestion et métadonnées", icon: FileText, color: 'success' as const, category: 'system' },
     { id: 'signals-catalog', title: 'Catalogue des Signaux', description: 'Gestion du catalogue global des signaux pour la classification de documents', icon: Search, color: 'info' as const, category: 'system' },
     { id: 'fiscal-params', title: 'Paramètres Fiscaux', description: 'Gestion des barèmes fiscaux (IR, PS, micro-foncier, LMNP, PER, etc.)', icon: Calculator, color: 'primary' as const, category: 'system' },
+    { id: 'lmnp-activities', title: 'Activités LMNP / SIRET', description: 'Gestion des activités LMNP (nom, SIRET, régime, biens rattachés)', icon: FileSpreadsheet, color: 'primary' as const, category: 'system' },
+    { id: 'lmnp-mapping-rules', title: 'Règles export LMNP', description: 'Consultation des règles de mapping export LMNP (LmnpExportMappingRule)', icon: FileSpreadsheet, color: 'primary' as const, category: 'system' },
+    { id: 'lmnp-anomalies', title: 'Anomalies export LMNP', description: 'Anomalies d’export et création d’overrides sans modifier les transactions', icon: AlertTriangle, color: 'warning' as const, category: 'system' },
+    { id: 'lmnp-overrides', title: 'Overrides export LMNP', description: 'Liste et édition des overrides LMNP (bucket, libellé, raison)', icon: SlidersHorizontal, color: 'gray' as const, category: 'system' },
+    { id: 'lmnp-runs', title: 'Historique runs LMNP', description: 'Runs d’export, couverture, anomalies et manifeste JSON', icon: History, color: 'primary' as const, category: 'system' },
     { id: 'gestion-deleguee-system', title: 'Paramètres Gestion Déléguée', description: 'Configuration système de la gestion déléguée (codes comptables, activation)', icon: Settings, color: 'warning' as const, category: 'gestion' },
     { id: 'users', title: 'Gestion des Utilisateurs', description: 'Administration des comptes utilisateurs et permissions', icon: Users, color: 'warning' as const, category: 'admin' },
     { id: 'database', title: 'Base de Données', description: 'Sauvegardes, migrations et maintenance de la base de données', icon: Database, color: 'danger' as const, category: 'admin' },
@@ -53,7 +57,7 @@ export default function AdminPageClient({ enablePrismaStudio }: AdminPageClientP
     { id: 'analytics', title: 'Analytics & Rapports', description: 'Configuration des rapports automatiques et métriques de performance', icon: BarChart3, color: 'primary' as const, category: 'admin' },
   ];
 
-  const colorClasses = { primary: 'bg-primary-100 text-primary-600', success: 'bg-success-100 text-success-600', warning: 'bg-warning-100 text-warning-600', danger: 'bg-danger-100 text-danger-600', gray: 'bg-gray-100 text-gray-600' } as const;
+  const colorClasses = { primary: 'bg-primary-100 text-primary-600', success: 'bg-success-100 text-success-600', warning: 'bg-warning-100 text-warning-600', danger: 'bg-danger-100 text-danger-600', gray: 'bg-gray-100 text-gray-600', info: 'bg-blue-100 text-blue-600' } as const;
 
   return (
     <div className="space-y-6">
@@ -84,6 +88,11 @@ export default function AdminPageClient({ enablePrismaStudio }: AdminPageClientP
               else if (module.id === 'document-types') window.location.href = '/admin/documents/types';
               else if (module.id === 'signals-catalog') window.location.href = '/admin/signals';
               else if (module.id === 'fiscal-params') window.location.href = '/admin/impots/parametres';
+              else if (module.id === 'lmnp-activities') window.location.href = '/admin/lmnp/activities';
+              else if (module.id === 'lmnp-mapping-rules') window.location.href = '/admin/lmnp/mapping-rules';
+              else if (module.id === 'lmnp-anomalies') window.location.href = '/admin/lmnp/anomalies';
+              else if (module.id === 'lmnp-overrides') window.location.href = '/admin/lmnp/overrides';
+              else if (module.id === 'lmnp-runs') window.location.href = '/admin/lmnp/runs';
             }}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -201,20 +210,6 @@ export default function AdminPageClient({ enablePrismaStudio }: AdminPageClientP
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Actions Rapides</CardTitle>
-          <CardDescription>Opérations courantes d'administration</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Button variant="outline" className="h-auto p-4 flex flex-col items-center gap-2"><Database className="h-6 w-6" /><span className="text-sm">Sauvegarde</span></Button>
-            <Button variant="outline" className="h-auto p-4 flex flex-col items-center gap-2"><BarChart3 className="h-6 w-6" /><span className="text-sm">Rapport</span></Button>
-            <Button variant="outline" className="h-auto p-4 flex flex-col items-center gap-2"><Archive className="h-6 w-6" /><span className="text-sm">Archives</span></Button>
-            <Button variant="outline" className="h-auto p-4 flex flex-col items-center gap-2"><Settings className="h-6 w-6" /><span className="text-sm">Paramètres</span></Button>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

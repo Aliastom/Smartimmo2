@@ -100,6 +100,8 @@ export function PropertyDetailView({ propertyId, organizationId, tab = 'transact
             propertyId={propertyId} 
       propertyName={propertyBaseData.name || 'Chargement...'} 
       rentalMode={propertyBaseData.rentalMode}
+      fiscalTypeId={propertyBaseData.fiscalTypeId}
+      fiscalRegimeId={propertyBaseData.fiscalRegimeId}
             mode="app-shell"
       activeTab={validTab}
       onTabChange={handleTabChange}
@@ -108,7 +110,7 @@ export function PropertyDetailView({ propertyId, organizationId, tab = 'transact
       propertyCity={propertyBaseData.city}
       leaseTabSummaryLine={validTab === 'lease' ? leaseTabSummaryLine : undefined}
           />
-  ), [propertyId, propertyBaseData.name, propertyBaseData.rentalMode, validTab, handleTabChange, propertyBaseData.address, propertyBaseData.postalCode, propertyBaseData.city, leaseTabSummaryLine]); // Retiré loading des deps
+  ), [propertyId, propertyBaseData.name, propertyBaseData.rentalMode, propertyBaseData.fiscalTypeId, propertyBaseData.fiscalRegimeId, validTab, handleTabChange, propertyBaseData.address, propertyBaseData.postalCode, propertyBaseData.city, leaseTabSummaryLine]); // Retiré loading des deps
 
   // Rendre le contenu selon l'onglet actif
   // ⚙️ OPTIMISATION: Utiliser useMemo pour éviter les remounts inutiles

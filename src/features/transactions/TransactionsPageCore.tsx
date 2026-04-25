@@ -9,7 +9,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { notify2 } from '@/lib/notify2';
 import { Plus, Loader2, Home } from 'lucide-react';
@@ -45,6 +45,7 @@ import { calcCommission } from '@/lib/gestion/calcCommission';
 import { txHotPathDebugLog, txPerfMeasureZone } from '@/lib/utils/logger';
 import { navigateToView } from '@/utils/appShellNavigation';
 import { dispatchTransactionsLocalRefresh } from './txLocalRefresh';
+import { transactionDocumentsCountForTableRow } from '@/lib/offline/services/documentLinksService';
 
 // ✅ IMPORT STATIQUE pour garantir le fonctionnement offline (évite ChunkLoadError en app-shell)
 import { TransactionModal } from '@/components/transactions/TransactionModalV2';
@@ -299,6 +300,7 @@ export function TransactionsPageCore({
   // ⚠️ OPTION B - UX: State pour tracker les transactions qui attendent une commission (placeholder)
   // Set des IDs de transactions pour lesquelles une commission est en cours de création côté serveur
   const [pendingCommissionTransactionIds, setPendingCommissionTransactionIds] = useState<Set<string>>(new Set());
+  const commissionRefreshInFlightRef = useRef(false);
 
   // ✅ CORRECTION: En mode app-shell avec props, NE PAS appeler useTransactionsData du tout
   const isAppShellWithProps = mode === 'app-shell' && propTransactions !== undefined;
@@ -397,7 +399,7 @@ export function TransactionsPageCore({
     
     // Enrichir chaque transaction avec hasDocument et documentsCount depuis documentLinks
     return propTransactions.map((trans: any) => {
-      const documentsCount = documentCounts.get(trans.id) || 0;
+      const documentsCount = transactionDocumentsCountForTableRow(trans, documentCounts);
       return {
         ...trans,
         hasDocument: documentsCount > 0,
@@ -408,6 +410,75 @@ export function TransactionsPageCore({
 
   // Utiliser les props enrichies si disponibles, sinon les données du hook
   const allTransactions = isAppShellWithProps ? enrichedPropTransactions : hookTransactions;
+  const commissionParentIdsInLocalData = useMemo(() => {
+    const parentIds = new Set<string>();
+    const txs = (allTransactions as any[]) || [];
+    for (const tx of txs) {
+      if (tx?.isAuto === true && tx?.autoSource === 'gestion' && tx.parentTransactionId) {
+        const p = String(tx.parentTransactionId);
+        parentIds.add(p);
+        // La commission serveur pointe sur l'id serveur de la mère ; pendingCommission garde souvent l'id local.
+        const mother = txs.find(
+          (m) =>
+            m &&
+            (String(m.id) === p || (m.serverId != null && String(m.serverId) === p))
+        );
+        if (mother) {
+          parentIds.add(String(mother.id));
+          if (mother.serverId != null && String(mother.serverId) !== String(mother.id)) {
+            parentIds.add(String(mother.serverId));
+          }
+        }
+      }
+    }
+    return parentIds;
+  }, [allTransactions]);
+  useEffect(() => {
+    if (pendingCommissionTransactionIds.size === 0) return;
+    setPendingCommissionTransactionIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (!commissionParentIdsInLocalData.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [commissionParentIdsInLocalData, pendingCommissionTransactionIds.size]);
+  useEffect(() => {
+    if (mode !== 'app-shell') return;
+    if (!organizationId) return;
+    if (pendingCommissionTransactionIds.size === 0) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+    const tick = async () => {
+      if (commissionRefreshInFlightRef.current) return;
+      commissionRefreshInFlightRef.current = true;
+      try {
+        const syncService = getGlobalSyncService();
+        // IMPORTANT: ici on fait un pull uniquement.
+        // Ne pas pousser les pendingOps dans cette boucle, sinon risque de rejouer des créations.
+        await syncService.syncEntityFromRemoteByName('transaction', organizationId);
+        window.dispatchEvent(new CustomEvent('transactions:refresh'));
+      } catch {
+        // non bloquant: on retentera au prochain tick
+      } finally {
+        commissionRefreshInFlightRef.current = false;
+      }
+    };
+
+    void tick();
+    const intervalId = window.setInterval(() => {
+      void tick();
+    }, 6000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [mode, organizationId, pendingCommissionTransactionIds.size]);
   const properties = isAppShellWithProps ? (propProperty ? [propProperty] : []) : hookProperties;
   const leases = isAppShellWithProps ? [] : hookLeases; // TODO: charger les leases si nécessaire
   const tenants = isAppShellWithProps ? [] : hookTenants; // TODO: charger les tenants si nécessaire
@@ -869,14 +940,24 @@ export function TransactionsPageCore({
         }
 
         if (mode === 'app-shell') {
+          const scopePidDel =
+            (lockedPropertyId || filters.propertyId || propPropertyId || initialPropertyId || '').trim() || undefined;
           dispatchTransactionsLocalRefresh({
             scope: 'property',
-            propertyId: propPropertyId || initialPropertyId || filters.propertyId,
+            propertyId: scopePidDel,
             reason: 'crud-delete-one',
             patch: { action: 'delete', ids: [transactionToDelete.id] },
           });
           if (deleteMode === 'delete_docs' || deleteMode === 'unlink_only') {
-            window.dispatchEvent(new CustomEvent('documents:refresh'));
+            if (scopePidDel) {
+              window.dispatchEvent(
+                new CustomEvent('documents:refresh', {
+                  detail: { scope: 'property', propertyId: scopePidDel },
+                })
+              );
+            } else {
+              window.dispatchEvent(new CustomEvent('documents:refresh'));
+            }
           }
         }
       } else {
@@ -910,7 +991,17 @@ export function TransactionsPageCore({
       // Erreur lors de la suppression - log supprimé
       notify2.error('Erreur lors de la suppression de la transaction');
     }
-  }, [mode, transactionToDelete, organizationId, showAlert, router]);
+  }, [
+    mode,
+    transactionToDelete,
+    organizationId,
+    showAlert,
+    router,
+    lockedPropertyId,
+    filters.propertyId,
+    propPropertyId,
+    initialPropertyId,
+  ]);
 
   // Fonction pour récupérer toutes les IDs des transactions correspondant aux filtres
   const loadAllTransactionIds = useCallback(async (): Promise<string[]> => {
@@ -1136,9 +1227,11 @@ export function TransactionsPageCore({
         };
 
         if (mode === 'app-shell' && deletedIds.length > 0) {
+          const scopePidMulti =
+            (lockedPropertyId || filters.propertyId || propPropertyId || initialPropertyId || '').trim() || undefined;
           dispatchTransactionsLocalRefresh({
             scope: 'property',
-            propertyId: propPropertyId || initialPropertyId || filters.propertyId,
+            propertyId: scopePidMulti,
             reason: 'crud-delete-multiple',
             patch: { action: 'delete', ids: deletedIds },
           });
@@ -1253,7 +1346,17 @@ export function TransactionsPageCore({
       setShowDeleteMultipleModal(false);
       // Fin (erreur) - log supprimé
     }
-  }, [transactionsToDelete, mode, organizationId, showAlert, router]);
+  }, [
+    transactionsToDelete,
+    mode,
+    organizationId,
+    showAlert,
+    router,
+    lockedPropertyId,
+    filters.propertyId,
+    propPropertyId,
+    initialPropertyId,
+  ]);
 
   const handleViewDocument = useCallback((documentId: string, documentName: string) => {
     window.open(`/api/documents/${documentId}/file`, '_blank');
@@ -1546,17 +1649,30 @@ export function TransactionsPageCore({
           
           await txHotPathDebugLog(`[TransactionsPageCore] 📎 createTransaction params.stagedLinkItemIds: ${params.stagedLinkItemIds?.length || 0} - IDs: ${params.stagedLinkItemIds?.join(', ') || 'aucun'}`);
           
-          const result = await transactionService.createTransaction(params);
-          
+          const endCreateSubmit = txPerfMeasureZone('tx:create:submit');
+          let result: any;
+          try {
+            const endCreateService = txPerfMeasureZone('tx:create:service');
+            try {
+              result = await transactionService.createTransaction(params);
+            } finally {
+              endCreateService();
+            }
+          } finally {
+            endCreateSubmit();
+          }
+
           // Gérer le résultat (peut contenir plusieurs transactions si multi-mois)
           const totalCreated = result.totalCreated || 1;
           const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+          const scopePidCr = lockedPropertyId || propPropertyId || initialPropertyId || filters.propertyId;
+          const createdTransactionIds = (result.allTransactions?.map((t: any) => t.id) || [result.transaction?.id]).filter(Boolean);
           
           // ⚠️ OPTION B - UX: Vérifier si les transactions créées sont éligibles à une commission
           // Si oui, ajouter leurs IDs au state pour afficher un placeholder
           if (mode === 'app-shell' && result.transaction) {
             const createdTransactions = result.allTransactions || [result.transaction];
-            const eligibleIds: string[] = [];
+            let eligibleIds: string[] = [];
             
             for (const tx of createdTransactions) {
               const isEligible = await checkTransactionEligibleForCommission(tx, {
@@ -1574,6 +1690,29 @@ export function TransactionsPageCore({
               }
             }
             
+            // Fallback anti faux-négatif:
+            // si la vérification fine retourne 0 mais que le payload ressemble clairement
+            // à un loyer en gestion déléguée (commission server-only), on affiche l'état transitoire.
+            if (
+              eligibleIds.length === 0 &&
+              isOnline &&
+              gestionEnabled !== false &&
+              Number(params.montantLoyer || 0) > 0
+            ) {
+              const rentNatureCode = gestionCodes?.rentNature || 'RECETTE_LOYER';
+              const natureValue = String(params.nature || '');
+              const looksLikeRentNature =
+                natureValue === rentNatureCode ||
+                natureValue.includes('LOYER') ||
+                natureValue.includes('RECETTE_LOYER');
+
+              if (looksLikeRentNature) {
+                eligibleIds = createdTransactions
+                  .map((tx: any) => tx?.id)
+                  .filter(Boolean);
+              }
+            }
+
             // Ajouter les IDs éligibles au state (placeholder sera affiché)
             if (eligibleIds.length > 0) {
               setPendingCommissionTransactionIds(prev => {
@@ -1581,99 +1720,51 @@ export function TransactionsPageCore({
                 eligibleIds.forEach(id => newSet.add(id));
                 return newSet;
               });
+
+              // Garde-fou UX: si la commission n'arrive jamais (cas limite),
+              // ne pas laisser l'indicateur bloqué indéfiniment.
+              eligibleIds.forEach((id) => {
+                window.setTimeout(() => {
+                  setPendingCommissionTransactionIds((prev) => {
+                    if (!prev.has(id)) return prev;
+                    const next = new Set(prev);
+                    next.delete(id);
+                    return next;
+                  });
+                }, 90_000);
+              });
             }
           }
           
-          // ⚠️ OPTION B: En app-shell online, faire un round-trip pour récupérer la commission créée côté serveur
-          if (mode === 'app-shell' && isOnline) {
-            try {
-              const syncService = getGlobalSyncService();
-              
-              await txHotPathDebugLog('[TransactionsPageCore] 🔄 Début round-trip : push pendingOps → pull transactions (commissions) → refresh UI');
-              
-              // 1. Push des pendingOps vers Supabase (transaction mère uniquement, commissions server-only)
-              await syncService.syncAllPendingToRemote(organizationId);
-              
-              // 2. Pull immédiat des transactions pour récupérer les commissions créées côté serveur
-              await syncService.syncEntityFromRemoteByName('transaction', organizationId);
-              
-              const transactionRepo = getTransactionRepositoryOffline();
-              const createdTransactionIds = (result.allTransactions?.map((t: any) => t.id) || [result.transaction?.id]).filter(Boolean);
-              const scoped = await transactionRepo.getAll(organizationId, { propertyId: params.propertyId });
-              const pulledCommissions = scoped.filter(
-                (t: any) =>
-                  t.isAuto === true &&
-                  t.autoSource === 'gestion' &&
-                  createdTransactionIds.includes(t.parentTransactionId)
-              );
-
-              const freshMain: LocalTransaction[] = [];
-              for (const cid of createdTransactionIds) {
-                const row = await transactionRepo.getById(cid, organizationId);
-                if (row) freshMain.push(row);
-              }
-              const mergedById = new Map<string, LocalTransaction>();
-              for (const r of [...freshMain, ...pulledCommissions]) {
-                mergedById.set(r.id, r as LocalTransaction);
-              }
-              const mergedRows = Array.from(mergedById.values());
-
-              await txHotPathDebugLog(`[TransactionsPageCore] ✅ Round-trip terminé - Commissions récupérées: ${pulledCommissions.length}`);
-              
-              // ⚠️ OPTION B - UX: Retirer les IDs des transactions créées du state (commissions récupérées)
-              if (createdTransactionIds.length > 0) {
-                setPendingCommissionTransactionIds(prev => {
-                  const newSet = new Set(prev);
-                  createdTransactionIds.forEach(id => newSet.delete(id));
-                  return newSet;
-                });
-              }
-              
-              // 4. Pull aussi les documentLinks si nécessaire
-              try {
-                await syncService.syncEntityFromRemoteByName('documentLink', organizationId);
-              } catch (docSyncError) {
-                // Ignorer les erreurs de sync docs, non bloquant
-              }
-              
-              const scopePidRt = propPropertyId || initialPropertyId || filters.propertyId;
-              dispatchTransactionsLocalRefresh({
-                scope: 'property',
-                propertyId: scopePidRt,
-                reason: 'create-roundtrip',
-                patch: { action: 'upsert', rows: mergedRows },
-              });
-              window.dispatchEvent(new CustomEvent('documents:refresh', {
-                detail: { scope: 'property', propertyId: scopePidRt }
-              }));
-              
-              // Fermer la modal après le round-trip
-              setIsModalOpen(false);
-              
-              // Toast de succès
-              let message = `Transaction créée`;
-              if (totalCreated > 1) {
-                message = `${totalCreated} transactions créées (période multi-mois)`;
-              }
-              if (pulledCommissions.length > 0) {
-                message += `\n${pulledCommissions.length} commission${pulledCommissions.length > 1 ? 's' : ''} récupérée${pulledCommissions.length > 1 ? 's' : ''}`;
-              }
-              notify2.success(message);
-              return;
-            } catch (syncError) {
-              await txHotPathDebugLog(`[TransactionsPageCore] ⚠️ Erreur lors du round-trip: ${syncError}`, 'warn');
-              setIsModalOpen(false);
-              notify2.success('Transaction créée localement, commission sera créée lors de la prochaine sync');
-              dispatchTransactionsLocalRefresh({
-                scope: 'property',
-                propertyId: propPropertyId || initialPropertyId || filters.propertyId,
-                reason: 'create-roundtrip-fallback',
-              });
-              return;
-            }
+          // ⚠️ Correctif robustesse create: relire immédiatement depuis IDB les lignes créées
+          // (shape LocalTransaction garanti pour le patch + affichage immédiat du tableau)
+          let createdRowsForPatch: LocalTransaction[] = [];
+          try {
+            const txRepo = getTransactionRepositoryOffline();
+            const freshRows = await Promise.all(
+              createdTransactionIds.map((id: string) => txRepo.getById(id, orgId))
+            );
+            createdRowsForPatch = freshRows.filter(Boolean) as LocalTransaction[];
+          } catch {
+            createdRowsForPatch = [];
           }
-          
-          // Mode offline ou normal : fermer la modal et afficher le toast
+          if (createdRowsForPatch.length === 0) {
+            createdRowsForPatch = (result.allTransactions || [result.transaction]) as LocalTransaction[];
+          }
+
+          const endRefreshPatchCreate = txPerfMeasureZone('tx:create:refreshPatch');
+          try {
+            dispatchTransactionsLocalRefresh({
+              scope: 'property',
+              propertyId: scopePidCr,
+              reason: 'crud-create',
+              patch: { action: 'upsert', rows: createdRowsForPatch },
+            });
+          } finally {
+            endRefreshPatchCreate();
+          }
+
+          // Fermer la modal tout de suite (local-first UX)
           setIsModalOpen(false);
           
           // Push des pendingOps en arrière-plan si online (non bloquant pour mode normal)
@@ -1699,17 +1790,62 @@ export function TransactionsPageCore({
           notify2.success(message);
           
           if (mode === 'app-shell') {
-            const scopePidCr = propPropertyId || initialPropertyId || filters.propertyId;
-            const createdRows = (result.allTransactions || [result.transaction]) as unknown as LocalTransaction[];
-            dispatchTransactionsLocalRefresh({
-              scope: 'property',
-              propertyId: scopePidCr,
-              reason: 'crud-create',
-              patch: { action: 'upsert', rows: createdRows },
-            });
             window.dispatchEvent(new CustomEvent('documents:refresh', {
               detail: { scope: 'property', propertyId: scopePidCr }
             }));
+
+            // Post-process non bloquant: round-trip serveur pour récupérer commissions server-only
+            if (isOnline) {
+              void (async () => {
+                const endPostProcess = txPerfMeasureZone('tx:create:postProcess');
+                try {
+                  const syncService = getGlobalSyncService();
+                  await txHotPathDebugLog('[TransactionsPageCore] 🔄 Début round-trip async : push pendingOps → pull transactions (commissions)');
+                  await syncService.syncAllPendingToRemote(organizationId);
+                  await syncService.syncEntityFromRemoteByName('transaction', organizationId);
+
+                  const transactionRepo = getTransactionRepositoryOffline();
+                  const scoped = await transactionRepo.getAll(organizationId, { propertyId: params.propertyId });
+                  const pulledCommissions = scoped.filter(
+                    (t: any) =>
+                      t.isAuto === true &&
+                      t.autoSource === 'gestion' &&
+                      createdTransactionIds.includes(t.parentTransactionId)
+                  );
+
+                  const freshMain: LocalTransaction[] = [];
+                  for (const cid of createdTransactionIds) {
+                    const row = await transactionRepo.getById(cid, organizationId);
+                    if (row) freshMain.push(row);
+                  }
+                  const mergedById = new Map<string, LocalTransaction>();
+                  for (const r of [...freshMain, ...pulledCommissions]) {
+                    mergedById.set(r.id, r as LocalTransaction);
+                  }
+                  const mergedRows = Array.from(mergedById.values());
+
+                  // Ne pas pull documentLink ici : overwrite total IDB (syncGlobal) peut supprimer les liens
+                  // transaction↔document encore absents côté API juste après le push — la PJ disparaît au tableau
+                  // jusqu’au refresh. Les liens locaux + recount (mergeCounts / documents:refresh) suffisent.
+
+                  if (mergedRows.length > 0) {
+                    dispatchTransactionsLocalRefresh({
+                      scope: 'property',
+                      propertyId: scopePidCr,
+                      reason: 'create-roundtrip',
+                      patch: { action: 'upsert', rows: mergedRows },
+                    });
+                  }
+                  window.dispatchEvent(new CustomEvent('documents:refresh', {
+                    detail: { scope: 'property', propertyId: scopePidCr }
+                  }));
+                } catch (syncError) {
+                  await txHotPathDebugLog(`[TransactionsPageCore] ⚠️ Erreur post-process create: ${syncError}`, 'warn');
+                } finally {
+                  endPostProcess();
+                }
+              })();
+            }
           }
           return;
         }
@@ -1788,7 +1924,7 @@ export function TransactionsPageCore({
     } finally {
       endModal();
     }
-  }, [modalMode, selectedTransaction, mode, organizationId, showAlert, router, isDrawerOpen, transactions, gestionEnabled, gestionCodes]);
+  }, [modalMode, selectedTransaction, mode, organizationId, showAlert, router, isDrawerOpen, transactions, gestionEnabled, gestionCodes, lockedPropertyId, propPropertyId, initialPropertyId, filters.propertyId]);
 
   // États de chargement et erreur
   if (loading) {

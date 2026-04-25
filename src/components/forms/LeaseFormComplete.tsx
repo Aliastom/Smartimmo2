@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 import { ErrorModal } from '@/components/ui/ErrorModal';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -74,6 +75,7 @@ export default function LeaseFormComplete({
   tenants: externalTenants,
   mode = 'normal'
 }: LeaseFormCompleteProps) {
+  const formId = useId();
   // ✅ Détecter le mode app-shell
   const isAppShell = mode === 'app-shell' || (typeof window !== 'undefined' && window.location.pathname.startsWith('/app'));
   
@@ -191,7 +193,7 @@ export default function LeaseFormComplete({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setErrors({});
@@ -724,27 +726,27 @@ export default function LeaseFormComplete({
       onClose={onClose}
       title={title}
       size="xl"
+      footerAlreadyStandardized
       footer={
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-          <Button 
-            variant="ghost" 
-            onClick={onClose} 
-            disabled={isSubmitting}
-            className="w-full sm:w-auto"
-          >
-            Annuler
-          </Button>
-          <Button 
-            onClick={handleSubmit} 
-            disabled={isSubmitting || isLoadingData}
-            className="w-full sm:w-auto"
-          >
-            {isSubmitting ? 'Enregistrement...' : 'Enregistrer le bail'}
-          </Button>
-        </div>
+        <FormShellStandardFooter
+          formId={formId}
+          onCancel={onClose}
+          actionsClassName="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center"
+          cancelButtonProps={{
+            disabled: isSubmitting,
+            className: 'w-full sm:w-auto',
+          }}
+          saveActionProps={{
+            disabled: isSubmitting || isLoadingData,
+            isLoading: isSubmitting,
+            className: 'w-full sm:w-auto',
+            labelEdit: 'Enregistrer le bail',
+            loadingLabel: 'Enregistrement...',
+          }}
+        />
       }
     >
-      <form onSubmit={handleSubmit} className="flex flex-col h-full">
+      <FormShellStandard id={formId} onSubmit={handleSubmit} className="flex flex-col h-full">
         {/* Tabs Navigation - Sticky sur mobile */}
         <div className="sticky top-0 z-10 bg-white border-b border-gray-200 -mx-4 md:-mx-6 px-4 md:px-6 mb-4">
           <nav className="overflow-x-auto -mb-px flex space-x-4 md:space-x-8 scrollbar-hide">
@@ -784,7 +786,7 @@ export default function LeaseFormComplete({
             {renderTabContent()}
           </div>
         </div>
-      </form>
+      </FormShellStandard>
 
       {/* Modal d'erreur */}
       <ErrorModal

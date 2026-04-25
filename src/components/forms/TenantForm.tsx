@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Button } from '@/components/ui/Button';
+import React, { useId, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 import { z } from 'zod';
 
 const tenantSchema = z.object({
@@ -24,6 +24,7 @@ interface TenantFormProps {
 }
 
 export default function TenantForm({ isOpen, onClose, onSubmit, initialData, title }: TenantFormProps) {
+  const formId = useId();
   const [formData, setFormData] = useState(initialData || {
     firstName: '',
     lastName: '',
@@ -37,7 +38,7 @@ export default function TenantForm({ isOpen, onClose, onSubmit, initialData, tit
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setErrors({});
@@ -77,18 +78,22 @@ export default function TenantForm({ isOpen, onClose, onSubmit, initialData, tit
       onClose={onClose}
       title={title}
       size="lg"
+      footerAlreadyStandardized
       footer={
-        <div className="flex gap-3">
-          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Annuler
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
-          </Button>
-        </div>
+        <FormShellStandardFooter
+          formId={formId}
+          onCancel={onClose}
+          cancelButtonProps={{ disabled: isSubmitting }}
+          saveActionProps={{
+            mode: 'edit',
+            isLoading: isSubmitting,
+            labelEdit: 'Enregistrer',
+            loadingLabel: 'Enregistrement...',
+          }}
+        />
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <FormShellStandard id={formId} onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -189,7 +194,7 @@ export default function TenantForm({ isOpen, onClose, onSubmit, initialData, tit
             />
           </div>
         </div>
-      </form>
+      </FormShellStandard>
     </Modal>
   );
 }

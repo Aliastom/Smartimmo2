@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import {
-  X,
   Edit,
   Trash2,
   FileText,
@@ -44,6 +43,7 @@ import { SUGGESTION_LEVEL_LABELS, type EcheanceRecurrente } from '@/types/echean
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { Drawer } from '@/components/ui/Drawer';
 
 interface Transaction {
   id: string;
@@ -532,43 +532,52 @@ export default function TransactionDrawer({
 
   return (
     <>
-    <div className="fixed inset-0 z-50">
-      {/* Overlay */}
-      <div 
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
-      />
-      
-      {/* Drawer - Mobile: plein écran, Desktop: side panel */}
-      <div className="fixed right-0 top-0 h-screen w-full lg:w-auto lg:max-w-2xl bg-white shadow-xl transform transition-transform">
-        <div className="flex flex-col h-full">
-          {/* Header : MONTANT puis Titre (nature – bien – mois) */}
-          <div className="p-4 border-b space-y-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
+    <Drawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Détail transaction"
+      size="xl"
+      footer={
+        <div className="flex items-center justify-end gap-3 p-4 border-t">
+          {/* ⚠️ Désactiver le bouton Supprimer pour les commissions auto (server-only, supprimées en cascade) */}
+          {(() => {
+            const isAutoCommission = transaction.isAuto === true &&
+              transaction.autoSource === 'gestion' &&
+              transaction.parentTransactionId !== null &&
+              transaction.parentTransactionId !== undefined;
+            
+            return (
+          <Button
+            variant="outline"
+            onClick={() => onDelete(transaction)}
+                disabled={isAutoCommission}
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                title={isAutoCommission ? "Cette commission est supprimée automatiquement avec la transaction parent" : undefined}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Supprimer
+          </Button>
+            );
+          })()}
+          {/* Bouton Modifier masqué - le rapprochement se fait via la checkbox avec autosave */}
+        </div>
+      }
+    >
+      {/* Content : sections espacées, titres visibles */}
+      <div className="p-4">
+        <div className="space-y-6">
+              {/* Header métier conservé dans le body */}
+              <section className="space-y-2 border-b pb-4">
                 <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Montant</p>
                 <p className={`text-2xl font-bold mt-0.5 ${getAmountColor(transaction.nature.type)}`}>
                   {formatAmount(transaction.amount, transaction.nature.type)}
                 </p>
-              </div>
-              <button
-                onClick={onClose}
-                className="text-gray-400 hover:text-gray-600 transition-colors p-1"
-                aria-label="Fermer"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-            <p className="text-sm font-medium text-gray-900 leading-snug">
-              {transaction.nature?.label || transaction.label}
-              {transaction.Property?.name && ` – ${transaction.Property.name}`}
-              {transaction.accountingMonth && ` – ${formatAccountingMonth(transaction.accountingMonth)}`}
-            </p>
-          </div>
-
-          {/* Content : sections espacées, titres visibles */}
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="space-y-6">
+                <p className="text-sm font-medium text-gray-900 leading-snug">
+                  {transaction.nature?.label || transaction.label}
+                  {transaction.Property?.name && ` – ${transaction.Property.name}`}
+                  {transaction.accountingMonth && ` – ${formatAccountingMonth(transaction.accountingMonth)}`}
+                </p>
+              </section>
               {/* Statut */}
               <section>
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Statut</h3>
@@ -919,36 +928,9 @@ export default function TransactionDrawer({
                   </div>
                 )}
               </section>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="flex items-center justify-end gap-3 p-4 border-t">
-            {/* ⚠️ Désactiver le bouton Supprimer pour les commissions auto (server-only, supprimées en cascade) */}
-            {(() => {
-              const isAutoCommission = transaction.isAuto === true &&
-                transaction.autoSource === 'gestion' &&
-                transaction.parentTransactionId !== null &&
-                transaction.parentTransactionId !== undefined;
-              
-              return (
-            <Button
-              variant="outline"
-              onClick={() => onDelete(transaction)}
-                  disabled={isAutoCommission}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={isAutoCommission ? "Cette commission est supprimée automatiquement avec la transaction parent" : undefined}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Supprimer
-            </Button>
-              );
-            })()}
-            {/* Bouton Modifier masqué - le rapprochement se fait via la checkbox avec autosave */}
-          </div>
         </div>
       </div>
-    </div>
+    </Drawer>
 
     <Dialog open={pickEcheanceOpen} onOpenChange={setPickEcheanceOpen}>
       <DialogContent className="max-w-md max-h-[80vh] flex flex-col">

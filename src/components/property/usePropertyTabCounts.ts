@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { getLocalDB } from '@/lib/offline/db';
 import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
@@ -161,14 +161,16 @@ export function usePropertyTabCounts(propertyId: string): PropertyTabCounts {
     };
   }, [organizationId, propertyId, loadCounts]);
 
-  // Ref pour stocker l'AbortController actuel des événements
-  const abortControllerRef = useRef<AbortController | null>(null);
-
   // Écouter les événements de refresh pour mettre à jour les compteurs après les opérations CRUD
   useEffect(() => {
     if (!organizationId || !propertyId) {
       return;
     }
+
+    // Debounce léger : suppression transaction émet souvent transactions:refresh puis documents:refresh
+    // dans le même tick ; l’ancien pattern « abort le chargement précédent » annulait parfois le seul
+    // getAll() avant setCounts → compteurs d’onglets figés (ex. « 6 TRANSACTIONS » alors que la liste est vide).
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const handleRefresh = (event: Event) => {
       // Filtrer les événements par propertyId si spécifié dans le payload
@@ -180,15 +182,11 @@ export function usePropertyTabCounts(propertyId: string): PropertyTabCounts {
         }
       }
 
-      // Annuler le chargement précédent s'il existe
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-
-      // Recharger les compteurs
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
-      loadCounts(organizationId, propertyId, abortController.signal);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        void loadCounts(organizationId, propertyId);
+      }, 60);
     };
 
     // Écouter tous les événements pertinents
@@ -201,11 +199,7 @@ export function usePropertyTabCounts(propertyId: string): PropertyTabCounts {
     window.addEventListener('loans:refresh', handleRefresh);
 
     return () => {
-      // Annuler le chargement en cours lors du démontage
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
+      if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener('sync:refresh', handleRefresh);
       window.removeEventListener('transactions:refresh', handleRefresh);
       window.removeEventListener('documents:refresh', handleRefresh);

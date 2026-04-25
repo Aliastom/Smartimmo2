@@ -860,12 +860,29 @@ function recordSyncOverwriteEvent(event: SyncOverwriteEvent) {
   }
 }
 
+/** Ms UTC pour comparer updatedAt local vs remote (ISO string, Date, nombre). */
+function coerceEntityTimestampMs(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const t = Date.parse(value);
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
+}
+
 /**
  * Service de synchronisation global
  */
 export class GlobalSyncService {
   private _dbPromise: Promise<any> | null = null;
   private _overwriteWarnings: Record<string, number> | null = null;
+  /** >0 pendant syncAllFromRemote : évite un flush toast après chaque entité. */
+  private _syncAllFromRemoteDepth = 0;
 
   private async getDb() {
     if (!this._dbPromise) {
@@ -883,14 +900,11 @@ export class GlobalSyncService {
 
   private registerOverwriteWarning(tableName: string, count: number) {
     if (count <= 0) return;
-    if (this._overwriteWarnings) {
-      this._overwriteWarnings[tableName] = (this._overwriteWarnings[tableName] || 0) + count;
-      return;
+    // Toujours accumuler ; le toast unique est émis par flushOverwriteWarnings (évite une alerte à chaque pull isolé).
+    if (!this._overwriteWarnings) {
+      this._overwriteWarnings = {};
     }
-
-    if (typeof window !== 'undefined') {
-      notify2.warning('Certaines données locales ont été remplacées par une version plus récente du serveur.');
-    }
+    this._overwriteWarnings[tableName] = (this._overwriteWarnings[tableName] || 0) + count;
   }
 
   private flushOverwriteWarnings() {
@@ -935,6 +949,13 @@ export class GlobalSyncService {
       return { pendingOpsCount: 0, diffCount: 0, sampleSize: 0 };
     }
 
+    // Pull GET /transactions + bulkPut : l’écrasement est voulu (source serveur). Un échantillon local
+    // peut contenir une ligne transitoire sans match (!remote) ou des timestamps bruités → faux toasts en boucle.
+    // Le toast « données remplacées » ne doit pas être déclenché sur ce flux ; les vrais conflits métier se voient ailleurs (sync ciblée, file d’ops).
+    if (config.entity === 'transaction') {
+      return { pendingOpsCount: 0, diffCount: 0, sampleSize: 0 };
+    }
+
     const pendingOpsCount = await db.pendingOperations
       .where('entity')
       .equals(config.entity)
@@ -973,25 +994,32 @@ export class GlobalSyncService {
       }
     }
 
+    /** Tolérance horloge / formats Prisma vs ISO ; au-delà = serveur réellement plus récent. */
+    const SERVER_AHEAD_MS = 1500;
+
     let diffCount = 0;
     for (const local of localSample) {
       if (!local || !local.id) continue;
-      const remote = remoteById.get(local.id);
+      const sid = (local as any).serverId as string | undefined;
+      const remote =
+        remoteById.get(local.id) || (sid && sid !== local.id ? remoteById.get(sid) : undefined);
 
-      // Local modifié récemment (best effort)
-      if (local._localUpdatedAt && local._syncedAt && local._localUpdatedAt > local._syncedAt) {
-        diffCount += 1;
-        continue;
-      }
+      // Ne pas traiter « touché localement après dernier pull » comme un écrasement serveur :
+      // ce cas est couvert par pendingOpsCount ; comparer ici uniquement divergence métier serveur > local.
 
       if (!remote) {
         diffCount += 1;
         continue;
       }
 
-      const localUpdatedAt = local.updatedAt || local._localUpdatedAt || local.createdAt;
-      const remoteUpdatedAt = remote.updatedAt || remote.createdAt;
-      if (localUpdatedAt && remoteUpdatedAt && localUpdatedAt !== remoteUpdatedAt) {
+      const localMs =
+        coerceEntityTimestampMs(local.updatedAt) ??
+        coerceEntityTimestampMs((local as any)._localUpdatedAt) ??
+        coerceEntityTimestampMs(local.createdAt);
+      const remoteMs =
+        coerceEntityTimestampMs(remote.updatedAt) ?? coerceEntityTimestampMs(remote.createdAt);
+
+      if (localMs != null && remoteMs != null && remoteMs > localMs + SERVER_AHEAD_MS) {
         diffCount += 1;
         continue;
       }
@@ -1001,35 +1029,79 @@ export class GlobalSyncService {
   }
 
   /**
+   * Après sync serveur, la ligne Transaction peut passer id local → id serveur (serverId).
+   * Les DocumentLink créés en local pointent encore vers l'ancien linkedId : on les remappe avant delete.
+   */
+  private async remapDocumentLinksForTransactionIdChange(
+    db: any,
+    oldLinkedId: string,
+    newLinkedId: string
+  ): Promise<void> {
+    if (!oldLinkedId || !newLinkedId || oldLinkedId === newLinkedId) return;
+    const linkTable = db.DocumentLink;
+    if (!linkTable || typeof linkTable.toArray !== 'function') return;
+
+    const allLinks: any[] = await linkTable.toArray();
+    const hits = allLinks.filter(
+      (link: any) =>
+        String(link.linkedType || '').toLowerCase() === 'transaction' && link.linkedId === oldLinkedId
+    );
+    for (const link of hits) {
+      try {
+        await linkTable.delete([link.documentId, link.linkedType, link.linkedId]);
+      } catch {
+        /* clé composite absente */
+      }
+      const next = {
+        ...link,
+        linkedId: newLinkedId,
+        _syncedAt: link._syncedAt,
+      };
+      try {
+        await linkTable.put(next);
+      } catch (e) {
+        console.warn('[GlobalSync] remap DocumentLink transaction:', oldLinkedId, '→', newLinkedId, e);
+      }
+    }
+  }
+
+  /**
    * Synchronise toutes les entités depuis Supabase vers IndexedDB
    */
   async syncAllFromRemote(organizationId: string): Promise<Record<string, SyncResult>> {
     logToServer(`[APP-SHELL][SYNC] Démarrage syncAllFromRemote pour organizationId=${organizationId}`);
     const results: Record<string, SyncResult> = {};
     this._overwriteWarnings = {};
+    this._syncAllFromRemoteDepth++;
 
-    for (const config of ENTITY_CONFIGS) {
-      try {
-        const result = await this.syncEntityFromRemote(config, organizationId);
-        results[config.entity] = result;
-      } catch (error: any) {
-        console.error(`[GlobalSync] Erreur sync ${config.entity}:`, error);
-        results[config.entity] = {
-          success: false,
-          synced: 0,
-          errors: 0,
-          error: error.message,
-        };
+    try {
+      for (const config of ENTITY_CONFIGS) {
+        try {
+          const result = await this.syncEntityFromRemote(config, organizationId);
+          results[config.entity] = result;
+        } catch (error: any) {
+          console.error(`[GlobalSync] Erreur sync ${config.entity}:`, error);
+          results[config.entity] = {
+            success: false,
+            synced: 0,
+            errors: 0,
+            error: error.message,
+          };
+        }
+      }
+
+      // Log récapitulatif
+      const totalSynced = Object.values(results).reduce((sum, r) => sum + r.synced, 0);
+      const totalErrors = Object.values(results).reduce((sum, r) => sum + r.errors, 0);
+      logToServer(`[APP-SHELL][SYNC] syncAllFromRemote terminé: totalSynced=${totalSynced}, totalErrors=${totalErrors}`);
+
+      return results;
+    } finally {
+      this._syncAllFromRemoteDepth--;
+      if (this._syncAllFromRemoteDepth === 0) {
+        this.flushOverwriteWarnings();
       }
     }
-
-    // Log récapitulatif
-    const totalSynced = Object.values(results).reduce((sum, r) => sum + r.synced, 0);
-    const totalErrors = Object.values(results).reduce((sum, r) => sum + r.errors, 0);
-    logToServer(`[APP-SHELL][SYNC] syncAllFromRemote terminé: totalSynced=${totalSynced}, totalErrors=${totalErrors}`);
-    this.flushOverwriteWarnings();
-
-    return results;
   }
 
   /**
@@ -1056,6 +1128,7 @@ export class GlobalSyncService {
     organizationId: string
   ): Promise<SyncResult> {
     const db = await this.getDb();
+    this._overwriteWarnings = this._overwriteWarnings ?? {};
     try {
       // ⚠️ GESTION SPÉCIALE POUR loanBorrower : l'API nécessite un loanId dans l'URL
       // Les co-emprunteurs sont récupérés via les prêts (dans le payload borrowers lors de la création)
@@ -1350,9 +1423,15 @@ export class GlobalSyncService {
 
       // Détection best-effort d'écrasement potentiel (avant suppression locale)
       const overwriteRisk = await this.detectOverwriteRisk(config, organizationId, itemsToSave, table);
-      const overwriteCount = overwriteRisk.pendingOpsCount + overwriteRisk.diffCount;
-      if (overwriteCount > 0) {
-        this.registerOverwriteWarning(config.tableName, overwriteCount);
+      const pendingPlusDiff = overwriteRisk.pendingOpsCount + overwriteRisk.diffCount;
+      // Pull « transaction » répété (ex. polling commission) : des pendingOps en file (error legacy, etc.)
+      // ne sont pas un « serveur plus récent a écrasé vos données » — ne pas lier au toast sous peine de boucle infinie.
+      const overwriteCountForToast =
+        config.entity === 'transaction' ? overwriteRisk.diffCount : pendingPlusDiff;
+      if (overwriteCountForToast > 0) {
+        this.registerOverwriteWarning(config.tableName, overwriteCountForToast);
+      }
+      if (pendingPlusDiff > 0) {
         recordSyncOverwriteEvent({
           timestamp: now,
           table: config.tableName,
@@ -1398,8 +1477,14 @@ export class GlobalSyncService {
                 // Supprimer uniquement les transactions qui n'ont pas de pendingOp CREATE
                 const allTransactions = await table.where('organizationId').equals(organizationId).toArray();
                 const transactionsToDelete = allTransactions.filter((t: any) => !idsToPreserve.has(t.id));
-                
+
                 if (transactionsToDelete.length > 0) {
+                  for (const t of transactionsToDelete) {
+                    const sid = (t as any).serverId as string | undefined;
+                    if (sid && sid !== t.id) {
+                      await this.remapDocumentLinksForTransactionIdChange(db, t.id, sid);
+                    }
+                  }
                   await Promise.all(transactionsToDelete.map((t: any) => table.delete(t.id)));
                 }
               } else if (config.entity === 'documentLink') {
@@ -1442,7 +1527,9 @@ export class GlobalSyncService {
       }
 
       // Log propre pour vérification (terminal)
-      logToServer(`[APP-SHELL][SYNC] table=${config.tableName} local=${localCount} remote=${filteredItems.length} synced=${synced} overwritten=true`);
+      logToServer(
+        `[APP-SHELL][SYNC] table=${config.tableName} local=${localCount} remote=${filteredItems.length} synced=${synced} overwriteToast=${overwriteCountForToast > 0} pendingOps=${overwriteRisk.pendingOpsCount} diff=${overwriteRisk.diffCount}`
+      );
 
       // Mettre à jour syncMeta (pour tracking, mais pas utilisé pour la logique de sync)
       // ⚠️ IMPORTANT: Utiliser le nom de table (PascalCase) au lieu du nom d'entité (camelCase)
@@ -1461,6 +1548,10 @@ export class GlobalSyncService {
         errors: 0,
         error: error.message,
       };
+    } finally {
+      if (this._syncAllFromRemoteDepth === 0) {
+        this.flushOverwriteWarnings();
+      }
     }
   }
 

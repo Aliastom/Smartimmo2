@@ -1,14 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { X, Trash2, Archive, Merge, Loader2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import { DangerSubmitActionStandard, FormShellStandard } from '@/components/ui/standards';
 
 interface DeleteCategoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  Category: {
+  category: {
     id: string;
     label: string;
     type: string;
@@ -41,6 +42,7 @@ export default function DeleteCategoryModal({
   category,
   compatibleCategories
 }: DeleteCategoryModalProps) {
+  const formId = useId();
   const [usage, setUsage] = useState<CategoryUsage | null>(null);
   const [loading, setLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -74,7 +76,7 @@ export default function DeleteCategoryModal({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!category) return;
 
@@ -163,7 +165,7 @@ export default function DeleteCategoryModal({
               <span className="text-neutral-600">Chargement des informations...</span>
             </div>
           ) : usage ? (
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <FormShellStandard id={formId} onSubmit={handleSubmit} className="space-y-6">
               {/* Informations sur la catégorie */}
               <div className="bg-neutral-50 p-4 rounded-md">
                 <h3 className="font-medium text-neutral-900 mb-2">
@@ -320,43 +322,19 @@ export default function DeleteCategoryModal({
                 >
                   Annuler
                 </button>
-                <button
+                <DangerSubmitActionStandard
                   type="submit"
+                  form={formId}
+                  isLoading={isSubmitting}
                   disabled={isSubmitting || (action === 'merge' && !targetCategoryId)}
-                  className={`px-4 py-2 text-sm font-medium text-base-100 border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center ${
-                    action === 'delete' 
-                      ? 'bg-error hover:bg-red-700' 
-                      : 'bg-primary hover:bg-primary'
-                  }`}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      {action === 'archive' ? 'Archivage...' : action === 'merge' ? 'Fusion...' : 'Suppression...'}
-                    </>
-                  ) : (
-                    <>
-                      {action === 'archive' ? (
-                        <>
-                          <Archive className="h-4 w-4 mr-2" />
-                          Archiver
-                        </>
-                      ) : action === 'merge' ? (
-                        <>
-                          <Merge className="h-4 w-4 mr-2" />
-                          Fusionner
-                        </>
-                      ) : (
-                        <>
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Supprimer
-                        </>
-                      )}
-                    </>
-                  )}
-                </button>
+                  label={action === 'archive' ? 'Archiver' : action === 'merge' ? 'Fusionner' : 'Supprimer'}
+                  loadingLabel={
+                    action === 'archive' ? 'Archivage...' : action === 'merge' ? 'Fusion...' : 'Suppression...'
+                  }
+                  visualVariant={action === 'delete' ? 'danger' : 'primary'}
+                />
               </div>
-            </form>
+            </FormShellStandard>
           ) : (
             <div className="text-center py-8">
               <p className="text-neutral-600">Erreur lors du chargement des informations</p>

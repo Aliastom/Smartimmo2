@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/ui/shared/label';
@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Plus, Edit, Trash2, Save, X, TestTube, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { DocumentSignal } from '@/types/document-types';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 interface SignalsManagementProps {
   documentTypeId: string;
@@ -36,6 +37,7 @@ const PREDEFINED_SIGNALS = [
 ];
 
 export default function SignalsManagement({ documentTypeId }: SignalsManagementProps) {
+  const formId = useId();
   const [signals, setSignals] = useState<DocumentSignal[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -148,7 +150,7 @@ export default function SignalsManagement({ documentTypeId }: SignalsManagementP
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -451,7 +453,7 @@ export default function SignalsManagement({ documentTypeId }: SignalsManagementP
             </DialogDescription>
           </DialogHeader>
           
-          <form onSubmit={handleSave} className="space-y-4">
+          <FormShellStandard id={formId} onSubmit={handleSave} className="space-y-4">
             <div>
               <Label htmlFor="type">Type de signal *</Label>
               <Select value={formData.type} onValueChange={handleTypeChange} disabled={!!editingSignal}>
@@ -671,12 +673,13 @@ export default function SignalsManagement({ documentTypeId }: SignalsManagementP
                 <X className="w-4 h-4 mr-2" />
                 Annuler
               </Button>
-              <Button type="submit">
-                <Save className="w-4 h-4 mr-2" />
-                Sauvegarder
-              </Button>
+              <SaveActionStandard
+                type="submit"
+                form={formId}
+                labelEdit="Sauvegarder"
+              />
             </div>
-          </form>
+          </FormShellStandard>
         </DialogContent>
       </Dialog>
     </div>

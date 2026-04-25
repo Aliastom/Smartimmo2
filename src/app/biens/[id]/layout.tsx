@@ -30,6 +30,8 @@ export default async function PropertyLayout({ children, params }: PropertyLayou
       id: true,
       name: true,
       rentalMode: true,
+      fiscalTypeId: true,
+      fiscalRegimeId: true,
     },
   });
 
@@ -41,7 +43,13 @@ export default async function PropertyLayout({ children, params }: PropertyLayou
     <PropertyHeaderActionsProvider>
       <div className="space-y-6">
         {/* Header avec menu intégré - Partagé pour toutes les sous-pages */}
-        <PropertyHeader propertyId={property.id} propertyName={property.name} rentalMode={property.rentalMode || undefined} />
+        <PropertyHeader
+          propertyId={property.id}
+          propertyName={property.name}
+          rentalMode={property.rentalMode || undefined}
+          fiscalTypeId={property.fiscalTypeId || undefined}
+          fiscalRegimeId={property.fiscalRegimeId || undefined}
+        />
         
         {/* Contenu spécifique à chaque page */}
         {children}

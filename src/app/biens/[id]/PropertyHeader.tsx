@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { usePropertyHeaderActions, useHeaderActionsStatic } from './PropertyHeaderActionsContext';
 import { SectionTitle } from '@/components/ui/SectionTitle';
 import { PropertyTabs } from '@/components/property/PropertyTabs';
+import { PropertyLmnpExportButton } from '@/components/property/PropertyLmnpExportButton';
 import Link from 'next/link';
 import { Menu, X, ArrowRight, ChevronRight, Home } from 'lucide-react';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
@@ -14,6 +15,8 @@ interface PropertyHeaderProps {
   propertyId: string;
   propertyName: string;
   rentalMode?: string;
+  fiscalTypeId?: string;
+  fiscalRegimeId?: string;
   mode?: 'normal' | 'app-shell';
   activeTab?: string;
   onTabChange?: (tabId: string) => void; // ✅ Callback pour changement d'onglet (app-shell uniquement)
@@ -80,7 +83,7 @@ const HeaderActions = React.memo(function HeaderActions() {
 // Mémoriser PropertyTabs pour éviter les re-renders inutiles
 const MemoizedPropertyTabs = React.memo(PropertyTabs);
 
-export const PropertyHeader = React.memo(function PropertyHeader({ propertyId, propertyName, rentalMode, mode = 'normal', activeTab, onTabChange, propertyAddress, propertyPostalCode, propertyCity, leaseTabSummaryLine }: PropertyHeaderProps) {
+export const PropertyHeader = React.memo(function PropertyHeader({ propertyId, propertyName, rentalMode, fiscalTypeId, fiscalRegimeId, mode = 'normal', activeTab, onTabChange, propertyAddress, propertyPostalCode, propertyCity, leaseTabSummaryLine }: PropertyHeaderProps) {
   // ✅ DEV-ONLY: Log de mount/unmount pour détecter les remounts
   React.useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
@@ -164,7 +167,16 @@ export const PropertyHeader = React.memo(function PropertyHeader({ propertyId, p
             )}
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 truncate min-w-0">{config.title}</h1>
             <div className="flex-shrink-0">
-            <HeaderActions />
+              <div className="flex items-center gap-2">
+                <PropertyLmnpExportButton
+                  propertyId={propertyId}
+                  propertyName={propertyName}
+                  fiscalTypeId={fiscalTypeId}
+                  fiscalRegimeId={fiscalRegimeId}
+                  compact
+                />
+                <HeaderActions />
+              </div>
             </div>
           </div>
           {(showAllTransactionsLink || showAllDocumentsLink || showAllEcheancesLink || showAllLeasesLink || showAllLoansLink) && (
@@ -270,7 +282,18 @@ export const PropertyHeader = React.memo(function PropertyHeader({ propertyId, p
     <SectionTitle
       title={config.title}
       description={config.description}
-      actions={actions}
+      actions={
+        <div className="flex items-center gap-2">
+          <PropertyLmnpExportButton
+            propertyId={propertyId}
+            propertyName={propertyName}
+            fiscalTypeId={fiscalTypeId}
+            fiscalRegimeId={fiscalRegimeId}
+            compact
+          />
+          {actions}
+        </div>
+      }
     />
   );
 }, (prevProps, nextProps) => {
@@ -281,6 +304,8 @@ export const PropertyHeader = React.memo(function PropertyHeader({ propertyId, p
     prevProps.propertyId === nextProps.propertyId &&
     prevProps.propertyName === nextProps.propertyName &&
     prevProps.rentalMode === nextProps.rentalMode &&
+    prevProps.fiscalTypeId === nextProps.fiscalTypeId &&
+    prevProps.fiscalRegimeId === nextProps.fiscalRegimeId &&
     prevProps.mode === nextProps.mode &&
     prevProps.activeTab === nextProps.activeTab &&
     prevProps.onTabChange === nextProps.onTabChange &&

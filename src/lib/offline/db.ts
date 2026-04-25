@@ -485,6 +485,71 @@ export interface LocalUserProfile {
   _syncedAt?: string;
 }
 
+export interface InvestmentSettings {
+  id: string;
+  organizationId: string;
+  referenceSymbol: string;
+  referenceLabel: string;
+  envelope: string;
+  athPeriod: '5Y' | '10Y' | 'MAX';
+  availableCash: number;
+  monthlyDcaAmount: number;
+  reinforce10Threshold: number;
+  reinforce20Threshold: number;
+  reinforce10Amount: number;
+  reinforce20Amount: number;
+  strategy: 'DCA_ONLY' | 'DCA_PLUS_REINFORCE';
+  cashReferenceAmount: number;
+  currency: string;
+  updatedAt: string;
+}
+
+export interface MarketSnapshot {
+  id: string;
+  organizationId: string;
+  symbol: string;
+  currentPrice: number;
+  athPrice: number;
+  drawdownPercent: number;
+  athDate?: string | null;
+  fetchedAt: string;
+  source: string;
+}
+
+export interface InvestmentActionLog {
+  id: string;
+  organizationId: string;
+  date: string;
+  type: 'DCA' | 'REINFORCE_10' | 'REINFORCE_20' | 'MANUAL';
+  recommendedAmount: number;
+  validatedAmount: number;
+  cashBefore: number;
+  cashAfter: number;
+  reason: string;
+  drawdownAtDecision: number;
+  athPriceAtDecision: number;
+  currentPriceAtDecision: number;
+  symbolAtDecision: string;
+  marketStatusAtDecision: 'NORMAL' | 'OPPORTUNITE' | 'FORTE_OPPORTUNITE';
+  athPeriodAtDecision: '5Y' | '10Y' | 'MAX';
+  status: 'suggested' | 'validated' | 'ignored';
+  note?: string | null;
+  thresholdKey?: string | null;
+  marketLevelKey?: string | null;
+  drawdownPercentAtAction?: number | null;
+}
+
+export interface MarketAlert {
+  id: string;
+  organizationId: string;
+  symbol: string;
+  level: 'OPPORTUNITE' | 'FORTE_OPPORTUNITE';
+  message: string;
+  drawdownPercent: number;
+  createdAt: string;
+  readAt?: string | null;
+}
+
 // Type pour Table (sera importé dynamiquement avec Dexie)
 type Table<T, TKey> = any;
 
@@ -887,6 +952,10 @@ export async function getLocalDB(): Promise<any> {
   UserProfile!: Table<LocalUserProfile, string>;
   FiscalAggregateCache!: Table<FiscalAggregateCache, string>;
   FiscalSessionCache!: Table<FiscalSessionCache, string>;
+  InvestmentSettings!: Table<InvestmentSettings, [string, string]>;
+  MarketSnapshot!: Table<MarketSnapshot, [string, string]>;
+  InvestmentActionLog!: Table<InvestmentActionLog, string>;
+  MarketAlert!: Table<MarketAlert, string>;
 
   constructor() {
           // ⚠️ CRITIQUE: Passer explicitement indexedDB et IDBKeyRange au constructeur Dexie
@@ -1410,6 +1479,55 @@ export async function getLocalDB(): Promise<any> {
         'id, echeanceId, transactionId, organizationId, [echeanceId+transactionId]',
     }).upgrade(async () => {
       console.log('[Migration v17] Table EcheanceTransactionLink (liaison échéance-transaction)');
+    });
+
+    this.version(18).stores({
+      InvestmentSettings: '[organizationId+id], organizationId, referenceSymbol, updatedAt',
+      MarketSnapshot: '[organizationId+symbol], organizationId, symbol, fetchedAt',
+      InvestmentActionLog: 'id, organizationId, date, status, thresholdKey, [organizationId+date]',
+      MarketAlert: 'id, organizationId, level, createdAt',
+    }).upgrade(async () => {
+      console.log('[Migration v18] Tables marché ETF ajoutées');
+    });
+
+    this.version(19).stores({
+      InvestmentSettings: '[organizationId+id], organizationId, referenceSymbol, strategy, updatedAt',
+      MarketSnapshot: '[organizationId+symbol], organizationId, symbol, fetchedAt',
+      InvestmentActionLog:
+        'id, organizationId, date, status, thresholdKey, symbolAtDecision, marketStatusAtDecision, [organizationId+date]',
+      MarketAlert: 'id, organizationId, level, createdAt',
+    }).upgrade(async (tx) => {
+      const settingsRows = await tx.table('InvestmentSettings').toArray();
+      for (const row of settingsRows) {
+        const normalized = {
+          ...row,
+          strategy: row.strategy ?? 'DCA_PLUS_REINFORCE',
+          cashReferenceAmount:
+            typeof row.cashReferenceAmount === 'number' ? row.cashReferenceAmount : row.availableCash ?? 0,
+        };
+        await tx.table('InvestmentSettings').put(normalized);
+      }
+      console.log('[Migration v19] Settings/Logs opportunités enrichis');
+    });
+
+    this.version(20).stores({
+      InvestmentSettings: '[organizationId+id], organizationId, referenceSymbol, strategy, updatedAt',
+      MarketSnapshot: '[organizationId+symbol], organizationId, symbol, fetchedAt',
+      InvestmentActionLog:
+        'id, organizationId, date, status, thresholdKey, symbolAtDecision, marketStatusAtDecision, [organizationId+date]',
+      MarketAlert: 'id, organizationId, level, createdAt',
+    }).upgrade(async (tx) => {
+      const settingsRows = await tx.table('InvestmentSettings').toArray();
+      for (const row of settingsRows) {
+        await tx.table('InvestmentSettings').put({
+          ...row,
+          reinforce10Threshold:
+            typeof row.reinforce10Threshold === 'number' ? row.reinforce10Threshold : -10,
+          reinforce20Threshold:
+            typeof row.reinforce20Threshold === 'number' ? row.reinforce20Threshold : -20,
+        });
+      }
+      console.log('[Migration v20] Seuils de renfort opportunités normalisés');
     });
   }
       };

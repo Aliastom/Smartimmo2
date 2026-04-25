@@ -4,8 +4,8 @@ import React from 'react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Drawer } from '@/components/ui/Drawer';
 import { 
-  X, 
   Building2, 
   Users, 
   Calendar, 
@@ -155,38 +155,53 @@ export function LeasesDetailDrawer({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
-      {/* Overlay */}
-      <div 
-        className="absolute inset-0 bg-black bg-opacity-50 transition-opacity"
-        onClick={onClose}
-      />
-      
-      {/* Drawer */}
-      <div className="absolute right-0 top-0 h-full w-full max-w-2xl bg-white shadow-xl transform transition-transform">
-        <div className="flex flex-col h-full">
-          {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-gray-200">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                Détail du bail
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                {lease.Property.name}
-              </p>
+    <Drawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Détail du bail"
+      size="xl"
+      footerAlreadyStandardized
+      footer={
+        <div className="border-t border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onEdit?.(lease)}
+                className="flex items-center gap-2"
+              >
+                <Edit className="h-4 w-4" />
+                Modifier
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onActions?.(lease)}
+                className="flex items-center gap-2"
+              >
+                <Settings className="h-4 w-4" />
+                Actions
+              </Button>
             </div>
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              onClick={onClose}
-              className="p-2"
+              onClick={() => onDelete?.(lease)}
+              className="flex items-center gap-2 text-red-600 border-red-300 hover:bg-red-50"
             >
-              <X className="h-5 w-5" />
+              <Trash2 className="h-4 w-4" />
+              Supprimer
             </Button>
           </div>
-
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        </div>
+      }
+    >
+      {/* Content */}
+      <div className="p-6 space-y-6">
+            <section className="border-b border-gray-200 pb-4">
+              <p className="text-sm text-gray-500">{lease.Property.name}</p>
+            </section>
             {/* Statut et actions rapides */}
             <Card>
               <CardHeader className="pb-3">
@@ -407,44 +422,7 @@ export function LeasesDetailDrawer({
                 </CardContent>
               </Card>
             )}
-          </div>
-
-          {/* Footer avec actions */}
-          <div className="border-t border-gray-200 p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onEdit?.(lease)}
-                  className="flex items-center gap-2"
-                >
-                  <Edit className="h-4 w-4" />
-                  Modifier
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onActions?.(lease)}
-                  className="flex items-center gap-2"
-                >
-                  <Settings className="h-4 w-4" />
-                  Actions
-                </Button>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onDelete?.(lease)}
-                className="flex items-center gap-2 text-red-600 border-red-300 hover:bg-red-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                Supprimer
-              </Button>
-            </div>
-          </div>
         </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }

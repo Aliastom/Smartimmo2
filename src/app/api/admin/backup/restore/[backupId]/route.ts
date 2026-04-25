@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminBackupService } from '@/services/AdminBackupService';
 import { prisma } from '@/lib/prisma';
 import fs from 'fs/promises';
-import path from 'path';
 import { protectAdminRoute } from '@/lib/auth/protectAdminRoute';
 import { getCurrentUser } from '@/lib/auth/getCurrentUser';
 
@@ -50,10 +49,9 @@ export async function POST(
       );
     }
 
-    // 4. Charger le fichier (depuis le stockage local ou S3)
-    // Pour l'instant, on suppose un stockage local
-    const backupPath = path.join(process.cwd(), 'backups', backupRecord.fileUrl);
-    
+    // 4. Charger le fichier réellement référencé dans l'historique
+    const backupPath = adminBackupService.resolveBackupAbsolutePath(backupRecord.fileUrl);
+
     let buffer: Buffer;
     try {
       buffer = await fs.readFile(backupPath);
@@ -112,6 +110,7 @@ export async function POST(
         strategy,
         diff: result.diff,
         applied: result.applied,
+        logs: result.logs,
       },
     });
   } catch (error) {

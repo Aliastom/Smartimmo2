@@ -39,6 +39,7 @@ import {
 } from './unified';
 import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
 import { usePropertyInsights, PropertyDocumentsInsights } from '@/features/insights/hooks/usePropertyInsights';
+import { FormShellStandard } from '@/components/ui/standards';
 
 interface PropertyDocumentsUnifiedProps {
   propertyId: string;
@@ -559,7 +560,7 @@ export function PropertyDocumentsUnified({ propertyId, propertyName }: PropertyD
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSearch} className="space-y-4">
+          <FormShellStandard onSubmit={handleSearch} className="space-y-4">
             <div className="flex gap-4">
               <div className="flex-1">
                 <Input
@@ -576,7 +577,7 @@ export function PropertyDocumentsUnified({ propertyId, propertyName }: PropertyD
                 <X className="h-4 w-4" />
               </Button>
             </div>
-          </form>
+          </FormShellStandard>
         </CardContent>
       </Card>
 

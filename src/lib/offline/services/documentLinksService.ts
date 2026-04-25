@@ -417,6 +417,44 @@ export async function getLinkedDocumentsForTransactions(
 }
 
 /**
+ * Compteur PJ pour le tableau : les liens restent sur la transaction mère ;
+ * la ligne commission auto gestion réaffiche le même total que la mère.
+ */
+export function transactionDocumentsCountForTableRow(
+  trans: {
+    id: string;
+    parentTransactionId?: string | null;
+    isAuto?: boolean | null;
+    autoSource?: string | null;
+    label?: string | null;
+  },
+  counts: Map<string, number>
+): number {
+  const own = counts.get(trans.id) || 0;
+  if (own > 0) return own;
+  const pid = trans.parentTransactionId ? String(trans.parentTransactionId) : '';
+  if (!pid) return 0;
+  const parentCount = counts.get(pid) || 0;
+  if (parentCount <= 0) return 0;
+
+  const src = String(trans.autoSource || '').toLowerCase();
+  const gestion = src === 'gestion';
+  const lbl = String(trans.label || '').toLowerCase();
+  const looksCommissionByLabel = lbl.includes('commission');
+  const auto =
+    trans.isAuto === true || (trans as { isAuto?: unknown }).isAuto === 1;
+
+  // Commission serveur : gestion + (isAuto ou libellé) ; repli si isAuto absent après sync partielle
+  if (gestion && (auto || looksCommissionByLabel)) {
+    return parentCount;
+  }
+  if (looksCommissionByLabel) {
+    return parentCount;
+  }
+  return 0;
+}
+
+/**
  * Compte les documents pour plusieurs transactions en une seule requête (optimisation)
  * @param transactionIds Liste des IDs de transactions
  * @param organizationId ID de l'organisation

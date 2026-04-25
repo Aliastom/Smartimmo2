@@ -42,11 +42,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 3. Générer l'export
-    const exportStream = await adminBackupService.exportAdmin({
+    // 3. Générer l'export + persister l'archive dans l'historique
+    const exportResult = await adminBackupService.exportAdminAndSave({
       scope: 'admin',
       includeSensitive,
-    });
+    }, user.id);
 
     // 4. Audit log
     await prisma.appConfig.upsert({
@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
           timestamp: new Date().toISOString(),
           userId: user.id,
           scope,
+          backupRecordId: exportResult.backupRecordId,
         }),
       },
       create: {
@@ -64,6 +65,7 @@ export async function GET(request: NextRequest) {
           timestamp: new Date().toISOString(),
           userId: user.id,
           scope,
+          backupRecordId: exportResult.backupRecordId,
         }),
         description: 'Dernier export de backup admin',
       },
@@ -73,18 +75,14 @@ export async function GET(request: NextRequest) {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const filename = `smartimmo-admin-backup-${timestamp}.zip`;
 
-    // Convertir le stream en Response
-    const chunks: Buffer[] = [];
-    for await (const chunk of exportStream) {
-      chunks.push(Buffer.from(chunk));
-    }
-    const buffer = Buffer.concat(chunks);
+    const buffer = exportResult.buffer;
 
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Content-Length': buffer.length.toString(),
+        'X-Backup-Record-Id': exportResult.backupRecordId,
       },
     });
   } catch (error) {

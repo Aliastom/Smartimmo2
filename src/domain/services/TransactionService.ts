@@ -319,34 +319,68 @@ export class TransactionService {
                       commissionLabel = `Commission de gestion - ${company.nom}`;
                     }
 
-                    // Créer la transaction de commission
-                    const commissionData: CreateTransactionData = {
+                    const commissionDate = typeof params.date === 'string' ? new Date(params.date) : params.date;
+                    const commissionPaidAt = params.paidAt
+                      ? (typeof params.paidAt === 'string' ? new Date(params.paidAt) : params.paidAt)
+                      : null;
+
+                    // Anti-doublon : double clic / retry / race → une seule commission auto « gestion » par parent
+                    const existingCommission = await this.deps.transactionRepo.findFirst({
                       organizationId: params.organizationId,
-                      propertyId: params.propertyId,
-                      leaseId: transaction.leaseId || null,
-                      bailId: transaction.bailId || null,
-                      categoryId: fraisGestionCategory.id,
-                      label: commissionLabel,
-                      amount: -commissionTTC, // Négatif car dépense
-                      date: typeof params.date === 'string' ? new Date(params.date) : params.date,
-                      accounting_month: currentMonth,
-                      nature: codes.mgmtNature || null,
                       parentTransactionId: transaction.id,
-                      managementCompanyId: company.id,
                       isAuto: true,
                       autoSource: 'gestion',
-                      isAutoAmount: false,
-                      reference: params.reference || null,
-                      paidAt: params.paidAt ? (typeof params.paidAt === 'string' ? new Date(params.paidAt) : params.paidAt) : null,
-                      method: params.method || null,
-                      notes: commissionNotes,
-                      rapprochementStatus: params.rapprochementStatus || 'non_rapprochee',
-                      bankRef: params.bankRef || null,
-                      source: 'MANUAL',
-                    };
+                    });
 
-                    commissionTransaction = await this.deps.transactionRepo.create(commissionData);
-                    transactions.push(commissionTransaction);
+                    if (existingCommission) {
+                      if (existingCommission.isAuto) {
+                        const updated = await this.deps.transactionRepo.update(existingCommission.id, {
+                          amount: -commissionTTC,
+                          label: commissionLabel,
+                          notes: commissionNotes,
+                          date: commissionDate,
+                          accounting_month: currentMonth,
+                          reference: params.reference || null,
+                          paidAt: commissionPaidAt,
+                          method: params.method || null,
+                          rapprochementStatus: params.rapprochementStatus || 'non_rapprochee',
+                          bankRef: params.bankRef || null,
+                        });
+                        commissionTransaction = updated;
+                        if (!transactions.some(t => t.id === updated.id)) {
+                          transactions.push(updated);
+                        }
+                      }
+                      // Commission verrouillée manuellement : ne pas recréer ni écraser
+                    } else {
+                      const commissionData: CreateTransactionData = {
+                        organizationId: params.organizationId,
+                        propertyId: params.propertyId,
+                        leaseId: transaction.leaseId || null,
+                        bailId: transaction.bailId || null,
+                        categoryId: fraisGestionCategory.id,
+                        label: commissionLabel,
+                        amount: -commissionTTC,
+                        date: commissionDate,
+                        accounting_month: currentMonth,
+                        nature: codes.mgmtNature || null,
+                        parentTransactionId: transaction.id,
+                        managementCompanyId: company.id,
+                        isAuto: true,
+                        autoSource: 'gestion',
+                        isAutoAmount: false,
+                        reference: params.reference || null,
+                        paidAt: commissionPaidAt,
+                        method: params.method || null,
+                        notes: commissionNotes,
+                        rapprochementStatus: params.rapprochementStatus || 'non_rapprochee',
+                        bankRef: params.bankRef || null,
+                        source: 'MANUAL',
+                      };
+
+                      commissionTransaction = await this.deps.transactionRepo.create(commissionData);
+                      transactions.push(commissionTransaction);
+                    }
                   }
                 }
               }
@@ -364,6 +398,8 @@ export class TransactionService {
     // (ils sont créés côté serveur via /api/upload-staged). Le serveur créera les liens lors de la sync.
     // On ne traite les documents localement que s'ils existent dans IndexedDB.
     if (params.stagedDocumentIds && params.stagedDocumentIds.length > 0) {
+      const __txEndCreateDocuments = txPerfMeasureZone('tx:create:documents');
+      try {
       await txHotPathDebugLog(`[TransactionService] 📎 Traitement stagedDocumentIds: ${params.stagedDocumentIds.length} document(s) - IDs: ${params.stagedDocumentIds.join(', ')} - Transaction IDs: ${transactions.map(t => t.id).join(', ')}`);
       
       // Vérifier quels documents existent localement
@@ -487,68 +523,76 @@ export class TransactionService {
         // et seront récupérés lors du pull des documentLinks
         await txHotPathDebugLog(`[TransactionService] ⚠️ Aucun document brouillon local trouvé pour stagedDocumentIds - Demandés: ${params.stagedDocumentIds.join(', ')} - Les documents sont probablement uniquement côté serveur, les liens seront créés lors du push vers le serveur`, 'warn');
       }
+      } finally {
+        __txEndCreateDocuments();
+      }
     }
 
     // Gérer les liens vers documents existants (stagedLinkItemIds)
     if (params.stagedLinkItemIds && params.stagedLinkItemIds.length > 0) {
-      await txHotPathDebugLog(`[TransactionService] 📎 Traitement stagedLinkItemIds: ${params.stagedLinkItemIds.length} document(s) - IDs: ${params.stagedLinkItemIds.join(', ')} - Transaction IDs: ${transactions.map(t => t.id).join(', ')}`);
-      
-      // ✅ Vérifier quels documents existent localement dans IndexedDB
-      // (les documents peuvent exister côté serveur mais pas encore dans IndexedDB si pas sync)
-      const existingDocs = await this.deps.documentRepo.findMany({
-        id: { in: params.stagedLinkItemIds },
-        organizationId: params.organizationId,
-      });
-      
-      await txHotPathDebugLog(`[TransactionService] 📎 Documents trouvés localement: ${existingDocs.length}/${params.stagedLinkItemIds.length} - Trouvés: ${existingDocs.map(d => d.id).join(', ')} - Demandés: ${params.stagedLinkItemIds.join(', ')}`);
-      
-      const existingDocIds = new Set(existingDocs.map(doc => doc.id));
-      
-      // ⚠️ Filtrer pour ne créer des liens que pour les documents qui existent localement
-      const docIdsToLink = params.stagedLinkItemIds.filter(docId => existingDocIds.has(docId));
-      
-      if (docIdsToLink.length === 0) {
-        await txHotPathDebugLog(`[TransactionService] ⚠️ Aucun document local trouvé pour stagedLinkItemIds - Demandés: ${params.stagedLinkItemIds.join(', ')} - Trouvés: ${existingDocs.map(d => d.id).join(', ')} - Les liens seront créés par le serveur lors de la sync`, 'warn');
-      } else {
-        await txHotPathDebugLog(`[TransactionService] ✅ Création de liens pour ${docIdsToLink.length} document(s) local(aux) existant(s) - DocIds: ${docIdsToLink.join(', ')} - TransactionIds: ${transactions.map(t => t.id).join(', ')}`);
-        // Créer les liens uniquement pour les documents qui existent localement
-        for (const docId of docIdsToLink) {
-        for (const transaction of transactions) {
-            await txHotPathDebugLog(`[TransactionService] 📎 Création lien: docId=${docId}, transactionId=${transaction.id}`);
-            try {
-              const linkResult = await this.deps.documentLinkRepo.create({
-            documentId: docId,
-            linkedType: 'transaction',
-            linkedId: transaction.id,
-          });
-              await txHotPathDebugLog(`[TransactionService] ✅ Lien transaction créé avec succès: docId=${linkResult.documentId}, linkedType=${linkResult.linkedType}, linkedId=${linkResult.linkedId}`);
-            } catch (linkError: any) {
-              await txHotPathDebugLog(`[TransactionService] ❌ Erreur lors de la création du lien: docId=${docId}, transactionId=${transaction.id}, erreur=${linkError.message || linkError}`, 'error');
-              throw linkError;
+      const __txEndCreateLinks = txPerfMeasureZone('tx:create:links');
+      try {
+        await txHotPathDebugLog(`[TransactionService] 📎 Traitement stagedLinkItemIds: ${params.stagedLinkItemIds.length} document(s) - IDs: ${params.stagedLinkItemIds.join(', ')} - Transaction IDs: ${transactions.map(t => t.id).join(', ')}`);
+
+        // ✅ Vérifier quels documents existent localement dans IndexedDB
+        // (les documents peuvent exister côté serveur mais pas encore dans IndexedDB si pas sync)
+        const existingDocs = await this.deps.documentRepo.findMany({
+          id: { in: params.stagedLinkItemIds },
+          organizationId: params.organizationId,
+        });
+
+        await txHotPathDebugLog(`[TransactionService] 📎 Documents trouvés localement: ${existingDocs.length}/${params.stagedLinkItemIds.length} - Trouvés: ${existingDocs.map(d => d.id).join(', ')} - Demandés: ${params.stagedLinkItemIds.join(', ')}`);
+
+        const existingDocIds = new Set(existingDocs.map(doc => doc.id));
+
+        // ⚠️ Filtrer pour ne créer des liens que pour les documents qui existent localement
+        const docIdsToLink = params.stagedLinkItemIds.filter(docId => existingDocIds.has(docId));
+
+        if (docIdsToLink.length === 0) {
+          await txHotPathDebugLog(`[TransactionService] ⚠️ Aucun document local trouvé pour stagedLinkItemIds - Demandés: ${params.stagedLinkItemIds.join(', ')} - Trouvés: ${existingDocs.map(d => d.id).join(', ')} - Les liens seront créés par le serveur lors de la sync`, 'warn');
+        } else {
+          await txHotPathDebugLog(`[TransactionService] ✅ Création de liens pour ${docIdsToLink.length} document(s) local(aux) existant(s) - DocIds: ${docIdsToLink.join(', ')} - TransactionIds: ${transactions.map(t => t.id).join(', ')}`);
+          // Créer les liens uniquement pour les documents qui existent localement
+          for (const docId of docIdsToLink) {
+            for (const transaction of transactions) {
+              await txHotPathDebugLog(`[TransactionService] 📎 Création lien: docId=${docId}, transactionId=${transaction.id}`);
+              try {
+                const linkResult = await this.deps.documentLinkRepo.create({
+                  documentId: docId,
+                  linkedType: 'transaction',
+                  linkedId: transaction.id,
+                });
+                await txHotPathDebugLog(`[TransactionService] ✅ Lien transaction créé avec succès: docId=${linkResult.documentId}, linkedType=${linkResult.linkedType}, linkedId=${linkResult.linkedId}`);
+              } catch (linkError: any) {
+                await txHotPathDebugLog(`[TransactionService] ❌ Erreur lors de la création du lien: docId=${docId}, transactionId=${transaction.id}, erreur=${linkError.message || linkError}`, 'error');
+                throw linkError;
+              }
+
+              if (transaction.propertyId) {
+                await this.deps.documentLinkRepo.create({
+                  documentId: docId,
+                  linkedType: 'property',
+                  linkedId: transaction.propertyId,
+                });
+              }
+              if (transaction.leaseId) {
+                await this.deps.documentLinkRepo.create({
+                  documentId: docId,
+                  linkedType: 'lease',
+                  linkedId: transaction.leaseId,
+                });
+              }
+              await this.deps.documentLinkRepo.create({
+                documentId: docId,
+                linkedType: 'global',
+                linkedId: 'global',
+              });
             }
-            
-          if (transaction.propertyId) {
-            await this.deps.documentLinkRepo.create({
-              documentId: docId,
-              linkedType: 'property',
-              linkedId: transaction.propertyId,
-            });
           }
-          if (transaction.leaseId) {
-            await this.deps.documentLinkRepo.create({
-              documentId: docId,
-              linkedType: 'lease',
-              linkedId: transaction.leaseId,
-            });
-          }
-          await this.deps.documentLinkRepo.create({
-            documentId: docId,
-            linkedType: 'global',
-            linkedId: 'global',
-          });
+          await txHotPathDebugLog(`[TransactionService] ✅ Liens créés avec succès pour ${docIdsToLink.length} document(s)`);
         }
-      }
-        await txHotPathDebugLog(`[TransactionService] ✅ Liens créés avec succès pour ${docIdsToLink.length} document(s)`);
+      } finally {
+        __txEndCreateLinks();
       }
     } else {
       await txHotPathDebugLog('[TransactionService] ℹ️ Aucun stagedLinkItemIds fourni');

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
 import { X, Upload, Trash2, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -9,6 +9,7 @@ import { useAccountingMapping } from '../hooks/useAccountingMapping';
 import { TransactionDocumentUpload } from './TransactionDocumentUpload';
 import { useDocumentTypes } from '@/hooks/useDocuments';
 import { DocumentType } from '@/types/document';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 interface TransactionModalProps {
   isOpen: boolean;
@@ -55,6 +56,7 @@ export default function TransactionModal({
   duplicatingPayment,
   currentFilters,
 }: TransactionModalProps) {
+  const formId = useId();
   const queryClient = useQueryClient();
   const { data: documentTypes = [] } = useDocumentTypes();
   const [propertyId, setPropertyId] = useState(defaultPropertyId || '');
@@ -389,7 +391,7 @@ export default function TransactionModal({
     setExistingAttachments(prev => prev.filter(att => att.id !== attachmentId));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
     if (!propertyId || !amount || !date || !nature) {
@@ -626,7 +628,7 @@ export default function TransactionModal({
             <p className="text-sm text-neutral-600">Chargement...</p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <FormShellStandard id={formId} onSubmit={handleSubmit} className="space-y-4">
             {/* Bien concerné */}
             <div>
               <label className="block text-sm font-medium text-neutral-700 mb-1">
@@ -993,22 +995,17 @@ export default function TransactionModal({
               >
                 Annuler
               </button>
-              <button
+              <SaveActionStandard
                 type="submit"
                 disabled={isSubmitting}
-                className="px-4 py-2 bg-primary text-base-100 rounded-md hover:bg-primary transition-colors disabled:bg-neutral-300 disabled:cursor-not-allowed flex items-center"
-              >
-                {isSubmitting ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    {mode === 'create' ? 'Création...' : 'Modification...'}
-                  </>
-                ) : (
-                  mode === 'create' ? 'Enregistrer' : 'Enregistrer les modifications'
-                )}
-              </button>
+                isLoading={isSubmitting}
+                mode={mode === 'create' ? 'create' : 'edit'}
+                labelCreate="Enregistrer"
+                labelEdit="Enregistrer les modifications"
+                loadingLabel={mode === 'create' ? 'Création...' : 'Modification...'}
+              />
             </div>
-          </form>
+          </FormShellStandard>
         )}
       </div>
     </div>

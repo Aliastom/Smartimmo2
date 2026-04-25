@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { X, Save, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 
 interface CreateCategoryModalProps {
   isOpen: boolean;
@@ -19,6 +20,7 @@ export default function CreateCategoryModal({
   allowedTypes,
   currentNature
 }: CreateCategoryModalProps) {
+  const formId = useId();
   const [formData, setFormData] = useState({
     label: '',
     type: allowedTypes[0] || 'REVENU',
@@ -28,7 +30,7 @@ export default function CreateCategoryModal({
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
 
@@ -94,7 +96,7 @@ export default function CreateCategoryModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <FormShellStandard id={formId} onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Label */}
           <div>
             <label className="block text-sm font-medium text-neutral-700 mb-1">
@@ -175,33 +177,19 @@ export default function CreateCategoryModal({
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end space-x-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-neutral-700 bg-base-100 border border-neutral-300 rounded-md hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              Annuler
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || !formData.label.trim()}
-              className="px-4 py-2 text-sm font-medium text-base-100 bg-primary border border-transparent rounded-md hover:bg-primary focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Création...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  Créer
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+          <FormShellStandardFooter
+            formId={formId}
+            onCancel={onClose}
+            className="pt-4"
+            saveActionProps={{
+              mode: 'create',
+              isLoading: isSubmitting,
+              disabled: isSubmitting || !formData.label.trim(),
+              labelCreate: 'Créer',
+              loadingLabel: 'Création...',
+            }}
+          />
+        </FormShellStandard>
       </div>
     </div>
   );

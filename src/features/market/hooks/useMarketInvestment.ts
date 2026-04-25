@@ -59,15 +59,12 @@ export function useMarketInvestment(organizationId?: string) {
   const activeRadarToastIdRef = useRef<string | null>(null);
   const radarRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const previousRadarOpportunityKeyRef = useRef<string>('');
-  const refreshInFlightByKeyRef = useRef<Map<string, Promise<void>>>(new Map());
-  const historyInFlightByKeyRef = useRef<Map<string, Promise<void>>>(new Map());
   const historyLoadedKeyRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     if (!organizationId) return;
     setLoading(true);
     const loadedSettings = await marketInvestmentStorage.getSettings(organizationId);
-    const loadedSnapshot = await marketInvestmentStorage.getSnapshot(organizationId, loadedSettings.referenceSymbol);
     const presetSymbols = ETF_REFERENCE_ALIASES.map((item) => item.defaultProviderSymbol);
     const loadedRadarSnapshots = await marketInvestmentStorage.listSnapshots(organizationId, presetSymbols);
     const loadedHistory = await marketInvestmentStorage.listActionLogs(organizationId, 12);
@@ -76,8 +73,10 @@ export function useMarketInvestment(organizationId?: string) {
       return acc;
     }, {});
     setSettings(loadedSettings);
-    setSnapshot(loadedSnapshot);
     setRadarSnapshots(radarMap);
+    const activeLocalSnapshot = radarMap[loadedSettings.referenceSymbol] ?? null;
+    setSnapshot(activeLocalSnapshot);
+    setPriceHistory([]);
     const latestRadarSnapshot = loadedRadarSnapshots
       .slice()
       .sort((a, b) => b.fetchedAt.localeCompare(a.fetchedAt))[0];
@@ -119,7 +118,7 @@ export function useMarketInvestment(organizationId?: string) {
           : ttlMs;
         const nextAutoRefreshInHours = Math.max(1, Math.ceil(nextAutoRefreshInMs / (60 * 60 * 1000)));
         setRadarRefreshMode('skipped-fresh');
-        setRadarRefreshNote(`Données déjà à jour — prochaine actualisation automatique dans ${nextAutoRefreshInHours} h.`);
+        setRadarRefreshNote(`Données à jour — prochaine actualisation automatique dans ${nextAutoRefreshInHours} h`);
         return;
       }
       if (radarRefreshInFlightRef.current) {
@@ -130,10 +129,10 @@ export function useMarketInvestment(organizationId?: string) {
       const run = (async () => {
         setIsRefreshingRadar(true);
         setRadarRefreshMode(force ? 'manual-forced' : 'auto');
-        setRadarRefreshNote('Actualisation des données marché en cours…');
+        setRadarRefreshNote('Actualisation des données marché…');
         if (options?.reason === 'manual') {
           setRadarRefreshMode('manual-forced');
-          setRadarRefreshNote('Actualisation forcée demandée. Les appels sont limités pour éviter les restrictions API.');
+          setRadarRefreshNote('Actualisation forcée — requête API en cours');
         }
         try {
           const statuses = await marketDataService.fetchPresetEtfStatuses({
@@ -170,9 +169,15 @@ export function useMarketInvestment(organizationId?: string) {
           }
           setRadarSnapshots(nextRadarMap);
           setRadarLastRefreshedAt(now);
+          const activeLocalSnapshot = nextRadarMap[settings.referenceSymbol] ?? null;
+          setSnapshot(activeLocalSnapshot);
+          if (activeLocalSnapshot) {
+            setMarketError(null);
+          }
+          setPriceHistory([]);
         } catch {
           setRadarRefreshMode('error');
-          setRadarRefreshNote('Limite de récupération atteinte. Réessayez plus tard ou utilisez la saisie manuelle.');
+          setRadarRefreshNote('Limite atteinte — réessayez plus tard');
           throw new Error('RADAR_REFRESH_FAILED');
         } finally {
           setIsRefreshingRadar(false);
@@ -194,137 +199,43 @@ export function useMarketInvestment(organizationId?: string) {
     [organizationId, radarSnapshots, settings]
   );
 
-  const refreshSnapshot = useCallback(async (nextSettings?: InvestmentSettings, reason: 'default' | 'etf-change' = 'default') => {
-    const targetSettings = nextSettings ?? settings;
-    if (!organizationId || !targetSettings) return;
-    const providerSymbol = resolveMarketSymbol(targetSettings.referenceSymbol);
-    const requestKey = `${providerSymbol}::${targetSettings.athPeriod}`;
-    const existingRefresh = refreshInFlightByKeyRef.current.get(requestKey);
-    if (existingRefresh) {
-      await existingRefresh;
-      return;
-    }
-
-    const run = (async () => {
-    const startedAtIso = new Date().toISOString();
-    setIsRefreshingMarket(true);
-    setRefreshStartedAt(startedAtIso);
-    setLastRefreshAttemptAt(startedAtIso);
-    setLastRefreshStatus('loading');
-    try {
-      const fetched = await marketDataService.fetchMarketSnapshot({
-        symbol: providerSymbol,
-        athPeriod: targetSettings.athPeriod,
-      });
-      await marketInvestmentStorage.saveSnapshot({ ...fetched.snapshot, organizationId });
-      setSnapshot({ ...fetched.snapshot, organizationId });
-      setMarketError(null);
-      setLastRefreshError(null);
-      setLastAttemptedProviders(fetched.diagnostics.attemptedProviders);
-      setLastUsedProvider(fetched.diagnostics.usedProvider);
-      setLastProviderSymbol(fetched.diagnostics.providerSymbol);
-      setLastFallbackError(fetched.diagnostics.fallbackError ?? null);
-      const nextHistory = await marketDataService.fetchYahooHistory({
-        symbol: providerSymbol,
-        athPeriod: targetSettings.athPeriod,
-      });
-      setPriceHistory(nextHistory);
-      historyLoadedKeyRef.current = `${providerSymbol}::${targetSettings.athPeriod}::${fetched.snapshot.fetchedAt}`;
-      const completedAtIso = new Date().toISOString();
-      setRefreshCompletedAt(completedAtIso);
-      setLastSuccessfulRefreshAt(completedAtIso);
-      setLastRefreshStatus('success');
-    } catch (error) {
-      const mapped =
-        reason === 'etf-change'
-          ? 'Impossible de récupérer les données de ce nouvel ETF. Vous pouvez saisir les prix manuellement.'
-          : mapMarketProviderErrorToMessage(error);
-      setMarketError(mapped);
-      setLastRefreshError(mapped);
-      const diagnostics = marketDataService.getProviderAttemptDiagnostics(error);
-      if (diagnostics) {
-        setLastAttemptedProviders(diagnostics.attemptedProviders);
-        setLastProviderSymbol(diagnostics.providerSymbol || null);
-        setLastFallbackError(diagnostics.fallbackError ?? null);
-      }
-      setLastUsedProvider(null);
-      setRefreshCompletedAt(new Date().toISOString());
-      setLastRefreshStatus('error');
-      if (isDev) {
-        console.warn('[MarketRefresh] Erreur refresh', {
-          symbol: providerSymbol,
-          athPeriod: targetSettings.athPeriod,
-          message: mapped,
-          error,
-        });
-      }
-    } finally {
-      setIsRefreshingMarket(false);
-    }
-    })();
-
-    refreshInFlightByKeyRef.current.set(requestKey, run);
-    try {
-      await run;
-    } finally {
-      refreshInFlightByKeyRef.current.delete(requestKey);
-    }
-  }, [isDev, organizationId, settings]);
-
   useEffect(() => {
     if (!organizationId || !settings) return;
     if (hasTriedAutoRefreshRef.current) return;
-    if (!snapshot) {
-      hasTriedAutoRefreshRef.current = true;
-      refreshSnapshot().catch(() => {
-        setMarketError(fallbackErrorMessage);
-      });
-      return;
-    }
-    const age = Date.now() - new Date(snapshot.fetchedAt).getTime();
-    if (age <= 24 * 60 * 60 * 1000) {
-      hasTriedAutoRefreshRef.current = true;
-      return;
-    }
     hasTriedAutoRefreshRef.current = true;
-    refreshSnapshot().catch(() => {
-      setMarketError(fallbackErrorMessage);
-    });
-  }, [fallbackErrorMessage, organizationId, refreshSnapshot, settings, snapshot]);
-
-  useEffect(() => {
-    if (!organizationId || !settings) return;
-    refreshRadar({ force: false, reason: 'page-load' }).catch(() => undefined);
+    setIsRefreshingMarket(true);
+    const startedAtIso = new Date().toISOString();
+    setRefreshStartedAt(startedAtIso);
+    setLastRefreshAttemptAt(startedAtIso);
+    setLastRefreshStatus('loading');
+    refreshRadar({ force: false, reason: 'page-load' })
+      .then(() => {
+        const completedAtIso = new Date().toISOString();
+        setRefreshCompletedAt(completedAtIso);
+        setLastSuccessfulRefreshAt(completedAtIso);
+        setLastRefreshStatus('success');
+      })
+      .catch(() => {
+        setLastRefreshError(fallbackErrorMessage);
+        setLastRefreshStatus('error');
+      })
+      .finally(() => {
+        setIsRefreshingMarket(false);
+      });
   }, [organizationId, refreshRadar, settings]);
 
   useEffect(() => {
-    if (!settings || !snapshot || snapshot.source === 'manual') {
-      setPriceHistory([]);
-      historyLoadedKeyRef.current = null;
+    if (!settings) return;
+    const activeLocalSnapshot = radarSnapshots[settings.referenceSymbol] ?? null;
+    setSnapshot(activeLocalSnapshot);
+    setPriceHistory([]);
+    historyLoadedKeyRef.current = null;
+    if (!activeLocalSnapshot) {
+      setMarketError('Données indisponibles localement — cliquez sur Actualiser');
       return;
     }
-    const providerSymbol = resolveMarketSymbol(settings.referenceSymbol);
-    const historyKey = `${providerSymbol}::${settings.athPeriod}::${snapshot.fetchedAt}`;
-    if (historyLoadedKeyRef.current === historyKey) return;
-    const existingHistoryRequest = historyInFlightByKeyRef.current.get(historyKey);
-    if (existingHistoryRequest) {
-      return;
-    }
-
-    const request = marketDataService
-      .fetchYahooHistory({ symbol: providerSymbol, athPeriod: settings.athPeriod })
-      .then((history) => {
-        setPriceHistory(history);
-        historyLoadedKeyRef.current = historyKey;
-      })
-      .catch(() => {
-        setPriceHistory([]);
-      })
-      .finally(() => {
-        historyInFlightByKeyRef.current.delete(historyKey);
-      });
-    historyInFlightByKeyRef.current.set(historyKey, request);
-  }, [settings, snapshot]);
+    setMarketError(null);
+  }, [radarSnapshots, settings]);
 
   const saveManualSnapshot = useCallback(
     async (input: { currentPrice: number; athPrice: number; athDate?: string }) => {
@@ -368,18 +279,17 @@ export function useMarketInvestment(organizationId?: string) {
         settings.athPeriod !== next.athPeriod;
       if (!etfChanged) return;
 
-      // Invalidate currently displayed data to avoid showing previous ETF values.
-      setSnapshot(null);
+      setIsRefreshingAfterEtfChange(false);
+      const nextLocalSnapshot = radarSnapshots[next.referenceSymbol] ?? null;
+      setSnapshot(nextLocalSnapshot);
       setPriceHistory([]);
-      setMarketError(null);
-      setIsRefreshingAfterEtfChange(true);
-      try {
-        await refreshSnapshot(next, 'etf-change');
-      } finally {
-        setIsRefreshingAfterEtfChange(false);
+      if (!nextLocalSnapshot) {
+        setMarketError('Données indisponibles localement — cliquez sur Actualiser');
+      } else {
+        setMarketError(null);
       }
     },
-    [refreshSnapshot, settings]
+    [radarSnapshots, settings]
   );
 
   const validateDecision = useCallback(
@@ -472,33 +382,9 @@ export function useMarketInvestment(organizationId?: string) {
   }, [manualAnalysisAt, organizationId, recommendation, recommendation?.thresholdKey, snapshot?.drawdownPercent]);
 
   useEffect(() => {
-    if (!organizationId || !recommendation || !snapshot) return;
-    const currentStatus = recommendation.status;
-    const previousStatus = previousStatusRef.current;
-    previousStatusRef.current = currentStatus;
-    const isOpportunity = currentStatus === 'OPPORTUNITE' || currentStatus === 'FORTE_OPPORTUNITE';
-    const transitionedFromNormal = previousStatus === 'NORMAL' || previousStatus === null;
-    if (!isOpportunity || !transitionedFromNormal || !recommendation.thresholdKey) return;
-
-    marketInvestmentStorage
-      .addAlertIfMissing({
-        organizationId,
-        symbol: snapshot.symbol,
-        level: currentStatus,
-        drawdownPercent: snapshot.drawdownPercent,
-      })
-      .catch(() => undefined);
-
-    const toastId = `market-opportunity-${snapshot.symbol}-${recommendation.thresholdKey}`;
-    if (activeOpportunityToastIdRef.current && activeOpportunityToastIdRef.current !== toastId) {
-      toast.dismiss(activeOpportunityToastIdRef.current);
-    }
-    activeOpportunityToastIdRef.current = toastId;
-    toast(messageForStatus(currentStatus, snapshot.drawdownPercent), {
-      id: toastId,
-      duration: 3500,
-    });
-  }, [organizationId, recommendation, snapshot]);
+    if (!recommendation) return;
+    previousStatusRef.current = recommendation.status;
+  }, [recommendation]);
 
   const requestManualAnalysis = useCallback(() => {
     setManualAnalysisAt(Date.now());
@@ -506,11 +392,27 @@ export function useMarketInvestment(organizationId?: string) {
   }, []);
 
   const refreshAllMarketData = useCallback(async () => {
-    await Promise.all([
-      refreshSnapshot(undefined, 'default'),
-      refreshRadar({ force: true, reason: 'manual' }),
-    ]);
-  }, [refreshRadar, refreshSnapshot]);
+    const startedAtIso = new Date().toISOString();
+    setIsRefreshingMarket(true);
+    setRefreshStartedAt(startedAtIso);
+    setLastRefreshAttemptAt(startedAtIso);
+    setLastRefreshStatus('loading');
+    try {
+      await refreshRadar({ force: true, reason: 'manual' });
+      const completedAtIso = new Date().toISOString();
+      setRefreshCompletedAt(completedAtIso);
+      setLastSuccessfulRefreshAt(completedAtIso);
+      setLastRefreshStatus('success');
+      setLastRefreshError(null);
+    } catch (error) {
+      const mapped = mapMarketProviderErrorToMessage(error);
+      setMarketError(mapped);
+      setLastRefreshError(mapped);
+      setLastRefreshStatus('error');
+    } finally {
+      setIsRefreshingMarket(false);
+    }
+  }, [refreshRadar]);
 
   const providerConfig = useMemo(() => getMarketProviderConfigState(), []);
   const radarEntries = useMemo<MarketRadarEntry[]>(() => {
@@ -611,7 +513,7 @@ export function useMarketInvestment(organizationId?: string) {
     radarEntries,
     priceHistory,
     suppressedSuggestion,
-    refreshSnapshot,
+    refreshSnapshot: refreshAllMarketData,
     refreshAllMarketData,
     refreshRadar,
     saveManualSnapshot,
@@ -621,11 +523,4 @@ export function useMarketInvestment(organizationId?: string) {
     requestManualAnalysis,
     reload: load,
   };
-}
-
-function messageForStatus(status: 'OPPORTUNITE' | 'FORTE_OPPORTUNITE', drawdownPercent: number): string {
-  if (status === 'FORTE_OPPORTUNITE') {
-    return `Forte opportunité marché détectée (${drawdownPercent.toFixed(1)}%).`;
-  }
-  return `Opportunité marché détectée (${drawdownPercent.toFixed(1)}%).`;
 }

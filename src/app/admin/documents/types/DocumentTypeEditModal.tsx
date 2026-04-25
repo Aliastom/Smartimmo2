@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { DocumentTypeSchema, DocumentTypeAdmin } from '@/types/admin-documents';
@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Loader2, Save, X, Eye, EyeOff, Wand2 } from 'lucide-react';
 import { DocumentTypeOCRConfig } from '@/components/admin/DocumentTypeOCRConfig';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 
 interface DocumentTypeEditModalProps {
   isOpen: boolean;
@@ -29,6 +30,7 @@ export default function DocumentTypeEditModal({
   onSave,
   isLoading = false,
 }: DocumentTypeEditModalProps) {
+  const formId = useId();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -127,8 +129,24 @@ export default function DocumentTypeEditModal({
       onClose={handleClose}
       title={documentType ? 'Modifier le type de document' : 'Nouveau type de document'}
       size="lg"
+      footerAlreadyStandardized
+      footer={
+        <FormShellStandardFooter
+          formId={formId}
+          onCancel={handleClose}
+          cancelVariant="outline"
+          saveActionProps={{
+            mode: documentType ? 'edit' : 'create',
+            isLoading: isSubmitting,
+            disabled: isSubmitting || isLoading,
+            labelCreate: 'Sauvegarder',
+            labelEdit: 'Sauvegarder',
+            loadingLabel: 'Sauvegarde...',
+          }}
+        />
+      }
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <FormShellStandard id={formId} onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Section de base */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold mb-4">Informations de base</h3>
@@ -367,30 +385,7 @@ export default function DocumentTypeEditModal({
           </div>
         </Card>
 
-        {/* Actions */}
-        <div className="flex justify-end space-x-3 pt-6 border-t">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleClose}
-            disabled={isSubmitting}
-          >
-            <X className="w-4 h-4 mr-2" />
-            Annuler
-          </Button>
-          <Button
-            type="submit"
-            disabled={isSubmitting || isLoading}
-          >
-            {isSubmitting ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4 mr-2" />
-            )}
-            {isSubmitting ? 'Sauvegarde...' : 'Sauvegarder'}
-          </Button>
-        </div>
-      </form>
+      </FormShellStandard>
     </Modal>
   );
 }

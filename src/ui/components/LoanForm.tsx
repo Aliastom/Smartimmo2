@@ -3,6 +3,7 @@
 import React from 'react';
 import { Property } from '../../domain/entities/Property';
 import { Loan } from '../../domain/entities/Loan';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 interface LoanFormProps {
   properties: Property[];
@@ -32,7 +33,7 @@ export default function LoanForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <FormShellStandard id="loan-form-basic" onSubmit={handleSubmit} className="space-y-4">
       <div>
         <label htmlFor="propertyId" className="block text-sm font-medium text-neutral-700">
           Bien concerné *
@@ -179,14 +180,17 @@ export default function LoanForm({
         >
           Annuler
         </button>
-        <button
+        <SaveActionStandard
           type="submit"
           disabled={isLoading}
+          isLoading={isLoading}
+          mode={loan ? 'edit' : 'create'}
+          labelCreate="Ajouter"
+          labelEdit="Modifier"
+          loadingLabel="Enregistrement..."
           className="px-4 py-2 bg-primary-700 text-base-100 rounded-md shadow-md hover:bg-primary-800 transition-colors disabled:opacity-50"
-        >
-          {isLoading ? 'Enregistrement...' : loan ? 'Modifier' : 'Ajouter'}
-        </button>
+        />
       </div>
-    </form>
+    </FormShellStandard>
   );
 }

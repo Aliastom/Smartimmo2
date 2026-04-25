@@ -3,8 +3,8 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { ActionFooterStandard, DrawerHeaderStandard } from '@/components/ui/standards';
 
 export interface DrawerProps {
   isOpen: boolean;
@@ -12,8 +12,10 @@ export interface DrawerProps {
   title?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  /** Si true, le footer n’est pas enveloppé dans ActionFooterStandard (ex. contenu déjà fourni par FormShellStandardFooter). */
+  footerAlreadyStandardized?: boolean;
   side?: 'left' | 'right';
-  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
   closeOnBackdropClick?: boolean;
   closeOnEscape?: boolean;
   noPadding?: boolean;
@@ -26,6 +28,7 @@ const sizeClasses = {
   lg: 'w-[28rem]',
   xl: 'w-[32rem]',
   '2xl': 'w-full max-w-2xl',
+  full: 'w-full max-w-none',
 };
 
 export function Drawer({
@@ -40,6 +43,7 @@ export function Drawer({
   closeOnEscape = true,
   noPadding = false,
   className,
+  footerAlreadyStandardized = false,
 }: DrawerProps) {
   useEffect(() => {
     if (!isOpen) return;
@@ -118,18 +122,11 @@ export function Drawer({
           >
             {/* Header - affiché uniquement si un titre est fourni */}
             {title && (
-              <div className="flex items-center justify-between p-6 border-b border-gray-200 flex-shrink-0">
-                <h2 id="drawer-title" className="text-lg font-semibold text-gray-900">
-                  {title}
-                </h2>
-                <button
-                  onClick={onClose}
-                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors focus-ring"
-                  aria-label="Fermer"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
+              <DrawerHeaderStandard
+                title={title}
+                titleId="drawer-title"
+                onClose={onClose}
+              />
             )}
 
             {/* Body */}
@@ -141,11 +138,12 @@ export function Drawer({
             </div>
 
             {/* Footer */}
-            {footer && (
-              <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 flex-shrink-0">
-                {footer}
-              </div>
-            )}
+            {footer &&
+              (footerAlreadyStandardized ? (
+                <div className="flex-shrink-0 overflow-hidden">{footer}</div>
+              ) : (
+                <ActionFooterStandard className="flex-shrink-0">{footer}</ActionFooterStandard>
+              ))}
           </motion.div>
         </motion.div>
       )}

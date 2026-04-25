@@ -13,6 +13,7 @@ import { useUploadDocument, useClassifyDocument, DocumentClassification } from '
 import { suggestTypeGlobal, SuggestionInput, SuggestionResult } from '@/services/documentSuggestion';
 import { DynamicMetadataForm } from '@/ui/shared/DynamicMetadataForm';
 import { MobileUploadOptions } from '@/components/documents/MobileUploadOptions';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 interface UploadDocumentModalProps {
   isOpen: boolean;
@@ -306,7 +307,7 @@ export function UploadDocumentModal({
           </Button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <FormShellStandard id="upload-document-form" onSubmit={handleSubmit} className="space-y-4">
           {/* Zone de sélection de fichier */}
           <div className="space-y-2">
             <Label>Fichier *</Label>
@@ -491,14 +492,17 @@ export function UploadDocumentModal({
             >
               Annuler
             </Button>
-            <Button
+            <SaveActionStandard
               type="submit"
+              mode="create"
+              labelCreate="Uploader"
+              labelEdit="Uploader"
+              loadingLabel="Upload..."
+              isLoading={isUploading}
               disabled={!selectedFile || !documentTypeId || isUploading}
-            >
-              {isUploading ? 'Upload...' : 'Uploader'}
-            </Button>
+            />
           </div>
-        </form>
+        </FormShellStandard>
       </div>
     </div>
   );

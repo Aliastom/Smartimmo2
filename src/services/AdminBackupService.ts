@@ -11,8 +11,9 @@ import { prisma } from '@/lib/prisma';
 import archiver from 'archiver';
 import { Readable, PassThrough } from 'stream';
 import { createHash } from 'crypto';
-import { z } from 'zod';
 import AdmZip from 'adm-zip';
+import fs from 'fs/promises';
+import path from 'path';
 
 // ============================================
 // TYPES & SCHÉMAS
@@ -65,6 +66,14 @@ export interface ImportResult {
   logs?: string[]; // Logs d'avancement
 }
 
+export interface ExportArchiveResult {
+  buffer: Buffer;
+  manifest: BackupManifest;
+  checksumGlobal: string;
+  sizeBytes: number;
+  fileUrl: string;
+}
+
 // ============================================
 // SERVICE PRINCIPAL
 // ============================================
@@ -77,9 +86,70 @@ export class AdminBackupService {
    * Retourne un stream ZIP avec manifest + datasets NDJSON + checksums
    */
   async exportAdmin(options: ExportOptions = { scope: 'admin' }): Promise<Readable> {
+    const archive = await this.buildArchiveBuffer(options);
+    return Readable.from(archive.buffer);
+  }
+
+  /**
+   * Exporte la sauvegarde admin, la persiste sur disque, et enregistre l'historique.
+   */
+  async exportAdminAndSave(
+    options: ExportOptions,
+    userId: string
+  ): Promise<ExportArchiveResult & { backupRecordId: string }> {
+    const archive = await this.buildArchiveBuffer(options);
+    const fileUrl = await this.persistArchiveBuffer(archive.buffer, 'admin-export');
+    const backupRecord = await this.saveBackupRecord({
+      userId,
+      manifest: archive.manifest,
+      checksum: archive.manifest.checksumGlobal,
+      sizeBytes: archive.buffer.length,
+      fileUrl,
+      note: 'Export admin',
+    });
+
+    return {
+      ...archive,
+      fileUrl,
+      backupRecordId: backupRecord.id,
+    };
+  }
+
+  resolveBackupAbsolutePath(fileUrl: string): string {
+    if (path.isAbsolute(fileUrl)) {
+      return fileUrl;
+    }
+    return path.join(process.cwd(), fileUrl);
+  }
+
+  async readArchiveFromFileUrl(fileUrl: string): Promise<Buffer> {
+    const archivePath = this.resolveBackupAbsolutePath(fileUrl);
+    return fs.readFile(archivePath);
+  }
+
+  async preValidateArchiveBuffer(
+    zipBuffer: Buffer
+  ): Promise<{ manifest: BackupManifest; datasetCount: number }> {
+    const extracted = await this.extractAndValidate(zipBuffer);
+    if (!extracted.valid || !extracted.manifest) {
+      throw new Error(extracted.errors?.join(' | ') || 'Archive invalide');
+    }
+
+    const datasetCount = Object.keys(extracted.datasets || {}).length;
+    if (datasetCount === 0) {
+      throw new Error('Archive invalide: aucun dataset trouvé');
+    }
+
+    return {
+      manifest: extracted.manifest,
+      datasetCount,
+    };
+  }
+
+  private async buildArchiveBuffer(options: ExportOptions): Promise<Omit<ExportArchiveResult, 'fileUrl'>> {
     const archive = archiver('zip', { zlib: { level: 9 } });
     const output = new PassThrough();
-    
+    let manifest: BackupManifest | null = null;
     archive.pipe(output);
 
     try {
@@ -98,7 +168,7 @@ export class AdminBackupService {
       }
 
       // 3. Créer le manifest
-      const manifest: BackupManifest = {
+      manifest = {
         app: 'smartimmo',
         version: '1.0',
         scope: options.scope,
@@ -124,14 +194,28 @@ export class AdminBackupService {
 
       // 5. Finaliser
       await archive.finalize();
-      
     } catch (error) {
       console.error('Error creating backup archive:', error);
       archive.abort();
       throw error;
     }
 
-    return output;
+    const chunks: Buffer[] = [];
+    for await (const chunk of output) {
+      chunks.push(Buffer.from(chunk));
+    }
+    const buffer = Buffer.concat(chunks);
+
+    if (!manifest) {
+      throw new Error('Manifest de backup non généré');
+    }
+
+    return {
+      buffer,
+      manifest,
+      checksumGlobal: manifest.checksumGlobal,
+      sizeBytes: buffer.length,
+    };
   }
 
   /**
@@ -201,12 +285,14 @@ export class AdminBackupService {
 
         // 6. Enregistrer le backup
         addLog('💾 Enregistrement de la sauvegarde...');
+        const fileUrl = await this.persistArchiveBuffer(zipBuffer, 'admin-import');
         const backupRecord = await this.saveBackupRecord({
           userId,
           manifest: extracted.manifest!,
           checksum: extracted.manifest!.checksumGlobal,
           sizeBytes: zipBuffer.length,
-          fileUrl: `backups/admin-${Date.now()}.zip`, // TODO: save to storage
+          fileUrl,
+          note: 'Import admin',
         });
         addLog(`✅ Sauvegarde enregistrée (ID: ${backupRecord.id})`);
         addLog('✨ Import terminé avec succès !');
@@ -480,17 +566,22 @@ export class AdminBackupService {
   private fromNDJSON(content: string): any[] {
     const lines = content.split('\n').filter(line => line.trim());
     const items: any[] = [];
-    
+    const errors: string[] = [];
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       try {
         items.push(JSON.parse(line));
       } catch (error) {
-        console.error(`Erreur parsing ligne ${i + 1}:`, line.substring(0, 100), error);
-        // Ignorer les lignes invalides plutôt que de tout faire échouer
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+        errors.push(`Ligne ${i + 1}: ${message}`);
       }
     }
-    
+
+    if (errors.length > 0) {
+      throw new Error(`NDJSON invalide (${errors.length} ligne(s) en erreur): ${errors.slice(0, 5).join(' | ')}`);
+    }
+
     return items;
   }
 
@@ -647,7 +738,7 @@ export class AdminBackupService {
       try {
         const lines = content.split('\n').filter(line => line.trim());
         log(`   📄 Parsing ${name}: ${lines.length} ligne(s)`);
-        
+
         const items = this.fromNDJSON(content);
         parsed[name] = items;
         log(`   ✅ ${name}: ${items.length} élément(s) parsé(s)`);
@@ -655,7 +746,7 @@ export class AdminBackupService {
         const errorMsg = error instanceof Error ? error.message : String(error);
         log(`   ❌ Erreur parsing ${name}: ${errorMsg}`);
         console.error(`Error parsing dataset ${name}:`, error);
-        parsed[name] = [];
+        throw new Error(`Dataset invalide (${name}): ${errorMsg}`);
       }
     }
 
@@ -686,7 +777,11 @@ export class AdminBackupService {
       diff.adds += datasetDiff.adds.length;
       diff.updates += datasetDiff.updates.length;
       diff.deletes += datasetDiff.deletes.length;
-      diff.preview[datasetName] = datasetDiff;
+      diff.preview[datasetName] = {
+        adds: datasetDiff.adds.slice(0, this.MAX_PREVIEW_ITEMS),
+        updates: datasetDiff.updates.slice(0, this.MAX_PREVIEW_ITEMS),
+        deletes: datasetDiff.deletes.slice(0, this.MAX_PREVIEW_ITEMS),
+      };
     }
 
     return diff;
@@ -749,11 +844,7 @@ export class AdminBackupService {
       }
     }
 
-    return {
-      adds: adds.slice(0, this.MAX_PREVIEW_ITEMS),
-      updates: updates.slice(0, this.MAX_PREVIEW_ITEMS),
-      deletes: deletes.slice(0, this.MAX_PREVIEW_ITEMS),
-    };
+    return { adds, updates, deletes };
   }
 
   // ============================================
@@ -774,6 +865,11 @@ export class AdminBackupService {
 
     try {
       await prisma.$transaction(async (tx) => {
+      if (strategy === 'replace') {
+        const replaceDeletes = await this.applyReplaceDeletes(tx, datasets, log);
+        totalDeletes += replaceDeletes;
+      }
+
       // 1. Fiscal Versions + Params
       if (datasets['fiscal.versions']) {
         let adds = 0;
@@ -1342,6 +1438,7 @@ export class AdminBackupService {
     checksum: string;
     sizeBytes: number;
     fileUrl: string;
+    note?: string;
   }) {
     return await prisma.adminBackupRecord.create({
       data: {
@@ -1350,9 +1447,106 @@ export class AdminBackupService {
         fileUrl: data.fileUrl,
         checksum: data.checksum,
         sizeBytes: data.sizeBytes,
+        note: data.note,
         meta: data.manifest as any,
       },
     });
+  }
+
+  private async persistArchiveBuffer(buffer: Buffer, prefix: string): Promise<string> {
+    const backupDir = path.join(process.cwd(), 'storage', 'backups', 'admin');
+    await fs.mkdir(backupDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const random = Math.random().toString(36).slice(2, 8);
+    const fileName = `${prefix}-${stamp}-${random}.zip`;
+    const fullPath = path.join(backupDir, fileName);
+    await fs.writeFile(fullPath, buffer);
+    return path.relative(process.cwd(), fullPath).replace(/\\/g, '/');
+  }
+
+  private async applyReplaceDeletes(
+    tx: any,
+    datasets: Record<string, any[]>,
+    addLog?: (message: string) => void
+  ): Promise<number> {
+    const log = addLog || (() => {});
+    let deleted = 0;
+
+    if (datasets['fiscal.versions']) {
+      const ids = datasets['fiscal.versions'].map((x: any) => x.id).filter(Boolean);
+      const res = await tx.fiscalVersion.deleteMany({ where: ids.length ? { id: { notIn: ids } } : {} });
+      deleted += res.count;
+    }
+
+    if (datasets['fiscal.types']) {
+      const ids = datasets['fiscal.types'].map((x: any) => x.id).filter(Boolean);
+      const res = await tx.fiscalType.deleteMany({ where: ids.length ? { id: { notIn: ids } } : {} });
+      deleted += res.count;
+    }
+
+    if (datasets['fiscal.regimes']) {
+      const ids = datasets['fiscal.regimes'].map((x: any) => x.id).filter(Boolean);
+      const res = await tx.fiscalRegime.deleteMany({ where: ids.length ? { id: { notIn: ids } } : {} });
+      deleted += res.count;
+    }
+
+    if (datasets['fiscal.compat']) {
+      const ids = datasets['fiscal.compat'].map((x: any) => x.id).filter(Boolean);
+      const res = await tx.fiscalCompatibility.deleteMany({ where: ids.length ? { id: { notIn: ids } } : {} });
+      deleted += res.count;
+    }
+
+    if (datasets['natures']) {
+      const codes = datasets['natures'].map((x: any) => x.code).filter(Boolean);
+      await tx.natureRule.deleteMany({ where: codes.length ? { natureCode: { notIn: codes } } : {} });
+      await tx.natureDefault.deleteMany({ where: codes.length ? { natureCode: { notIn: codes } } : {} });
+      const res = await tx.natureEntity.deleteMany({ where: codes.length ? { code: { notIn: codes } } : {} });
+      deleted += res.count;
+    }
+
+    if (datasets['categories']) {
+      const slugs = datasets['categories'].map((x: any) => x.slug).filter(Boolean);
+      const res = await tx.category.updateMany({
+        where: slugs.length ? { slug: { notIn: slugs }, actif: true } : { actif: true },
+        data: { actif: false },
+      });
+      deleted += res.count;
+    }
+
+    if (datasets['documents.types']) {
+      const ids = datasets['documents.types'].map((x: any) => x.id).filter(Boolean);
+      const res = await tx.documentType.updateMany({
+        where: ids.length ? { id: { notIn: ids }, isActive: true } : { isActive: true },
+        data: { isActive: false },
+      });
+      deleted += res.count;
+    }
+
+    if (datasets['signals.catalog']) {
+      const ids = datasets['signals.catalog'].map((x: any) => x.id).filter(Boolean);
+      const now = new Date();
+      const res = await tx.signal.updateMany({
+        where: ids.length
+          ? { id: { notIn: ids }, deletedAt: null, protected: false }
+          : { deletedAt: null, protected: false },
+        data: { deletedAt: now },
+      });
+      deleted += res.count;
+    }
+
+    if (datasets['system.settings']) {
+      const keys = datasets['system.settings'].map((x: any) => x.key).filter(Boolean);
+      const res = await tx.appSetting.deleteMany({ where: keys.length ? { key: { notIn: keys } } : {} });
+      deleted += res.count;
+    }
+
+    if (deleted > 0) {
+      log(`   🗑️ Replace: ${deleted} suppression(s)/désactivation(s) appliquée(s)`);
+    } else {
+      log('   🗑️ Replace: aucune suppression nécessaire');
+    }
+
+    return deleted;
   }
 
   // ============================================

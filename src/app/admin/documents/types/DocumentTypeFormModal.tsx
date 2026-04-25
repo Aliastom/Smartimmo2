@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/ui/shared/label';
@@ -31,6 +31,7 @@ import { DocumentTypeWithRelations } from '@/types/document-types';
 import KeywordsManagement from './KeywordsManagement';
 import TypeSignalsManagement from './TypeSignalsManagement';
 import RulesManagement from './RulesManagement';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 interface DocumentTypeFormModalProps {
   isOpen: boolean;
@@ -47,6 +48,7 @@ export default function DocumentTypeFormModal({
   onSave,
   defaultTab = 'keywords',
 }: DocumentTypeFormModalProps) {
+  const formId = useId();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showDetailed, setShowDetailed] = useState(false);
@@ -144,7 +146,7 @@ export default function DocumentTypeFormModal({
 
   const hasJsonErrors = defaultContexts.error || suggestionsConfig.error || flowLocks.error || metaSchema.error;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
     if (hasJsonErrors) {
@@ -212,7 +214,7 @@ export default function DocumentTypeFormModal({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <FormShellStandard id={formId} onSubmit={handleSubmit} className="space-y-6">
           {/* Informations de base */}
           <Card>
             <CardHeader>
@@ -622,16 +624,16 @@ export default function DocumentTypeFormModal({
               <X className="w-4 h-4 mr-2" />
               Annuler
             </Button>
-            <Button type="submit" disabled={isSubmitting || !isFormValid}>
-              {isSubmitting ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-              ) : (
-                <Save className="w-4 h-4 mr-2" />
-              )}
-              {isSubmitting ? 'Sauvegarde...' : 'Sauvegarder'}
-            </Button>
+            <SaveActionStandard
+              type="submit"
+              form={formId}
+              isLoading={isSubmitting}
+              disabled={isSubmitting || !isFormValid}
+              labelEdit="Sauvegarder"
+              loadingLabel="Sauvegarde..."
+            />
           </div>
-        </form>
+        </FormShellStandard>
       </DialogContent>
     </Dialog>
   );

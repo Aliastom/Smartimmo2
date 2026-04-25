@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 import { Badge } from '@/components/ui/Badge';
 import { getLeaseStatusVariant, getLeaseStatusLabel } from '@/utils/leaseStatusBadge';
 import { notify2 } from '@/lib/notify2';
@@ -104,6 +105,7 @@ export default function LeaseEditModal({
   propertyId: propPropertyId,
   onRequestAmendment,
 }: LeaseEditModalProps) {
+  const formId = useId();
   const toInputDate = (value: string | Date | null | undefined): string =>
     value ? new Date(value).toISOString().slice(0, 10) : '';
   // ✅ OFFLINE-FIRST: Détecter explicitement offline/app-shell
@@ -2515,6 +2517,7 @@ export default function LeaseEditModal({
       onClose={onClose}
       title={lease ? `Modifier le bail - ${lease.Tenant?.firstName} ${lease.Tenant?.lastName}` : 'Nouveau bail'}
       size="xl"
+      footerAlreadyStandardized
       footer={
         <div className="flex flex-col gap-3">
           {/* Mobile: Accordéon erreurs */}
@@ -2563,14 +2566,14 @@ export default function LeaseEditModal({
                 pour créer un avenant ou un renouvellement.
               </p>
             )}
-            <div className="flex flex-col-reverse sm:flex-row gap-3 items-stretch sm:items-center sm:flex-wrap">
-              <Button variant="ghost" onClick={onClose} disabled={isSubmitting} className="w-full sm:w-auto order-last sm:order-first">
-                Annuler
-              </Button>
+            {isContractLocked && !isReadOnly ? (
+              <div className="flex flex-col-reverse sm:flex-row gap-3 items-stretch sm:items-center sm:flex-wrap">
+                <Button variant="ghost" onClick={onClose} disabled={isSubmitting} className="w-full sm:w-auto order-last sm:order-first">
+                  Annuler
+                </Button>
 
-              <div className="flex-1 hidden sm:block min-w-[8px]" />
+                <div className="flex-1 hidden sm:block min-w-[8px]" />
 
-              {isContractLocked && !isReadOnly ? (
                 <>
                   <Button
                     type="button"
@@ -2585,7 +2588,6 @@ export default function LeaseEditModal({
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={handleSubmit}
                     disabled
                     title="Contrat signé ou actif : les modifications directes ne sont pas autorisées. Créez un avenant."
                     className="w-full sm:w-auto border-gray-300 text-gray-500 bg-gray-50 cursor-not-allowed"
@@ -2593,23 +2595,31 @@ export default function LeaseEditModal({
                     Enregistrer les modifications
                   </Button>
                 </>
-              ) : (
-                <Button
-                  onClick={handleSubmit}
-                  disabled={isSubmitting || !areRequiredFieldsFilled() || isReadOnly}
-                  title={
-                    isReadOnly
-                      ? 'Bail résilié - lecture seule'
-                      : !areRequiredFieldsFilled()
-                        ? 'Veuillez remplir tous les champs obligatoires'
-                        : ''
-                  }
-                  className="w-full sm:w-auto"
-                >
-                  {isSubmitting ? 'Enregistrement...' : 'Enregistrer les modifications'}
-                </Button>
-              )}
-            </div>
+              </div>
+            ) : (
+              <FormShellStandardFooter
+                formId={formId}
+                onCancel={onClose}
+                actionsClassName="flex flex-col-reverse sm:flex-row gap-3 items-stretch sm:items-center sm:flex-wrap"
+                cancelButtonProps={{
+                  disabled: isSubmitting,
+                  className: 'w-full sm:w-auto order-last sm:order-first',
+                }}
+                saveActionProps={{
+                  mode: 'edit',
+                  isLoading: isSubmitting,
+                  disabled: isSubmitting || !areRequiredFieldsFilled() || isReadOnly,
+                  title: isReadOnly
+                    ? 'Bail résilié - lecture seule'
+                    : !areRequiredFieldsFilled()
+                      ? 'Veuillez remplir tous les champs obligatoires'
+                      : '',
+                  className: 'w-full sm:w-auto sm:ml-auto',
+                  labelEdit: 'Enregistrer les modifications',
+                  loadingLabel: 'Enregistrement...',
+                }}
+              />
+            )}
           </div>
         </div>
       }
@@ -2622,7 +2632,7 @@ export default function LeaseEditModal({
           </div>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="flex flex-col h-full">
+        <FormShellStandard id={formId} onSubmit={handleSubmit} className="flex flex-col h-full">
           {/* Tabs Navigation - Sticky sur mobile */}
           <div className="sticky top-0 z-10 bg-white border-b border-gray-200 -mx-4 md:-mx-6 px-4 md:px-6 mb-4">
             <nav className="overflow-x-auto -mb-px flex space-x-4 md:space-x-8 scrollbar-hide">
@@ -2666,7 +2676,7 @@ export default function LeaseEditModal({
               {renderTabContent()}
             </div>
           </div>
-        </form>
+        </FormShellStandard>
       )}
       
       {/* Modal d'alerte pour le profil incomplet */}

@@ -37,6 +37,7 @@ export interface CreatePropertyParams {
   fiscalRegimeId?: string | null;
   rentalMode?: string | null;
   airbnbListingId?: string | null;
+  lmnpActivityId?: string | null;
 }
 
 export interface UpdatePropertyParams {
@@ -59,6 +60,7 @@ export interface UpdatePropertyParams {
   fiscalRegimeId?: string | null;
   rentalMode?: string | null;
   airbnbListingId?: string | null;
+  lmnpActivityId?: string | null;
 }
 
 export type DeletePropertyMode = 'archive' | 'reassign' | 'cascade';
@@ -111,6 +113,7 @@ export class PropertyService {
       fiscalRegimeId: params.fiscalRegimeId || null,
       rentalMode: params.rentalMode || 'LONG_TERM',
       airbnbListingId: params.airbnbListingId || null,
+      lmnpActivityId: params.lmnpActivityId || null,
     };
 
     const property = await this.deps.propertyRepo.create(sanitizedData);
@@ -151,6 +154,7 @@ export class PropertyService {
     if (params.fiscalRegimeId !== undefined) updateData.fiscalRegimeId = params.fiscalRegimeId || null;
     if (params.rentalMode !== undefined) updateData.rentalMode = params.rentalMode;
     if (params.airbnbListingId !== undefined) updateData.airbnbListingId = params.airbnbListingId || null;
+    if (params.lmnpActivityId !== undefined) updateData.lmnpActivityId = params.lmnpActivityId || null;
 
     const property = await this.deps.propertyRepo.update(id, updateData);
 

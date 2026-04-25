@@ -59,6 +59,7 @@ import { useSidebarOptional } from '@/contexts/SidebarContext';
 import { DocumentEditModal } from '@/components/documents/unified/DocumentEditModal';
 import DocumentDrawer from '@/components/documents/DocumentDrawer';
 import { ConfirmDeleteDocumentModal } from '@/components/documents/ConfirmDeleteDocumentModal';
+import { FormShellStandard } from '@/components/ui/standards';
 
 export interface DocumentsPageCoreProps {
   mode: 'normal' | 'app-shell';
@@ -1162,7 +1163,7 @@ export function DocumentsPageCore({
           </div>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSearch} className="space-y-4">
+          <FormShellStandard id="documents-filters-form" onSubmit={handleSearch} className="space-y-4">
             {/* Recherche principale */}
             <div className="flex gap-2">
               <Input
@@ -1277,7 +1278,7 @@ export function DocumentsPageCore({
                 </div>
               </div>
             )}
-          </form>
+          </FormShellStandard>
         </CardContent>
       </Card>
 

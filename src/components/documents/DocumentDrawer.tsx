@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useMemo, useRef, useEffect } from 'react';
-import { X, Trash2, FileText, Download, Link as LinkIcon, CheckCircle, AlertCircle, Image as ImageIcon, File, Home, DollarSign, User, HardDrive, TrendingUp } from 'lucide-react';
+import { Trash2, FileText, Download, Link as LinkIcon, CheckCircle, AlertCircle, Image as ImageIcon, File, Home, DollarSign, User, HardDrive, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { cn } from '@/utils/cn';
+import { Drawer } from '@/components/ui/Drawer';
 
 interface DocumentDrawerProps {
   document: {
@@ -272,34 +273,35 @@ export default function DocumentDrawer({
   };
 
   return (
-    <div className="fixed inset-0 z-50">
-      {/* Overlay */}
-      <div 
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-in fade-in-0 duration-200"
-        onClick={onClose}
-      />
-      
-      {/* Drawer - slide from right */}
-      <div className="fixed right-0 top-0 h-screen w-full max-w-full sm:max-w-2xl bg-white shadow-xl animate-in slide-in-from-right duration-300 ease-out">
-        <div className="flex flex-col h-full">
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-            <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-semibold text-gray-900 truncate">
-                {document.filenameOriginal}
-              </h2>
-            </div>
-            <button
-              onClick={onClose}
-              className="ml-4 text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
-            >
-              <X className="h-6 w-6" />
-            </button>
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto px-4 py-3">
-            <div className="space-y-4">
+    <Drawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title={document.filenameOriginal}
+      size="xl"
+      footerAlreadyStandardized
+      footer={
+        <div className="flex items-center justify-end gap-3 px-4 py-3 border-t border-gray-100">
+          <Button
+            variant="outline"
+            onClick={() => onDownload(document)}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Télécharger
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => onDelete(document)}
+            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Supprimer
+          </Button>
+        </div>
+      }
+    >
+      {/* Content */}
+      <div className="px-4 py-3">
+        <div className="space-y-4">
               {/* Section 1 : Document */}
               <section className="pb-4 border-b border-gray-100">
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
@@ -437,29 +439,8 @@ export default function DocumentDrawer({
                 </section>
               )}
             </div>
-          </div>
-
-          {/* Footer */}
-          <div className="flex items-center justify-end gap-3 px-4 py-3 border-t border-gray-100">
-            <Button
-              variant="outline"
-              onClick={() => onDownload(document)}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Télécharger
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => onDelete(document)}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Supprimer
-            </Button>
-          </div>
         </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 

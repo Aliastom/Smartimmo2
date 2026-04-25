@@ -16,9 +16,11 @@ import {
   Calendar,
   Landmark,
   Calculator,
+  FileArchive,
   RefreshCw,
   FolderOpen,
   Bell,
+  TrendingDown,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -195,6 +197,24 @@ export const sidebarConfig: SidebarItemConfig[] = [
     section: 'analyse',
     normalPath: '/fiscal',
     appView: 'fiscal',
+  },
+  {
+    id: 'lmnp-pilotage',
+    label: 'Pilotage LMNP',
+    icon: FileArchive,
+    type: 'main',
+    section: 'analyse',
+    normalPath: '/app?view=lmnp',
+    appView: 'lmnp',
+  },
+  {
+    id: 'market',
+    label: 'Marché',
+    icon: TrendingDown,
+    type: 'main',
+    section: 'analyse',
+    normalPath: '/app?view=market',
+    appView: 'market',
   },
   // ——— SYSTÈME (style discret) ———
   {

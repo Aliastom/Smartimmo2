@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Edit, Trash2, Mail, Phone, Calendar, MapPin, Building2, FileText, User, AlertCircle, Euro, Star } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { Drawer } from '@/components/ui/Drawer';
 import { cn } from '@/utils/cn';
 import type { TenantWithRelations } from '@/lib/db/TenantRepo';
 import { getLocalDB } from '@/lib/offline/db';
@@ -96,31 +96,62 @@ export function TenantDrawer({
   };
 
   return (
-    <Sheet open={isOpen} onOpenChange={onClose}>
-      {/* Mobile: bottom sheet, Desktop: right drawer */}
-      <SheetContent 
-        side="right" 
-        className={cn(
-          "w-full sm:max-w-2xl overflow-y-auto",
-          "h-full flex flex-col"
-        )}
-      >
-        <SheetHeader className="flex-shrink-0 pb-4 border-b">
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <SheetTitle className="text-xl font-semibold text-gray-900">
-                {tenant.firstName} {tenant.lastName}
-              </SheetTitle>
-              <SheetDescription className="mt-1">
-                {getStatusBadge()}
-              </SheetDescription>
-            </div>
-            {/* Le SheetContent a déjà un X par défaut, pas besoin d'en ajouter un autre */}
+    <Drawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`${tenant.firstName} ${tenant.lastName}`}
+      size="lg"
+      className="h-full flex flex-col"
+      footer={
+        <div className="space-y-3">
+          <div>{getStatusBadge()}</div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                onEdit(tenant);
+                onClose();
+              }}
+              className="flex-1"
+            >
+              <Edit className="h-4 w-4 mr-2" />
+              Modifier
+            </Button>
+            {onViewLeases && allLeases.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  onViewLeases(tenant);
+                  onClose();
+                }}
+                className="flex-1"
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                Voir les baux
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => {
+                onDelete(tenant);
+                onClose();
+              }}
+              disabled={hasActiveLeases}
+              className={cn(
+                "flex-1",
+                hasActiveLeases && "opacity-50 cursor-not-allowed"
+              )}
+              title={hasActiveLeases ? 'Impossible de supprimer : bail(s) actif(s)' : ''}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Supprimer
+            </Button>
           </div>
-        </SheetHeader>
-
-        {/* Content - scrollable */}
-        <div className="flex-1 overflow-y-auto py-6 space-y-6">
+        </div>
+      }
+    >
+      {/* Content - scrollable */}
+      <div className="py-6 space-y-6">
           {/* Informations personnelles */}
           <section>
             <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
@@ -322,55 +353,8 @@ export function TenantDrawer({
               </div>
             </section>
           )}
-        </div>
-
-        {/* Footer - sticky */}
-        <div className="flex-shrink-0 pt-4 border-t bg-white space-y-3">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                onEdit(tenant);
-                onClose();
-              }}
-              className="flex-1"
-            >
-              <Edit className="h-4 w-4 mr-2" />
-              Modifier
-            </Button>
-            {onViewLeases && allLeases.length > 0 && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  onViewLeases(tenant);
-                  onClose();
-                }}
-                className="flex-1"
-              >
-                <FileText className="h-4 w-4 mr-2" />
-                Voir les baux
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              onClick={() => {
-                onDelete(tenant);
-                onClose();
-              }}
-              disabled={hasActiveLeases}
-              className={cn(
-                "flex-1",
-                hasActiveLeases && "opacity-50 cursor-not-allowed"
-              )}
-              title={hasActiveLeases ? 'Impossible de supprimer : bail(s) actif(s)' : ''}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Supprimer
-            </Button>
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
+      </div>
+    </Drawer>
   );
 }
 

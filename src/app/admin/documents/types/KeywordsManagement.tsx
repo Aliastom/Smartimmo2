@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/ui/shared/label';
@@ -10,12 +10,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Plus, Edit, Trash2, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { DocumentKeyword } from '@/types/document-types';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 interface KeywordsManagementProps {
   documentTypeId: string;
 }
 
 export default function KeywordsManagement({ documentTypeId }: KeywordsManagementProps) {
+  const formId = useId();
   const [keywords, setKeywords] = useState<DocumentKeyword[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -112,7 +114,7 @@ export default function KeywordsManagement({ documentTypeId }: KeywordsManagemen
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -233,7 +235,7 @@ export default function KeywordsManagement({ documentTypeId }: KeywordsManagemen
             </DialogDescription>
           </DialogHeader>
           
-          <form onSubmit={handleSave} className="space-y-4">
+          <FormShellStandard id={formId} onSubmit={handleSave} className="space-y-4">
             <div>
               <Label htmlFor="keyword">Mot-clé *</Label>
               <Input
@@ -265,12 +267,13 @@ export default function KeywordsManagement({ documentTypeId }: KeywordsManagemen
                 <X className="w-4 h-4 mr-2" />
                 Annuler
               </Button>
-              <Button type="submit">
-                <Save className="w-4 h-4 mr-2" />
-                Sauvegarder
-              </Button>
+              <SaveActionStandard
+                type="submit"
+                form={formId}
+                labelEdit="Sauvegarder"
+              />
             </div>
-          </form>
+          </FormShellStandard>
         </DialogContent>
       </Dialog>
     </div>

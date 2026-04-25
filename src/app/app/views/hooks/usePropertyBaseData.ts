@@ -12,6 +12,8 @@ import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/Propert
 export interface PropertyBaseData {
   name: string;
   rentalMode?: string;
+  fiscalTypeId?: string;
+  fiscalRegimeId?: string;
   address?: string;
   postalCode?: string;
   city?: string;
@@ -22,6 +24,8 @@ export interface PropertyBaseData {
 export function usePropertyBaseData(propertyId: string, organizationId: string): PropertyBaseData {
   const [propertyName, setPropertyName] = useState<string>('');
   const [rentalMode, setRentalMode] = useState<string | undefined>(undefined);
+  const [fiscalTypeId, setFiscalTypeId] = useState<string | undefined>(undefined);
+  const [fiscalRegimeId, setFiscalRegimeId] = useState<string | undefined>(undefined);
   const [address, setAddress] = useState<string | undefined>(undefined);
   const [postalCode, setPostalCode] = useState<string | undefined>(undefined);
   const [city, setCity] = useState<string | undefined>(undefined);
@@ -32,6 +36,8 @@ export function usePropertyBaseData(propertyId: string, organizationId: string):
     if (!propertyId || !organizationId) {
       setPropertyName('');
       setRentalMode(undefined);
+      setFiscalTypeId(undefined);
+      setFiscalRegimeId(undefined);
       setAddress(undefined);
       setPostalCode(undefined);
       setCity(undefined);
@@ -53,12 +59,16 @@ export function usePropertyBaseData(propertyId: string, organizationId: string):
         if (prop) {
           setPropertyName(prop.name);
           setRentalMode(prop.rentalMode || undefined);
+          setFiscalTypeId(prop.fiscalTypeId || undefined);
+          setFiscalRegimeId(prop.fiscalRegimeId || undefined);
           setAddress(prop.address || undefined);
           setPostalCode(prop.postalCode || undefined);
           setCity(prop.city || undefined);
         } else {
           setPropertyName('Bien non trouvé');
           setError('Bien non trouvé');
+          setFiscalTypeId(undefined);
+          setFiscalRegimeId(undefined);
           setAddress(undefined);
           setPostalCode(undefined);
           setCity(undefined);
@@ -86,12 +96,14 @@ export function usePropertyBaseData(propertyId: string, organizationId: string):
   return useMemo(() => ({
     name: propertyName,
     rentalMode,
+    fiscalTypeId,
+    fiscalRegimeId,
     address,
     postalCode,
     city,
     loading,
     error,
-  }), [propertyName, rentalMode, address, postalCode, city, loading, error]);
+  }), [propertyName, rentalMode, fiscalTypeId, fiscalRegimeId, address, postalCode, city, loading, error]);
 }
 
 

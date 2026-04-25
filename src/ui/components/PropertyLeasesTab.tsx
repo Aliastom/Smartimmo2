@@ -13,6 +13,7 @@ import { formatCurrencyEUR, formatDateShort } from '@/utils/format';
 import { useToast } from '../../hooks/useToast';
 import { useRouter } from 'next/navigation';
 import { useLeases } from '../../hooks/useLeases';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 interface PropertyLeasesTabProps {
   property: Property;
@@ -349,7 +350,7 @@ function LeaseForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <FormShellStandard onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-neutral-700 mb-1">Propriété *</label>
@@ -462,14 +463,17 @@ function LeaseForm({
         >
           Annuler
         </button>
-        <button
+        <SaveActionStandard
           type="submit"
           disabled={isLoading}
+          isLoading={isLoading}
+          mode={lease ? 'edit' : 'create'}
+          labelCreate="Créer"
+          labelEdit="Modifier"
+          loadingLabel="Sauvegarde..."
           className="px-4 py-2 bg-primary text-base-100 rounded-md hover:bg-primary transition disabled:opacity-50"
-        >
-          {isLoading ? 'Sauvegarde...' : (lease ? 'Modifier' : 'Créer')}
-        </button>
+        />
       </div>
-    </form>
+    </FormShellStandard>
   );
 }

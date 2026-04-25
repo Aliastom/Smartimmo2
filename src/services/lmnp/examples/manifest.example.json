@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "propertyId": "clx_property_example",
+  "propertyName": "Studio Lyon",
+  "exerciseYear": 2025,
+  "organizationId": "clx_org_example",
+  "mappingVersion": "1",
+  "generatedAt": "2026-04-23T12:00:00.000Z",
+  "transactionCount": 142,
+  "documentCount": 38,
+  "loanCount": 1,
+  "coverageRate": 0.98,
+  "anomalyCount": 3,
+  "blockingAnomalyCount": 0,
+  "dryRunPayloadHash": "a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345",
+  "bucketCounts": {
+    "RECETTES_LOCAIRES": 52,
+    "CHARGES_DEDUCTIBLES": 88,
+    "A_CLASSER": 2
+  }
+}

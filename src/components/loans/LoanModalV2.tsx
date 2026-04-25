@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useId } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -23,6 +23,7 @@ import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useLoanDocuments } from '@/hooks/offline/useLoanDocuments';
 import { getLocalDB } from '@/lib/offline/db';
 import { createDocumentServiceWithMode } from '@/domain/services/documentServiceFactory';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 // Schéma de validation pour le formulaire de prêt
 const loanFormSchema = z.object({
@@ -101,6 +102,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
   title,
   lockPropertyId = false,
 }) => {
+  const formId = useId();
   const { organizationId } = useCurrentOrganization();
   const [activeTab, setActiveTab] = useState('informations');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -903,9 +905,17 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
       <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting} className="w-full sm:w-auto">
         Annuler
       </Button>
-      <Button type="submit" form="loan-form" disabled={isSubmitting} className="w-full sm:w-auto">
-        {isSubmitting ? 'Enregistrement...' : mode === 'edit' ? 'Mettre à jour' : 'Créer'}
-      </Button>
+      <SaveActionStandard
+        type="submit"
+        form={formId}
+        isLoading={isSubmitting}
+        disabled={isSubmitting}
+        mode={mode === 'edit' ? 'edit' : 'create'}
+        labelCreate="Créer"
+        labelEdit="Mettre à jour"
+        loadingLabel="Enregistrement..."
+        className="w-full sm:w-auto"
+      />
     </div>
   );
 
@@ -976,7 +986,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
 
           {/* Contenu scrollable */}
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden -mx-4 md:-mx-6 px-4 md:px-6">
-            <form id="loan-form" onSubmit={handleSubmit(onSubmitForm)} className="space-y-6 pb-4">
+            <FormShellStandard id={formId} onSubmit={handleSubmit(onSubmitForm)} className="space-y-6 pb-4">
               {activeTab === 'informations' && (
                 <div className="space-y-4 md:space-y-6">
                   {/* Bloc 1 — Essentiel */}
@@ -1635,7 +1645,7 @@ export const LoanModalV2: React.FC<LoanModalV2Props> = ({
                   </div>
                 </div>
               )}
-            </form>
+            </FormShellStandard>
           </div>
         </div>
       </Modal>

@@ -4,8 +4,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/Button';
+import { useId, useState, useEffect } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Textarea } from '@/ui/shared/textarea';
@@ -13,7 +12,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/Dialog';
@@ -24,7 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/ui/shared/select';
-import { Loader2, Copy } from 'lucide-react';
+import { Copy } from 'lucide-react';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 
 interface CreateVersionModalProps {
   open: boolean;
@@ -39,6 +38,7 @@ export function CreateVersionModal({
   onSuccess,
   versions,
 }: CreateVersionModalProps) {
+  const formId = useId();
   const [loading, setLoading] = useState(false);
   const currentYear = new Date().getFullYear();
   
@@ -123,7 +123,7 @@ export function CreateVersionModal({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <FormShellStandard id={formId} onSubmit={handleSubmit} className="space-y-4">
           <div>
             <Label htmlFor="sourceVersion">Version source * (à copier)</Label>
             <Select
@@ -217,25 +217,18 @@ export function CreateVersionModal({
             </p>
           </div>
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Annuler
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Création...
-                </>
-              ) : (
-                <>
-                  <Copy className="mr-2 h-4 w-4" />
-                  Créer la version
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </form>
+          <FormShellStandardFooter
+            formId={formId}
+            onCancel={onClose}
+            cancelVariant="outline"
+            saveActionProps={{
+              mode: 'create',
+              isLoading: loading,
+              labelCreate: 'Créer la version',
+              loadingLabel: 'Création...',
+            }}
+          />
+        </FormShellStandard>
       </DialogContent>
     </Dialog>
   );

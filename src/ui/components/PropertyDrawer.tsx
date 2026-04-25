@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Home, ReceiptEuro, FileText, Users, Landmark, Camera, TrendingUp } from 'lucide-react';
+import { Home, ReceiptEuro, FileText, Users, Landmark, Camera, TrendingUp } from 'lucide-react';
 import { Property } from '../../domain/entities/Property';
 import { Transaction } from '../../domain/entities/Transaction';
 import { Lease } from '../../domain/entities/Lease';
@@ -15,6 +15,7 @@ import PropertyLeasesTab from './PropertyLeasesTab';
 import PropertyLoanTab from './PropertyLoanTab';
 import PropertyPhotosTab from './PropertyPhotosTab';
 import PropertyProfitabilityTab from './PropertyProfitabilityTab';
+import { Drawer } from '@/components/ui/Drawer';
 
 interface PropertyDrawerProps {
   property: Property | null;
@@ -148,67 +149,55 @@ export default function PropertyDrawer({ property: initialProperty, isOpen, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-base-content bg-opacity-50" onClick={onClose} />
-      
-      {/* Drawer */}
-      <div className="absolute right-0 top-0 h-full w-full max-w-4xl bg-base-100 shadow-xl">
-        {/* Header */}
-        <div className="sticky top-0 z-10 bg-base-100 border-b border-neutral-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-neutral-900">{property.name}</h2>
-              <p className="text-neutral-600">{property.address}, {property.postalCode} {property.city}</p>
-            </div>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-full hover:bg-neutral-100 transition-colors"
-            >
-              <X className="h-6 w-6" />
-            </button>
-          </div>
-        </div>
+    <Drawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title={property.name}
+      size="full"
+      noPadding
+    >
+      <div className="p-6 border-b border-neutral-200">
+        <p className="text-neutral-600">{property.address}, {property.postalCode} {property.city}</p>
+      </div>
 
-        {/* Tabs */}
-        <div className="sticky top-[88px] z-10 bg-base-100 border-b border-neutral-200">
-          <div className="flex overflow-x-auto">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center space-x-2 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                    activeTab === tab.id
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="h-[calc(100vh-140px)] overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-2 text-neutral-600">Chargement...</p>
-              </div>
-            </div>
-          ) : (
-            <div className="p-6">
-              {renderTabContent()}
-            </div>
-          )}
+      {/* Tabs */}
+      <div className="sticky top-0 z-10 bg-base-100 border-b border-neutral-200">
+        <div className="flex overflow-x-auto">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center space-x-2 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
-    </div>
+
+      {/* Content */}
+      <div className="h-[calc(100vh-180px)] overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+              <p className="mt-2 text-neutral-600">Chargement...</p>
+            </div>
+          </div>
+        ) : (
+          <div className="p-6">
+            {renderTabContent()}
+          </div>
+        )}
+      </div>
+    </Drawer>
   );
 }

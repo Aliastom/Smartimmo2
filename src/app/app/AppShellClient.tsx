@@ -32,6 +32,8 @@ import { PendingSyncView } from './views/PendingSyncView';
 import { PropertyDetailView } from './views/PropertyDetailView';
 import { GestionDelegueePageCore } from '@/features/gestion/GestionDelegueePageCore';
 import { AlertesPageCore } from '@/features/alertes/AlertesPageCore';
+import { LmnpPilotagePageCore } from '@/features/lmnp/LmnpPilotagePageCore';
+import { MarketPageCore } from '@/features/market/MarketPageCore';
 import { AppShellSidebar } from './AppShellSidebar';
 import { UI2Sidebar } from '@/components/ui2/app-shell/UI2Sidebar';
 import { AppShell } from '@/components/layout/AppShell';
@@ -44,6 +46,8 @@ import { navigateToView, type ViewType } from '@/utils/appShellNavigation';
 import { LocalDbStatusProvider, useLocalDbStatus } from '@/contexts/LocalDbStatusContext';
 import { SelectedPeriodProvider } from '@/contexts/SelectedPeriodContext';
 import { LocalDbUnavailableScreen } from '@/components/offline/LocalDbUnavailableScreen';
+import { notify2 } from '@/lib/notify2';
+import { RELEASES, getReleaseStorageKey } from '@/config/releases';
 
 // ⚠️ GUARD DEV-ONLY : Protection anti-régression pour les onglets property offline
 if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
@@ -70,7 +74,7 @@ function AppShellClientContent() {
   // Dériver currentView directement depuis searchParams (réactif, pas de polling)
   const currentView = useMemo<ViewType>(() => {
     const viewParam = searchParams.get('view');
-    if (viewParam && ['dashboard', 'patrimoine', 'biens', 'locataires', 'baux', 'transactions', 'documents', 'echeances', 'loans', 'fiscal', 'admin', 'parametres', 'sync', 'property', 'profil', 'gestion-deleguee', 'alertes'].includes(viewParam)) {
+    if (viewParam && ['dashboard', 'patrimoine', 'biens', 'locataires', 'baux', 'transactions', 'lmnp', 'market', 'documents', 'echeances', 'loans', 'fiscal', 'admin', 'parametres', 'sync', 'property', 'profil', 'gestion-deleguee', 'alertes'].includes(viewParam)) {
       console.log('[AppShellClient] 📍 Vue calculée depuis URL:', viewParam, 'URL:', window.location.href);
       return viewParam as ViewType;
     }
@@ -162,6 +166,23 @@ function AppShellClientContent() {
       console.error('[AppShellClient] Erreur lors de la migration:', error);
     });
   }, []); // Exécuter une seule fois au montage
+
+  // Message produit one-shot après déploiement des correctifs de stabilité.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    for (const release of RELEASES) {
+      const storageKey = getReleaseStorageKey(release);
+      const alreadyShown = window.localStorage.getItem(storageKey) === '1';
+      if (alreadyShown) continue;
+      // Marquer avant affichage pour éviter le double toast en React Strict Mode.
+      window.localStorage.setItem(storageKey, '1');
+      // Laisser le Toaster (monté au niveau layout) s'hydrater avant d'émettre le toast.
+      window.setTimeout(() => {
+        notify2.info(release.toast);
+      }, 250);
+      break;
+    }
+  }, []);
 
   // ✅ Sync automatique au retour online (peu importe la page)
   // ⚠️ CRITIQUE: Ce hook doit être appelé AVANT le return conditionnel
@@ -534,6 +555,10 @@ function AppShellClientContent() {
             mode="app-shell"
           />
         );
+      case 'lmnp':
+        return <LmnpPilotagePageCore />;
+      case 'market':
+        return <MarketPageCore mode="app-shell" />;
       case 'admin':
         return (
           <AdminPageCore

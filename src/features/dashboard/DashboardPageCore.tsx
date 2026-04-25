@@ -55,6 +55,7 @@ import { ProgressionMoisCard } from './components/ProgressionMoisCard';
 import { cn } from '@/utils/cn';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useSelectedPeriod } from '@/contexts/SelectedPeriodContext';
+import { MarketOpportunityWidget } from './components/MarketOpportunityWidget';
 
 export type DashboardTabId = 'vue-generale' | 'actions' | 'timeline' | 'finances' | 'analyse';
 
@@ -422,14 +423,22 @@ export function DashboardPageCore({
                 echeancesCount={echeancesCount}
               />
               <IndicePortefeuille gravityScore={gravityResult.score} className="flex-shrink-0" />
+              <div className="min-w-[240px] flex-1 sm:flex-none sm:w-[280px]">
+                <MarketOpportunityWidget />
+              </div>
             </div>
           ) : (
-            <PrioriteDuJourCard
-              relances={data.aTraiter?.relances ?? []}
-              transactionsNonRapprochees={data.aTraiter?.transactionsNonRapprochees ?? []}
-              indexationsCount={indexationsCount}
-              echeancesCount={echeancesCount}
-            />
+            <div className="flex flex-wrap items-stretch gap-3">
+              <PrioriteDuJourCard
+                relances={data.aTraiter?.relances ?? []}
+                transactionsNonRapprochees={data.aTraiter?.transactionsNonRapprochees ?? []}
+                indexationsCount={indexationsCount}
+                echeancesCount={echeancesCount}
+              />
+              <div className="min-w-[240px] flex-1 sm:flex-none sm:w-[280px]">
+                <MarketOpportunityWidget />
+              </div>
+            </div>
           )
         )}
 

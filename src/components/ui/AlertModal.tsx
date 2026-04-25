@@ -65,25 +65,24 @@ export function AlertModal({
       onClose={onClose}
       title={title || (type === 'error' ? 'Erreur' : type === 'warning' ? 'Attention' : type === 'success' ? 'Succès' : 'Information')}
       size="sm"
-    >
-      <div className="space-y-4">
-        <div className={cn(
-          'flex items-start gap-3 p-4 rounded-lg border',
-          config.bgColor,
-          config.borderColor
-        )}>
-          <Icon className={cn('h-5 w-5 flex-shrink-0 mt-0.5', config.iconColor)} />
-          <div className="flex-1">
-            <p className={cn('text-sm whitespace-pre-wrap', config.textColor)}>
-              {message}
-            </p>
-          </div>
-        </div>
-
+      footer={
         <div className="flex justify-end">
           <Button onClick={onClose} variant="primary">
             {confirmLabel}
           </Button>
+        </div>
+      }
+    >
+      <div className={cn(
+        'flex items-start gap-3 p-4 rounded-lg border',
+        config.bgColor,
+        config.borderColor
+      )}>
+        <Icon className={cn('h-5 w-5 flex-shrink-0 mt-0.5', config.iconColor)} />
+        <div className="flex-1">
+          <p className={cn('text-sm whitespace-pre-wrap', config.textColor)}>
+            {message}
+          </p>
         </div>
       </div>
     </Modal>

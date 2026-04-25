@@ -1,9 +1,19 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { Button } from '@/components/ui/Button';
 import { X, RefreshCw } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/Dialog';
+import {
+  getLatestRelease,
+  getReleaseModalViewedStorageKey,
+} from '@/config/releases';
 
 /**
  * Composant bandeau de notification de mise à jour PWA
@@ -13,6 +23,29 @@ import { X, RefreshCw } from 'lucide-react';
  */
 export function UpdateBanner() {
   const { isUpdateAvailable, updateServiceWorker, dismissUpdate } = useServiceWorkerUpdate();
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [isModalAlreadyViewed, setIsModalAlreadyViewed] = useState(false);
+  const latestRelease = getLatestRelease();
+  const modalViewedKey = latestRelease
+    ? getReleaseModalViewedStorageKey(latestRelease)
+    : null;
+  const canShowReleaseButton =
+    latestRelease != null &&
+    modalViewedKey != null &&
+    !isModalAlreadyViewed;
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !modalViewedKey) return;
+    setIsModalAlreadyViewed(window.localStorage.getItem(modalViewedKey) === '1');
+  }, [modalViewedKey]);
+
+  const openReleaseModal = () => {
+    setIsUpdateModalOpen(true);
+    if (modalViewedKey && typeof window !== 'undefined') {
+      window.localStorage.setItem(modalViewedKey, '1');
+      setIsModalAlreadyViewed(true);
+    }
+  };
 
   if (!isUpdateAvailable) {
     return null;
@@ -37,6 +70,15 @@ export function UpdateBanner() {
 
           {/* Actions */}
           <div className="flex items-center gap-2">
+            {canShowReleaseButton && (
+              <Button
+                onClick={openReleaseModal}
+                variant="outline"
+                className="px-4 py-2 text-sm font-medium rounded-lg"
+              >
+                Voir les nouveautés
+              </Button>
+            )}
             <Button
               onClick={updateServiceWorker}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm font-medium rounded-lg transition-colors"
@@ -54,6 +96,17 @@ export function UpdateBanner() {
           </div>
         </div>
       </div>
+
+      <Dialog open={isUpdateModalOpen} onOpenChange={setIsUpdateModalOpen}>
+        <DialogContent className="md:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Mise à jour</DialogTitle>
+          </DialogHeader>
+          <p className="whitespace-pre-line text-sm text-gray-700">
+            {latestRelease?.modal ?? ''}
+          </p>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

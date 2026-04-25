@@ -49,6 +49,11 @@ import { getLeaseRepositoryOffline } from '@/lib/offline/repositories/LeaseRepos
 import { getLocalDB } from '@/lib/offline/db';
 import { normalizeLeaseContractStatus } from '@/features/leases/utils/leaseWorkflowStatus';
 import { buildLeaseRenewalInitialData } from '@/features/leases/utils/buildLeaseRenewalInitialData';
+import { useGestionDelegueStatus } from '@/hooks/useGestionDelegueStatus';
+import { useGestionCodes } from '@/hooks/useGestionCodes';
+import { dispatchTransactionsLocalRefresh } from '@/features/transactions/txLocalRefresh';
+import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
+import type { LocalTransaction } from '@/lib/offline/db';
 
 interface Filters {
   search: string;
@@ -80,10 +85,12 @@ interface PropertyLeasesClientProps {
 
 export default function PropertyLeasesClient({ propertyId, propertyName, initialLeaseId, onLeaseSummaryLineChange }: PropertyLeasesClientProps) {
   const { organizationId } = useCurrentOrganization();
+  const { isEnabled: gestionEnabled } = useGestionDelegueStatus();
+  const { codes: gestionCodes } = useGestionCodes();
   const { setActions } = usePropertyHeaderActions();
   const triggerSilentSyncIfOnline = useCallback(async (
     reason: string,
-    options?: { pullLease?: boolean; pullDocument?: boolean; pullDocumentLink?: boolean }
+    options?: { pullLease?: boolean; pullTransaction?: boolean; pullDocument?: boolean; pullDocumentLink?: boolean }
   ) => {
     if (!organizationId) return;
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
@@ -93,6 +100,9 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
       await syncService.syncAllPendingToRemote(organizationId);
       if (options?.pullLease) {
         await syncService.syncEntityFromRemoteByName('lease', organizationId);
+      }
+      if (options?.pullTransaction) {
+        await syncService.syncEntityFromRemoteByName('transaction', organizationId);
       }
       if (options?.pullDocument) {
         await syncService.syncEntityFromRemoteByName('document', organizationId);
@@ -863,10 +873,12 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
           chargesNonRecupMensuelles: data.chargesNonRecupMensuelles || null,
         });
 
-        // UX attendue: créer puis envoyer dans la foulée sans friction.
-        // Si online, pousser immédiatement la file locale vers le serveur.
+        // UX attendue: créer puis pousser la file locale vers le serveur.
+        // Ne pas pull les baux ici : syncEntityFromRemote('lease') fait un overwrite total IDB
+        // (delete org + bulkPut GET /api/leases). Si l’API n’a pas encore le bail créé, la ligne disparaît
+        // du tableau jusqu’au prochain pull — l’édition ne faisait pas ce pull, d’où l’écart create vs edit.
         if (typeof navigator !== 'undefined' && navigator.onLine) {
-          await triggerSilentSyncIfOnline('create_lease', { pullLease: true });
+          await triggerSilentSyncIfOnline('create_lease');
         }
       }
 
@@ -876,7 +888,7 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
       
       notify2.success(isEdit ? 'Bail mis à jour avec succès' : 'Bail créé avec succès');
       
-      // ✅ APP-SHELL: Refresh via événement ciblé
+      // ✅ APP-SHELL: Refresh via événement ciblé (relecture IndexedDB dans useLeasesData)
       window.dispatchEvent(new CustomEvent('leases:refresh', { 
         detail: { scope: 'property', propertyId, reason: 'crud' } 
       }));
@@ -1041,10 +1053,24 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
     const svc = createTransactionServiceWithMode('app-shell');
     const d = new Date(data.date);
     const accountingMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    await svc.createTransaction({
+    const montantLoyer =
+      (data as any).montantLoyer !== undefined && (data as any).montantLoyer !== null
+        ? Number((data as any).montantLoyer)
+        : lease
+          ? Number(lease.rentAmount || 0)
+          : null;
+    const chargesRecup =
+      (data as any).chargesRecup !== undefined && (data as any).chargesRecup !== null
+        ? Number((data as any).chargesRecup)
+        : lease
+          ? Number(lease.chargesRecupMensuelles ?? 0)
+          : null;
+
+    const result = await svc.createTransaction({
       organizationId,
       propertyId: data.propertyId,
       leaseId: data.leaseId || null,
+      bailId: data.leaseId || null,
       categoryId: data.categoryId,
       nature: data.nature,
       label: data.label || 'Loyer',
@@ -1056,16 +1082,96 @@ export default function PropertyLeasesClient({ propertyId, propertyName, initial
       periodMonth: data.periodMonth ? parseInt(data.periodMonth, 10) : d.getMonth() + 1,
       periodYear: data.periodYear ?? d.getFullYear(),
       monthsCovered: 1,
+      montantLoyer,
+      chargesRecup,
+      gestionEnabled,
+      gestionCodes: gestionCodes
+        ? {
+            rentNature: gestionCodes.rentNature,
+            mgmtNature: gestionCodes.mgmtNature,
+            mgmtCategory: gestionCodes.mgmtCategory,
+          }
+        : {
+            rentNature: 'RECETTE_LOYER',
+            mgmtNature: 'DEPENSE_GESTION',
+            mgmtCategory: 'frais-gestion',
+          },
+      // Même contrat que TransactionsPageCore : commission créée côté serveur à la sync (pas de doublon local)
       skipAutoCommissions: true,
     });
-    await triggerSilentSyncIfOnline('lease_payment_create', { pullLease: true });
+
+    const scopePid = data.propertyId || propertyId;
+    const createdTransactionIds = (result.allTransactions?.map((t: { id: string }) => t.id) || [result.transaction?.id]).filter(
+      Boolean
+    ) as string[];
+
+    let createdRowsForPatch: LocalTransaction[] = [];
+    try {
+      const txRepo = getTransactionRepositoryOffline();
+      const freshRows = await Promise.all(createdTransactionIds.map((id: string) => txRepo.getById(id, organizationId)));
+      createdRowsForPatch = freshRows.filter(Boolean) as LocalTransaction[];
+    } catch {
+      createdRowsForPatch = [];
+    }
+    if (createdRowsForPatch.length === 0) {
+      createdRowsForPatch = (result.allTransactions || [result.transaction]) as LocalTransaction[];
+    }
+    dispatchTransactionsLocalRefresh({
+      scope: 'property',
+      propertyId: scopePid,
+      reason: 'lease-payment-create',
+      patch: { action: 'upsert', rows: createdRowsForPatch },
+    });
+
+    const isOnline = typeof navigator !== 'undefined' && navigator.onLine;
+    if (isOnline) {
+      await triggerSilentSyncIfOnline('lease_payment_create', { pullLease: true, pullTransaction: true });
+      try {
+        const transactionRepo = getTransactionRepositoryOffline();
+        const scoped = await transactionRepo.getAll(organizationId, { propertyId: data.propertyId });
+        const pulledCommissions = scoped.filter(
+          (t: LocalTransaction & { isAuto?: boolean; autoSource?: string | null; parentTransactionId?: string | null }) =>
+            t.isAuto === true &&
+            t.autoSource === 'gestion' &&
+            !!t.parentTransactionId &&
+            createdTransactionIds.includes(t.parentTransactionId)
+        );
+        const freshMain: LocalTransaction[] = [];
+        for (const cid of createdTransactionIds) {
+          const row = await transactionRepo.getById(cid, organizationId);
+          if (row) freshMain.push(row);
+        }
+        const mergedById = new Map<string, LocalTransaction>();
+        for (const r of [...freshMain, ...pulledCommissions]) {
+          mergedById.set(r.id, r as LocalTransaction);
+        }
+        const mergedRows = Array.from(mergedById.values());
+        if (mergedRows.length > 0) {
+          dispatchTransactionsLocalRefresh({
+            scope: 'property',
+            propertyId: scopePid,
+            reason: 'lease-payment-roundtrip',
+            patch: { action: 'upsert', rows: mergedRows },
+          });
+        }
+        // Pas de pull documentLink immédiat (même risque overwrite que création transaction + PJ).
+      } catch (e) {
+        console.warn('[PropertyLeasesClient] Post-sync paiement bail:', e);
+      }
+      window.dispatchEvent(
+        new CustomEvent('documents:refresh', { detail: { scope: 'property', propertyId: scopePid } })
+      );
+    } else {
+      await triggerSilentSyncIfOnline('lease_payment_create', { pullLease: true });
+    }
+
     setShowPaymentModal(false);
     setPaymentPrefill(null);
     notify2.success('Paiement enregistré');
     const leaseId = data.leaseId || null;
     window.dispatchEvent(new CustomEvent('leases:refresh', { detail: { scope: 'property', propertyId, leaseId, reason: 'tx' } }));
     window.dispatchEvent(new CustomEvent('transactions:refresh', { detail: { scope: 'property', propertyId, leaseId } }));
-  }, [organizationId, propertyId, allLeases]);
+  }, [organizationId, propertyId, allLeases, gestionEnabled, gestionCodes, triggerSilentSyncIfOnline]);
 
   const refreshAfterWorkflow = useCallback((leaseId: string, reason: string) => {
     window.dispatchEvent(

@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Button } from '@/components/ui/Button';
+import React, { useState, useEffect, useCallback, useId } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 import { z } from 'zod';
 import { 
   Upload, 
@@ -95,6 +95,7 @@ export default function TransactionFormComplete({
   defaultPropertyId,
   defaultLeaseId 
 }: TransactionFormCompleteProps) {
+  const formId = useId();
   const [formData, setFormData] = useState({
     propertyId: propertyId || defaultPropertyId || '',
     leaseId: leaseId || defaultLeaseId || '',
@@ -202,7 +203,7 @@ export default function TransactionFormComplete({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setErrors({});
@@ -246,18 +247,22 @@ export default function TransactionFormComplete({
       onClose={onClose}
       title={title}
       size="xl"
+      footerAlreadyStandardized
       footer={
-        <div className="flex gap-3">
-          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Annuler
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting || isLoadingData}>
-            {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
-          </Button>
-        </div>
+        <FormShellStandardFooter
+          formId={formId}
+          onCancel={onClose}
+          saveActionProps={{
+            isLoading: isSubmitting,
+            disabled: isSubmitting || isLoadingData,
+            mode: 'edit',
+            labelEdit: 'Enregistrer',
+            loadingLabel: 'Enregistrement...',
+          }}
+        />
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <FormShellStandard id={formId} onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Colonne gauche - Informations de base */}
           <div className="space-y-6">
@@ -577,7 +582,7 @@ export default function TransactionFormComplete({
             </Card>
           </div>
         </div>
-      </form>
+      </FormShellStandard>
     </Modal>
   );
 }

@@ -3,16 +3,18 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { ActionFooterStandard, ModalHeaderStandard } from '@/components/ui/standards';
 // ⚠️ IMPORT: cn est déjà importé, utilisé pour les classes conditionnelles
 
 export interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title?: string;
+  showCloseButton?: boolean;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  footerAlreadyStandardized?: boolean;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'full';
   closeOnBackdropClick?: boolean;
   closeOnEscape?: boolean;
@@ -32,8 +34,10 @@ export function Modal({
   isOpen,
   onClose,
   title,
+  showCloseButton = true,
   children,
   footer,
+  footerAlreadyStandardized = false,
   size = 'md',
   closeOnBackdropClick = true,
   closeOnEscape = true,
@@ -157,25 +161,12 @@ export function Modal({
             onTouchStart={(e) => e.stopPropagation()} // Empêche la propagation du touch
           >
             {/* Header */}
-            {(title || closeOnBackdropClick) && (
-              <div className={cn(
-                "flex items-center justify-between p-4 md:p-6 border-b border-gray-200 flex-shrink-0 bg-white",
-                "rounded-t-2xl overflow-hidden" // ⚠️ CRITIQUE: Arrondir les coins supérieurs + overflow-hidden pour éviter les débordements
-              )}>
-                {title && (
-                  <h2 id="modal-title" className="text-base md:text-lg font-semibold text-gray-900">
-                    {title}
-                  </h2>
-                )}
-                <button
-                  onClick={onClose}
-                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors focus-ring"
-                  aria-label="Fermer"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            )}
+            <ModalHeaderStandard
+              title={title}
+              titleId="modal-title"
+              onClose={onClose}
+              showCloseButton={showCloseButton}
+            />
 
             {/* Body - Scrollable avec safe areas iOS */}
             <div 
@@ -196,14 +187,18 @@ export function Modal({
 
             {/* Footer - Sticky avec safe-area iOS */}
             {footer && (
-              <div 
-                className="flex flex-col gap-3 p-4 md:p-6 border-t border-gray-200 flex-shrink-0 rounded-b-2xl bg-white overflow-hidden"
-                style={{
-                  paddingBottom: `max(1rem, calc(1rem + env(safe-area-inset-bottom)))`
-                }}
-              >
-                {footer}
-              </div>
+              footerAlreadyStandardized ? (
+                <div className="flex-shrink-0 rounded-b-2xl overflow-hidden">
+                  {footer}
+                </div>
+              ) : (
+                <ActionFooterStandard
+                  className="flex-shrink-0 rounded-b-2xl overflow-hidden"
+                  stickyMobile={false}
+                >
+                  {footer}
+                </ActionFooterStandard>
+              )
             )}
           </motion.div>
         </motion.div>

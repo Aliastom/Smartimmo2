@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 import { createPropertyServicePrisma } from '@/domain/services/propertyServiceFactory';
 import { mapPropertyServiceErrorToHttpStatus } from '@/domain/services/propertyServiceHelpers';
+import { prisma } from '@/lib/prisma';
 
 
 // Force dynamic rendering for Vercel deployment
@@ -27,9 +28,38 @@ const updatePropertySchema = z.object({
   managementCompanyId: z.string().optional(),
   fiscalTypeId: z.string().optional(),
   fiscalRegimeId: z.string().optional(),
+  lmnpActivityId: z.string().optional(),
   rentalMode: z.enum(['LONG_TERM', 'SEASONAL_AIRBNB']).optional(),
   airbnbListingId: z.string().optional(),
 });
+
+async function ensureLmnpActivityRequired(
+  organizationId: string,
+  fiscalTypeId?: string,
+  fiscalRegimeId?: string,
+  lmnpActivityId?: string,
+): Promise<string | null> {
+  if (!fiscalTypeId || !fiscalRegimeId) return null;
+  const [type, regime] = await Promise.all([
+    prisma.fiscalType.findUnique({ where: { id: fiscalTypeId }, select: { id: true, label: true } }),
+    prisma.fiscalRegime.findUnique({ where: { id: fiscalRegimeId }, select: { id: true, label: true } }),
+  ]);
+  const typeText = `${type?.id || ''} ${type?.label || ''}`.toLowerCase();
+  const regimeText = `${regime?.id || ''} ${regime?.label || ''}`.toLowerCase();
+  const isLmnpOrLmp = /(lmnp|lmp|meuble|meublé)/.test(typeText);
+  const isReelSimplifie = /(reel|réel)/.test(regimeText) && /(simplifie|simplifié)/.test(regimeText);
+  if (isLmnpOrLmp && isReelSimplifie && !lmnpActivityId) {
+    return 'Une activité LMNP/SIRET est requise pour un bien LMNP au réel.';
+  }
+  if (lmnpActivityId) {
+    const exists = await prisma.lmnpActivity.findFirst({
+      where: { id: lmnpActivityId, organizationId },
+      select: { id: true },
+    });
+    if (!exists) return 'Activité LMNP introuvable pour cette organisation.';
+  }
+  return null;
+}
 
 export async function GET(
   request: NextRequest,
@@ -66,6 +96,22 @@ export async function PUT(
     
     // Validation minimale (shape)
     const validatedData = updatePropertySchema.parse(body);
+    const existing = await PropertyRepo.findById(params.id, user.organizationId);
+    if (!existing) {
+      return NextResponse.json({ error: 'Bien non trouvé' }, { status: 404 });
+    }
+    const mergedFiscalTypeId = validatedData.fiscalTypeId ?? existing.fiscalTypeId ?? undefined;
+    const mergedFiscalRegimeId = validatedData.fiscalRegimeId ?? existing.fiscalRegimeId ?? undefined;
+    const mergedLmnpActivityId = validatedData.lmnpActivityId ?? existing.lmnpActivityId ?? undefined;
+    const lmnpValidationError = await ensureLmnpActivityRequired(
+      user.organizationId,
+      mergedFiscalTypeId,
+      mergedFiscalRegimeId,
+      mergedLmnpActivityId,
+    );
+    if (lmnpValidationError) {
+      return NextResponse.json({ error: lmnpValidationError }, { status: 422 });
+    }
     
     // Appel du service (toute la logique métier est dans PropertyService)
     const propertyService = createPropertyServicePrisma();
@@ -87,6 +133,7 @@ export async function PUT(
       managementCompanyId: validatedData.managementCompanyId,
       fiscalTypeId: validatedData.fiscalTypeId,
       fiscalRegimeId: validatedData.fiscalRegimeId,
+      lmnpActivityId: validatedData.lmnpActivityId,
       rentalMode: validatedData.rentalMode,
       airbnbListingId: validatedData.airbnbListingId,
     });

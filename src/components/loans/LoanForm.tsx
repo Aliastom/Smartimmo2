@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Select } from '@/components/ui/Select';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 import {
   Dialog,
   DialogContent,
@@ -117,7 +118,7 @@ export function LoanForm({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
+        <FormShellStandard id="loan-form" onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
           {/* Bien */}
           <div className="space-y-2">
             <Label htmlFor="propertyId">Bien *</Label>
@@ -274,11 +275,17 @@ export function LoanForm({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Annuler
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'En cours...' : mode === 'edit' ? 'Mettre à jour' : 'Créer'}
-            </Button>
+            <SaveActionStandard
+              type="submit"
+              isLoading={isSubmitting}
+              disabled={isSubmitting}
+              mode={mode === 'edit' ? 'edit' : 'create'}
+              labelCreate="Créer"
+              labelEdit="Mettre à jour"
+              loadingLabel="En cours..."
+            />
           </DialogFooter>
-        </form>
+        </FormShellStandard>
       </DialogContent>
     </Dialog>
   );

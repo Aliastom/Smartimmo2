@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useId } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { X, RotateCcw, Info, ChevronDown, Search, Upload, FileText, Eye, Link, AlertCircle } from 'lucide-react';
@@ -25,7 +25,7 @@ import { useUploadReviewModal } from '@/contexts/UploadReviewModalContext';
 import { useUploadStaging } from '@/hooks/useUploadStaging';
 import { useGestionDelegueStatus } from '@/hooks/useGestionDelegueStatus';
 import { useGestionCodes } from '@/hooks/useGestionCodes';
-import { logToServer } from '@/lib/utils/logger';
+import { logToServer, txHotPathDebugLog, txPerfMeasureZone } from '@/lib/utils/logger';
 import { StagedUploadModal } from '@/components/documents/StagedUploadModal';
 import { UploadReviewModal } from '@/components/documents/UploadReviewModal';
 import { DuplicateDetectedModal } from '@/components/documents/DuplicateDetectedModal';
@@ -42,6 +42,7 @@ import { Switch } from '@/components/ui/Switch';
 import { Accordion } from '@/components/ui/Accordion';
 import { ModalSubmitOverlay } from '@/components/ui/ModalSubmitOverlay';
 import { useModalSubmitFlow } from '@/hooks/useModalSubmitFlow';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 // Configuration des natures avec libellés clairs et groupes
 const getNatureOptions = (getNatureLabel: (key: string) => string) => [
@@ -133,6 +134,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   prefill,
   suggestionMeta
 }) => {
+  const formId = useId();
   const [activeTab, setActiveTab] = useState('essentielles');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const {
@@ -145,6 +147,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     reset: resetSubmitFlow,
   } = useModalSubmitFlow();
   const lastSubmitPayloadRef = React.useRef<any>(null);
+  /** Évite double soumission (double clic, retry réseau, relance retry + formulaire). */
+  const transactionSubmitInflightRef = React.useRef(false);
   const [isLoading, setIsLoading] = useState(false);
   // ⚠️ PROBLÈME 1: État pour suivre les fichiers en cours d'upload
   const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(new Set());
@@ -170,7 +174,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     periodMonth: '',
     periodYear: new Date().getFullYear()
   });
-  
+  const [isLabelManualLocal, setIsLabelManualLocal] = useState(false);
+  const isLabelManualLocalRef = React.useRef(false);
+  useEffect(() => {
+    isLabelManualLocalRef.current = isLabelManualLocal;
+  }, [isLabelManualLocal]);
+
   // État pour le bail lié (en mode édition)
   const [linkedBail, setLinkedBail] = useState<any>(null);
   const [showLinkBailModal, setShowLinkBailModal] = useState(false);
@@ -747,19 +756,23 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       notes: '',
       periodMonth: '',
       periodYear: new Date().getFullYear(),
+      monthsCovered: 1,
       autoDistribution: false
     }
   });
 
   // Fonction pour générer le libellé automatiquement
-  const generateLabel = useCallback(() => {
-    const natureValue = watch('nature');
-    const categoryId = watch('categoryId');
-    const periodMonth = watch('periodMonth');
-    const periodYear = watch('periodYear');
-    const accountingMonth = watch('accountingMonth');
-    const propertyId = watch('propertyId');
-    const monthsCovered = watch('monthsCovered');
+  const generateLabel = useCallback((source?: Partial<TransactionFormData>) => {
+    const natureValue = source?.nature ?? watch('nature');
+    const categoryId = source?.categoryId ?? watch('categoryId');
+    const periodMonth = source?.periodMonth ?? watch('periodMonth');
+    const periodYear = source?.periodYear ?? watch('periodYear');
+    const accountingMonth = source?.accountingMonth ?? watch('accountingMonth');
+    const propertyId = source?.propertyId ?? watch('propertyId');
+    const monthsCoveredRaw = source?.monthsCovered ?? watch('monthsCovered');
+    const monthsCovered = typeof monthsCoveredRaw === 'string'
+      ? parseInt(monthsCoveredRaw, 10)
+      : monthsCoveredRaw;
 
     // Libellé court : "Loyer Mars 2026" (nature + mois) — détails dans référence si besoin
     const monthNames = [
@@ -784,11 +797,15 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         monthYear = `${monthNames[parseInt(periodMonth) - 1] || periodMonth} ${periodYear}`;
       }
     }
-    if (natureLabel && monthYear) return `${natureLabel} ${monthYear}`;
-    if (natureLabel) return natureLabel;
-    if (monthYear) return monthYear;
+    const propertyName = propertyId
+      ? (properties.find((p: any) => p.id === propertyId)?.name || '')
+      : '';
+
+    if (natureLabel && monthYear) return propertyName ? `${natureLabel} ${monthYear} - ${propertyName}` : `${natureLabel} ${monthYear}`;
+    if (natureLabel) return propertyName ? `${natureLabel} - ${propertyName}` : natureLabel;
+    if (monthYear) return propertyName ? `${monthYear} - ${propertyName}` : monthYear;
     return '';
-  }, [watch, categories, natures, mode]);
+  }, [watch, categories, natures, mode, properties]);
 
   // Synchroniser les états locaux avec les valeurs du formulaire
   useEffect(() => {
@@ -828,17 +845,51 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   // Mise à jour automatique du libellé (uniquement si libellé en mode auto) — après useAutoFillTransaction
   useEffect(() => {
     const subscription = watch((value, { name }) => {
-      const isLabelAuto = !autoFillState.isManual.label;
+      const isLabelAuto = !isLabelManualLocal;
       if (!isLabelAuto) return;
       if (name === 'nature' || name === 'categoryId' || name === 'periodMonth' || name === 'periodYear' || name === 'accountingMonth' || name === 'propertyId') {
-        const newLabel = generateLabel();
+        const newLabel = generateLabel(value as Partial<TransactionFormData>);
         if (newLabel) {
           setValue('label', newLabel);
         }
       }
     });
     return () => subscription.unsubscribe();
-  }, [watch, setValue, generateLabel, autoFillState.isManual.label]);
+  }, [watch, setValue, generateLabel, isLabelManualLocal]);
+
+  // À l'ouverture d'une nouvelle transaction, réactiver le mode auto du libellé.
+  // Garde-fou anti-boucle: exécuter une seule fois par ouverture de modal.
+  const labelAutoResetDoneRef = React.useRef(false);
+  useEffect(() => {
+    if (!isOpen) {
+      labelAutoResetDoneRef.current = false;
+      return;
+    }
+    if (mode !== 'create' || labelAutoResetDoneRef.current) return;
+    labelAutoResetDoneRef.current = true;
+
+    resetToAuto('label');
+    setIsLabelManualLocal(false);
+
+    const autoLabel = generateLabel(getValues() as Partial<TransactionFormData>);
+    if (autoLabel && getValues('label') !== autoLabel) {
+      setValue('label', autoLabel);
+      setLocalFormData(prev => ({ ...prev, label: autoLabel }));
+    }
+  }, [isOpen, mode, resetToAuto, generateLabel, getValues, setValue]);
+
+  // Garder accountingMonth synchronisé avec la période choisie dans l'onglet Paiement.
+  // Sinon generateLabel peut continuer à utiliser un ancien accountingMonth (ex: Avril) même si mois=Mai.
+  const watchedPeriodMonth = watch('periodMonth');
+  const watchedPeriodYear = watch('periodYear');
+  const watchedAccountingMonth = watch('accountingMonth');
+  useEffect(() => {
+    if (!watchedPeriodMonth || !watchedPeriodYear) return;
+    const targetAccountingMonth = `${watchedPeriodYear}-${String(watchedPeriodMonth).padStart(2, '0')}`;
+    if (watchedAccountingMonth !== targetAccountingMonth) {
+      setValue('accountingMonth', targetAccountingMonth, { shouldDirty: true });
+    }
+  }, [watchedPeriodMonth, watchedPeriodYear, watchedAccountingMonth, setValue]);
 
   // Calculer la valeur auto du montant basée sur le bail sélectionné
   const leasesArray = Array.isArray(leases) ? leases : [];
@@ -1248,19 +1299,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           if (displayAmount) setValue('amount', displayAmount);
           if (transactionData.label) setValue('label', transactionData.label);
           if (transactionData.reference) setValue('reference', transactionData.reference);
-          // Simplification du libellé en édition : si libellé long (ancien format), remplacer par "Nature Mois Année"
-          const rawLabel = transactionData.label || '';
-          const accMonth = transactionData.accounting_month || transactionData.accountingMonth || '';
-          const natureLabel = typeof transactionData.nature === 'object' && transactionData.nature?.label
-            ? transactionData.nature.label
-            : (Array.isArray(natures) && natures.find((n: { key?: string; label?: string }) => n.key === (transactionData.nature?.key ?? transactionData.nature?.id))?.label) || '';
-          if (rawLabel.length > 28 || rawLabel.includes(' – ')) {
-            const monthNames = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
-            const shortMonth = accMonth && /^\d{4}-\d{2}$/.test(accMonth)
-              ? (() => { const [, y, m] = accMonth.match(/^(\d{4})-(\d{2})$/) || []; return y && m ? `${monthNames[parseInt(m, 10) - 1] || m} ${y}` : ''; })()
-              : '';
-            const shortLabel = natureLabel && shortMonth ? `${natureLabel} ${shortMonth}` : '';
-            if (shortLabel) setValue('label', shortLabel);
+          // Source de vérité = libellé stocké (tableau / IDB). Ne pas « simplifier » ici : ça désynchronisait
+          // la modal vs le tableau et faisait croire que l’édition du libellé ne persistait pas.
+          if (mode === 'edit') {
+            setIsLabelManualLocal(true);
           }
           // Champs de paiement
           // ⚙️ NORMALISATION: Dans IndexedDB/Supabase:
@@ -1669,6 +1711,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         if (mode === 'create') {
           setSelectedNature('');
           setSelectedCategory('');
+          setIsLabelManualLocal(false);
           setLocalFormData({
             label: '',
             periodMonth: String(currentDate.getMonth() + 1).padStart(2, '0'),
@@ -1729,7 +1772,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           if (prefill.date) setValue('date', prefill.date);
           if (prefill.periodMonth) setValue('periodMonth', prefill.periodMonth);
           if (prefill.periodYear) setValue('periodYear', prefill.periodYear);
-          if (prefill.label) setValue('label', prefill.label);
+          if (prefill.label && !isLabelManualLocalRef.current) {
+            setValue('label', prefill.label);
+          }
           if (prefill.reference) setValue('reference', prefill.reference);
           if (prefill.notes) setValue('notes', prefill.notes);
           
@@ -1750,9 +1795,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             setIsAutoAmount(true);
           }
           
-          // Mettre à jour les états locaux
+          // Mettre à jour les états locaux (libellé : ne pas écraser si l'utilisateur a déjà saisi — user > auto)
           setLocalFormData({
-            label: prefill.label || '',
+            label:
+              !isLabelManualLocalRef.current && prefill.label
+                ? prefill.label
+                : getValues('label') || '',
             periodMonth: prefill.periodMonth || String(currentDate.getMonth() + 1).padStart(2, '0'),
             periodYear: prefill.periodYear || currentDate.getFullYear()
           });
@@ -1936,11 +1984,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         setValue('periodYear', parseInt(year));
         setLocalFormData(prev => ({ ...prev, periodMonth: month, periodYear: parseInt(year, 10) }));
       }
-      if (suggestion.label) {
-        // Applique label - log supprimé
+      if (suggestion.label && !isLabelManualLocalRef.current) {
         setValue('label', suggestion.label);
         setLocalFormData(prev => ({ ...prev, label: suggestion.label }));
-          }
+      }
           // Vérification paymentDate - log supprimé
           if ((suggestion as any).paymentDate) {
         setValue('paymentDate', (suggestion as any).paymentDate);
@@ -2047,14 +2094,19 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   /** Soumission directe : validation réelle → construction payload → runSubmitWithPayload. */
   const submitFormDirectly = async (data: TransactionFormData) => {
+    if (transactionSubmitInflightRef.current) {
+      return;
+    }
+    transactionSubmitInflightRef.current = true;
+    const endCreateSubmit = txPerfMeasureZone('tx:create:submit');
     startValidation();
     setIsSubmitting(true);
     try {
       const stagedDocumentIds = filteredStagedDocuments.map(doc => doc.id);
       const stagedLinkItemIds = stagedLinks.map(link => link.existingDocument?.id || link.id);
 
-      await logToServer(`[TransactionModalV2] 📎 onSubmitForm - filteredStagedDocuments: ${filteredStagedDocuments.length}, stagedDocumentIds: ${stagedDocumentIds.length} - IDs: ${stagedDocumentIds.join(', ') || 'aucun'}`);
-      await logToServer(`[TransactionModalV2] 📎 onSubmitForm - stagedLinks: ${stagedLinks.length}, stagedLinkItemIds: ${stagedLinkItemIds.length} - IDs: ${stagedLinkItemIds.join(', ') || 'aucun'}`);
+      await txHotPathDebugLog(`[TransactionModalV2] 📎 onSubmitForm - filteredStagedDocuments: ${filteredStagedDocuments.length}, stagedDocumentIds: ${stagedDocumentIds.length} - IDs: ${stagedDocumentIds.join(', ') || 'aucun'}`);
+      await txHotPathDebugLog(`[TransactionModalV2] 📎 onSubmitForm - stagedLinks: ${stagedLinks.length}, stagedLinkItemIds: ${stagedLinkItemIds.length} - IDs: ${stagedLinkItemIds.join(', ') || 'aucun'}`);
 
       const periodMonth = localFormData.periodMonth || data.periodMonth;
       const periodYear = localFormData.periodYear || data.periodYear;
@@ -2066,7 +2118,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         ...data,
         nature: selectedNature || data.nature,
         categoryId: selectedCategory || data.categoryId,
-        label: localFormData.label || data.label,
+        label: data.label,
         paidAt: normalizedPaidAt,
         method: normalizedMethod,
         periodMonth: periodMonth,
@@ -2086,11 +2138,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         factures: (prefill as any)?.factures || undefined
       };
 
-      await logToServer(`[TransactionModalV2] 📎 Données envoyées à onSubmit - stagedDocumentIds: ${dataWithStagedDocuments.stagedDocumentIds?.length || 0} - IDs: ${dataWithStagedDocuments.stagedDocumentIds?.join(', ') || 'aucun'}`);
+      await txHotPathDebugLog(`[TransactionModalV2] 📎 Données envoyées à onSubmit - stagedDocumentIds: ${dataWithStagedDocuments.stagedDocumentIds?.length || 0} - IDs: ${dataWithStagedDocuments.stagedDocumentIds?.join(', ') || 'aucun'}`);
       await runSubmitWithPayload(dataWithStagedDocuments);
     } catch (error: any) {
       markError(error);
       setIsSubmitting(false);
+    } finally {
+      transactionSubmitInflightRef.current = false;
+      endCreateSubmit();
     }
   };
 
@@ -2223,10 +2278,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         </div>
 
         {/* Contenu du formulaire - Scrollable avec safe areas iOS */}
-        <form onSubmit={handleSubmit((data) => {
-          // handleSubmit appelé - log supprimé
-          onSubmitForm(data);
-        })} className="p-4 md:p-4 relative overflow-y-auto flex-1 min-h-0 pb-24 md:pb-4 bg-white">
+        <FormShellStandard
+          id={formId}
+          onSubmit={handleSubmit((data) => {
+            onSubmitForm(data);
+          })}
+          className="p-4 md:p-4 relative overflow-y-auto flex-1 min-h-0 pb-24 md:pb-4 bg-white"
+        >
           {/* Overlay de chargement */}
           {isLoading && (
             <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50">
@@ -2242,10 +2300,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             step={submitStep}
             errorMessage={submitError}
             onRetry={() => {
-              if (lastSubmitPayloadRef.current) {
-                resetSubmitFlow();
-                runSubmitWithPayload(lastSubmitPayloadRef.current);
+              if (!lastSubmitPayloadRef.current || transactionSubmitInflightRef.current) {
+                return;
               }
+              transactionSubmitInflightRef.current = true;
+              resetSubmitFlow();
+              void runSubmitWithPayload(lastSubmitPayloadRef.current).finally(() => {
+                transactionSubmitInflightRef.current = false;
+              });
             }}
             onDismissError={resetSubmitFlow}
           />
@@ -2605,23 +2667,32 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 </Label>
                 <div className="relative">
                   <Input
-                    value={localFormData.label || watch('label') || ''}
+                    value={watch('label') || ''}
                     placeholder="Libellé de la transaction"
                     onChange={(e) => {
                       setValue('label', e.target.value);
                       setLocalFormData(prev => ({ ...prev, label: e.target.value }));
+                      setIsLabelManualLocal(true);
                       markAsManual('label');
                     }}
                   />
-                  {!autoFillState.isManual.label && autoFillState.autoSuggestions.label && (
+                  {!isLabelManualLocal && autoFillState.autoSuggestions.label && (
                     <div className="absolute right-2 top-2 flex items-center gap-1">
                       <Badge variant="secondary" className="text-xs">auto</Badge>
                     </div>
                   )}
-                  {autoFillState.isManual.label && (
+                  {isLabelManualLocal && (
                     <button
                       type="button"
-                      onClick={() => resetToAuto('label')}
+                      onClick={() => {
+                        resetToAuto('label');
+                        setIsLabelManualLocal(false);
+                        const autoLabel = generateLabel(getValues() as Partial<TransactionFormData>);
+                        if (autoLabel) {
+                          setValue('label', autoLabel);
+                          setLocalFormData(prev => ({ ...prev, label: autoLabel }));
+                        }
+                      }}
                       className="absolute right-2 top-2 text-gray-500 hover:text-gray-700"
                     >
                       <RotateCcw className="h-4 w-4" />
@@ -2787,7 +2858,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         type="number"
                         step="0.01"
                         {...register('chargesNonRecup', {
-                          valueAsNumber: true,
+                          setValueAs: (value) => {
+                            if (value === '' || value === null || value === undefined) return 0;
+                            const parsed = Number(value);
+                            return Number.isNaN(parsed) ? 0 : parsed;
+                          },
                           onChange: (e) => {
                             // Arrondir à 2 décimales pour éviter les erreurs de précision flottante
                             const value = parseFloat(e.target.value) || 0;
@@ -2942,6 +3017,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       value={localFormData.periodMonth || watch('periodMonth') || ''}
                       onChange={(value) => {
                         setValue('periodMonth', value);
+                        const year = localFormData.periodYear || watch('periodYear');
+                        if (value && year) {
+                          setValue('accountingMonth', `${year}-${value.padStart(2, '0')}`);
+                        }
                         setLocalFormData(prev => ({ ...prev, periodMonth: value }));
                       }}
                       options={[
@@ -2974,6 +3053,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       onChange={(e) => {
                         const value = parseInt(e.target.value) || new Date().getFullYear();
                         setValue('periodYear', value);
+                        const month = localFormData.periodMonth || watch('periodMonth');
+                        if (month && value) {
+                          setValue('accountingMonth', `${value}-${String(month).padStart(2, '0')}`);
+                        }
                         setLocalFormData(prev => ({ ...prev, periodYear: value }));
                       }}
                     />
@@ -2990,7 +3073,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       type="number"
                       min="1"
                       max="12"
-                      {...register('monthsCovered')}
+                      {...register('monthsCovered', {
+                        setValueAs: (value) => {
+                          if (value === '' || value === null || value === undefined) return undefined;
+                          return Number(value);
+                        },
+                      })}
                       placeholder="1"
                       className={errors.monthsCovered ? 'border-red-500' : ''}
                     />
@@ -3508,22 +3596,18 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             >
               Annuler
             </Button>
-            <Button
+            <SaveActionStandard
               type="submit"
-              disabled={isSubmitting || isLoading}
-              onClick={(e) => {
-                // Bouton cliqué - log supprimé
-                e.preventDefault();
-                const formData = getValues();
-                // Données du formulaire - log supprimé
-                onSubmitForm(formData);
-              }}
               className="w-full sm:w-auto"
-            >
-              {isSubmitting ? 'Enregistrement...' : (mode === 'create' ? 'Créer' : 'Modifier')}
-            </Button>
+              isLoading={isSubmitting}
+              disabled={isSubmitting || isLoading}
+              mode={mode === 'create' ? 'create' : 'edit'}
+              labelCreate="Créer"
+              labelEdit="Modifier"
+              loadingLabel="Enregistrement..."
+            />
           </div>
-        </form>
+        </FormShellStandard>
       </div>
       
       {/* Modal pour lier un bail */}

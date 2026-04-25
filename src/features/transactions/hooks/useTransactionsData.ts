@@ -15,6 +15,7 @@ import { getLocalDB } from '@/lib/offline/db';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import type { LocalTransaction, LocalProperty, LocalLease, LocalTenant, CachedNature } from '@/lib/offline/db';
 import { txPerfMeasureZone } from '@/lib/utils/logger';
+import { transactionDocumentsCountForTableRow } from '@/lib/offline/services/documentLinksService';
 import type { TransactionsRefreshDetail } from '../txLocalRefresh';
 
 function sortLocalTransactionsByDateDesc(rows: LocalTransaction[]): LocalTransaction[] {
@@ -552,12 +553,20 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
               const { getDocumentCountsForTransactions } = await import(
                 '@/lib/offline/services/documentLinksService'
               );
-              const partial = await getDocumentCountsForTransactions(affectedIds, organizationId);
-              setDocumentCounts((prev) => {
-                const next = new Map(prev);
-                partial.forEach((count, id) => next.set(id, count));
-                return next;
-              });
+              const mergeCounts = async () => {
+                const partial = await getDocumentCountsForTransactions(affectedIds, organizationId);
+                setDocumentCounts((prev) => {
+                  const next = new Map(prev);
+                  partial.forEach((count, id) => next.set(id, count));
+                  return next;
+                });
+              };
+              await mergeCounts();
+              // Recount différé : liens DocumentLink / métadonnées Document peuvent être visibles
+              // un tick après l’upsert transaction (création + PJ, round-trip sync).
+              window.setTimeout(() => {
+                void mergeCounts();
+              }, 150);
             }
           } finally {
             endPatch();
@@ -687,8 +696,8 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
         // Déterminer le type de nature
         const natureType = nature?.flow === 'INCOME' || nature?.flow === 'RECETTE' ? 'RECETTE' : 'DEPENSE';
 
-        // Calculer les documents liés à cette transaction via documentLinks
-        const documentsCount = documentCounts.get(trans.id) || 0;
+        // Calculer les documents liés à cette transaction via documentLinks (commission → PJ de la mère)
+        const documentsCount = transactionDocumentsCountForTableRow(trans, documentCounts);
         const hasDocument = documentsCount > 0;
 
         return {

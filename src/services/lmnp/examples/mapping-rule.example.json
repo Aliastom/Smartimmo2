@@ -1,0 +1,28 @@
+[
+  {
+    "description": "Règle spécifique au bien : priorité plus haute que les règles globales",
+    "organizationId": "<org_cuid>",
+    "exerciseYear": 2025,
+    "propertyId": "<property_cuid>",
+    "natureCode": "RECETTE_LOYER",
+    "categoryId": null,
+    "lmnpBucket": "RECETTES_LOCAIRES",
+    "lmnpLabel": "Loyers encaissés",
+    "priority": 500,
+    "active": true,
+    "mappingVersion": "1"
+  },
+  {
+    "description": "Règle globale organisation + exercice (propertyId null)",
+    "organizationId": "<org_cuid>",
+    "exerciseYear": 2025,
+    "propertyId": null,
+    "natureCode": null,
+    "categoryId": "<category_cuid_frais>",
+    "lmnpBucket": "CHARGES_DEDUCTIBLES",
+    "lmnpLabel": "Charges déductibles (catégorie)",
+    "priority": 100,
+    "active": true,
+    "mappingVersion": "1"
+  }
+]

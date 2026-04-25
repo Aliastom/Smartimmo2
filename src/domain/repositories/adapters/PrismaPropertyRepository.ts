@@ -37,6 +37,7 @@ export class PrismaPropertyRepository implements IPropertyRepository {
         fiscalRegimeId: data.fiscalRegimeId,
         rentalMode: data.rentalMode,
         airbnbListingId: data.airbnbListingId,
+        lmnpActivityId: data.lmnpActivityId,
       },
     });
 
@@ -66,6 +67,7 @@ export class PrismaPropertyRepository implements IPropertyRepository {
         fiscalRegimeId: data.fiscalRegimeId,
         rentalMode: data.rentalMode,
         airbnbListingId: data.airbnbListingId,
+        lmnpActivityId: data.lmnpActivityId,
         isArchived: data.isArchived,
         archivedAt: data.archivedAt,
       },
@@ -285,6 +287,7 @@ export class PrismaPropertyRepository implements IPropertyRepository {
       fiscalRegimeId: result.fiscalRegimeId,
       rentalMode: result.rentalMode,
       airbnbListingId: result.airbnbListingId,
+      lmnpActivityId: result.lmnpActivityId ?? null,
       isArchived: result.isArchived ?? false,
       archivedAt: result.archivedAt,
       createdAt: result.createdAt,

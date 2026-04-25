@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 import { SearchableSelect } from '@/components/forms/SearchableSelect';
 import { useCreateLease, useUpdateLease, useLeases, type Lease, type CreateLeaseData } from '../hooks/useLeases';
 import { useTenants } from '../hooks/useTenants';
 import { getLeaseStatusDisplay } from '../../domain/leases/status';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 
 interface LeaseFormModalProps {
   isOpen: boolean;
@@ -22,6 +23,7 @@ export default function LeaseFormModal({
   defaultPropertyId,
   onSuccess
 }: LeaseFormModalProps) {
+  const formId = useId();
   const [formData, setFormData] = useState<CreateLeaseData>({
     propertyId: defaultPropertyId || '',
     tenantId: '',
@@ -168,7 +170,7 @@ export default function LeaseFormModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <FormShellStandard id={formId} onSubmit={handleSubmit} className="p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Propriété */}
             <div>
@@ -372,24 +374,22 @@ export default function LeaseFormModal({
             />
           </div>
 
-          {/* Boutons */}
-          <div className="flex justify-end space-x-3 pt-6 border-t border-neutral-200">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-neutral-700 bg-base-100 border border-neutral-300 rounded-md hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              Annuler
-            </button>
-            <button
-              type="submit"
-              disabled={createLeaseMutation.isPending || updateLeaseMutation.isPending}
-              className="px-4 py-2 text-sm font-medium text-base-100 bg-primary border border-transparent rounded-md hover:bg-primary focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {createLeaseMutation.isPending || updateLeaseMutation.isPending ? 'Enregistrement...' : 'Enregistrer'}
-            </button>
-          </div>
-        </form>
+          <FormShellStandardFooter
+            className="pt-6 border-t border-neutral-200"
+            formId={formId}
+            onCancel={onClose}
+            saveActionProps={{
+              isLoading: createLeaseMutation.isPending || updateLeaseMutation.isPending,
+              disabled: createLeaseMutation.isPending || updateLeaseMutation.isPending,
+              mode: lease ? 'edit' : 'create',
+              labelCreate: 'Enregistrer',
+              labelEdit: 'Enregistrer',
+              loadingLabel: 'Enregistrement...',
+              className:
+                'px-4 py-2 text-sm font-medium text-base-100 bg-primary border border-transparent rounded-md hover:bg-primary focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed',
+            }}
+          />
+        </FormShellStandard>
       </div>
     </div>
   );

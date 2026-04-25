@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Badge } from '@/components/ui/Badge';
@@ -60,6 +61,7 @@ export function TenantEditModalV2({
   initialData, 
   title 
 }: TenantEditModalV2Props) {
+  const formId = useId();
   const [activeTab, setActiveTab] = useState('personal');
   const [formData, setFormData] = useState({
     firstName: '',
@@ -167,7 +169,7 @@ export function TenantEditModalV2({
     }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setErrors({});
@@ -543,29 +545,28 @@ export function TenantEditModalV2({
       onClose={onClose} 
       size="xl"
       title={title}
+      footerAlreadyStandardized
       footer={
-        <div className="flex gap-3 w-full">
-          <Button 
-            type="button" 
-            variant="outline" 
-            onClick={onClose} 
-            disabled={isSubmitting}
-            className="flex-1 sm:flex-initial"
-          >
-            Annuler
-          </Button>
-          <Button 
-            type="submit" 
-            form="tenant-form"
-            disabled={isSubmitting}
-            className="flex-1 sm:flex-initial"
-          >
-            {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
-          </Button>
-        </div>
+        <FormShellStandardFooter
+          formId={formId}
+          onCancel={onClose}
+          cancelVariant="outline"
+          actionsClassName="w-full"
+          cancelButtonProps={{
+            disabled: isSubmitting,
+            className: 'flex-1 sm:flex-initial',
+          }}
+          saveActionProps={{
+            isLoading: isSubmitting,
+            disabled: isSubmitting,
+            className: 'flex-1 sm:flex-initial',
+            labelEdit: 'Enregistrer',
+            loadingLabel: 'Enregistrement...',
+          }}
+        />
       }
     >
-      <form id="tenant-form" onSubmit={handleSubmit} className="flex flex-col min-h-0">
+      <FormShellStandard id={formId} onSubmit={handleSubmit} className="flex flex-col min-h-0">
         {/* Tabs - Sticky aligné sur les autres modales */}
         <div className="sticky top-0 z-10 bg-white border-b border-gray-200 -mx-4 sm:-mx-6 px-4 sm:px-6">
           <nav
@@ -607,7 +608,7 @@ export function TenantEditModalV2({
             </div>
           )}
         </div>
-      </form>
+      </FormShellStandard>
     </Modal>
   );
 }

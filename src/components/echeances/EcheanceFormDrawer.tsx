@@ -5,11 +5,12 @@
  * Ce drawer utilise l'ancien schéma (type) au lieu de natureCode/categoryId.
  * Non migré vers le référentiel Nature + Catégorie.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useId } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Drawer } from '@/components/ui/Drawer';
 import { Button } from '@/components/ui/Button';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shared/select';
@@ -45,6 +46,7 @@ export function EcheanceFormDrawer({
   mode = 'create',
   defaultPropertyId = null,
 }: EcheanceFormDrawerProps) {
+  const formId = useId();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [filteredLeases, setFilteredLeases] = useState(leases);
 
@@ -173,18 +175,25 @@ export function EcheanceFormDrawer({
       onClose={onClose}
       title={title}
       size="lg"
+      footerAlreadyStandardized
       footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Annuler
-          </Button>
-          <Button onClick={handleSubmit(handleFormSubmit)} disabled={isSubmitting}>
-            {isSubmitting ? 'Enregistrement...' : mode === 'create' || mode === 'duplicate' ? 'Créer' : 'Enregistrer'}
-          </Button>
-        </>
+        <FormShellStandardFooter
+          formId={formId}
+          onCancel={onClose}
+          cancelButtonProps={{ disabled: isSubmitting }}
+          actionsClassName="w-full justify-end"
+          saveActionProps={{
+            isLoading: isSubmitting,
+            disabled: isSubmitting,
+            mode: mode === 'edit' ? 'edit' : 'create',
+            labelCreate: 'Créer',
+            labelEdit: 'Enregistrer',
+            loadingLabel: 'Enregistrement...',
+          }}
+        />
       }
     >
-      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
+      <FormShellStandard id={formId} onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
         {/* Label */}
         <div>
           <Label htmlFor="label">Libellé *</Label>
@@ -447,7 +456,7 @@ export function EcheanceFormDrawer({
             </Label>
           </div>
         </div>
-      </form>
+      </FormShellStandard>
     </Drawer>
   );
 }

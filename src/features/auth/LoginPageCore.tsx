@@ -6,7 +6,7 @@
  * Design de référence : page de login normale avec animation Rive
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Chrome } from 'lucide-react';
 import {
   useRive,
@@ -17,6 +17,7 @@ import {
 } from '@rive-app/react-canvas';
 import { createBrowserClient } from '@/lib/supabase';
 import { useAppAuth } from '@/features/auth/useAppAuth';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 const STATE_MACHINE_NAME = 'Login Machine';
 const RIVE_SRC = '/rive/login-teddy.riv';
@@ -49,6 +50,7 @@ export function LoginPageCore({
   subtitle,
   footer,
 }: LoginPageCoreProps) {
+  const formId = useId();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -193,7 +195,7 @@ export function LoginPageCore({
   };
 
   // Gérer l'envoi du magic link (mode normal uniquement)
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!email) {
@@ -271,7 +273,8 @@ export function LoginPageCore({
                 </div>
               </div>
 
-              <form
+              <FormShellStandard
+                id={formId}
                 onSubmit={handleSubmit}
                 className="relative -mt-24 w-full max-w-md rounded-[32px] bg-white/70 p-8 shadow-2xl backdrop-blur-lg"
               >
@@ -324,13 +327,16 @@ export function LoginPageCore({
 
                   {/* Bouton magic link (mode normal uniquement) */}
                   {mode === 'normal' && (
-                    <button
+                    <SaveActionStandard
                       type="submit"
-                      className={`btn btn-primary mt-2 w-full ${loading ? 'loading' : ''}`}
+                      form={formId}
+                      mode="edit"
+                      isLoading={loading}
                       disabled={loading || googleLoading}
-                    >
-                      {loading ? 'Envoi en cours...' : 'Envoyer le lien de connexion'}
-                    </button>
+                      className="mt-2 w-full btn btn-primary"
+                      labelEdit="Envoyer le lien de connexion"
+                      loadingLabel="Envoi en cours..."
+                    />
                   )}
 
                   {/* Séparateur (mode normal uniquement) */}
@@ -363,7 +369,7 @@ export function LoginPageCore({
                     En continuant, vous acceptez nos conditions d&apos;utilisation et notre politique de confidentialité.
                   </p>
                 </div>
-              </form>
+              </FormShellStandard>
             </div>
           </div>
         </div>

@@ -122,12 +122,11 @@ export const useAutoFillTransaction = ({
         setValue('nature', 'RECETTE_LOYER'); // Utiliser la clé complète
         // setValue('amount', (singleLease.rentAmount || singleLease.rent || 0) + (singleLease.charges || 0)); // DÉSACTIVÉ - géré localement
         
-        // Générer le libellé auto
+        // Générer une suggestion de libellé (la valeur du champ label est gérée par TransactionModalV2)
         const property = (Array.isArray(properties) ? properties : (properties?.data || [])).find(p => p.id === propertyId);
         const dateObj = new Date(date);
         const monthYear = dateObj.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
         const autoLabel = `Loyer ${monthYear} – ${property?.address || ''}`;
-        setValue('label', autoLabel);
         
         // Marquer comme suggestions auto
         setAutoFillState(prev => ({

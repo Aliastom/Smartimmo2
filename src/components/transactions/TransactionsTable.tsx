@@ -77,6 +77,8 @@ interface TransactionsTableProps {
   groupByMonth?: boolean;
   /** IDs des transactions liées à une échéance (badge discret "Échéance liée") */
   transactionIdsWithEcheanceLink?: string[];
+  /** IDs des transactions parent dont la commission auto est attendue mais pas encore visible localement */
+  pendingCommissionTransactionIds?: string[];
 }
 
 const NATURE_COLORS = {
@@ -112,10 +114,15 @@ export default function TransactionsTable({
   onOpenDrawerForDocuments,
   groupByMonth = false,
   transactionIdsWithEcheanceLink,
+  pendingCommissionTransactionIds = [],
 }: TransactionsTableProps) {
   const echeanceLinkSet = useMemo(
     () => new Set(transactionIdsWithEcheanceLink ?? []),
     [transactionIdsWithEcheanceLink]
+  );
+  const pendingCommissionSet = useMemo(
+    () => new Set(pendingCommissionTransactionIds ?? []),
+    [pendingCommissionTransactionIds]
   );
   const [sortFieldInternal, setSortFieldInternal] = useState<SortField>('accountingMonth');
   const [sortOrderInternal, setSortOrderInternal] = useState<SortOrder>('desc');
@@ -136,6 +143,10 @@ export default function TransactionsTable({
       transaction.parentTransactionId !== null &&
       transaction.parentTransactionId !== undefined
     );
+  };
+  const isPendingCommissionParent = (transaction: Transaction): boolean => {
+    if (isAutoCommission(transaction)) return false;
+    return pendingCommissionSet.has(transaction.id);
   };
 
   // Fonctions de gestion de sélection - déléguer au parent
@@ -209,23 +220,35 @@ export default function TransactionsTable({
     return '📄';
   };
 
-  /** Titre court + sous-titre pour la colonne Transaction (libellés courts, commission liée au loyer) */
+  /**
+   * Colonne Transaction : afficher le libellé stocké (source IDB / serveur) en priorité.
+   * L’ancien titre synthétique « Nature + mois comptable » ne servait que de repli si libellé vide.
+   */
   const getTransactionTitleSubtitle = (t: Transaction): { title: string; subtitle: string } => {
-    const isCommission = t.isAuto === true && t.autoSource === 'gestion' && t.parentTransactionId;
+    const storedLabel = (t.label || '').trim();
     const monthLabel = t.accountingMonth ? formatAccountingMonth(t.accountingMonth) : formatDate(t.date);
+    const isCommission = t.isAuto === true && t.autoSource === 'gestion' && t.parentTransactionId;
 
     if (isCommission) {
       const parent = transactions.find((x) => x.id === t.parentTransactionId);
-      const parentMonth = parent?.accountingMonth ? formatAccountingMonth(parent.accountingMonth) : parent?.date ? formatDate(parent.date) : '';
-      const parentShort = parent ? `${parent.nature?.label || 'Loyer'} ${parentMonth}`.trim() : monthLabel;
+      const parentStored = (parent?.label || '').trim();
+      const parentMonth = parent?.accountingMonth
+        ? formatAccountingMonth(parent.accountingMonth)
+        : parent?.date
+          ? formatDate(parent.date)
+          : '';
+      const parentSynthetic = parent ? `${parent.nature?.label || 'Loyer'} ${parentMonth}`.trim() : '';
+      const parentLine = parentStored || parentSynthetic || monthLabel;
       const parentTenant = parent ? getTenantName(parent) : '';
       return {
-        title: 'Commission gestion',
-        subtitle: parentTenant || parentShort || monthLabel,
+        title: storedLabel || 'Commission gestion',
+        subtitle: parentTenant || parentLine || monthLabel,
       };
     }
+
+    const fallbackTitle = `${t.nature?.label || 'Transaction'} ${monthLabel}`.trim();
     return {
-      title: `${t.nature?.label || 'Transaction'} ${monthLabel}`.trim(),
+      title: storedLabel || fallbackTitle,
       subtitle: getTenantName(t),
     };
   };
@@ -607,6 +630,12 @@ export default function TransactionsTable({
                                 {echeanceLinkSet.has(transaction.id) && (
                                   <p className="text-[10px] text-orange-600 mt-0.5">Échéance liée</p>
                                 )}
+                                {isPendingCommissionParent(transaction) && (
+                                  <p className="text-[10px] text-amber-700 mt-0.5 inline-flex items-center gap-1">
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    Commission en cours de génération...
+                                  </p>
+                                )}
                               </>
                             );
                           })()}
@@ -873,6 +902,12 @@ export default function TransactionsTable({
                                         {subtitle}
                                       </p>
                                     )}
+                                    {isPendingCommissionParent(transaction) && (
+                                      <p className="text-[10px] text-amber-700 mt-0.5 inline-flex items-center gap-1">
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                        Commission en cours de génération...
+                                      </p>
+                                    )}
                                   </>
                                 );
                               })()}
@@ -1123,6 +1158,12 @@ export default function TransactionsTable({
                                 )}
                                 {echeanceLinkSet.has(transaction.id) && (
                                   <p className="text-[10px] text-orange-600 mt-0.5">Échéance liée</p>
+                                )}
+                                {isPendingCommissionParent(transaction) && (
+                                  <p className="text-[10px] text-amber-700 mt-0.5 inline-flex items-center gap-1">
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    Commission en cours de génération...
+                                  </p>
                                 )}
                               </>
                             );

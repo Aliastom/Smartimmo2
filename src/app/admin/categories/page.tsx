@@ -6,8 +6,10 @@ import DataTable from '../../../ui/components/DataTable';
 import FormModal from '../../../ui/components/FormModal';
 import ActionButtons from '../../../ui/components/ActionButtons';
 import { Category } from '../../../domain/entities/Category';
+import { FormShellStandard, SaveActionStandard } from '@/components/ui/standards';
 
 export default function AdminCategoriesPage() {
+  const formId = React.useId();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -221,11 +223,15 @@ export default function AdminCategoriesPage() {
         }}
         title={editingCategory ? "Modifier la catégorie" : "Ajouter une nouvelle catégorie"}
       >
-        <form onSubmit={(e) => {
-          e.preventDefault();
-          const formData = new FormData(e.currentTarget);
-          handleSubmit(formData);
-        }} className="space-y-4">
+        <FormShellStandard
+          id={formId}
+          onSubmit={(e) => {
+            e.preventDefault();
+            const formData = new FormData(e.currentTarget);
+            handleSubmit(formData);
+          }}
+          className="space-y-4"
+        >
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-neutral-700 mb-1">
               Nom de la catégorie
@@ -311,15 +317,18 @@ export default function AdminCategoriesPage() {
             >
               Annuler
             </button>
-            <button
+            <SaveActionStandard
               type="submit"
+              form={formId}
+              mode={editingCategory ? 'edit' : 'create'}
+              isLoading={isSubmitting}
               className="px-4 py-2 text-sm font-medium text-base-100 bg-primary-700 rounded-md shadow-sm hover:bg-primary-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Envoi...' : (editingCategory ? 'Modifier' : 'Ajouter')}
-            </button>
+              labelCreate="Ajouter"
+              labelEdit="Modifier"
+              loadingLabel="Envoi..."
+            />
           </div>
-        </form>
+        </FormShellStandard>
       </FormModal>
     </div>
   );

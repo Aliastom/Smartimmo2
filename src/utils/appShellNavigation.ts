@@ -10,6 +10,8 @@ export type ViewType =
   | 'locataires' 
   | 'baux' 
   | 'transactions' 
+  | 'lmnp'
+  | 'market'
   | 'documents' 
   | 'echeances' 
   | 'loans'
@@ -51,6 +53,13 @@ export function cleanPropertyScopedParams(url: URL): void {
  */
 export function buildViewUrl(view: ViewType, currentUrl?: string): string {
   const url = new URL(currentUrl || (typeof window !== 'undefined' ? window.location.href : '/app'));
+
+  // Toutes les vues `?view=…` (sync, transactions, etc.) sont rendues sous `/app` (AppShell).
+  // Depuis `/admin`, `/parametres`, etc., il faut forcer le pathname sinon on reste sur une page
+  // qui n’embarque pas PendingSyncView (ex. `/admin?view=sync` ne montre pas la file d’attente).
+  if (url.pathname !== '/app') {
+    url.pathname = '/app';
+  }
   
   if (view === 'dashboard') {
     // Dashboard : URL la plus propre, pas de query params

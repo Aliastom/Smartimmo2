@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useId } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
-import { Save, Building2 } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
+import { Building2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 import { SmartSelect, type SmartSelectOption } from '@/components/ui/SmartSelect';
 import { toast } from 'sonner';
 import type { ManagementCompany, CreateManagementCompanyDto } from '@/lib/gestion/types';
@@ -26,6 +26,7 @@ export function ManagementCompanyModal({
   societe,
   mode = 'normal',
 }: ManagementCompanyModalProps) {
+  const formId = useId();
   const queryClient = useQueryClient();
   const { organizationId } = useCurrentOrganization();
   const isEdit = !!societe;
@@ -236,15 +237,21 @@ export function ManagementCompanyModal({
   if (!isOpen) return null;
 
   const modalFooter = (
-    <div className="flex gap-3 w-full">
-      <Button type="button" variant="outline" onClick={onClose} className="flex-1 sm:flex-initial">
-        Annuler
-      </Button>
-      <Button type="submit" form="management-company-form" disabled={isSubmitting} className="flex-1 sm:flex-initial">
-        <Save className="h-4 w-4 mr-2" />
-        {isEdit ? 'Mettre à jour' : 'Créer'}
-      </Button>
-    </div>
+    <FormShellStandardFooter
+      formId={formId}
+      onCancel={onClose}
+      cancelVariant="outline"
+      cancelButtonProps={{ className: 'flex-1 sm:flex-initial' }}
+      actionsClassName="w-full sm:w-auto"
+      saveActionProps={{
+        isLoading: isSubmitting,
+        disabled: isSubmitting,
+        mode: isEdit ? 'edit' : 'create',
+        labelCreate: 'Créer',
+        labelEdit: 'Mettre à jour',
+        className: 'flex-1 sm:flex-initial',
+      }}
+    />
   );
 
   return (
@@ -254,9 +261,10 @@ export function ManagementCompanyModal({
       title={isEdit ? 'Modifier la société' : 'Nouvelle société de gestion'}
       size="lg"
       className="md:max-w-2xl"
+      footerAlreadyStandardized
       footer={modalFooter}
     >
-        <form id="management-company-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <FormShellStandard id={formId} onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           {/* Informations générales */}
           <div>
             <h3 className="text-lg font-medium mb-4">Informations générales</h3>
@@ -460,7 +468,7 @@ export function ManagementCompanyModal({
             </label>
           </div>
 
-        </form>
+        </FormShellStandard>
     </Modal>
   );
 }

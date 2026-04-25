@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Edit, Trash2, FileText, Calendar, Euro, Building2, Users, Receipt, Eye } from 'lucide-react';
+import { Edit, Trash2, FileText, Calendar, Euro, Building2, Users, Receipt, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import type { LeaseWithDetails } from '@/lib/services/leasesService';
@@ -9,6 +9,7 @@ import { formatLeasePeriod } from '@/utils/leaseUtils';
 import { getLocalDB } from '@/lib/offline/db';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { getLeaseDocumentDisplayInfo } from '@/features/leases/utils/leaseDocumentDisplay';
+import { Drawer } from '@/components/ui/Drawer';
 
 interface LeaseDrawerNewProps {
   lease: LeaseWithDetails | null;
@@ -182,38 +183,52 @@ export default function LeaseDrawerNew({
   const leaseDocumentDisplay = getLeaseDocumentDisplayInfo(lease.status, signedLeaseDocument);
 
   return (
-    <div className="fixed inset-0 z-50">
-      {/* Overlay */}
-      <div 
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
-      />
-      
-      {/* Drawer - Mobile: plein écran, Desktop: side panel */}
-      <div className="fixed right-0 top-0 h-screen w-full lg:w-auto lg:max-w-2xl bg-white shadow-xl transform transition-transform">
-        <div className="flex flex-col h-full">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                Bail — {lease.Tenant.firstName} {lease.Tenant.lastName}
-              </h2>
-              <p className="text-sm text-gray-600 mt-1">
-                {lease.Property.name}
-              </p>
-            </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
+    <Drawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Bail — ${lease.Tenant.firstName} ${lease.Tenant.lastName}`}
+      size="xl"
+      footerAlreadyStandardized
+      footer={
+        <div className="flex items-center justify-end gap-3 p-4 border-t">
+          {onGenerateReceipt && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onGenerateReceipt(lease)}
+              className="border-purple-300 text-purple-600 hover:bg-purple-50"
             >
-              <X className="h-6 w-6" />
-            </button>
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-4">
-            {/* Informations principales */}
-            <div className="space-y-4">
+              <Receipt className="h-4 w-4 mr-2" />
+              Générer quittance
+            </Button>
+          )}
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => onEdit(lease)}
+          >
+            <Edit className="h-4 w-4 mr-2" />
+            Modifier
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onDelete(lease)}
+            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Supprimer
+          </Button>
+        </div>
+      }
+    >
+      {/* Content */}
+      <div className="p-4">
+        {/* Informations principales */}
+        <div className="space-y-4">
+              <section className="border-b pb-4">
+                <p className="text-sm text-gray-600">{lease.Property.name}</p>
+              </section>
               {/* Section 1: Résumé financier */}
               <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center gap-2">
@@ -399,43 +414,9 @@ export default function LeaseDrawerNew({
                   </div>
                 )}
               </div>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="flex items-center justify-end gap-3 p-4 border-t">
-            {onGenerateReceipt && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onGenerateReceipt(lease)}
-                className="border-purple-300 text-purple-600 hover:bg-purple-50"
-              >
-                <Receipt className="h-4 w-4 mr-2" />
-                Générer quittance
-              </Button>
-            )}
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => onEdit(lease)}
-            >
-              <Edit className="h-4 w-4 mr-2" />
-              Modifier
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onDelete(lease)}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Supprimer
-            </Button>
-          </div>
         </div>
       </div>
-    </div>
+    </Drawer>
   );
 }
 

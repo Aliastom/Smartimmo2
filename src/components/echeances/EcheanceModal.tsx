@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
@@ -42,6 +43,7 @@ export function EcheanceModal({
   defaultPropertyId = null,
   dataMode = 'normal',
 }: EcheanceModalProps) {
+  const formId = useId();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [filteredLeases, setFilteredLeases] = useState(leases);
   const [isLibelleDirty, setIsLibelleDirty] = useState(false);
@@ -210,18 +212,24 @@ export function EcheanceModal({
       onClose={onClose}
       title={title}
       size="lg"
+      footerAlreadyStandardized
       footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Annuler
-          </Button>
-          <Button onClick={handleSubmit(handleFormSubmit)} disabled={isSubmitting || refLoading}>
-            {isSubmitting ? 'Enregistrement...' : mode === 'create' || mode === 'duplicate' ? 'Créer' : 'Enregistrer'}
-          </Button>
-        </>
+        <FormShellStandardFooter
+          formId={formId}
+          onCancel={onClose}
+          cancelButtonProps={{ disabled: isSubmitting }}
+          saveActionProps={{
+            mode: mode === 'edit' ? 'edit' : 'create',
+            isLoading: isSubmitting,
+            disabled: isSubmitting || refLoading,
+            labelCreate: 'Créer',
+            labelEdit: 'Enregistrer',
+            loadingLabel: 'Enregistrement...',
+          }}
+        />
       }
     >
-      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6 md:space-y-4">
+      <FormShellStandard id={formId} onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6 md:space-y-4">
         <div className="space-y-4">
           <h3 className="text-sm font-semibold text-gray-900 mb-3 md:hidden">Essentiel</h3>
 
@@ -513,7 +521,7 @@ export function EcheanceModal({
             </div>
           </Accordion>
         </div>
-      </form>
+      </FormShellStandard>
     </Modal>
   );
 }

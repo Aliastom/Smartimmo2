@@ -4,15 +4,13 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/Button';
+import { useId, useState, useEffect } from 'react';
 import { Label } from '@/components/ui/Label';
 import { Textarea } from '@/ui/shared/textarea';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/Dialog';
@@ -23,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/ui/shared/select';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 
 interface CreateCompatibilityModalProps {
   open: boolean;
@@ -44,6 +43,7 @@ export function CreateCompatibilityModal({
   onSuccess,
   editingCompat,
 }: CreateCompatibilityModalProps) {
+  const formId = useId();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     scope: 'category',
@@ -118,7 +118,7 @@ export function CreateCompatibilityModal({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <FormShellStandard id={formId} onSubmit={handleSubmit} className="space-y-4">
           <div>
             <Label htmlFor="scope">Portée</Label>
             <Select
@@ -211,15 +211,19 @@ export function CreateCompatibilityModal({
             />
           </div>
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Annuler
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? 'Enregistrement...' : editingCompat ? 'Modifier' : 'Créer'}
-            </Button>
-          </DialogFooter>
-        </form>
+          <FormShellStandardFooter
+            formId={formId}
+            onCancel={onClose}
+            cancelVariant="outline"
+            saveActionProps={{
+              mode: editingCompat ? 'edit' : 'create',
+              isLoading: loading,
+              labelCreate: 'Créer',
+              labelEdit: 'Modifier',
+              loadingLabel: 'Enregistrement...',
+            }}
+          />
+        </FormShellStandard>
       </DialogContent>
     </Dialog>
   );

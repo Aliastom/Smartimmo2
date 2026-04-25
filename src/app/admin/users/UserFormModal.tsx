@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shared/select';
 import { toast } from 'sonner';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 
 interface User {
   id: string;
@@ -31,6 +32,7 @@ export default function UserFormModal({
   onSave,
   onCreate
 }: UserFormModalProps) {
+  const formId = useId();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [sendInvitation, setSendInvitation] = useState(true);
@@ -73,7 +75,7 @@ export default function UserFormModal({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
     setErrors({});
@@ -154,7 +156,7 @@ export default function UserFormModal({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6">
+        <FormShellStandard id={formId} onSubmit={handleSubmit} className="p-6">
           <div className="space-y-6">
             <div>
               <Label htmlFor="email" className="text-sm font-medium text-gray-700">
@@ -232,23 +234,20 @@ export default function UserFormModal({
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-3 mt-8 pt-6 border-t">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleClose}
-              disabled={isSubmitting}
-            >
-              Annuler
-            </Button>
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Enregistrement...' : (user ? 'Modifier' : 'Créer l\'utilisateur')}
-            </Button>
-          </div>
-        </form>
+          <FormShellStandardFooter
+            formId={formId}
+            onCancel={handleClose}
+            cancelVariant="outline"
+            className="mt-8 pt-6"
+            saveActionProps={{
+              mode: user ? 'edit' : 'create',
+              isLoading: isSubmitting,
+              labelCreate: 'Créer l\'utilisateur',
+              labelEdit: 'Modifier',
+              loadingLabel: 'Enregistrement...',
+            }}
+          />
+        </FormShellStandard>
       </div>
     </div>
   );

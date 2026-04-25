@@ -10,7 +10,6 @@ import { Badge } from '@/ui/shared/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/shared/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/shared/tabs';
 import { 
-  X, 
   Save, 
   Plus, 
   Trash2, 
@@ -27,6 +26,7 @@ import {
   Code
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Drawer } from '@/components/ui/Drawer';
 
 interface DocumentTypeEditDrawerProps {
   isOpen: boolean;
@@ -251,32 +251,38 @@ export function DocumentTypeEditDrawer({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
-      <div className="absolute inset-0 bg-base-content/50" onClick={onClose} />
-      
-      <div className="absolute right-0 top-0 h-full w-full max-w-4xl bg-base-100 shadow-xl">
-        <div className="flex h-full flex-col">
-          {/* Header */}
-          <div className="flex items-center justify-between border-b px-6 py-4">
-            <div>
-              <h2 className="text-lg font-semibold">
-                {documentType ? 'Modifier le type de document' : 'Nouveau type de document'}
-              </h2>
-              {documentType?.isSystem && (
-                <Badge variant="secondary" className="mt-1">
-                  <Shield className="mr-1 h-3 w-3" />
-                  Type système
-                </Badge>
-              )}
-            </div>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+    <Drawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title={documentType ? 'Modifier le type de document' : 'Nouveau type de document'}
+      size="full"
+      noPadding
+      footerAlreadyStandardized
+      footer={
+        <div className="flex items-center justify-end space-x-2 border-t px-6 py-4">
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button onClick={handleSave} disabled={isSaving || !formData.code || !formData.label}>
+            <Save className="mr-2 h-4 w-4" />
+            {isSaving ? 'Sauvegarde...' : 'Sauvegarder'}
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex h-full flex-col">
+        <div className="border-b px-6 py-4">
+          {documentType?.isSystem && (
+            <Badge variant="secondary" className="mt-1">
+              <Shield className="mr-1 h-3 w-3" />
+              Type système
+            </Badge>
+          )}
+        </div>
 
-          {/* Content */}
-          <div className="flex-1 overflow-hidden">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full">
+        {/* Content */}
+        <div className="flex-1 overflow-hidden">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full">
               <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="general">
                   <Settings className="mr-2 h-4 w-4" />
@@ -693,21 +699,9 @@ export function DocumentTypeEditDrawer({
                   </Card>
                 </TabsContent>
               </div>
-            </Tabs>
-          </div>
-
-          {/* Footer */}
-          <div className="flex items-center justify-end space-x-2 border-t px-6 py-4">
-            <Button variant="outline" onClick={onClose}>
-              Annuler
-            </Button>
-            <Button onClick={handleSave} disabled={isSaving || !formData.code || !formData.label}>
-              <Save className="mr-2 h-4 w-4" />
-              {isSaving ? 'Sauvegarde...' : 'Sauvegarder'}
-            </Button>
-          </div>
+          </Tabs>
         </div>
       </div>
-    </div>
+    </Drawer>
   );
 }

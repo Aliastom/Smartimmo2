@@ -1,5 +1,29 @@
 import { z } from 'zod';
 
+const monthsCoveredSchema = z.preprocess(
+  (value) => {
+    if (value === '' || value === null || value === undefined) return undefined;
+    if (typeof value === 'string') return Number(value);
+    return value;
+  },
+  z
+    .number({
+      required_error: 'Le nombre de mois couverts est requis',
+      invalid_type_error: 'Le nombre de mois couverts doit être un nombre valide',
+    })
+    .int('Le nombre de mois couverts doit etre un entier')
+    .min(1, 'Au moins 1 mois doit être couvert')
+);
+
+const chargesNonRecupSchema = z.preprocess(
+  (value) => {
+    if (value === '' || value === null || value === undefined || Number.isNaN(value)) return 0;
+    if (typeof value === 'string') return Number(value);
+    return value;
+  },
+  z.number().min(0)
+);
+
 // Schéma de base commun aux deux modes
 const baseTransactionSchema = {
   propertyId: z.string().min(1, 'Le bien est obligatoire'),
@@ -30,14 +54,14 @@ const baseTransactionSchema = {
   // Gestion déléguée - granularité loyers
   montantLoyer: z.number().min(0).optional(),
   chargesRecup: z.number().min(0).optional(),
-  chargesNonRecup: z.number().min(0).optional()
+  chargesNonRecup: chargesNonRecupSchema.optional()
 };
 
 // Schéma pour la création (avec monthsCovered)
 export const createTransactionSchema = z
   .object({
     ...baseTransactionSchema,
-    monthsCovered: z.number().int().min(1, 'Au moins 1 mois doit être couvert').default(1),
+    monthsCovered: monthsCoveredSchema,
   })
   .refine((data) => !!((data.paidAt ?? '').trim()) || !!((data.paymentDate ?? '').trim()), {
     message: 'La date de paiement est obligatoire.',
@@ -59,7 +83,7 @@ export const updateTransactionSchema = z
 export const transactionFormSchema = z
   .object({
     ...baseTransactionSchema,
-    monthsCovered: z.number().min(1, 'Au moins 1 mois doit être couvert'),
+    monthsCovered: monthsCoveredSchema,
   })
   .refine((data) => !!((data.paidAt ?? '').trim()) || !!((data.paymentDate ?? '').trim()), {
     message: 'La date de paiement est obligatoire.',

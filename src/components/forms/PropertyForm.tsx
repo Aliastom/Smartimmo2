@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { FormShellStandard, FormShellStandardFooter } from '@/components/ui/standards';
 import { Badge } from '@/components/ui/Badge';
 import { Tabs, TabsContent, TabsList } from '@/components/ui/Tabs';
 import { SmartSelect, SmartSelectOption } from '@/components/ui/SmartSelect';
@@ -33,6 +34,7 @@ const propertySchema = z.object({
   fiscalRegimeId: z.string().optional(),
   rentalMode: z.enum(['LONG_TERM', 'SEASONAL_AIRBNB']).optional(),
   airbnbListingId: z.string().optional(),
+  lmnpActivityId: z.string().optional(),
 });
 
 export interface PropertySummaryMetrics {
@@ -64,6 +66,7 @@ function formatEur(value: number): string {
 }
 
 export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, summaryMetrics, title }: PropertyFormProps) {
+  const formId = useId();
   const [formData, setFormData] = useState(initialData || {
     name: '',
     type: 'apartment',
@@ -84,6 +87,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
     fiscalRegimeId: '',
     rentalMode: 'LONG_TERM',
     airbnbListingId: '',
+    lmnpActivityId: '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -92,6 +96,9 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
   const [fiscalRegimes, setFiscalRegimes] = useState<any[]>([]);
   const [loadingRegimes, setLoadingRegimes] = useState(false);
   const [activeTab, setActiveTab] = useState('essentials');
+  const [lmnpActivities, setLmnpActivities] = useState<Array<{ id: string; name: string; siret: string; fiscalRegime: string }>>([]);
+  const [showCreateActivity, setShowCreateActivity] = useState(false);
+  const [newActivity, setNewActivity] = useState({ name: '', siret: '', fiscalRegime: 'reel_simplifie' });
 
   // ✅ Détecter le mode app-shell
   const isAppShell = typeof window !== 'undefined' && window.location.pathname.startsWith('/app');
@@ -133,6 +140,16 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
 
     loadManagementCompanies();
   }, [isOpen, isAppShell]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch('/api/lmnp/activities')
+      .then((r) => r.json())
+      .then((json) => {
+        setLmnpActivities((json?.data || []) as any[]);
+      })
+      .catch(() => setLmnpActivities([]));
+  }, [isOpen]);
 
   // Mode normal : charger les sociétés de gestion (avec fallback offline)
   const { data: gestionData } = useQuery({
@@ -284,6 +301,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
         fiscalRegimeId: initialData.fiscalRegimeId || '',
         rentalMode: initialData.rentalMode || 'LONG_TERM',
         airbnbListingId: initialData.airbnbListingId || '',
+        lmnpActivityId: initialData.lmnpActivityId || '',
       });
     } else {
       // Reset form for new property
@@ -307,6 +325,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
         fiscalRegimeId: '',
         rentalMode: 'LONG_TERM',
         airbnbListingId: '',
+        lmnpActivityId: '',
       });
     }
     
@@ -314,7 +333,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
     setErrors({});
   }, [initialData]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setErrors({});
@@ -366,29 +385,53 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
     }
   };
 
+  const selectedFiscalTypeLabel = fiscalTypes.find((t: any) => t.id === formData.fiscalTypeId)?.label || '';
+  const selectedRegimeId = formData.fiscalRegimeId || '';
+  const requiresLmnpActivity =
+    /lmnp|meuble/i.test(selectedFiscalTypeLabel) && /reel/i.test(selectedRegimeId);
+
+  const handleCreateLmnpActivity = async () => {
+    if (!newActivity.name || !/^\d{14}$/.test(newActivity.siret)) return;
+    try {
+      const res = await fetch('/api/lmnp/activities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newActivity),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) return;
+      const created = json.data as { id: string; name: string; siret: string; fiscalRegime: string };
+      setLmnpActivities((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name, 'fr')));
+      handleChange('lmnpActivityId', created.id);
+      setShowCreateActivity(false);
+      setNewActivity({ name: '', siret: '', fiscalRegime: 'reel_simplifie' });
+    } catch {
+      // no-op UX minimal
+    }
+  };
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
       title={title}
       size="xl"
+      footerAlreadyStandardized
       footer={
-        <div className="flex gap-3">
-          <Button variant="ghost" onClick={onClose}>
-            Annuler
-          </Button>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            onClick={handleSubmit}
-            className="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium bg-orange-600 hover:bg-orange-700 text-white transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? 'Sauvegarde...' : initialData?.id ? 'Sauvegarder' : 'Créer le bien'}
-          </button>
-        </div>
+        <FormShellStandardFooter
+          formId={formId}
+          onCancel={onClose}
+          saveActionProps={{
+            mode: initialData?.id ? 'edit' : 'create',
+            isLoading: isSubmitting,
+            labelCreate: 'Créer le bien',
+            labelEdit: 'Sauvegarder',
+            loadingLabel: 'Sauvegarde...',
+          }}
+        />
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <FormShellStandard id={formId} onSubmit={handleSubmit} className="space-y-4">
         {/* Résumé du bien : identité / action / KPI */}
         {initialData?.id && (
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-3">
@@ -656,6 +699,65 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
                 </div>
               )}
 
+              {requiresLmnpActivity && (
+                <div className="md:col-span-2 rounded-lg border border-orange-200 bg-orange-50/40 p-3 space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      Activité LMNP *
+                    </label>
+                    <SmartSelect
+                      value={formData.lmnpActivityId || ''}
+                      onChange={(value) => handleChange('lmnpActivityId', value)}
+                      options={[
+                        { value: '', label: '-- Sélectionner une activité --' },
+                        ...lmnpActivities.map((a): SmartSelectOption => ({
+                          value: a.id,
+                          label: `${a.name} (${a.siret})`,
+                        })),
+                      ]}
+                      placeholder="-- Sélectionner une activité --"
+                    />
+                  </div>
+                  {!showCreateActivity ? (
+                    <button
+                      type="button"
+                      className="text-xs text-orange-700 hover:text-orange-800 underline"
+                      onClick={() => setShowCreateActivity(true)}
+                    >
+                      + Créer une activité
+                    </button>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nom activité"
+                        value={newActivity.name}
+                        onChange={(e) => setNewActivity((p) => ({ ...p, name: e.target.value }))}
+                        className="px-2 py-1.5 border border-gray-300 rounded-md text-sm"
+                      />
+                      <input
+                        type="text"
+                        placeholder="SIRET (14 chiffres)"
+                        value={newActivity.siret}
+                        onChange={(e) => setNewActivity((p) => ({ ...p, siret: e.target.value.replace(/\D/g, '').slice(0, 14) }))}
+                        className="px-2 py-1.5 border border-gray-300 rounded-md text-sm"
+                      />
+                      <div className="flex gap-2">
+                        <SmartSelect
+                          value={newActivity.fiscalRegime}
+                          onChange={(value) => setNewActivity((p) => ({ ...p, fiscalRegime: value }))}
+                          options={[
+                            { value: 'reel_simplifie', label: 'Réel simplifié' },
+                            { value: 'micro_bic', label: 'Micro BIC' },
+                          ]}
+                        />
+                        <Button type="button" size="sm" onClick={handleCreateLmnpActivity}>Créer</Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Mode d'exploitation : distinct du type fiscal (canal location vs catégorie IR/IS) */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -920,7 +1022,7 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
             </div>
           </TabsContent>
         </Tabs>
-      </form>
+      </FormShellStandard>
     </Modal>
   );
 }
