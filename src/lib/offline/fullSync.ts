@@ -22,6 +22,38 @@ export interface TableSyncConfig {
   transform?: (item: any) => any; // Fonction de transformation optionnelle
 }
 
+const FULL_SYNC_TRANSIENT_LOG_TTL_MS = 30_000;
+const fullSyncTransientLogCache = new Map<string, number>();
+
+function isTransientFullSyncError(errorMessage: string): boolean {
+  const lower = errorMessage.toLowerCase();
+  return (
+    lower.includes('cannot read properties of null') ||
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('aborterror')
+  );
+}
+
+function logFullSyncTableIssue(tableName: string, errorMessage: string): void {
+  if (!isTransientFullSyncError(errorMessage)) {
+    logToServer(`[APP-SHELL][FULL-SYNC] ❌ Table ${tableName}: erreur lors du traitement - ${errorMessage}`);
+    return;
+  }
+
+  const now = Date.now();
+  const cacheKey = `${tableName}:${errorMessage}`;
+  const lastLoggedAt = fullSyncTransientLogCache.get(cacheKey) ?? 0;
+  if (now - lastLoggedAt < FULL_SYNC_TRANSIENT_LOG_TTL_MS) {
+    return;
+  }
+
+  fullSyncTransientLogCache.set(cacheKey, now);
+  logToServer(
+    `[APP-SHELL][FULL-SYNC] ⚠️ Table ${tableName}: erreur transitoire au démarrage (non bloquante) - ${errorMessage}`
+  );
+}
+
 /**
  * Configuration des tables à synchroniser
  */
@@ -609,7 +641,8 @@ export async function initialFullSync(organizationId: string): Promise<FullSyncR
       } catch (error: any) {
         // Logger l'erreur pour debug (surtout pour Transaction)
         console.error(`[FullSync] ❌ Erreur lors de la sync de ${config.tableName}:`, error);
-        logToServer(`[APP-SHELL][FULL-SYNC] ❌ Table ${config.tableName}: erreur lors du traitement - ${error.message || error}`);
+        const message = error?.message || String(error);
+        logFullSyncTableIssue(config.tableName, message);
         // Ne pas bloquer la full sync si une table échoue
         results.tables[config.tableName] = { synced: 0, errors: 1 };
         // On continue même en cas d'erreur pour permettre la sync des autres tables

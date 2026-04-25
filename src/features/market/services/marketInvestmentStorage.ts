@@ -1,5 +1,7 @@
 import { getLocalDB } from '@/lib/offline/db';
+import type { MarketHistoryPoint } from '@/features/market/services/marketDataService';
 import type {
+  AthPeriod,
   InvestmentActionLog,
   InvestmentActionStatus,
   InvestmentSettings,
@@ -9,6 +11,7 @@ import type {
 } from '@/features/market/types';
 
 const SETTINGS_ID = 'default';
+const MARKET_HISTORY_STORAGE_PREFIX = 'smartimmo.market.history';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -34,6 +37,10 @@ export const defaultInvestmentSettings = (organizationId: string): InvestmentSet
 });
 
 export class MarketInvestmentStorage {
+  private historyStorageKey(organizationId: string, symbol: string, athPeriod: AthPeriod): string {
+    return `${MARKET_HISTORY_STORAGE_PREFIX}:${organizationId}:${symbol}:${athPeriod}`;
+  }
+
   async getSettings(organizationId: string): Promise<InvestmentSettings> {
     const db = await getLocalDB();
     const existing = await db.InvestmentSettings.get([organizationId, SETTINGS_ID]);
@@ -60,10 +67,25 @@ export class MarketInvestmentStorage {
     await db.InvestmentSettings.put({ ...settings, updatedAt: nowIso() });
   }
 
-  async getSnapshot(organizationId: string, symbol: string): Promise<MarketSnapshot | null> {
+  async getSnapshot(organizationId: string, symbol: string, athPeriod: AthPeriod): Promise<MarketSnapshot | null> {
     const db = await getLocalDB();
-    const row = await db.MarketSnapshot.get([organizationId, symbol]);
-    return (row as MarketSnapshot) ?? null;
+    const byExactPeriod = (await db.MarketSnapshot.where('[organizationId+symbol+athPeriod]')
+      .equals([organizationId, symbol, athPeriod])
+      .first()) as MarketSnapshot | undefined;
+    if (byExactPeriod) {
+      return byExactPeriod;
+    }
+
+    const legacyRow = (await db.MarketSnapshot.get([organizationId, symbol])) as MarketSnapshot | undefined;
+    if (!legacyRow) {
+      return null;
+    }
+
+    // Compat legacy: anciennes lignes sans athPeriod (ou obsolètes) sont normalisées à la lecture.
+    if (legacyRow.athPeriod !== athPeriod) {
+      return null;
+    }
+    return legacyRow;
   }
 
   async saveSnapshot(snapshot: MarketSnapshot): Promise<void> {
@@ -71,12 +93,51 @@ export class MarketInvestmentStorage {
     await db.MarketSnapshot.put(snapshot);
   }
 
-  async listSnapshots(organizationId: string, symbols: string[]): Promise<MarketSnapshot[]> {
+  async listSnapshots(organizationId: string, symbols: string[], athPeriod: AthPeriod): Promise<MarketSnapshot[]> {
     if (symbols.length === 0) return [];
     const db = await getLocalDB();
     const rows = (await db.MarketSnapshot.where('organizationId').equals(organizationId).toArray()) as MarketSnapshot[];
     const symbolSet = new Set(symbols.map((symbol) => symbol.trim()).filter(Boolean));
-    return rows.filter((row) => symbolSet.has(row.symbol));
+    return rows.filter((row) => symbolSet.has(row.symbol) && row.athPeriod === athPeriod);
+  }
+
+  getPriceHistory(organizationId: string, symbol: string, athPeriod: AthPeriod): MarketHistoryPoint[] {
+    if (typeof window === 'undefined') return [];
+    try {
+      const key = this.historyStorageKey(organizationId, symbol, athPeriod);
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as Array<{ date?: unknown; close?: unknown; high?: unknown }>;
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((point) => ({
+          date: typeof point.date === 'string' ? point.date : '',
+          close: Number(point.close),
+          high: point.high == null ? null : Number(point.high),
+        }))
+        .filter((point) => point.date && Number.isFinite(point.close) && point.close > 0);
+    } catch {
+      return [];
+    }
+  }
+
+  savePriceHistory(
+    organizationId: string,
+    symbol: string,
+    athPeriod: AthPeriod,
+    history: MarketHistoryPoint[]
+  ): void {
+    if (typeof window === 'undefined') return;
+    try {
+      const key = this.historyStorageKey(organizationId, symbol, athPeriod);
+      if (!history.length) {
+        window.localStorage.removeItem(key);
+        return;
+      }
+      window.localStorage.setItem(key, JSON.stringify(history));
+    } catch {
+      // no-op: localStorage quota/private mode
+    }
   }
 
   async listActionLogs(organizationId: string, limit = 20): Promise<InvestmentActionLog[]> {

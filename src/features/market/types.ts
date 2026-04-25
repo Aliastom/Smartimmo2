@@ -25,6 +25,7 @@ export interface MarketSnapshot {
   id: string;
   organizationId: string;
   symbol: string;
+  athPeriod: AthPeriod;
   currentPrice: number;
   athPrice: number;
   drawdownPercent: number;

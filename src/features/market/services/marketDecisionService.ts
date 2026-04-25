@@ -71,8 +71,8 @@ export function computeRecommendation(
   const cashLimited = status !== 'NORMAL' && baseAmount > settings.availableCash;
   const reason =
     status === 'NORMAL'
-      ? `Drawdown ${snapshot.drawdownPercent.toFixed(1)}% sous ATH ${settings.athPeriod} — Le marché est proche de son plus haut de référence`
-      : `Drawdown ${snapshot.drawdownPercent.toFixed(1)}% sous ATH ${settings.athPeriod} — ${baseAction.message}`;
+      ? `Drawdown ${snapshot.drawdownPercent.toFixed(2)}% sous ATH ${settings.athPeriod} — Le marché est proche de son plus haut de référence`
+      : `Drawdown ${snapshot.drawdownPercent.toFixed(2)}% sous ATH ${settings.athPeriod} — ${baseAction.message}`;
 
   return {
     status,

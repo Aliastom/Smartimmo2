@@ -508,6 +508,7 @@ export interface MarketSnapshot {
   id: string;
   organizationId: string;
   symbol: string;
+  athPeriod: '5Y' | '10Y' | 'MAX';
   currentPrice: number;
   athPrice: number;
   drawdownPercent: number;
@@ -1512,7 +1513,8 @@ export async function getLocalDB(): Promise<any> {
 
     this.version(20).stores({
       InvestmentSettings: '[organizationId+id], organizationId, referenceSymbol, strategy, updatedAt',
-      MarketSnapshot: '[organizationId+symbol], organizationId, symbol, fetchedAt',
+      MarketSnapshot:
+        '[organizationId+symbol], organizationId, symbol, athPeriod, [organizationId+symbol+athPeriod], fetchedAt',
       InvestmentActionLog:
         'id, organizationId, date, status, thresholdKey, symbolAtDecision, marketStatusAtDecision, [organizationId+date]',
       MarketAlert: 'id, organizationId, level, createdAt',
@@ -1528,6 +1530,24 @@ export async function getLocalDB(): Promise<any> {
         });
       }
       console.log('[Migration v20] Seuils de renfort opportunités normalisés');
+    });
+
+    this.version(21).stores({
+      InvestmentSettings: '[organizationId+id], organizationId, referenceSymbol, strategy, updatedAt',
+      MarketSnapshot:
+        '[organizationId+symbol], organizationId, symbol, athPeriod, [organizationId+symbol+athPeriod], fetchedAt',
+      InvestmentActionLog:
+        'id, organizationId, date, status, thresholdKey, symbolAtDecision, marketStatusAtDecision, [organizationId+date]',
+      MarketAlert: 'id, organizationId, level, createdAt',
+    }).upgrade(async (tx) => {
+      const rows = await tx.table('MarketSnapshot').toArray();
+      for (const row of rows) {
+        await tx.table('MarketSnapshot').put({
+          ...row,
+          athPeriod: row.athPeriod ?? 'MAX',
+        });
+      }
+      console.log('[Migration v21] MarketSnapshot scopé par athPeriod');
     });
   }
       };

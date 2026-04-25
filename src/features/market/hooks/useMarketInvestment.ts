@@ -27,7 +27,6 @@ export interface MarketRadarEntry {
 
 export function useMarketInvestment(organizationId?: string) {
   const fallbackErrorMessage = 'Données marché indisponibles — saisie manuelle possible';
-  const isDev = process.env.NODE_ENV === 'development';
   const [settings, setSettings] = useState<InvestmentSettings | null>(null);
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null);
   const [history, setHistory] = useState<Awaited<ReturnType<typeof marketInvestmentStorage.listActionLogs>>>([]);
@@ -40,6 +39,7 @@ export function useMarketInvestment(organizationId?: string) {
   const [lastProviderSymbol, setLastProviderSymbol] = useState<string | null>(null);
   const [lastFallbackError, setLastFallbackError] = useState<string | null>(null);
   const [priceHistory, setPriceHistory] = useState<MarketHistoryPoint[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isRefreshingMarket, setIsRefreshingMarket] = useState(false);
   const [refreshStartedAt, setRefreshStartedAt] = useState<string | null>(null);
   const [refreshCompletedAt, setRefreshCompletedAt] = useState<string | null>(null);
@@ -47,26 +47,42 @@ export function useMarketInvestment(organizationId?: string) {
   const [lastRefreshStatus, setLastRefreshStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [suppressedSuggestion, setSuppressedSuggestion] = useState(false);
   const [manualAnalysisAt, setManualAnalysisAt] = useState<number | null>(null);
-  const [isRefreshingAfterEtfChange, setIsRefreshingAfterEtfChange] = useState(false);
   const [radarSnapshots, setRadarSnapshots] = useState<Record<string, MarketSnapshot>>({});
   const [isRefreshingRadar, setIsRefreshingRadar] = useState(false);
   const [radarRefreshNote, setRadarRefreshNote] = useState<string | null>(null);
   const [radarRefreshMode, setRadarRefreshMode] = useState<'idle' | 'manual-forced' | 'auto' | 'skipped-fresh' | 'error'>('idle');
   const [radarLastRefreshedAt, setRadarLastRefreshedAt] = useState<string | null>(null);
   const hasTriedAutoRefreshRef = useRef(false);
-  const previousStatusRef = useRef<string | null>(null);
-  const activeOpportunityToastIdRef = useRef<string | null>(null);
   const activeRadarToastIdRef = useRef<string | null>(null);
   const radarRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const previousRadarOpportunityKeyRef = useRef<string>('');
-  const historyLoadedKeyRef = useRef<string | null>(null);
+
+  const logHistoryDebug = useCallback(
+    (context: string, input: { symbol: string; activeEtf: string; snapshot: MarketSnapshot | null; historyLength: number }) => {
+      if (process.env.NODE_ENV !== 'development') return;
+      console.info('[MarketHistoryDebug]', {
+        context,
+        symbol: input.symbol,
+        activeEtf: input.activeEtf,
+        snapshotFound: Boolean(input.snapshot),
+        historyLength: input.historyLength,
+        fetchedAt: input.snapshot?.fetchedAt ?? null,
+        source: input.snapshot?.source ?? null,
+      });
+    },
+    []
+  );
 
   const load = useCallback(async () => {
     if (!organizationId) return;
     setLoading(true);
     const loadedSettings = await marketInvestmentStorage.getSettings(organizationId);
     const presetSymbols = ETF_REFERENCE_ALIASES.map((item) => item.defaultProviderSymbol);
-    const loadedRadarSnapshots = await marketInvestmentStorage.listSnapshots(organizationId, presetSymbols);
+    const loadedRadarSnapshots = await marketInvestmentStorage.listSnapshots(
+      organizationId,
+      presetSymbols,
+      loadedSettings.athPeriod
+    );
     const loadedHistory = await marketInvestmentStorage.listActionLogs(organizationId, 12);
     const radarMap = loadedRadarSnapshots.reduce<Record<string, MarketSnapshot>>((acc, row) => {
       acc[row.symbol] = row;
@@ -76,7 +92,20 @@ export function useMarketInvestment(organizationId?: string) {
     setRadarSnapshots(radarMap);
     const activeLocalSnapshot = radarMap[loadedSettings.referenceSymbol] ?? null;
     setSnapshot(activeLocalSnapshot);
-    setPriceHistory([]);
+    setIsHistoryLoading(true);
+    const localHistory = marketInvestmentStorage.getPriceHistory(
+      organizationId,
+      loadedSettings.referenceSymbol,
+      loadedSettings.athPeriod
+    );
+    setPriceHistory(localHistory);
+    logHistoryDebug('load', {
+      symbol: loadedSettings.referenceSymbol,
+      activeEtf: loadedSettings.referenceSymbol,
+      snapshot: activeLocalSnapshot,
+      historyLength: localHistory.length,
+    });
+    setIsHistoryLoading(false);
     const latestRadarSnapshot = loadedRadarSnapshots
       .slice()
       .sort((a, b) => b.fetchedAt.localeCompare(a.fetchedAt))[0];
@@ -154,19 +183,52 @@ export function useMarketInvestment(organizationId?: string) {
               continue;
             }
             const snapshotRow: MarketSnapshot = {
-              id: `${organizationId}:${row.symbol}`,
+              id: `${organizationId}:${row.symbol}:${settings.athPeriod}`,
               organizationId,
               symbol: row.symbol,
+              athPeriod: settings.athPeriod,
               currentPrice: row.currentPrice,
               athPrice: row.athPrice,
               drawdownPercent: row.drawdownPercent ?? 0,
-              athDate: null,
+              athDate: row.athDate ?? null,
               fetchedAt: now,
               source: 'yahoo-api',
             };
             await marketInvestmentStorage.saveSnapshot(snapshotRow);
             nextRadarMap[row.symbol] = snapshotRow;
           }
+
+          // Historique pour chaque ETF preset avant de mettre à jour l’état : sinon l’effet
+          // « ETF actif » relit localStorage alors que seul l’ancien actif avait été sauvegardé.
+          for (const symbol of presetSymbols) {
+            const rowSnap = nextRadarMap[symbol];
+            const snapshotSaved = Boolean(
+              rowSnap &&
+                typeof rowSnap.currentPrice === 'number' &&
+                Number.isFinite(rowSnap.currentPrice) &&
+                rowSnap.currentPrice > 0
+            );
+            let historyLength = 0;
+            let historySaved = false;
+            if (snapshotSaved && rowSnap) {
+              const hist = await marketDataService.fetchYahooHistory({
+                symbol,
+                athPeriod: settings.athPeriod,
+              });
+              historyLength = hist.length;
+              marketInvestmentStorage.savePriceHistory(organizationId, symbol, settings.athPeriod, hist);
+              historySaved = historyLength > 0;
+            }
+            if (process.env.NODE_ENV === 'development') {
+              console.info('[MarketRefreshGroup]', {
+                symbol,
+                snapshotSaved,
+                historySaved,
+                historyLength,
+              });
+            }
+          }
+
           setRadarSnapshots(nextRadarMap);
           setRadarLastRefreshedAt(now);
           const activeLocalSnapshot = nextRadarMap[settings.referenceSymbol] ?? null;
@@ -174,7 +236,20 @@ export function useMarketInvestment(organizationId?: string) {
           if (activeLocalSnapshot) {
             setMarketError(null);
           }
-          setPriceHistory([]);
+          const activeSymbol = settings.referenceSymbol;
+          const activeHistory = marketInvestmentStorage.getPriceHistory(
+            organizationId,
+            activeSymbol,
+            settings.athPeriod
+          );
+          setPriceHistory(activeHistory);
+          const activeSnapshot = nextRadarMap[activeSymbol] ?? null;
+          logHistoryDebug('refreshRadar', {
+            symbol: activeSymbol,
+            activeEtf: activeSymbol,
+            snapshot: activeSnapshot,
+            historyLength: activeHistory.length,
+          });
         } catch {
           setRadarRefreshMode('error');
           setRadarRefreshNote('Limite atteinte — réessayez plus tard');
@@ -225,17 +300,29 @@ export function useMarketInvestment(organizationId?: string) {
   }, [organizationId, refreshRadar, settings]);
 
   useEffect(() => {
-    if (!settings) return;
+    if (!settings || !organizationId) return;
     const activeLocalSnapshot = radarSnapshots[settings.referenceSymbol] ?? null;
     setSnapshot(activeLocalSnapshot);
-    setPriceHistory([]);
-    historyLoadedKeyRef.current = null;
+    setIsHistoryLoading(true);
+    const localHistory = marketInvestmentStorage.getPriceHistory(
+      organizationId,
+      settings.referenceSymbol,
+      settings.athPeriod
+    );
+    setPriceHistory(localHistory);
+    logHistoryDebug('activeEtfEffect', {
+      symbol: settings.referenceSymbol,
+      activeEtf: settings.referenceSymbol,
+      snapshot: activeLocalSnapshot,
+      historyLength: localHistory.length,
+    });
+    setIsHistoryLoading(false);
     if (!activeLocalSnapshot) {
       setMarketError('Données indisponibles localement — cliquez sur Actualiser');
       return;
     }
     setMarketError(null);
-  }, [radarSnapshots, settings]);
+  }, [logHistoryDebug, organizationId, radarSnapshots, settings]);
 
   const saveManualSnapshot = useCallback(
     async (input: { currentPrice: number; athPrice: number; athDate?: string }) => {
@@ -243,15 +330,18 @@ export function useMarketInvestment(organizationId?: string) {
       const manual = marketDataService.createManualSnapshot({
         organizationId,
         symbol: resolveMarketSymbol(settings.referenceSymbol),
+        athPeriod: settings.athPeriod,
         currentPrice: input.currentPrice,
         athPrice: input.athPrice,
         athDate: input.athDate,
         source: 'manual',
       });
+      manual.id = `${organizationId}:${manual.symbol}:${settings.athPeriod}`;
       await marketInvestmentStorage.saveSnapshot(manual);
       setSnapshot(manual);
       setMarketError(null);
       setPriceHistory([]);
+      marketInvestmentStorage.savePriceHistory(organizationId, manual.symbol, settings.athPeriod, []);
 
       const status = resolveMarketStatus(manual.drawdownPercent, settings);
       if (status === 'OPPORTUNITE' || status === 'FORTE_OPPORTUNITE') {
@@ -279,17 +369,29 @@ export function useMarketInvestment(organizationId?: string) {
         settings.athPeriod !== next.athPeriod;
       if (!etfChanged) return;
 
-      setIsRefreshingAfterEtfChange(false);
       const nextLocalSnapshot = radarSnapshots[next.referenceSymbol] ?? null;
       setSnapshot(nextLocalSnapshot);
-      setPriceHistory([]);
+      setIsHistoryLoading(true);
+      const localHistory = marketInvestmentStorage.getPriceHistory(
+        organizationId,
+        next.referenceSymbol,
+        next.athPeriod
+      );
+      setPriceHistory(localHistory);
+      logHistoryDebug('changeActiveEtf', {
+        symbol: next.referenceSymbol,
+        activeEtf: next.referenceSymbol,
+        snapshot: nextLocalSnapshot,
+        historyLength: localHistory.length,
+      });
+      setIsHistoryLoading(false);
       if (!nextLocalSnapshot) {
         setMarketError('Données indisponibles localement — cliquez sur Actualiser');
       } else {
         setMarketError(null);
       }
     },
-    [radarSnapshots, settings]
+    [logHistoryDebug, organizationId, radarSnapshots, settings]
   );
 
   const validateDecision = useCallback(
@@ -380,11 +482,6 @@ export function useMarketInvestment(organizationId?: string) {
       })
       .catch(() => setSuppressedSuggestion(false));
   }, [manualAnalysisAt, organizationId, recommendation, recommendation?.thresholdKey, snapshot?.drawdownPercent]);
-
-  useEffect(() => {
-    if (!recommendation) return;
-    previousStatusRef.current = recommendation.status;
-  }, [recommendation]);
 
   const requestManualAnalysis = useCallback(() => {
     setManualAnalysisAt(Date.now());
@@ -504,7 +601,6 @@ export function useMarketInvestment(organizationId?: string) {
     refreshCompletedAt,
     lastSuccessfulRefreshAt,
     lastRefreshStatus,
-    isRefreshingAfterEtfChange,
     isRefreshingRadar,
     radarRefreshNote,
     radarRefreshMode,
@@ -512,6 +608,7 @@ export function useMarketInvestment(organizationId?: string) {
     recommendation,
     radarEntries,
     priceHistory,
+    isHistoryLoading,
     suppressedSuggestion,
     refreshSnapshot: refreshAllMarketData,
     refreshAllMarketData,

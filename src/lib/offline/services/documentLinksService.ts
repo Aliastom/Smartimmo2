@@ -37,14 +37,39 @@ export async function getLinkedDocumentsForTransaction(
   organizationId: string
 ): Promise<LinkedDocument[] & { __missingDocumentIds?: string[] }> {
   const db = await getLocalDB();
-  
-  // 1. Récupérer tous les liens document_links pour cette transaction
+
+  // 0. Déterminer si la transaction doit aussi hériter des PJ de sa transaction mère
+  // (cas commissions auto de gestion)
+  let transaction: any = null;
+  try {
+    const txTable =
+      db?.Transaction && typeof db.Transaction.get === 'function'
+        ? db.Transaction
+        : db?.tables?.find((t: any) => t?.name === 'Transaction' && typeof t?.get === 'function');
+    transaction = txTable ? await txTable.get(transactionId) : null;
+  } catch {
+    transaction = null;
+  }
+  const parentTransactionId = transaction?.parentTransactionId ? String(transaction.parentTransactionId) : '';
+  const autoSource = String(transaction?.autoSource || '').toLowerCase();
+  const isAutoCommission =
+    autoSource === 'gestion' &&
+    !!parentTransactionId &&
+    (
+      transaction?.isAuto === true ||
+      transaction?.isAuto === 1 ||
+      String(transaction?.label || '').toLowerCase().includes('commission')
+    );
+
+  const linkedIds = isAutoCommission ? [transactionId, parentTransactionId] : [transactionId];
+
+  // 1. Récupérer tous les liens document_links pour cette transaction (et parent si commission auto)
   // Note: Dexie ne supporte pas directement les requêtes sur clés composites
   // On filtre manuellement après récupération
   // ⚠️ Normaliser linkedType: peut être en majuscules (TRANSACTION) ou minuscules (transaction)
   const allLinks = await db.DocumentLink.toArray();
   const links = allLinks.filter(link => 
-    link.linkedType.toLowerCase() === 'transaction' && link.linkedId === transactionId
+    link.linkedType.toLowerCase() === 'transaction' && linkedIds.includes(String(link.linkedId))
   );
   
   if (links.length === 0) {
@@ -124,11 +149,34 @@ export async function getDocumentCountForTransaction(
   organizationId: string
 ): Promise<number> {
   const db = await getLocalDB();
-  
+
+  // 0. Même logique que getLinkedDocumentsForTransaction: fallback transaction mère pour commission auto.
+  let transaction: any = null;
+  try {
+    const txTable =
+      db?.Transaction && typeof db.Transaction.get === 'function'
+        ? db.Transaction
+        : db?.tables?.find((t: any) => t?.name === 'Transaction' && typeof t?.get === 'function');
+    transaction = txTable ? await txTable.get(transactionId) : null;
+  } catch {
+    transaction = null;
+  }
+  const parentTransactionId = transaction?.parentTransactionId ? String(transaction.parentTransactionId) : '';
+  const autoSource = String(transaction?.autoSource || '').toLowerCase();
+  const isAutoCommission =
+    autoSource === 'gestion' &&
+    !!parentTransactionId &&
+    (
+      transaction?.isAuto === true ||
+      transaction?.isAuto === 1 ||
+      String(transaction?.label || '').toLowerCase().includes('commission')
+    );
+  const linkedIds = isAutoCommission ? [transactionId, parentTransactionId] : [transactionId];
+
   // 1. Compter les liens (normaliser linkedType: peut être en majuscules ou minuscules)
   const allLinks = await db.DocumentLink.toArray();
   const links = allLinks.filter(link => 
-    link.linkedType.toLowerCase() === 'transaction' && link.linkedId === transactionId
+    link.linkedType.toLowerCase() === 'transaction' && linkedIds.includes(String(link.linkedId))
   );
   
   if (links.length === 0) {

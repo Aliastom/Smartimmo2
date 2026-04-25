@@ -45,10 +45,14 @@ export interface PresetEtfStatus {
   currentPrice: number | null;
   athPrice: number | null;
   drawdownPercent: number | null;
+  /** Date du point ATH (réponse Yahoo), si disponible */
+  athDate?: string | null;
   status: MarketOpportunityStatus | 'UNKNOWN';
   fetchedAt: string;
   error?: string;
 }
+
+// Logs console [MarketRadarEtfAudit] retirés après recette drawdown — récupérables dans l’historique git si besoin.
 
 interface MarketDataProvider {
   readonly id: string;
@@ -253,7 +257,7 @@ export class MarketDataService {
     const key = `${scope}:${candidate.symbol ?? 'unknown'}:${candidate.athPeriod ?? 'unknown'}:${candidate.athDate ?? 'na'}`;
     if (this.loggedDebugKeys.has(key)) return;
     this.loggedDebugKeys.add(key);
-    console.log(scope, debugPayload);
+    console.info(scope, debugPayload);
   }
 
   private async fetchYahooRoute(
@@ -334,9 +338,10 @@ export class MarketDataService {
       try {
         const raw = await provider.fetchSnapshot({ symbol: input.symbol, athPeriod: input.athPeriod });
         const snapshot: MarketSnapshot = {
-          id: `remote:${input.symbol}`,
+          id: `remote:${input.symbol}:${input.athPeriod}`,
           organizationId: '',
           symbol: input.symbol,
+          athPeriod: input.athPeriod,
           currentPrice: raw.currentPrice,
           athPrice: raw.athPrice,
           drawdownPercent: computeDrawdownPercent(raw.currentPrice, raw.athPrice),
@@ -395,6 +400,7 @@ export class MarketDataService {
   createManualSnapshot(input: {
     organizationId: string;
     symbol: string;
+    athPeriod: AthPeriod;
     currentPrice: number;
     athPrice: number;
     athDate?: string;
@@ -405,6 +411,7 @@ export class MarketDataService {
       id: `${input.organizationId}:${input.symbol}`,
       organizationId: input.organizationId,
       symbol: input.symbol,
+      athPeriod: input.athPeriod,
       currentPrice: input.currentPrice,
       athPrice: input.athPrice,
       drawdownPercent: computeDrawdownPercent(input.currentPrice, input.athPrice),
@@ -456,7 +463,13 @@ export class MarketDataService {
           const json = (await this.fetchYahooRoute(
             { symbol, athPeriod: settings.athPeriod },
             { includeHistory: false }
-          )) as { errorCode?: string; currentPrice?: unknown; athPrice?: unknown; debug?: unknown };
+          )) as {
+            errorCode?: string;
+            currentPrice?: unknown;
+            athPrice?: unknown;
+            athDate?: unknown;
+            debug?: unknown;
+          };
           this.logDebugOnce('[MarketDebug][PresetETF]', json?.debug);
           if (json?.errorCode) {
             return {
@@ -485,12 +498,14 @@ export class MarketDataService {
             } satisfies PresetEtfStatus;
           }
           const drawdownPercent = computeDrawdownPercent(currentPrice, athPrice);
+          const athDate = typeof json?.athDate === 'string' ? json.athDate : null;
           return {
             label: alias.label,
             symbol,
             currentPrice,
             athPrice,
             drawdownPercent,
+            athDate,
             status: resolveMarketStatus(drawdownPercent, settings),
             fetchedAt,
           } satisfies PresetEtfStatus;

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
-import { Loader2 } from 'lucide-react';
+import { ChartNoAxesCombined, Info, Loader2, Sparkles, WalletCards } from 'lucide-react';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useMarketInvestment } from '@/features/market/hooks/useMarketInvestment';
 import {
@@ -17,7 +17,6 @@ import {
 } from '@/features/market/marketSymbolAliases';
 import { MarketPriceChart } from '@/features/market/components/MarketPriceChart';
 import { MarketRadarPanel } from '@/features/market/components/MarketRadarPanel';
-import { type PresetEtfStatus, marketDataService } from '@/features/market/services/marketDataService';
 import type { InvestmentSettings, MarketOpportunityStatus } from '@/features/market/types';
 
 function formatCurrency(value: number, currency = 'EUR'): string {
@@ -28,17 +27,14 @@ function formatPct(value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
+function formatDrawdownPercent(value: number): string {
+  return `${value.toFixed(2)}%`;
+}
+
 function statusBadge(status: MarketOpportunityStatus): { label: string; variant: 'success' | 'warning' | 'danger' } {
   if (status === 'FORTE_OPPORTUNITE') return { label: 'FORTE OPPORTUNITE', variant: 'danger' };
   if (status === 'OPPORTUNITE') return { label: 'OPPORTUNITE', variant: 'warning' };
   return { label: 'NORMAL', variant: 'success' };
-}
-
-function presetStatusBadge(status: PresetEtfStatus['status']): { label: string; variant: 'success' | 'warning' | 'danger' | 'gray' } {
-  if (status === 'FORTE_OPPORTUNITE') return { label: 'Forte opportunité', variant: 'danger' };
-  if (status === 'OPPORTUNITE') return { label: 'Opportunité', variant: 'warning' };
-  if (status === 'NORMAL') return { label: 'Normal', variant: 'success' };
-  return { label: 'Indisponible', variant: 'gray' };
 }
 
 function DrawdownBar({
@@ -88,21 +84,15 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     marketError,
     recommendation,
     suppressedSuggestion,
-    fallbackErrorMessage,
     providerConfig,
     lastRefreshAttemptAt,
-    lastRefreshError,
-    lastAttemptedProviders,
-    lastUsedProvider,
     lastProviderSymbol,
-    lastFallbackError,
     priceHistory,
+    isHistoryLoading,
     isRefreshingMarket,
-    refreshStartedAt,
     refreshCompletedAt,
     lastSuccessfulRefreshAt,
     lastRefreshStatus,
-    isRefreshingAfterEtfChange,
     isRefreshingRadar,
     radarRefreshNote,
     radarRefreshMode,
@@ -122,13 +112,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
   const [manualAthPrice, setManualAthPrice] = useState('');
   const [validateAmount, setValidateAmount] = useState('');
   const [validateReason, setValidateReason] = useState('');
-  const [presetStatuses, setPresetStatuses] = useState<PresetEtfStatus[]>([]);
-  const [presetStatusesLoading, setPresetStatusesLoading] = useState(false);
-  const [presetStatusesFetchedAt, setPresetStatusesFetchedAt] = useState<string | null>(null);
-  const [presetPriceTrends, setPresetPriceTrends] = useState<Record<string, 'up' | 'down' | null>>({});
-  const [presetDayVariations, setPresetDayVariations] = useState<Record<string, number | null>>({});
   const [, setRefreshAgeTick] = useState(0);
-  const presetStatusesRequestRef = useRef<Promise<void> | null>(null);
   const forceRefreshResetTimerRef = useRef<number | null>(null);
   const [isForceRefreshArmed, setIsForceRefreshArmed] = useState(false);
   const [softRefreshWarning, setSoftRefreshWarning] = useState<string | null>(null);
@@ -164,12 +148,6 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     lastRefreshStatus === 'success' &&
     refreshCompletedAt !== null &&
     Date.now() - new Date(refreshCompletedAt).getTime() < 6000;
-  const providerStatusLabel =
-    providerConfig.status === 'configured'
-      ? 'Configuré'
-      : providerConfig.status === 'disabled'
-        ? 'Désactivé'
-        : 'Non configuré';
   const activeEtfOptions = useMemo(() => {
     const base = ETF_REFERENCE_ALIASES.map((alias) => ({
       key: alias.defaultProviderSymbol,
@@ -218,68 +196,16 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     if (remainingMs <= 0) return 0;
     return Math.max(1, Math.ceil(remainingMs / (60 * 60 * 1000)));
   }, [freshnessTtlMs, oldestKnownMarketUpdateAt]);
+  const isNewAth = useMemo(() => {
+    if (!snapshot) return false;
+    return Math.abs(snapshot.currentPrice - snapshot.athPrice) <= 0.0001;
+  }, [snapshot]);
+  const athPeriodLabel = settings?.athPeriod === 'MAX' ? 'MAX' : `${settings?.athPeriod ?? 'MAX'}`;
 
   useEffect(() => {
     if (openSettingsSignal <= 0 || !settings) return;
     openSettingsModal();
   }, [openSettingsSignal, settings]);
-
-  useEffect(() => {
-    if (!editOpen || !settings) return;
-    if (presetStatusesRequestRef.current) return;
-    const shouldRefresh =
-      !presetStatusesFetchedAt ||
-      Date.now() - new Date(presetStatusesFetchedAt).getTime() > 24 * 60 * 60 * 1000 ||
-      presetStatuses.length === 0;
-    if (!shouldRefresh) return;
-
-    setPresetStatusesLoading(true);
-    const request = marketDataService
-      .fetchPresetEtfStatuses({
-        athPeriod: settings.athPeriod,
-        reinforce10Threshold: settings.reinforce10Threshold,
-        reinforce20Threshold: settings.reinforce20Threshold,
-      })
-      .then((rows) => {
-        setPresetStatuses((previousRows) => {
-          const trends: Record<string, 'up' | 'down' | null> = {};
-          const variations: Record<string, number | null> = {};
-          rows.forEach((row) => {
-            const previousPrice = previousRows.find((prev) => prev.symbol === row.symbol)?.currentPrice ?? null;
-            if (row.currentPrice === null || previousPrice === null) {
-              trends[row.symbol] = null;
-              variations[row.symbol] = null;
-              return;
-            }
-            if (row.currentPrice > previousPrice) {
-              trends[row.symbol] = 'up';
-            } else if (row.currentPrice < previousPrice) {
-              trends[row.symbol] = 'down';
-            } else {
-              trends[row.symbol] = null;
-            }
-            variations[row.symbol] =
-              previousPrice > 0 ? ((row.currentPrice - previousPrice) / previousPrice) * 100 : null;
-          });
-          setPresetPriceTrends(trends);
-          setPresetDayVariations(variations);
-          return rows;
-        });
-        setPresetStatusesFetchedAt(new Date().toISOString());
-      })
-      .finally(() => {
-        setPresetStatusesLoading(false);
-        presetStatusesRequestRef.current = null;
-      });
-    presetStatusesRequestRef.current = request;
-  }, [
-    editOpen,
-    presetStatuses.length,
-    presetStatusesFetchedAt,
-    settings?.athPeriod,
-    settings?.reinforce10Threshold,
-    settings?.reinforce20Threshold,
-  ]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -445,7 +371,16 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
   };
 
   return (
-    <Card className="border-slate-200 bg-white shadow-sm">
+    <div className="space-y-3.5">
+      <MarketRadarPanel
+        entries={radarEntries}
+        currency={settings.currency}
+        lastUpdatedAt={radarLastRefreshedAt}
+        athPeriod={settings.athPeriod}
+      />
+
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 xl:items-stretch">
+      <Card className="min-w-0 border-slate-200 bg-white shadow-sm">
       <CardContent className="space-y-3.5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="space-y-1">
@@ -454,10 +389,10 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
             <div className="flex items-center gap-2">
               <label className="text-xs text-slate-500">ETF actif</label>
               <select
-                className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                className="h-8 min-w-[250px] rounded-full border border-violet-200 bg-violet-50 px-3 text-xs font-medium text-violet-800"
                 value={settings.referenceSymbol}
                 onChange={(e) => handleActiveEtfChange(e.target.value).catch(() => undefined)}
-                disabled={isRefreshingMarket || isRefreshingAfterEtfChange}
+                disabled={isRefreshingMarket}
               >
                 {activeEtfOptions.map((option) => (
                   <option key={option.key} value={option.referenceSymbol}>
@@ -470,7 +405,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
           <div className="flex items-center gap-2">
             {snapshotStatus && <Badge size="sm" variant={snapshotStatus.variant}>{snapshotStatus.label}</Badge>}
             <Button
-              variant="outline"
+              variant="primary"
               size="sm"
               onClick={() => handleRefreshClick().catch(() => undefined)}
               disabled={isRefreshingMarket || isRefreshingRadar}
@@ -489,23 +424,23 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
           </div>
         </div>
         {refreshSuccessVisible && (
-          <p className="text-xs text-emerald-700">Données actualisées</p>
+          <p className="text-xs text-emerald-700">Données à jour</p>
         )}
         {softRefreshWarning && (
-          <p className="text-xs text-slate-600">{softRefreshWarning}</p>
+          <p className="text-xs text-amber-700">{softRefreshWarning}</p>
+        )}
+        {!isRefreshingRadar && !radarRefreshNote && nextAutoRefreshHours !== null && (
+          <p className="text-xs text-slate-500">Prochaine MAJ auto dans {nextAutoRefreshHours} h</p>
         )}
         {(isRefreshingRadar || radarRefreshNote) && (
-          <p className={`text-xs ${radarRefreshMode === 'error' ? 'text-amber-700' : 'text-slate-600'}`}>
-            {isRefreshingRadar ? 'Actualisation des données marché en cours…' : radarRefreshNote}
+          <p className={`text-xs ${radarRefreshMode === 'error' ? 'text-amber-700' : radarRefreshMode === 'manual-forced' ? 'text-amber-700' : 'text-emerald-700'}`}>
+            {isRefreshingRadar ? 'Actualisation des données marché…' : radarRefreshNote}
           </p>
         )}
-        {isRefreshingAfterEtfChange && (
-          <p className="text-xs text-slate-600">Actualisation du nouvel ETF...</p>
-        )}
-
-        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 p-2.5">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Synthèse</p>
+        <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+              <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-2.5">
+            <p className="mb-1 inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-violet-700"><WalletCards className="h-3.5 w-3.5" />Synthèse investissement</p>
             <div className="mb-1 flex flex-wrap items-center gap-1.5">
               <p className="text-xs text-slate-500">ETF suivi</p>
               <Badge size="sm" variant={activeEtfAlias ? 'secondary' : 'gray'}>
@@ -519,134 +454,134 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
             <p className="text-xs leading-5 text-slate-500">Symbole marché : {resolvedMarketSymbol || settings.referenceSymbol}</p>
             <p className="text-xs leading-5 text-slate-500">Source : {sourceLabel}</p>
             <p className="mt-1.5 text-xs text-slate-500">Cash restant à investir :</p>
-            <p className="text-base font-semibold leading-6 text-slate-900">{formatCurrency(settings.availableCash, settings.currency)}</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 p-2.5">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Marché</p>
+            <p className="text-xl font-semibold leading-6 text-emerald-700">{formatCurrency(settings.availableCash, settings.currency)}</p>
+              </div>
+              <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-2.5">
+            <p className="mb-1 inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-sky-700"><ChartNoAxesCombined className="h-3.5 w-3.5" />Marché</p>
             <p className="text-xs text-slate-500">Prix actuel / Plus haut de référence</p>
-            <p className="text-sm font-medium leading-5 text-slate-900">
+            <p className="text-xl font-semibold leading-6 text-slate-900">
               {snapshot ? `${snapshot.currentPrice.toFixed(2)} / ${snapshot.athPrice.toFixed(2)}` : 'Non renseigné'}
             </p>
+            {isNewAth && (
+              <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5">
+                <p className="text-xs font-semibold text-emerald-700">NOUVEAU ATH</p>
+                <p className="text-xs text-emerald-700">Le marché est sur son plus haut.</p>
+              </div>
+            )}
+            <div className="mt-2">
+              <Badge size="sm" variant="secondary">ATH calculé sur : {athPeriodLabel}</Badge>
+            </div>
             <p className="mt-1.5 text-xs text-slate-500">Dernière actualisation</p>
             <p className="text-xs leading-5 text-slate-900">{snapshot ? new Date(snapshot.fetchedAt).toLocaleString('fr-FR') : 'Aucune'}</p>
             {snapshot?.source && (
               <p className="text-xs leading-5 text-slate-500">Source : {snapshot.source === 'manual' ? 'Saisie manuelle' : snapshot.source}</p>
             )}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-2.5">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Données marché automatiques</p>
-          <div className="space-y-0.5 text-xs leading-5 text-slate-600">
-            <p>Source utilisée : <span className="font-medium text-slate-800">{snapshot?.source === 'yahoo-api' ? 'Yahoo Finance' : sourceLabel}</span></p>
-            <p>Symbole utilisé : <span className="font-medium text-slate-800">{lastProviderSymbol ?? resolvedMarketSymbol ?? '-'}</span></p>
-            <p>Dernière MAJ : {latestKnownMarketUpdateAt ? new Date(latestKnownMarketUpdateAt).toLocaleString('fr-FR') : 'Aucune'}</p>
-            {nextAutoRefreshHours !== null && (
-              <p>Prochaine actualisation auto dans : {nextAutoRefreshHours} h</p>
-            )}
-            <p>Dernière tentative : {lastRefreshAttemptAt ? new Date(lastRefreshAttemptAt).toLocaleString('fr-FR') : 'Aucune'}</p>
-            {lastSuccessfulRefreshAt && <p>Dernier succès : {new Date(lastSuccessfulRefreshAt).toLocaleString('fr-FR')}</p>}
-          </div>
-          {snapshot?.source === 'yahoo-api' && !marketError && (
-            <p className="mt-1 text-xs leading-5 text-slate-600">
-              Données récupérées automatiquement via Yahoo Finance (source non officielle).
-            </p>
-          )}
-          {marketError && (
-            <p className="mt-1 text-xs leading-5 text-amber-700">
-              {marketError}
-            </p>
-          )}
-          {providerConfig.status === 'missing_api_key' && (
-            <p className="mt-1 text-xs leading-5 text-slate-600">
-              Ajoutez <code>NEXT_PUBLIC_ALPHA_VANTAGE_API_KEY</code> dans votre fichier <code>.env.local</code> pour activer l'actualisation automatique.
-            </p>
-          )}
-          {providerConfig.status === 'disabled' && (
-            <p className="mt-1 text-xs leading-5 text-slate-600">
-              L'actualisation automatique est désactivée via <code>NEXT_PUBLIC_MARKET_PROVIDER_ENABLED=false</code>.
-            </p>
-          )}
-          <p className="mt-1 text-xs leading-5 text-slate-500">
-            La saisie manuelle reste disponible et fonctionne en permanence.
-          </p>
-        </div>
-
-        <MarketRadarPanel
-          entries={radarEntries}
-          currency={settings.currency}
-          lastUpdatedAt={radarLastRefreshedAt}
-          onFollowEtf={(symbol) => handleActiveEtfChange(symbol).catch(() => undefined)}
-        />
-
-        {(snapshot || isRefreshingAfterEtfChange) && (
-          <MarketPriceChart
-            series={priceHistory}
-            athPrice={snapshot?.athPrice ?? 1}
-            currentPrice={snapshot?.currentPrice ?? 1}
-            reinforce10Threshold={settings.reinforce10Threshold}
-            reinforce20Threshold={settings.reinforce20Threshold}
-            isRefreshing={isRefreshingMarket || isRefreshingAfterEtfChange}
-            etfLabel={settings.referenceLabel}
-            etfSymbol={resolvedMarketSymbol || settings.referenceSymbol}
-          />
-        )}
-
-        {snapshot && (
-          <div className="rounded-xl border border-slate-200 p-2.5">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Drawdown</p>
-            <p className="mb-1.5 text-xs leading-5 text-slate-500">Écart actuel sous le plus haut de référence</p>
-            <DrawdownBar
-              drawdownPercent={snapshot.drawdownPercent}
-              reinforce10Threshold={settings.reinforce10Threshold}
-              reinforce20Threshold={settings.reinforce20Threshold}
-            />
-          </div>
-        )}
-
-        {snapshot && recommendation && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Décision</p>
-            <p className="text-sm leading-5 text-slate-700">Marché : <span className="font-semibold">{formatPct(snapshot.drawdownPercent)} sous le plus haut de référence</span></p>
-            {recommendation.status === 'NORMAL' ? (
-              <p className="text-sm leading-5 text-slate-700">DCA mensuel prévu : <span className="font-semibold">{formatCurrency(settings.monthlyDcaAmount, settings.currency)}</span></p>
-            ) : (
-              <p className="text-sm leading-5 text-slate-700">Suggestion : <span className="font-semibold">{formatCurrency(recommendation.suggestedAmount, settings.currency)}</span></p>
-            )}
-            <p className="text-sm leading-5 text-slate-700">{recommendation.message}</p>
-            <p className="text-xs leading-5 text-slate-500">{recommendation.reason}</p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {recommendation.status !== 'NORMAL' && (
-                <Button size="sm" className="h-8 px-3 text-xs" onClick={openValidation} disabled={suppressedSuggestion}>
-                  Valider l'investissement
-                </Button>
-              )}
-              {recommendation.status !== 'NORMAL' && (
-                <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={() => ignoreDecision()} disabled={suppressedSuggestion}>
-                  Ignorer
-                </Button>
-              )}
-              {recommendation.status !== 'NORMAL' && (
-                <Button size="sm" variant="soft" className="h-8 px-3 text-xs" onClick={openValidation} disabled={suppressedSuggestion}>
-                  Modifier le montant
-                </Button>
-              )}
-              <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={requestManualAnalysis}>
-                Nouvelle analyse
-              </Button>
-              {recommendation.cashLimited && <Badge size="sm" variant="warning">cash limité</Badge>}
-              {suppressedSuggestion && <Badge size="sm" variant="secondary">Seuil déjà traité récemment</Badge>}
+              </div>
             </div>
-          </div>
-        )}
-        {!snapshot && !isRefreshingAfterEtfChange && (
-          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-2.5">
-            <p className="text-sm leading-5 text-slate-700">
-              Renseignez un prix actuel et un plus haut de référence pour obtenir une suggestion.
-            </p>
-          </div>
-        )}
 
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-2.5">
+              <p className="mb-1 inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-indigo-700"><Info className="h-3.5 w-3.5" />Données marché automatiques</p>
+              <div className="grid grid-cols-1 gap-3 text-xs leading-5 text-slate-600 md:grid-cols-2">
+                <div className="space-y-0.5">
+                  <p>Source utilisée : <span className="font-medium text-slate-800">{snapshot?.source === 'yahoo-api' ? 'Yahoo Finance' : sourceLabel}</span></p>
+                  <p>Symbole utilisé : <span className="font-medium text-slate-800">{lastProviderSymbol ?? resolvedMarketSymbol ?? '-'}</span></p>
+                  <p>Dernière MAJ : {latestKnownMarketUpdateAt ? new Date(latestKnownMarketUpdateAt).toLocaleString('fr-FR') : 'Aucune'}</p>
+                </div>
+                <div className="space-y-0.5">
+                  <p>Dernier succès : {lastSuccessfulRefreshAt ? new Date(lastSuccessfulRefreshAt).toLocaleString('fr-FR') : 'Aucun'}</p>
+                  <p>Dernière tentative : {lastRefreshAttemptAt ? new Date(lastRefreshAttemptAt).toLocaleString('fr-FR') : 'Aucune'}</p>
+                  <p>Prochaine actualisation : {nextAutoRefreshHours !== null ? `dans ${nextAutoRefreshHours} h` : 'n/a'}</p>
+                </div>
+              </div>
+              {snapshot?.source === 'yahoo-api' && !marketError && (
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  Données récupérées automatiquement via Yahoo Finance (source non officielle).
+                </p>
+              )}
+              {marketError && (
+                <p className="mt-1 text-xs leading-5 text-amber-700">
+                  {marketError}
+                </p>
+              )}
+              {providerConfig.status === 'missing_api_key' && (
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  Ajoutez <code>NEXT_PUBLIC_ALPHA_VANTAGE_API_KEY</code> dans votre fichier <code>.env.local</code> pour activer l'actualisation automatique.
+                </p>
+              )}
+              {providerConfig.status === 'disabled' && (
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  L'actualisation automatique est désactivée via <code>NEXT_PUBLIC_MARKET_PROVIDER_ENABLED=false</code>.
+                </p>
+              )}
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                La saisie manuelle reste disponible et fonctionne en permanence.
+              </p>
+            </div>
+
+            {snapshot && (
+              <div className="rounded-xl border border-slate-200 bg-white p-2.5">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Drawdown</p>
+                <p className="mb-1.5 text-xs leading-5 text-slate-500">Écart actuel sous le plus haut de référence</p>
+                <DrawdownBar
+                  drawdownPercent={snapshot.drawdownPercent}
+                  reinforce10Threshold={settings.reinforce10Threshold}
+                  reinforce20Threshold={settings.reinforce20Threshold}
+                />
+              </div>
+            )}
+
+            {snapshot && recommendation && (
+              <div
+                className={`rounded-xl border p-2.5 ${
+                  recommendation.status === 'FORTE_OPPORTUNITE'
+                    ? 'border-rose-200 bg-rose-50/70'
+                    : recommendation.status === 'OPPORTUNITE'
+                    ? 'border-amber-200 bg-amber-50/70'
+                    : 'border-emerald-200 bg-emerald-50/70'
+                }`}
+              >
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Décision</p>
+                <p className="text-sm leading-5 text-slate-700">Marché : <span className="font-semibold">{formatDrawdownPercent(snapshot.drawdownPercent)} sous le plus haut de référence</span></p>
+                {recommendation.status === 'NORMAL' ? (
+                  <p className="text-sm leading-5 text-slate-700">DCA mensuel prévu : <span className="font-semibold">{formatCurrency(settings.monthlyDcaAmount, settings.currency)}</span></p>
+                ) : (
+                  <p className="text-sm leading-5 text-slate-700">Suggestion : <span className="font-semibold">{formatCurrency(recommendation.suggestedAmount, settings.currency)}</span></p>
+                )}
+                <p className="text-sm leading-5 text-slate-700">{recommendation.message}</p>
+                <p className="text-xs leading-5 text-slate-500">{recommendation.reason}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {recommendation.status !== 'NORMAL' && (
+                    <Button size="sm" className="h-8 px-3 text-xs" onClick={openValidation} disabled={suppressedSuggestion}>
+                      Valider l'investissement
+                    </Button>
+                  )}
+                  {recommendation.status !== 'NORMAL' && (
+                    <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={() => ignoreDecision()} disabled={suppressedSuggestion}>
+                      Ignorer
+                    </Button>
+                  )}
+                  {recommendation.status !== 'NORMAL' && (
+                    <Button size="sm" variant="soft" className="h-8 px-3 text-xs" onClick={openValidation} disabled={suppressedSuggestion}>
+                      Modifier le montant
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={requestManualAnalysis}>
+                    Nouvelle analyse
+                  </Button>
+                  {recommendation.cashLimited && <Badge size="sm" variant="warning">cash limité</Badge>}
+                  {suppressedSuggestion && <Badge size="sm" variant="secondary">Seuil déjà traité récemment</Badge>}
+                </div>
+              </div>
+            )}
+
+            {!snapshot && (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-2.5">
+                <p className="text-sm leading-5 text-slate-700">
+                  Données indisponibles localement — cliquez sur Actualiser.
+                </p>
+              </div>
+            )}
+        </div>
         {marketError && <p className="text-sm text-amber-700">{marketError}</p>}
 
         <div className="grid grid-cols-1 gap-2.5">
@@ -695,7 +630,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
                   {item.reason} • {item.symbolAtDecision} • {item.marketStatusAtDecision}
                 </p>
                 <p className="text-xs leading-5 text-slate-500">
-                  Drawdown {item.drawdownAtDecision?.toFixed(1) ?? '-'}% • ATH {item.athPriceAtDecision?.toFixed(2) ?? '-'} • Prix {item.currentPriceAtDecision?.toFixed(2) ?? '-'}
+                  Drawdown {item.drawdownAtDecision != null ? item.drawdownAtDecision.toFixed(2) : '-'}% • ATH {item.athPriceAtDecision?.toFixed(2) ?? '-'} • Prix {item.currentPriceAtDecision?.toFixed(2) ?? '-'}
                 </p>
                 <p className="text-xs leading-5 text-slate-500">
                   Cash {formatCurrency(item.cashBefore, settings.currency)} → {formatCurrency(item.cashAfter, settings.currency)} • Période {item.athPeriodAtDecision}
@@ -705,6 +640,65 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
           </div>
         </div>
       </CardContent>
+      </Card>
+
+      <div className="min-w-0 space-y-3">
+        <Card className="flex h-full min-w-0 flex-col border-slate-200 bg-white shadow-sm">
+          <CardContent className="flex flex-1 flex-col space-y-3 py-4">
+            <p className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-violet-700">
+              <ChartNoAxesCombined className="h-3.5 w-3.5 shrink-0" />
+              Évolution prix
+            </p>
+            {snapshot ? (
+              <MarketPriceChart
+                series={priceHistory}
+                athPrice={snapshot?.athPrice ?? 1}
+                currentPrice={snapshot?.currentPrice ?? 1}
+                reinforce10Threshold={settings.reinforce10Threshold}
+                reinforce20Threshold={settings.reinforce20Threshold}
+                isRefreshing={isRefreshingMarket}
+                etfLabel={settings.referenceLabel}
+                etfSymbol={resolvedMarketSymbol || settings.referenceSymbol}
+              />
+            ) : (
+              <div className="h-[260px] animate-pulse rounded-lg bg-slate-100" />
+            )}
+            {snapshot && !isRefreshingMarket && !isHistoryLoading && priceHistory.length === 0 && (
+              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-2">
+                <p className="text-xs text-slate-600">Historique indisponible — cliquez sur Actualiser</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-2.5">
+                <p className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-emerald-700"><Sparkles className="h-3.5 w-3.5" />Nouveau ATH !</p>
+                <p className="mt-1 text-xs text-emerald-700">
+                  {isNewAth ? 'Le prix actuel est au plus haut de la période.' : 'Le marché est proche de son plus haut récent.'}
+                </p>
+                {snapshot ? (
+                  <p className="mt-1.5 text-sm font-semibold tabular-nums text-emerald-900">
+                    ATH de référence :{' '}
+                    {new Intl.NumberFormat('fr-FR', {
+                      style: 'currency',
+                      currency: settings.currency,
+                      maximumFractionDigits: 2,
+                      minimumFractionDigits: 2,
+                    }).format(snapshot.athPrice)}
+                  </p>
+                ) : (
+                  <p className="mt-1.5 text-xs text-emerald-600">ATH : en attente de données marché</p>
+                )}
+              </div>
+              <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-2.5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-violet-700">Période ATH</p>
+                <p className="mt-1 text-sm font-semibold text-violet-800">{settings.athPeriod}</p>
+                <p className="text-xs text-violet-700">Période sur laquelle l’ATH est calculé</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+      </div>
 
       <Dialog open={validateOpen} onOpenChange={setValidateOpen}>
         <DialogContent>
@@ -766,59 +760,6 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
                   <p className="text-xs text-slate-500">
                     Smartimmo suit un seul ETF de référence à la fois. Après modification, les données sont automatiquement actualisées.
                   </p>
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <p className="text-xs font-medium text-slate-700">Mini veille presets</p>
-                  {presetStatusesLoading && <p className="text-xs text-slate-500">Actualisation des statuts ETF...</p>}
-                  {!presetStatusesLoading && presetStatuses.length > 0 && (
-                    <div className="space-y-1">
-                      {presetStatuses.map((item) => {
-                        const badge = presetStatusBadge(item.status);
-                        const minutesAgo = Math.max(0, Math.floor((Date.now() - new Date(item.fetchedAt).getTime()) / 60000));
-                        const trend = presetPriceTrends[item.symbol] ?? null;
-                        const variation = presetDayVariations[item.symbol] ?? null;
-                        const variationLabel =
-                          variation === null ? '—' : `${variation >= 0 ? '+' : ''}${variation.toFixed(2)}%`;
-                        return (
-                          <button
-                            key={item.symbol}
-                            type="button"
-                            className="flex w-full items-center justify-between rounded-md border border-slate-200 px-2.5 py-1.5 text-left hover:bg-slate-50"
-                            onClick={() =>
-                              setSettingsForm((p) => ({
-                                ...p,
-                                etfPreset: ETF_REFERENCE_ALIASES.find((alias) => alias.defaultProviderSymbol === item.symbol)?.key ?? p.etfPreset,
-                                referenceLabel: item.label,
-                                referenceSymbol: item.symbol,
-                              }))
-                            }
-                          >
-                            <span className="text-xs text-slate-700">
-                              <span className="block">{item.label} — {item.symbol} — {item.drawdownPercent === null ? 'n/a' : `${item.drawdownPercent.toFixed(1)}%`}</span>
-                              <span className="block text-[11px] text-slate-500">Mis à jour il y a {minutesAgo} min</span>
-                            </span>
-                            <span className="flex items-center gap-2">
-                              <span
-                                className={`text-xs font-semibold ${trend === 'up' ? 'text-emerald-600' : trend === 'down' ? 'text-red-600' : 'text-slate-400'}`}
-                                aria-label={trend === 'up' ? 'Hausse' : trend === 'down' ? 'Baisse' : 'Non disponible'}
-                              >
-                                {trend === 'up' ? '↑' : trend === 'down' ? '↓' : '—'}
-                              </span>
-                              <span
-                                className={`text-xs font-semibold ${variation === null ? 'text-slate-400' : variation >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
-                                aria-label="Variation"
-                              >
-                                {variationLabel}
-                              </span>
-                              <Badge size="sm" variant={badge.variant}>
-                                {badge.label}
-                              </Badge>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-700">Libellé ETF</label>
@@ -959,6 +900,6 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </div>
   );
 }

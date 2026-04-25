@@ -64,9 +64,9 @@ export function MarketPriceChart({
   if (!series.length && !isRefreshing) return null;
   if (!series.length && isRefreshing) {
     return (
-      <div className="rounded-xl border border-slate-200 p-2.5">
-        <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Historique prix</p>
-        <p className="mb-2 text-xs leading-5 text-slate-500">Chargement des données historiques...</p>
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Historique prix</p>
+        <p className="text-xs leading-5 text-slate-500">Chargement des données historiques...</p>
         <div className="h-[220px] animate-pulse rounded-lg bg-slate-100" />
       </div>
     );
@@ -77,8 +77,8 @@ export function MarketPriceChart({
   const latest = series[series.length - 1];
 
   return (
-    <div className="relative rounded-xl border border-slate-200 p-2.5">
-      <div className="mb-1 flex items-center justify-between gap-2">
+    <div className="relative min-w-0 space-y-2">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Historique prix</p>
       </div>
       <p className="mb-2 text-xs leading-5 text-slate-500">
@@ -129,7 +129,7 @@ export function MarketPriceChart({
         </LineChart>
       </ResponsiveContainer>
       {isRefreshing && (
-        <div className="absolute inset-x-2.5 top-9 z-10 rounded-md border border-slate-200/80 bg-white/75 px-2 py-1 text-xs text-slate-600 backdrop-blur-[1px]">
+        <div className="absolute inset-x-0 top-14 z-10 rounded-md border border-slate-200/80 bg-white/80 px-2 py-1 text-xs text-slate-600 backdrop-blur-[1px]">
           Mise à jour...
         </div>
       )}
