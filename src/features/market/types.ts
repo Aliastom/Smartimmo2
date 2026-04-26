@@ -31,6 +31,11 @@ export interface InvestmentSettings {
   cashReferenceAmount: number;
   currency: string;
   updatedAt: string;
+  /**
+   * PEA : taux de prélèvements sociaux appliqué sur les gains uniquement (ex. 0,172 = 17,2 %),
+   * une fois l’exonération d’IR sur les gains acquise (modèle simplifié : horizons ≥ 5 ans).
+   */
+  peaSocialContributionsOnGainsRate?: number;
   /** V2 : DCA + paliers de % du cash (si absent, valeurs par défaut appliquées à la lecture) */
   investmentStrategy?: InvestmentStrategyConfig | null;
 }
@@ -87,6 +92,8 @@ export interface InvestmentActionLog {
   thresholdKey?: string | null;
   marketLevelKey?: string | null;
   drawdownPercentAtAction?: number | null; // compat legacy
+  /** Présent si la décision validée a été modifiée après coup (local-first). */
+  updatedAt?: string | null;
 }
 
 export interface InvestmentRecommendation {

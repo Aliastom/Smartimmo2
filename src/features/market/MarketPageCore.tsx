@@ -20,7 +20,7 @@ function formatCurrency(value: number, currency = 'EUR'): string {
 export function MarketPageCore({ mode }: MarketPageCoreProps) {
   const [openSettingsSignal, setOpenSettingsSignal] = useState(0);
   const { organizationId } = useCurrentOrganization();
-  const { settings } = useMarketInvestment(organizationId);
+  const { settings } = useMarketInvestment(organizationId, { source: 'market' });
 
   return (
     <div className="w-full max-w-full space-y-4">

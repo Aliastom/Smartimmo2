@@ -442,6 +442,51 @@ export class MarketDataService {
     }
   }
 
+  /**
+   * Un seul appel Yahoo (history inclus) → prix + série ; évite les doublons pour le refresh groupé multi-périodes.
+   */
+  async fetchYahooMarketBundle(input: { symbol: string; athPeriod: AthPeriod }): Promise<{
+    currentPrice: number;
+    athPrice: number;
+    athDate: string | null;
+    drawdownPercent: number;
+    history: MarketHistoryPoint[];
+  } | null> {
+    const symbol = resolveProviderSymbol(input.symbol, 'yahoo-api');
+    try {
+      const json = (await this.fetchYahooRoute(
+        { symbol, athPeriod: input.athPeriod },
+        { includeHistory: true }
+      )) as {
+        errorCode?: string;
+        currentPrice?: unknown;
+        athPrice?: unknown;
+        athDate?: unknown;
+        history?: unknown;
+      };
+      if (json?.errorCode) return null;
+      const currentPrice = Number(json?.currentPrice);
+      const athPrice = Number(json?.athPrice);
+      if (!Number.isFinite(currentPrice) || !Number.isFinite(athPrice) || currentPrice <= 0 || athPrice <= 0) {
+        return null;
+      }
+      const history = Array.isArray(json?.history)
+        ? json.history
+            .map((point: { date?: unknown; close?: unknown; high?: unknown }) => ({
+              date: typeof point?.date === 'string' ? point.date : '',
+              close: Number(point?.close),
+              high: point?.high == null ? null : Number(point.high),
+            }))
+            .filter((point: MarketHistoryPoint) => Boolean(point.date) && Number.isFinite(point.close) && point.close > 0)
+        : [];
+      const drawdownPercent = computeDrawdownPercent(currentPrice, athPrice);
+      const athDate = typeof json?.athDate === 'string' ? json.athDate : null;
+      return { currentPrice, athPrice, athDate, drawdownPercent, history };
+    } catch {
+      return null;
+    }
+  }
+
   async fetchPresetEtfStatuses(
     settings: Pick<InvestmentSettings, 'athPeriod' | 'reinforce10Threshold' | 'reinforce20Threshold'>
   ): Promise<PresetEtfStatus[]> {

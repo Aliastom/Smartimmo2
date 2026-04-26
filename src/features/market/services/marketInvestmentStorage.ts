@@ -10,6 +10,7 @@ import type {
   MarketOpportunityStatus,
 } from '@/features/market/types';
 import { defaultInvestmentStrategyConfig } from '@/features/market/services/marketInvestmentStrategy';
+import { normalizeMarketStorageSymbol } from '@/features/market/marketSymbolAliases';
 
 const SETTINGS_ID = 'default';
 const MARKET_HISTORY_STORAGE_PREFIX = 'smartimmo.market.history';
@@ -35,12 +36,18 @@ export const defaultInvestmentSettings = (organizationId: string): InvestmentSet
   cashReferenceAmount: 15000,
   currency: 'EUR',
   updatedAt: nowIso(),
+  peaSocialContributionsOnGainsRate: 0.172,
   investmentStrategy: defaultInvestmentStrategyConfig(1000),
 });
 
 export class MarketInvestmentStorage {
   private historyStorageKey(organizationId: string, symbol: string, athPeriod: AthPeriod): string {
-    return `${MARKET_HISTORY_STORAGE_PREFIX}:${organizationId}:${symbol}:${athPeriod}`;
+    return `${MARKET_HISTORY_STORAGE_PREFIX}:${organizationId}:${normalizeMarketStorageSymbol(symbol)}:${athPeriod}`;
+  }
+
+  /** Ancienne clé localStorage (symbole non normalisé). */
+  private legacyHistoryStorageKey(organizationId: string, symbol: string, athPeriod: AthPeriod): string {
+    return `${MARKET_HISTORY_STORAGE_PREFIX}:${organizationId}:${(symbol || '').trim()}:${athPeriod}`;
   }
 
   async getSettings(organizationId: string): Promise<InvestmentSettings> {
@@ -60,8 +67,10 @@ export class MarketInvestmentStorage {
           }
         : defaultInvestmentStrategyConfig(monthlyDca);
       investmentStrategy.monthlyDca = monthlyDca;
+      const symNorm = normalizeMarketStorageSymbol(existing.referenceSymbol);
       const normalized = {
         ...existing,
+        referenceSymbol: symNorm,
         strategy: existing.strategy ?? 'DCA_PLUS_REINFORCE',
         reinforce10Threshold:
           typeof existing.reinforce10Threshold === 'number' ? existing.reinforce10Threshold : -10,
@@ -83,6 +92,7 @@ export class MarketInvestmentStorage {
     const baseStrategy = settings.investmentStrategy ?? defaultInvestmentStrategyConfig(settings.monthlyDcaAmount);
     await db.InvestmentSettings.put({
       ...settings,
+      referenceSymbol: normalizeMarketStorageSymbol(settings.referenceSymbol),
       investmentStrategy: { ...baseStrategy, monthlyDca: settings.monthlyDcaAmount },
       updatedAt: nowIso(),
     });
@@ -90,14 +100,34 @@ export class MarketInvestmentStorage {
 
   async getSnapshot(organizationId: string, symbol: string, athPeriod: AthPeriod): Promise<MarketSnapshot | null> {
     const db = await getLocalDB();
+    const trimmed = (symbol || '').trim();
+    const norm = normalizeMarketStorageSymbol(symbol);
+
     const byExactPeriod = (await db.MarketSnapshot.where('[organizationId+symbol+athPeriod]')
-      .equals([organizationId, symbol, athPeriod])
+      .equals([organizationId, trimmed, athPeriod])
       .first()) as MarketSnapshot | undefined;
     if (byExactPeriod) {
       return byExactPeriod;
     }
 
-    const legacyRow = (await db.MarketSnapshot.get([organizationId, symbol])) as MarketSnapshot | undefined;
+    if (norm !== trimmed) {
+      const byNorm = (await db.MarketSnapshot.where('[organizationId+symbol+athPeriod]')
+        .equals([organizationId, norm, athPeriod])
+        .first()) as MarketSnapshot | undefined;
+      if (byNorm) {
+        return byNorm;
+      }
+    }
+
+    const allOrg = (await db.MarketSnapshot.where('organizationId').equals(organizationId).toArray()) as MarketSnapshot[];
+    const byCanon = allOrg.find(
+      (row) => row.athPeriod === athPeriod && normalizeMarketStorageSymbol(row.symbol) === norm
+    );
+    if (byCanon) {
+      return byCanon;
+    }
+
+    const legacyRow = (await db.MarketSnapshot.get([organizationId, trimmed])) as MarketSnapshot | undefined;
     if (!legacyRow) {
       return null;
     }
@@ -122,11 +152,19 @@ export class MarketInvestmentStorage {
     return rows.filter((row) => symbolSet.has(row.symbol) && row.athPeriod === athPeriod);
   }
 
+  async listAllSnapshots(organizationId: string): Promise<MarketSnapshot[]> {
+    const db = await getLocalDB();
+    return (await db.MarketSnapshot.where('organizationId').equals(organizationId).toArray()) as MarketSnapshot[];
+  }
+
   getPriceHistory(organizationId: string, symbol: string, athPeriod: AthPeriod): MarketHistoryPoint[] {
     if (typeof window === 'undefined') return [];
     try {
       const key = this.historyStorageKey(organizationId, symbol, athPeriod);
-      const raw = window.localStorage.getItem(key);
+      let raw = window.localStorage.getItem(key);
+      if (!raw) {
+        raw = window.localStorage.getItem(this.legacyHistoryStorageKey(organizationId, symbol, athPeriod));
+      }
       if (!raw) return [];
       const parsed = JSON.parse(raw) as Array<{ date?: unknown; close?: unknown; high?: unknown }>;
       if (!Array.isArray(parsed)) return [];
@@ -151,10 +189,13 @@ export class MarketInvestmentStorage {
     if (typeof window === 'undefined') return;
     try {
       const key = this.historyStorageKey(organizationId, symbol, athPeriod);
+      const legacyKey = this.legacyHistoryStorageKey(organizationId, symbol, athPeriod);
       if (!history.length) {
         window.localStorage.removeItem(key);
+        window.localStorage.removeItem(legacyKey);
         return;
       }
+      window.localStorage.removeItem(legacyKey);
       window.localStorage.setItem(key, JSON.stringify(history));
     } catch {
       // no-op: localStorage quota/private mode
@@ -167,6 +208,89 @@ export class MarketInvestmentStorage {
     return (rows as InvestmentActionLog[])
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, limit);
+  }
+
+  async getActionLogById(organizationId: string, logId: string): Promise<InvestmentActionLog | null> {
+    const db = await getLocalDB();
+    const row = (await db.InvestmentActionLog.get(logId)) as InvestmentActionLog | undefined;
+    if (!row || row.organizationId !== organizationId) return null;
+    return row;
+  }
+
+  /**
+   * Ajuste le montant validé et la note / raison ; recalcule le cash disponible (delta ancien → nouveau).
+   * Ne modifie pas le type, symbole, drawdown, prix, date initiale ni le statut marché stockés sur la ligne.
+   */
+  async updateValidatedDecision(
+    organizationId: string,
+    logId: string,
+    patch: { validatedAmount: number; reason: string; note?: string | null }
+  ): Promise<'ok' | 'not_found' | 'invalid_status' | 'invalid_amount'> {
+    const log = await this.getActionLogById(organizationId, logId);
+    if (!log) return 'not_found';
+    if (log.status !== 'validated') return 'invalid_status';
+
+    const oldAmount = log.validatedAmount;
+    const newAmount = Math.round(Math.max(0, Number(patch.validatedAmount)) * 100) / 100;
+    if (!Number.isFinite(newAmount) || newAmount < 0) return 'invalid_amount';
+
+    const settings = await this.getSettings(organizationId);
+    const maxAllowed = settings.availableCash + oldAmount;
+    if (newAmount > maxAllowed + 1e-6) return 'invalid_amount';
+
+    const newAvailable = Math.round((settings.availableCash + oldAmount - newAmount) * 100) / 100;
+    const newCashAfter = Math.round((log.cashBefore - newAmount) * 100) / 100;
+
+    const updated: InvestmentActionLog = {
+      ...log,
+      validatedAmount: newAmount,
+      cashAfter: newCashAfter,
+      reason: patch.reason.trim().slice(0, 220) || log.reason,
+      note: patch.note !== undefined ? (patch.note === '' ? null : patch.note) : log.note,
+      updatedAt: nowIso(),
+    };
+
+    const db = await getLocalDB();
+    await db.InvestmentActionLog.put(updated);
+    await this.saveSettings({
+      ...settings,
+      availableCash: Math.max(0, newAvailable),
+      updatedAt: nowIso(),
+    });
+    return 'ok';
+  }
+
+  /** Supprime une décision validée et restitue le montant au cash disponible. */
+  async deleteValidatedDecision(organizationId: string, logId: string): Promise<'ok' | 'not_found' | 'invalid_status' | 'failed'> {
+    const log = await this.getActionLogById(organizationId, logId);
+    if (!log) return 'not_found';
+    if (log.status !== 'validated') return 'invalid_status';
+
+    const settings = await this.getSettings(organizationId);
+    const previousCash = settings.availableCash;
+    const restored = Math.round((previousCash + Math.max(0, log.validatedAmount)) * 100) / 100;
+
+    try {
+      await this.saveSettings({
+        ...settings,
+        availableCash: restored,
+        updatedAt: nowIso(),
+      });
+      const db = await getLocalDB();
+      await db.InvestmentActionLog.delete(logId);
+    } catch {
+      try {
+        await this.saveSettings({
+          ...settings,
+          availableCash: previousCash,
+          updatedAt: nowIso(),
+        });
+      } catch {
+        // no-op
+      }
+      return 'failed';
+    }
+    return 'ok';
   }
 
   async addActionLog(payload: InvestmentActionLog): Promise<void> {

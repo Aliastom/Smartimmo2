@@ -1,7 +1,6 @@
 'use client';
 
 import { Badge } from '@/components/ui/Badge';
-import { computeDrawdownPercent } from '@/features/market/services/marketDecisionService';
 import type { MarketRadarEntry } from '@/features/market/hooks/useMarketInvestment';
 import type { AthPeriod } from '@/features/market/types';
 import { Radar, Info } from 'lucide-react';
@@ -13,30 +12,33 @@ interface MarketRadarPanelProps {
   athPeriod: AthPeriod;
 }
 
-function formatCurrency(value: number, currency = 'EUR'): string {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
-}
-
 function formatActionAmount(value: number, currency: string): string {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value);
 }
 
-/** Affichage principal : au plus 2 décimales (lisible). */
-function formatRadarDrawdownPercentShort(value: number): string {
-  return `${new Intl.NumberFormat('fr-FR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-    useGrouping: false,
-  }).format(value)}%`;
+function computeDrawdownShort(currentPrice: number, athPrice: number): number {
+  if (!Number.isFinite(currentPrice) || !Number.isFinite(athPrice) || athPrice <= 0) return 0;
+  return ((currentPrice - athPrice) / athPrice) * 100;
 }
 
-/** Tooltip natif : précision fixe 4 décimales pour comparer des ETF très proches. */
-function formatRadarDrawdownPercentTitle(value: number): string {
-  return `${new Intl.NumberFormat('fr-FR', {
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 4,
-    useGrouping: false,
-  }).format(value)}%`;
+function formatDrawdownShort(value: number): string {
+  return `${value.toFixed(2).replace('.', ',')} %`;
+}
+
+function drawdownShortTone(value: number): string {
+  if (value <= -10) return 'text-rose-700';
+  if (value <= -5) return 'text-amber-700';
+  if (value <= -2) return 'text-orange-700';
+  if (value < 0) return 'text-amber-700';
+  return 'text-emerald-700';
+}
+
+function drawdownShortChipTone(value: number): string {
+  if (value <= -10) return 'border-rose-200 bg-rose-100 text-rose-800';
+  if (value <= -5) return 'border-amber-200 bg-amber-100 text-amber-800';
+  if (value <= -2) return 'border-orange-200 bg-orange-100 text-orange-800';
+  if (value < 0) return 'border-amber-200 bg-amber-100 text-amber-800';
+  return 'border-emerald-200 bg-emerald-100 text-emerald-800';
 }
 
 function actionMainLine(entry: MarketRadarEntry, currency: string): string {
@@ -76,12 +78,6 @@ function headerToneStyle(status: MarketRadarEntry['recommendation']): { backgrou
   return { backgroundColor: '#dcfce7' };
 }
 
-function drawdownTone(value: number): string {
-  if (value <= -20) return 'text-rose-700';
-  if (value <= -10) return 'text-amber-700';
-  return 'text-emerald-700';
-}
-
 function actionTone(status: MarketRadarEntry['recommendation']): string {
   if (!status) return 'text-slate-600';
   if (status.status === 'FORTE_OPPORTUNITE') return 'text-rose-700';
@@ -102,7 +98,8 @@ export function MarketRadarPanel({ entries, currency, lastUpdatedAt = null, athP
   const hasOpportunity = entries.some(
     (entry) => entry.recommendation && (entry.recommendation.status === 'OPPORTUNITE' || entry.recommendation.status === 'FORTE_OPPORTUNITE')
   );
-  const athLabel = athPeriod === 'MAX' ? 'ATH MAX' : `ATH ${athPeriod}`;
+  const athColumnLabel =
+    athPeriod === 'MAX' ? 'ATH MAX' : athPeriod === '5Y' ? 'ATH 5Y' : athPeriod === '10Y' ? 'ATH 10Y' : `ATH ${athPeriod}`;
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
@@ -114,6 +111,7 @@ export function MarketRadarPanel({ entries, currency, lastUpdatedAt = null, athP
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-violet-700">Radar ETF World</p>
           <p className="text-xs text-slate-500">Vue d’ensemble des 3 ETF suivis</p>
+          <p className="mt-0.5 text-[11px] font-medium text-slate-600">Période globale : {athColumnLabel}</p>
           </div>
         </div>
         <div className="text-right">
@@ -126,11 +124,9 @@ export function MarketRadarPanel({ entries, currency, lastUpdatedAt = null, athP
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {entries.map((entry) => {
           const badge = badgeForStatus(entry.recommendation);
-          const snapshot = entry.snapshot;
-          // Chaque carte : drawdown recalculé depuis les prix de CE snapshot uniquement (pas d’ETF actif / global).
-          const drawdownFromPrices = snapshot
-            ? computeDrawdownPercent(snapshot.currentPrice, snapshot.athPrice)
-            : 0;
+          const shortDrawdown = entry.snapshot
+            ? computeDrawdownShort(entry.snapshot.currentPrice, entry.snapshot.athPrice)
+            : null;
           return (
             <article key={entry.symbol} className={`rounded-xl border p-3 shadow-sm ${cardTone(entry.recommendation)}`}>
               <header
@@ -141,35 +137,23 @@ export function MarketRadarPanel({ entries, currency, lastUpdatedAt = null, athP
                 <div>
                   <p className="text-base font-bold leading-5 text-slate-900">{entry.symbol}</p>
                   <p className="text-xs text-slate-600">{entry.label}</p>
+                  {shortDrawdown !== null && (
+                    <p
+                      className={`mt-1 inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold tabular-nums ${drawdownShortChipTone(shortDrawdown)} ${drawdownShortTone(shortDrawdown)}`}
+                    >
+                        ↓ {formatDrawdownShort(shortDrawdown)} du sommet
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Badge size="sm" variant={badge.variant}>{badge.label}</Badge>
                 </div>
                 </div>
               </header>
-              {!snapshot ? (
+              {!entry.snapshot ? (
                 <p className="mt-2 text-xs text-slate-500">Données indisponibles</p>
               ) : (
                 <>
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                    <div className="border-r border-slate-100 pr-2">
-                      <p className="text-slate-500">Prix</p>
-                      <p className="text-[15px] font-semibold text-slate-900">{formatCurrency(snapshot.currentPrice, currency)}</p>
-                    </div>
-                    <div className="border-r border-slate-100 px-1">
-                      <p className="text-slate-500">{athLabel}</p>
-                      <p className="text-[15px] font-semibold text-slate-900">{formatCurrency(snapshot.athPrice, currency)}</p>
-                    </div>
-                    <div className="pl-1">
-                      <p className="text-slate-500">Drawdown</p>
-                      <p
-                        className={`cursor-help text-[15px] font-semibold ${drawdownTone(drawdownFromPrices)}`}
-                        title={formatRadarDrawdownPercentTitle(drawdownFromPrices)}
-                      >
-                        {formatRadarDrawdownPercentShort(drawdownFromPrices)}
-                      </p>
-                    </div>
-                  </div>
                   <footer className={`mt-3 rounded-lg border px-3 py-2 text-center ${actionBoxTone(entry.recommendation)}`}>
                     <p className={`text-sm font-semibold ${actionTone(entry.recommendation)}`}>
                       {entry.recommendation?.status === 'NORMAL' ? '✅ ' : entry.recommendation?.status === 'FORTE_OPPORTUNITE' ? '🔴 ' : '⚠️ '}

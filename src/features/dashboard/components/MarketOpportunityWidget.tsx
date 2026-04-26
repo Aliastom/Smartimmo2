@@ -7,7 +7,7 @@ import { useMarketInvestment } from '@/features/market/hooks/useMarketInvestment
 
 export function MarketOpportunityWidget() {
   const { organizationId } = useCurrentOrganization();
-  const { loading, radarEntries, radarLastRefreshedAt } = useMarketInvestment(organizationId);
+  const { loading, radarEntries, radarLastRefreshedAt } = useMarketInvestment(organizationId, { source: 'dashboard' });
   if (loading) return null;
   if (radarEntries.length === 0) return null;
   const opportunityCount = radarEntries.filter(

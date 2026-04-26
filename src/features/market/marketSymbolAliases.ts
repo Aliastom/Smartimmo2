@@ -28,6 +28,22 @@ export const ETF_REFERENCE_ALIASES: EtfReferenceAlias[] = [
 
 export const CUSTOM_MARKET_SYMBOL_KEY = 'CUSTOM';
 
+/** Périodes ATH pour lesquelles on pré-charge snapshot + historique au refresh marché. */
+export const MARKET_CACHE_ATH_PERIODS = ['5Y', '10Y', 'MAX'] as const;
+
+/**
+ * Symbole canonique pour clés cache, Dexie et localStorage (alias preset + casse).
+ * Les tickers Yahoo sont en général insensibles à la casse ; on uniformise en majuscules.
+ */
+export function normalizeMarketStorageSymbol(input: string): string {
+  return resolveMarketSymbol((input || '').trim()).toUpperCase();
+}
+
+/** Clé stable pour le cache mémoire (symbole + période ATH). */
+export function marketSnapshotCacheKey(symbol: string, athPeriod: string): string {
+  return `${normalizeMarketStorageSymbol(symbol)}::${athPeriod}`;
+}
+
 export function resolveMarketSymbol(input: string): string {
   const normalized = (input || '').trim();
   if (!normalized) return normalized;

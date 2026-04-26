@@ -507,6 +507,8 @@ export interface InvestmentSettings {
   cashReferenceAmount: number;
   currency: string;
   updatedAt: string;
+  /** PEA : PS sur les gains après 5 ans (ex. 0,172) — optionnel, défaut côté app si absent */
+  peaSocialContributionsOnGainsRate?: number;
   investmentStrategy?: InvestmentStrategyConfigRow | null;
 }
 
@@ -544,6 +546,7 @@ export interface InvestmentActionLog {
   thresholdKey?: string | null;
   marketLevelKey?: string | null;
   drawdownPercentAtAction?: number | null;
+  updatedAt?: string | null;
 }
 
 export interface MarketAlert {
