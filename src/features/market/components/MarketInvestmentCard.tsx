@@ -141,7 +141,6 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
     lastMarketRefreshScope,
     radarEntries,
     refreshAllMarketData,
-    refreshFullTrackableLibrary,
     updateSettings,
     validateDecision,
     ignoreDecision,
@@ -222,7 +221,8 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
     return marketScoreBadge(recommendation.marketScoreLabel);
   }, [recommendation]);
 
-  const fullLibraryRefreshSymbolCount = useMemo(() => {
+  /** Nombre d’actifs (dédoublonnés) pour un refresh manuel complet : radar + principal + comparaisons + récents + bibliothèque trackable. */
+  const trackableMarketRefreshCount = useMemo(() => {
     if (!organizationId || !settings) return 0;
     const radarSymbols = ETF_REFERENCE_ALIASES.map((a) => a.defaultProviderSymbol);
     return countFullMarketRefreshSymbols(settings, organizationId, radarSymbols);
@@ -727,20 +727,6 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
     }, 9000);
   };
 
-  const handleRefreshLibraryClick = async () => {
-    if (isRefreshingMarket || isRefreshingRadar || !organizationId || !settings) return;
-    const n = fullLibraryRefreshSymbolCount;
-    if (n <= 0) return;
-    if (
-      !window.confirm(
-        `Actualiser ${n} actif${n > 1 ? 's' : ''} de marché (bibliothèque trackable + périmètre standard) ? Les API gratuites peuvent être limitées.`
-      )
-    ) {
-      return;
-    }
-    await refreshFullTrackableLibrary();
-  };
-
   const handleRefreshClick = async () => {
     if (isRefreshingMarket || isRefreshingRadar) return;
     if (!hasAnyMarketData || !isMarketDataFresh) {
@@ -752,9 +738,14 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
       armForceRefresh();
       return;
     }
+    const n = trackableMarketRefreshCount;
+    const actifsPhrase =
+      n > 0
+        ? `Actualiser ${n} actif${n > 1 ? 's' : ''} de marché (catalogue trackable inclus) peut solliciter les API gratuites. `
+        : 'L’actualisation peut solliciter les API gratuites. ';
     if (
       !window.confirm(
-        'Les données ont déjà été actualisées récemment. Les API gratuites peuvent être limitées. Voulez-vous forcer l’actualisation ?'
+        `Les données ont déjà été actualisées récemment. ${actifsPhrase}Voulez-vous forcer l’actualisation ?`
       )
     ) {
       resetForceRefreshState();
@@ -1245,16 +1236,17 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
                 })}
                 ) :{' '}
                 {lastMarketRefreshScope === 'full_library'
-                  ? 'bibliothèque trackable + périmètre standard (radar, principal, comparaisons, récents)'
+                  ? 'catalogue trackable + radar + actif principal + comparaisons + actifs récents'
                   : lastMarketRefreshScope === 'principal_radar_comparaisons'
-                    ? 'actif principal + radar + comparaisons + actifs récents'
-                    : 'actif principal + radar + actifs récents'}
+                    ? 'actif principal + radar + comparaisons + actifs récents (MAJ auto)'
+                    : 'actif principal + radar + actifs récents (MAJ auto)'}
               </p>
             )}
             <p className="max-w-xl text-[11px] leading-snug text-slate-500">
-              Le refresh standard met à jour l’actif principal, le radar, les comparaisons et les actifs récents. La
-              bibliothèque complète peut consommer davantage d’appels API (actifs trackables hors SCPI, private equity,
-              fonds datés et crypto).
+              Un clic sur « Actualiser les données marché » met à jour le radar, l’actif principal, les comparaisons,
+              les actifs récents et tout le catalogue trackable (hors SCPI, private equity, fonds datés et crypto),
+              dédoublonné et stocké en local. L’actualisation automatique au chargement reste limitée au périmètre radar
+              / principal / comparaisons / récents si le cache a moins de 12 h.
             </p>
             {controlsDataFreshnessLine && (
               <p className={`text-[11px] leading-snug ${controlsDataFreshnessLine.className}`}>
@@ -1262,34 +1254,27 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
               </p>
             )}
           </div>
-          <div className="flex flex-col items-end gap-1.5">
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => handleRefreshClick().catch(() => undefined)}
-              disabled={isRefreshingMarket || isRefreshingRadar}
-            >
-              {isRefreshingMarket ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
-                  Actualisation...
-                </span>
-              ) : isForceRefreshArmed ? (
-                'Forcer l’actualisation'
-              ) : (
-                'Actualiser les données marché'
-              )}
-            </Button>
-            <button
-              type="button"
-              className="text-[11px] font-medium text-violet-700 underline decoration-violet-300 underline-offset-2 hover:text-violet-900 disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline"
-              disabled={isRefreshingMarket || isRefreshingRadar || fullLibraryRefreshSymbolCount <= 0}
-              onClick={() => handleRefreshLibraryClick().catch(() => undefined)}
-            >
-              Actualiser la bibliothèque
-              {fullLibraryRefreshSymbolCount > 0 ? ` (${fullLibraryRefreshSymbolCount} actifs)` : ''}
-            </button>
-          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => handleRefreshClick().catch(() => undefined)}
+            disabled={isRefreshingMarket || isRefreshingRadar}
+          >
+            {isRefreshingMarket ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
+                Actualisation…
+              </span>
+            ) : isForceRefreshArmed ? (
+              trackableMarketRefreshCount > 0
+                ? `Forcer l’actualisation (${trackableMarketRefreshCount} actifs)`
+                : 'Forcer l’actualisation'
+            ) : trackableMarketRefreshCount > 0 ? (
+              `Actualiser les données marché (${trackableMarketRefreshCount} actifs)`
+            ) : (
+              'Actualiser les données marché'
+            )}
+          </Button>
         </CardContent>
       </Card>
 

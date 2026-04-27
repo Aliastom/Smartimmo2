@@ -394,7 +394,8 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     setRefreshStartedAt(startedAtIso);
     setLastRefreshAttemptAt(startedAtIso);
     setLastRefreshStatus('loading');
-    refreshRadar({ force: false, reason: 'page-load', source: ttlSource })
+    // Périmètre « économique » uniquement : pas de scan catalogue complet tant que le TTL global le permet.
+    refreshRadar({ force: false, reason: 'page-load', source: ttlSource, symbolScope: 'standard' })
       .then(() => {
         const completedAtIso = new Date().toISOString();
         setRefreshCompletedAt(completedAtIso);
@@ -604,29 +605,6 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     setLastRefreshAttemptAt(startedAtIso);
     setLastRefreshStatus('loading');
     try {
-      await refreshRadar({ force: true, reason: 'manual', symbolScope: 'standard' });
-      const completedAtIso = new Date().toISOString();
-      setRefreshCompletedAt(completedAtIso);
-      setLastSuccessfulRefreshAt(completedAtIso);
-      setLastRefreshStatus('success');
-      setLastRefreshError(null);
-    } catch (error) {
-      const mapped = mapMarketProviderErrorToMessage(error);
-      setMarketError(mapped);
-      setLastRefreshError(mapped);
-      setLastRefreshStatus('error');
-    } finally {
-      setIsRefreshingMarket(false);
-    }
-  }, [refreshRadar]);
-
-  const refreshFullTrackableLibrary = useCallback(async () => {
-    const startedAtIso = new Date().toISOString();
-    setIsRefreshingMarket(true);
-    setRefreshStartedAt(startedAtIso);
-    setLastRefreshAttemptAt(startedAtIso);
-    setLastRefreshStatus('loading');
-    try {
       await refreshRadar({ force: true, reason: 'manual', symbolScope: 'full_library' });
       const completedAtIso = new Date().toISOString();
       setRefreshCompletedAt(completedAtIso);
@@ -775,7 +753,6 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     suppressedSuggestion,
     refreshSnapshot: refreshAllMarketData,
     refreshAllMarketData,
-    refreshFullTrackableLibrary,
     refreshRadar,
     saveManualSnapshot,
     updateSettings,

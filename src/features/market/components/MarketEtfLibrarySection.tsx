@@ -250,8 +250,8 @@ export function MarketEtfLibrarySection({
         </div>
         <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs text-slate-600">
           Métadonnées bibliothèque (frais, encours, rôle, catégorie, classe) = statiques. Prix / ATH / historique = cache
-          local (Dexie + historique) après « Actualiser les données marché » ou « Actualiser la bibliothèque », relu au
-          changement d’onglet ou au rechargement de la page — aucun appel réseau dans cet écran.
+          local (Dexie + historique) après « Actualiser les données marché », relu au changement d’onglet ou au
+          rechargement de la page — aucun appel réseau dans cet écran.
         </div>
 
         <Input

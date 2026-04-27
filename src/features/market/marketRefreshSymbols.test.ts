@@ -95,7 +95,7 @@ describe('countFullMarketRefreshSymbols', () => {
     expect(n).toBeGreaterThanOrEqual(libOnly);
   });
 
-  it('aligne le décompte UI (lien Actualiser la bibliothèque) sur merge(standard, catalogue) pour la même org', () => {
+  it('aligne le décompte UI (bouton Actualiser les données marché) sur merge(standard, catalogue) pour la même org', () => {
     const org = `vitest-lib-scope-${Date.now()}`;
     const settings = minimalSettings({ referenceSymbol: 'CW8.PA', referenceLabel: 'Test' });
     const radar = ['CW8.PA', 'EWLD.PA'];
