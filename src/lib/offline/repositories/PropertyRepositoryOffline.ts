@@ -141,6 +141,7 @@ export class PropertyRepositoryOffline {
       managementCompanyId: property.managementCompanyId || null,
       fiscalTypeId: property.fiscalTypeId || null,
       fiscalRegimeId: property.fiscalRegimeId || null,
+      lmnpActivityId: property.lmnpActivityId || null,
       rentalMode: property.rentalMode || 'LONG_TERM',
       airbnbListingId: property.airbnbListingId || null,
       isArchived: property.isArchived || false,

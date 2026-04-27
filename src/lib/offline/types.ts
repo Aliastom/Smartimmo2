@@ -61,6 +61,7 @@ export interface LocalProperty {
   managementCompanyId?: string | null;
   fiscalTypeId?: string | null;
   fiscalRegimeId?: string | null;
+  lmnpActivityId?: string | null;
   rentalMode: string;
   airbnbListingId?: string | null;
   isArchived: boolean;

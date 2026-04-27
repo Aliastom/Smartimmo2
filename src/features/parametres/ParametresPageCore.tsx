@@ -16,6 +16,7 @@ import {
   Palette, 
   User, 
   Settings2, 
+  FileSpreadsheet,
   ExternalLink,
   ChevronRight,
   Menu,
@@ -42,6 +43,15 @@ export function ParametresPageCore({
       icon: Building2,
       href: mode === 'app-shell' ? '/app?view=gestion-deleguee' : '/gestion-deleguee',
       color: 'emerald' as const
+    },
+    {
+      id: 'lmnp-activities',
+      title: 'Activités LMNP (SIRET)',
+      description: 'Gérez vos activités LMNP (SIRET) pour vos locations meublées.',
+      icon: FileSpreadsheet,
+      href: '/parametres/lmnp-activities',
+      color: 'blue' as const,
+      external: false
     },
     {
       id: 'preferences',

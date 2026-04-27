@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { TaxParamsService } from '@/services/TaxParamsService';
 import { Home, Armchair, Building2, FileText, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 const propertySchema = z.object({
   name: z.string().min(1, 'Le nom est requis'),
@@ -339,6 +340,13 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
     setErrors({});
 
     try {
+      if (requiresLmnpActivity && !formData.lmnpActivityId) {
+        setErrors((prev) => ({
+          ...prev,
+          lmnpActivityId: 'Une activité LMNP/SIRET est requise pour un bien LMNP au réel.',
+        }));
+        return;
+      }
       // Convertir les dates et nombres
       const submitData = {
         ...formData,
@@ -385,10 +393,14 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
     }
   };
 
-  const selectedFiscalTypeLabel = fiscalTypes.find((t: any) => t.id === formData.fiscalTypeId)?.label || '';
-  const selectedRegimeId = formData.fiscalRegimeId || '';
+  const selectedFiscalType = fiscalTypes.find((t: any) => t.id === formData.fiscalTypeId) || null;
+  const selectedFiscalTypeText = `${selectedFiscalType?.id || ''} ${selectedFiscalType?.label || ''}`.toLowerCase();
+  const selectedRegime = fiscalRegimes.find((r: any) => r.id === formData.fiscalRegimeId) || null;
+  const selectedRegimeText = `${selectedRegime?.id || formData.fiscalRegimeId || ''} ${selectedRegime?.label || ''}`.toLowerCase();
   const requiresLmnpActivity =
-    /lmnp|meuble/i.test(selectedFiscalTypeLabel) && /reel/i.test(selectedRegimeId);
+    /(lmnp|lmp|meuble|meublé)/i.test(selectedFiscalTypeText) &&
+    /(reel|réel)/i.test(selectedRegimeText) &&
+    /(simplifie|simplifié)/i.test(selectedRegimeText);
 
   const handleCreateLmnpActivity = async () => {
     if (!newActivity.name || !/^\d{14}$/.test(newActivity.siret)) return;
@@ -717,6 +729,15 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
                       ]}
                       placeholder="-- Sélectionner une activité --"
                     />
+                    {errors.lmnpActivityId && <p className="text-red-500 text-sm mt-1">{errors.lmnpActivityId}</p>}
+                    <div className="mt-1">
+                      <Link
+                        href="/parametres/lmnp-activities"
+                        className="text-xs text-orange-700 hover:text-orange-800 underline"
+                      >
+                        Gérer mes activités LMNP
+                      </Link>
+                    </div>
                   </div>
                   {!showCreateActivity ? (
                     <button

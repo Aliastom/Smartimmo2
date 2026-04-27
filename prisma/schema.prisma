@@ -892,6 +892,65 @@ model FiscalSession {
   @@index([organizationId])
 }
 
+model MarketInvestmentSettings {
+  id                                   String
+  organizationId                       String
+  referenceSymbol                      String
+  referenceLabel                       String
+  envelope                             String
+  athPeriod                            String
+  availableCash                        Float
+  monthlyDcaAmount                     Float
+  reinforce10Threshold                 Float
+  reinforce20Threshold                 Float
+  reinforce10Amount                    Float
+  reinforce20Amount                    Float
+  strategy                             String
+  cashReferenceAmount                  Float
+  currency                             String
+  peaSocialContributionsOnGainsRate    Float?
+  investmentStrategyJson               String?
+  createdAt                            DateTime     @default(now())
+  updatedAt                            DateTime     @updatedAt
+  Organization                         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, id])
+  @@index([organizationId])
+  @@index([updatedAt])
+}
+
+model MarketInvestmentActionLog {
+  id                        String
+  organizationId            String
+  date                      DateTime
+  type                      String
+  recommendedAmount         Float
+  validatedAmount           Float
+  cashBefore                Float
+  cashAfter                 Float
+  reason                    String
+  drawdownAtDecision        Float
+  athPriceAtDecision        Float
+  currentPriceAtDecision    Float
+  symbolAtDecision          String
+  marketStatusAtDecision    String
+  athPeriodAtDecision       String
+  status                    String
+  note                      String?
+  thresholdKey              String?
+  marketLevelKey            String?
+  drawdownPercentAtAction   Float?
+  createdAt                 DateTime     @default(now())
+  updatedAt                 DateTime     @updatedAt
+  Organization              Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, id])
+  @@index([organizationId])
+  @@index([updatedAt])
+  @@index([date])
+  @@index([thresholdKey])
+}
+
 model Tenant {
   id               String             @id @default(cuid())
   organizationId   String             @default("default")
@@ -1070,6 +1129,8 @@ model Organization {
   LmnpExportRun       LmnpExportRun[]
   LmnpLearningPattern LmnpLearningPattern[]
   LmnpActivities      LmnpActivity[]
+  MarketInvestmentSettings MarketInvestmentSettings[]
+  MarketInvestmentActionLogs MarketInvestmentActionLog[]
 }
 
 // ============================================

@@ -1,5 +1,5 @@
 import { Metadata } from 'next';
-import LmnpActivitiesAdminClient from './LmnpActivitiesAdminClient';
+import { redirect } from 'next/navigation';
 
 export const metadata: Metadata = {
   title: 'Activités LMNP — Administration',
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function LmnpActivitiesAdminPage() {
-  return <LmnpActivitiesAdminClient />;
+  redirect('/parametres/lmnp-activities');
 }

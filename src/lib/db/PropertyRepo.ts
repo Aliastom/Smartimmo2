@@ -25,6 +25,9 @@ export interface PropertyWithRelations {
   currentValue: number;
   rentalMode?: string;
   airbnbListingId?: string | null;
+  fiscalTypeId?: string | null;
+  fiscalRegimeId?: string | null;
+  lmnpActivityId?: string | null;
   isArchived: boolean;
   archivedAt?: Date | null;
   createdAt: Date;

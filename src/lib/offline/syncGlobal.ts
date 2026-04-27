@@ -125,6 +125,12 @@ const ENTITY_CONFIGS: EntitySyncConfig[] = [
       if (rest.fiscalRegimeId && rest.fiscalRegimeId !== '') {
         cleanItem.fiscalRegimeId = String(rest.fiscalRegimeId);
       }
+
+      // lmnpActivityId: z.string().optional()
+      // OMETTRE si null/undefined/vide (ne JAMAIS envoyer null)
+      if (rest.lmnpActivityId && rest.lmnpActivityId !== '') {
+        cleanItem.lmnpActivityId = String(rest.lmnpActivityId);
+      }
       
       // rentalMode: z.enum(['LONG_TERM', 'SEASONAL_AIRBNB']).optional()
       // Valeur par défaut 'LONG_TERM' comme dans l'API (ligne 76)
@@ -458,6 +464,44 @@ const ENTITY_CONFIGS: EntitySyncConfig[] = [
       }
 
       return cleanItem;
+    },
+  },
+  {
+    entity: 'marketInvestmentSettings',
+    tableName: 'InvestmentSettings',
+    apiRoute: '/api/market/settings',
+    apiRouteById: '/api/market/settings/:id',
+    transformToLocal: (item: any) => ({
+      ...item,
+      updatedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+      _syncedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+    }),
+    transformToRemote: (item: any) => {
+      const { _localUpdatedAt, _syncedAt, createdAt, organizationId, ...rest } = item;
+      return {
+        ...rest,
+        updatedAt: rest.updatedAt ? new Date(rest.updatedAt).toISOString() : new Date().toISOString(),
+      };
+    },
+  },
+  {
+    entity: 'marketInvestmentActionLog',
+    tableName: 'InvestmentActionLog',
+    apiRoute: '/api/market/actions',
+    apiRouteById: '/api/market/actions/:id',
+    transformToLocal: (item: any) => ({
+      ...item,
+      date: item.date ? new Date(item.date).toISOString() : new Date().toISOString(),
+      updatedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+      _syncedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+    }),
+    transformToRemote: (item: any) => {
+      const { _localUpdatedAt, _syncedAt, createdAt, organizationId, ...rest } = item;
+      return {
+        ...rest,
+        date: rest.date ? new Date(rest.date).toISOString() : new Date().toISOString(),
+        updatedAt: rest.updatedAt ? new Date(rest.updatedAt).toISOString() : new Date().toISOString(),
+      };
     },
   },
   // Payment table removed - replaced by Transaction table
@@ -838,6 +882,7 @@ const ENTITY_CONFIGS: EntitySyncConfig[] = [
 
 const SYNC_OVERWRITE_LOG_KEY = 'sync_overwrite_events';
 const SYNC_OVERWRITE_LOG_LIMIT = 50;
+const MARKET_SYNC_LWW_TOLERANCE_MS = 1_000;
 
 type SyncOverwriteEvent = {
   timestamp: string;
@@ -896,6 +941,143 @@ export class GlobalSyncService {
     }
     
     return db;
+  }
+
+  private extractArrayPayload(data: any, entityKey: string): any[] {
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.data)) return data.data;
+    if (Array.isArray(data?.items)) return data.items;
+    if (Array.isArray(data?.[entityKey])) return data[entityKey];
+    return [];
+  }
+
+  /**
+   * PR4 Marché — bootstrap migration local-only -> pendingOps.
+   * Règle: si local est plus récent (LWW updatedAt), on push vers serveur ; sinon pull serveur gagne.
+   */
+  private async bootstrapMarketPendingOpsIfNeeded(organizationId: string): Promise<void> {
+    const db = await this.getDb();
+
+    const existingMarketOps = (
+      await db.pendingOperations.where('status').anyOf(['pending', 'syncing', 'error']).toArray()
+    ).filter(
+      (op: PendingOperation) =>
+        op.organizationId === organizationId &&
+        (op.entity === 'marketInvestmentSettings' || op.entity === 'marketInvestmentActionLog')
+    );
+    if (existingMarketOps.length > 0) return;
+
+    const [localSettings, localActions] = await Promise.all([
+      db.InvestmentSettings.where('organizationId').equals(organizationId).toArray(),
+      db.InvestmentActionLog.where('organizationId').equals(organizationId).toArray(),
+    ]);
+
+    if (localSettings.length === 0 && localActions.length === 0) return;
+
+    const [remoteSettingsRes, remoteActionsRes] = await Promise.all([
+      fetch('/api/market/settings'),
+      fetch('/api/market/actions?limit=10000'),
+    ]);
+    if (!remoteSettingsRes.ok || !remoteActionsRes.ok) {
+      // Non bloquant: la sync normale gère déjà les erreurs réseau/API.
+      return;
+    }
+
+    const [remoteSettingsJson, remoteActionsJson] = await Promise.all([
+      remoteSettingsRes.json(),
+      remoteActionsRes.json(),
+    ]);
+    const remoteSettings = this.extractArrayPayload(remoteSettingsJson, 'marketInvestmentSettings').filter(
+      (item: any) => item?.organizationId === organizationId
+    );
+    const remoteActions = this.extractArrayPayload(remoteActionsJson, 'marketInvestmentActionLog').filter(
+      (item: any) => item?.organizationId === organizationId
+    );
+
+    const remoteSettingsById = new Map(remoteSettings.map((item: any) => [String(item.id), item]));
+    const remoteActionsById = new Map(remoteActions.map((item: any) => [String(item.id), item]));
+
+    const now = new Date().toISOString();
+    const opsToCreate: PendingOperation[] = [];
+
+    const enqueueIfNeeded = (
+      entity: 'marketInvestmentSettings' | 'marketInvestmentActionLog',
+      entityId: string,
+      operation: 'create' | 'update',
+      payload: Record<string, unknown>
+    ) => {
+      opsToCreate.push({
+        id: crypto.randomUUID(),
+        entity,
+        entityId,
+        operation,
+        payload,
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+        retryCount: 0,
+        organizationId,
+      });
+    };
+
+    for (const local of localSettings) {
+      const localId = String(local.id);
+      const remote = remoteSettingsById.get(localId);
+      if (!remote) {
+        enqueueIfNeeded('marketInvestmentSettings', localId, 'create', local as Record<string, unknown>);
+        continue;
+      }
+      const localMs = coerceEntityTimestampMs(local.updatedAt);
+      const remoteMs = coerceEntityTimestampMs(remote.updatedAt);
+      if (localMs != null && (remoteMs == null || localMs > remoteMs + MARKET_SYNC_LWW_TOLERANCE_MS)) {
+        enqueueIfNeeded('marketInvestmentSettings', localId, 'update', local as Record<string, unknown>);
+      }
+    }
+
+    for (const local of localActions) {
+      const localId = String(local.id);
+      const remote = remoteActionsById.get(localId);
+      if (!remote) {
+        enqueueIfNeeded('marketInvestmentActionLog', localId, 'create', local as Record<string, unknown>);
+        continue;
+      }
+      const localMs = coerceEntityTimestampMs(local.updatedAt);
+      const remoteMs = coerceEntityTimestampMs(remote.updatedAt);
+      if (localMs != null && (remoteMs == null || localMs > remoteMs + MARKET_SYNC_LWW_TOLERANCE_MS)) {
+        enqueueIfNeeded('marketInvestmentActionLog', localId, 'update', local as Record<string, unknown>);
+      }
+    }
+
+    if (opsToCreate.length > 0) {
+      await db.pendingOperations.bulkAdd(opsToCreate);
+      logToServer(
+        `[APP-SHELL][SYNC][MARKET][BOOTSTRAP] pendingOps ajoutées=${opsToCreate.length} (settings local=${localSettings.length}, actions local=${localActions.length}, settings remote=${remoteSettings.length}, actions remote=${remoteActions.length})`
+      );
+    }
+  }
+
+  private async markMarketEntitySyncedLocally(
+    config: EntitySyncConfig,
+    organizationId: string,
+    entityId: string
+  ): Promise<void> {
+    const db = await this.getDb();
+    const syncedAt = new Date().toISOString();
+
+    if (config.entity === 'marketInvestmentSettings') {
+      const row =
+        (await db.InvestmentSettings.get([organizationId, entityId])) ??
+        (await db.InvestmentSettings.get(entityId));
+      if (!row || row.organizationId !== organizationId) return;
+      await db.InvestmentSettings.put({ ...row, _syncedAt: syncedAt });
+      return;
+    }
+
+    if (config.entity === 'marketInvestmentActionLog') {
+      const row = await db.InvestmentActionLog.get(entityId);
+      if (!row || row.organizationId !== organizationId) return;
+      await db.InvestmentActionLog.put({ ...row, _syncedAt: syncedAt });
+    }
   }
 
   private registerOverwriteWarning(tableName: string, count: number) {
@@ -1568,6 +1750,9 @@ export class GlobalSyncService {
       return s.length >= 10 ? s.slice(0, 10) : s;
     };
 
+    // PR4 Marché : migration local-only -> queue globale avant le push standard.
+    await this.bootstrapMarketPendingOpsIfNeeded(organizationId);
+
     // Snapshot diagnostic complet de la queue au refresh (pending/syncing/error).
     const queueSnapshotRaw = await db.pendingOperations
       .where('status')
@@ -1785,9 +1970,20 @@ export class GlobalSyncService {
     // ✅ ORDONNER PAR DÉPENDANCES : Push entités racines d'abord, puis DocumentLinks
     // Phase 1 : Entités racines (documents, transactions, etc.) - celles qui ne dépendent pas d'autres entités métier
     // Phase 2 : DocumentLinks (dépendent des documents/transactions)
-    // ⚠️ IMPORTANT: 'loan' doit être synchronisé AVANT 'document' car les documents peuvent être liés aux prêts
-    // L'ordre de sync est : property, tenant, lease, loan, ... — lease DOIT venir après property ET tenant (FK).
-    const rootEntities = ['property', 'tenant', 'lease', 'loan', 'transaction', 'echeanceRecurrente', 'document'];
+    // ⚠️ IMPORTANT: 'loan' doit être synchronisé AVANT 'document' car les documents peuvent être liés aux prêts.
+    // Marché : settings DOIT être poussé avant actionLog.
+    // L'ordre de sync est : property, tenant, lease, loan, settings, actionLog, transaction, ...
+    const rootEntities = [
+      'property',
+      'tenant',
+      'lease',
+      'loan',
+      'marketInvestmentSettings',
+      'marketInvestmentActionLog',
+      'transaction',
+      'echeanceRecurrente',
+      'document',
+    ];
     const dependencyEntities = ['documentLink'];
     
     // Extraire les entités par phase
@@ -1806,8 +2002,19 @@ export class GlobalSyncService {
     }
     
     // ✅ Trier selon l'ordre de dépendance (pas alphabétique)
-    // property → tenant → lease → loan → transaction → echeanceRecurrente → document → documentLink
-    const entityOrder = ['property', 'tenant', 'lease', 'loan', 'transaction', 'echeanceRecurrente', 'document', 'documentLink'];
+    // property → tenant → lease → loan → marketInvestmentSettings → marketInvestmentActionLog → transaction → echeanceRecurrente → document → documentLink
+    const entityOrder = [
+      'property',
+      'tenant',
+      'lease',
+      'loan',
+      'marketInvestmentSettings',
+      'marketInvestmentActionLog',
+      'transaction',
+      'echeanceRecurrente',
+      'document',
+      'documentLink',
+    ];
     const orderedPhase1 = phase1Entities.sort((a, b) => {
       const indexA = entityOrder.indexOf(a);
       const indexB = entityOrder.indexOf(b);
@@ -2288,6 +2495,9 @@ export class GlobalSyncService {
         }
 
         if (success) {
+          if (config.entity === 'marketInvestmentSettings' || config.entity === 'marketInvestmentActionLog') {
+            await this.markMarketEntitySyncedLocally(config, organizationId, op.entityId);
+          }
           // Suppression immédiate : push silencieux, aucune trace "synchronisé" sur la page Sync
           await db.pendingOperations.delete(op.id);
           synced++;
@@ -2604,10 +2814,12 @@ export class GlobalSyncService {
       const transformed = config.transformToRemote
         ? config.transformToRemote(payload)
         : payload;
-      // Exclure l'ID si présent (création)
+      // Certaines entités (ex. marché) utilisent un id client stable envoyé dès la création.
+      const keepClientIdOnCreate =
+        config.entity === 'marketInvestmentSettings' || config.entity === 'marketInvestmentActionLog';
       const { id, ...dataWithoutId } = transformed;
       apiRoute = config.apiRoute;
-      requestBody = dataWithoutId;
+      requestBody = keepClientIdOnCreate ? transformed : dataWithoutId;
 
       // App-shell : indices pour résolution FK côté API si l'ID local ne correspond pas au serveur
       if (config.entity === 'lease' && payload?.id) {

@@ -18,7 +18,13 @@ type LmnpActivity = {
   name: string;
   siret: string;
   fiscalRegime: 'micro_bic' | 'reel_simplifie';
-  Properties?: Array<{ id: string; name: string }>;
+  Properties?: Array<{
+    id: string;
+    name: string;
+    address?: string | null;
+    postalCode?: string | null;
+    city?: string | null;
+  }>;
 };
 
 type DryRunAnomaly = {
@@ -776,9 +782,28 @@ export function LmnpPilotagePageCore() {
               <Input type="number" value={exerciseYear} onChange={(e) => setExerciseYear(parseInt(e.target.value || '0', 10) || 0)} />
             </div>
             {isActivityView && selectedActivity && (
-              <div className="sm:col-span-2 text-xs text-gray-600">
-                <span className="font-medium">Biens inclus :</span>{' '}
-                {(selectedActivity.Properties || []).map((p) => p.name).join(', ') || '—'}
+              <div className="sm:col-span-2 text-xs text-gray-600 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">Biens inclus ({(selectedActivity.Properties || []).length}) :</span>
+                  <Link href="/parametres/lmnp-activities">
+                    <Button size="sm" variant="outline">
+                      Gérer l’activité LMNP
+                    </Button>
+                  </Link>
+                </div>
+                {(selectedActivity.Properties || []).length > 0 ? (
+                  <ul className="space-y-0.5">
+                    {(selectedActivity.Properties || []).map((p) => (
+                      <li key={p.id}>
+                        <Link href={`/biens/${p.id}`} className="text-primary-700 hover:underline">
+                          • {p.name} ({[p.postalCode, p.city].filter(Boolean).join(' ') || p.address || 'Adresse non renseignée'})
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div>—</div>
+                )}
               </div>
             )}
           </div>

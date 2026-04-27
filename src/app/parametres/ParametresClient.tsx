@@ -7,6 +7,7 @@ import {
   Palette, 
   User, 
   Settings2, 
+  FileSpreadsheet,
   ExternalLink,
   ChevronRight
 } from 'lucide-react';
@@ -22,6 +23,14 @@ export default function ParametresClient() {
       icon: Building2,
       href: '/gestion-deleguee',
       color: 'emerald' as const
+    },
+    {
+      id: 'lmnp-activities',
+      title: 'Activités LMNP (SIRET)',
+      description: 'Gérez vos activités LMNP (SIRET) pour vos locations meublées.',
+      icon: FileSpreadsheet,
+      href: '/parametres/lmnp-activities',
+      color: 'blue' as const
     },
     {
       id: 'preferences',

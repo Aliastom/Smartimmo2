@@ -45,7 +45,6 @@ export default function AdminPageClient({ enablePrismaStudio }: AdminPageClientP
     { id: 'document-types', title: 'Types de Documents', description: "Gestion des types de documents, règles d'auto-suggestion et métadonnées", icon: FileText, color: 'success' as const, category: 'system' },
     { id: 'signals-catalog', title: 'Catalogue des Signaux', description: 'Gestion du catalogue global des signaux pour la classification de documents', icon: Search, color: 'info' as const, category: 'system' },
     { id: 'fiscal-params', title: 'Paramètres Fiscaux', description: 'Gestion des barèmes fiscaux (IR, PS, micro-foncier, LMNP, PER, etc.)', icon: Calculator, color: 'primary' as const, category: 'system' },
-    { id: 'lmnp-activities', title: 'Activités LMNP / SIRET', description: 'Gestion des activités LMNP (nom, SIRET, régime, biens rattachés)', icon: FileSpreadsheet, color: 'primary' as const, category: 'system' },
     { id: 'lmnp-mapping-rules', title: 'Règles export LMNP', description: 'Consultation des règles de mapping export LMNP (LmnpExportMappingRule)', icon: FileSpreadsheet, color: 'primary' as const, category: 'system' },
     { id: 'lmnp-anomalies', title: 'Anomalies export LMNP', description: 'Anomalies d’export et création d’overrides sans modifier les transactions', icon: AlertTriangle, color: 'warning' as const, category: 'system' },
     { id: 'lmnp-overrides', title: 'Overrides export LMNP', description: 'Liste et édition des overrides LMNP (bucket, libellé, raison)', icon: SlidersHorizontal, color: 'gray' as const, category: 'system' },
@@ -88,7 +87,6 @@ export default function AdminPageClient({ enablePrismaStudio }: AdminPageClientP
               else if (module.id === 'document-types') window.location.href = '/admin/documents/types';
               else if (module.id === 'signals-catalog') window.location.href = '/admin/signals';
               else if (module.id === 'fiscal-params') window.location.href = '/admin/impots/parametres';
-              else if (module.id === 'lmnp-activities') window.location.href = '/admin/lmnp/activities';
               else if (module.id === 'lmnp-mapping-rules') window.location.href = '/admin/lmnp/mapping-rules';
               else if (module.id === 'lmnp-anomalies') window.location.href = '/admin/lmnp/anomalies';
               else if (module.id === 'lmnp-overrides') window.location.href = '/admin/lmnp/overrides';

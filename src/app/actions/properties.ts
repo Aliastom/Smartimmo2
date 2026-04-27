@@ -18,6 +18,9 @@ const propertySchema = z.object({
   currentValue: z.number().min(0, 'La valeur actuelle doit être positive ou nulle'),
   status: z.enum(['rented', 'vacant', 'under_works']),
   notes: z.string().optional(),
+  fiscalTypeId: z.string().optional(),
+  fiscalRegimeId: z.string().optional(),
+  lmnpActivityId: z.string().optional(),
 });
 
 export async function createProperty(formData: FormData) {
@@ -43,6 +46,9 @@ export async function createProperty(formData: FormData) {
       exitFeesRate: exitFeesRateStr ? parseFloat(exitFeesRateStr) : null,
       status: 'vacant', // Défaut, sera calculé par l'API selon occupation
       notes: formData.get('notes') as string || undefined,
+      fiscalTypeId: (formData.get('fiscalTypeId') as string) || undefined,
+      fiscalRegimeId: (formData.get('fiscalRegimeId') as string) || undefined,
+      lmnpActivityId: (formData.get('lmnpActivityId') as string) || undefined,
     };
 
     // Valider la cohérence occupation ↔ statut côté serveur
@@ -100,6 +106,9 @@ export async function updateProperty(id: string, formData: FormData) {
       currentValue: parseFloat(formData.get('currentValue') as string),
       status: formData.get('status') as 'rented' | 'vacant' | 'under_works',
       notes: formData.get('notes') as string || undefined,
+      fiscalTypeId: (formData.get('fiscalTypeId') as string) || undefined,
+      fiscalRegimeId: (formData.get('fiscalRegimeId') as string) || undefined,
+      lmnpActivityId: (formData.get('lmnpActivityId') as string) || undefined,
     };
 
     const validatedData = propertySchema.parse(data);

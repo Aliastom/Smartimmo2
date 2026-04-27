@@ -149,6 +149,25 @@ const TABLE_CONFIGS: TableSyncConfig[] = [
     },
   },
   {
+    tableName: 'InvestmentSettings',
+    apiRoute: '/api/market/settings',
+    syncMetaKey: 'InvestmentSettings',
+    transform: (item: any) => ({
+      ...item,
+      updatedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+    }),
+  },
+  {
+    tableName: 'InvestmentActionLog',
+    apiRoute: '/api/market/actions?limit=10000',
+    syncMetaKey: 'InvestmentActionLog',
+    transform: (item: any) => ({
+      ...item,
+      date: item.date ? new Date(item.date).toISOString() : new Date().toISOString(),
+      updatedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+    }),
+  },
+  {
     tableName: 'EcheanceRecurrente',
     apiRoute: '/api/echeances?limit=10000',
     syncMetaKey: 'EcheanceRecurrente',

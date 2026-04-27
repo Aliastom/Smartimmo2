@@ -386,6 +386,9 @@ export class PropertySyncService {
     if (payload.fiscalRegimeId !== undefined && payload.fiscalRegimeId !== null && payload.fiscalRegimeId !== '') {
       apiPayload.fiscalRegimeId = payload.fiscalRegimeId;
     }
+    if (payload.lmnpActivityId !== undefined && payload.lmnpActivityId !== null && payload.lmnpActivityId !== '') {
+      apiPayload.lmnpActivityId = payload.lmnpActivityId;
+    }
     if (payload.rentalMode !== undefined && payload.rentalMode !== null && payload.rentalMode !== '') {
       apiPayload.rentalMode = payload.rentalMode;
     }

@@ -1,4 +1,5 @@
 import { getLocalDB } from '@/lib/offline/db';
+import type { PendingOperation } from '@/lib/offline/types';
 import type { MarketHistoryPoint } from '@/features/market/services/marketDataService';
 import type {
   AthPeriod,
@@ -18,6 +19,9 @@ const MARKET_HISTORY_STORAGE_PREFIX = 'smartimmo.market.history';
 function nowIso(): string {
   return new Date().toISOString();
 }
+
+type MarketPendingEntity = 'marketInvestmentSettings' | 'marketInvestmentActionLog';
+type MarketPendingOperationType = 'create' | 'update' | 'delete';
 
 export const defaultInvestmentSettings = (organizationId: string): InvestmentSettings => ({
   id: SETTINGS_ID,
@@ -41,6 +45,64 @@ export const defaultInvestmentSettings = (organizationId: string): InvestmentSet
 });
 
 export class MarketInvestmentStorage {
+  private async enqueueMarketPendingOperation(input: {
+    entity: MarketPendingEntity;
+    entityId: string;
+    operation: MarketPendingOperationType;
+    payload: Record<string, unknown>;
+    organizationId: string;
+  }): Promise<void> {
+    const db = await getLocalDB();
+    const byStatus = async (status: 'pending' | 'syncing') =>
+      ((await db.pendingOperations.where('[entity+status]').equals([input.entity, status]).toArray()) as PendingOperation[]).filter(
+        (op) => op.entityId === input.entityId
+      );
+
+    const existing = [...(await byStatus('pending')), ...(await byStatus('syncing'))];
+    if (existing.length > 0) {
+      await Promise.all(existing.map((op) => db.pendingOperations.delete(op.id)));
+    }
+
+    // Si on supprime une action jamais synchronisée (create en attente), annuler simplement l'intention.
+    if (input.operation === 'delete' && existing.some((op) => op.operation === 'create')) {
+      this.notifyPendingOpsChanged(input.organizationId);
+      return;
+    }
+
+    const now = nowIso();
+    await db.pendingOperations.add({
+      id: crypto.randomUUID(),
+      entity: input.entity,
+      entityId: input.entityId,
+      operation: input.operation,
+      payload: input.payload,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      retryCount: 0,
+      organizationId: input.organizationId,
+    } satisfies PendingOperation);
+
+    this.notifyPendingOpsChanged(input.organizationId);
+    await this.triggerGlobalSyncIfOnline(input.organizationId);
+  }
+
+  private notifyPendingOpsChanged(organizationId: string): void {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('pendingOp:created', { detail: { organizationId } }));
+    window.dispatchEvent(new CustomEvent('sync:refresh'));
+  }
+
+  private async triggerGlobalSyncIfOnline(organizationId: string): Promise<void> {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined' || !navigator.onLine) return;
+    try {
+      const { getGlobalSyncService } = await import('@/lib/offline/syncGlobal');
+      void getGlobalSyncService().syncAllPendingToRemote(organizationId);
+    } catch {
+      // Best-effort: la file sera traitée par AppShell/useSyncStatus.
+    }
+  }
+
   private historyStorageKey(organizationId: string, symbol: string, athPeriod: AthPeriod): string {
     return `${MARKET_HISTORY_STORAGE_PREFIX}:${organizationId}:${normalizeMarketStorageSymbol(symbol)}:${athPeriod}`;
   }
@@ -89,12 +151,21 @@ export class MarketInvestmentStorage {
 
   async saveSettings(settings: InvestmentSettings): Promise<void> {
     const db = await getLocalDB();
+    const existing = await db.InvestmentSettings.get([settings.organizationId, settings.id]);
     const baseStrategy = settings.investmentStrategy ?? defaultInvestmentStrategyConfig(settings.monthlyDcaAmount);
-    await db.InvestmentSettings.put({
+    const normalized = {
       ...settings,
       referenceSymbol: normalizeMarketStorageSymbol(settings.referenceSymbol),
       investmentStrategy: { ...baseStrategy, monthlyDca: settings.monthlyDcaAmount },
       updatedAt: nowIso(),
+    };
+    await db.InvestmentSettings.put(normalized);
+    await this.enqueueMarketPendingOperation({
+      entity: 'marketInvestmentSettings',
+      entityId: normalized.id,
+      operation: existing ? 'update' : 'create',
+      payload: normalized as unknown as Record<string, unknown>,
+      organizationId: normalized.organizationId,
     });
   }
 
@@ -252,6 +323,13 @@ export class MarketInvestmentStorage {
 
     const db = await getLocalDB();
     await db.InvestmentActionLog.put(updated);
+    await this.enqueueMarketPendingOperation({
+      entity: 'marketInvestmentActionLog',
+      entityId: updated.id,
+      operation: 'update',
+      payload: updated as unknown as Record<string, unknown>,
+      organizationId,
+    });
     await this.saveSettings({
       ...settings,
       availableCash: Math.max(0, newAvailable),
@@ -278,6 +356,13 @@ export class MarketInvestmentStorage {
       });
       const db = await getLocalDB();
       await db.InvestmentActionLog.delete(logId);
+      await this.enqueueMarketPendingOperation({
+        entity: 'marketInvestmentActionLog',
+        entityId: logId,
+        operation: 'delete',
+        payload: {},
+        organizationId,
+      });
     } catch {
       try {
         await this.saveSettings({
@@ -295,7 +380,15 @@ export class MarketInvestmentStorage {
 
   async addActionLog(payload: InvestmentActionLog): Promise<void> {
     const db = await getLocalDB();
+    const existing = await db.InvestmentActionLog.get(payload.id);
     await db.InvestmentActionLog.put(payload);
+    await this.enqueueMarketPendingOperation({
+      entity: 'marketInvestmentActionLog',
+      entityId: payload.id,
+      operation: existing ? 'update' : 'create',
+      payload: payload as unknown as Record<string, unknown>,
+      organizationId: payload.organizationId,
+    });
   }
 
   async getLatestThresholdDecision(

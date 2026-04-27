@@ -75,6 +75,7 @@ export class InMemoryPropertyRepository implements IPropertyRepository {
       managementCompanyId: data.managementCompanyId ?? null,
       fiscalTypeId: data.fiscalTypeId ?? null,
       fiscalRegimeId: data.fiscalRegimeId ?? null,
+      lmnpActivityId: data.lmnpActivityId ?? null,
       rentalMode: data.rentalMode ?? null,
       airbnbListingId: data.airbnbListingId ?? null,
       isArchived: false,

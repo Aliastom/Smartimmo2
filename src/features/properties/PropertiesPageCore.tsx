@@ -346,6 +346,7 @@ export function PropertiesPageCore({
           managementCompanyId: data.managementCompanyId,
           fiscalTypeId: data.fiscalTypeId,
           fiscalRegimeId: data.fiscalRegimeId,
+          lmnpActivityId: data.lmnpActivityId,
           rentalMode: data.rentalMode,
           airbnbListingId: data.airbnbListingId,
         });
@@ -403,6 +404,7 @@ export function PropertiesPageCore({
           managementCompanyId: data.managementCompanyId,
           fiscalTypeId: data.fiscalTypeId,
           fiscalRegimeId: data.fiscalRegimeId,
+          lmnpActivityId: data.lmnpActivityId,
           rentalMode: data.rentalMode,
           airbnbListingId: data.airbnbListingId,
         });
