@@ -499,6 +499,7 @@ export interface InvestmentSettings {
   athPeriod: '5Y' | '10Y' | 'MAX';
   availableCash: number;
   monthlyDcaAmount: number;
+  monthlyInvestmentDay?: number;
   reinforce10Threshold: number;
   reinforce20Threshold: number;
   reinforce10Amount: number;

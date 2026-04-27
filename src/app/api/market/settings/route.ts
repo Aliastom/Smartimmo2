@@ -27,6 +27,7 @@ const marketSettingsSchema = z.object({
   athPeriod: z.enum(['5Y', '10Y', 'MAX']),
   availableCash: z.number().finite().min(0),
   monthlyDcaAmount: z.number().finite().min(0),
+  monthlyInvestmentDay: z.number().int().min(1).max(31).optional(),
   reinforce10Threshold: z.number().finite().max(0),
   reinforce20Threshold: z.number().finite().max(0),
   reinforce10Amount: z.number().finite().min(0),
@@ -61,9 +62,20 @@ function toResponseShape(row: {
   updatedAt: Date;
 }) {
   let investmentStrategy: unknown = null;
+  let monthlyInvestmentDay: number | undefined;
   if (row.investmentStrategyJson) {
     try {
       investmentStrategy = JSON.parse(row.investmentStrategyJson);
+      if (
+        investmentStrategy &&
+        typeof investmentStrategy === 'object' &&
+        'monthlyInvestmentDay' in investmentStrategy
+      ) {
+        const raw = (investmentStrategy as { monthlyInvestmentDay?: unknown }).monthlyInvestmentDay;
+        if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 1 && raw <= 31) {
+          monthlyInvestmentDay = Math.trunc(raw);
+        }
+      }
     } catch {
       investmentStrategy = null;
     }
@@ -77,6 +89,7 @@ function toResponseShape(row: {
     athPeriod: row.athPeriod,
     availableCash: row.availableCash,
     monthlyDcaAmount: row.monthlyDcaAmount,
+    monthlyInvestmentDay: monthlyInvestmentDay ?? 5,
     reinforce10Threshold: row.reinforce10Threshold,
     reinforce20Threshold: row.reinforce20Threshold,
     reinforce10Amount: row.reinforce10Amount,
@@ -118,6 +131,8 @@ export async function POST(request: NextRequest) {
     }
     const payload = parsed.data;
     const updatedAt = payload.updatedAt ? new Date(payload.updatedAt) : undefined;
+    const strategyPayload = payload.investmentStrategy ? { ...payload.investmentStrategy } : {};
+    (strategyPayload as Record<string, unknown>).monthlyInvestmentDay = payload.monthlyInvestmentDay ?? 5;
 
     const row = await prisma.marketInvestmentSettings.upsert({
       where: { organizationId_id: { organizationId: user.organizationId, id: payload.id } },
@@ -136,7 +151,7 @@ export async function POST(request: NextRequest) {
         cashReferenceAmount: payload.cashReferenceAmount,
         currency: payload.currency,
         peaSocialContributionsOnGainsRate: payload.peaSocialContributionsOnGainsRate ?? null,
-        investmentStrategyJson: payload.investmentStrategy ? JSON.stringify(payload.investmentStrategy) : null,
+        investmentStrategyJson: JSON.stringify(strategyPayload),
         ...(updatedAt ? { updatedAt } : {}),
       },
       create: {
@@ -156,7 +171,7 @@ export async function POST(request: NextRequest) {
         cashReferenceAmount: payload.cashReferenceAmount,
         currency: payload.currency,
         peaSocialContributionsOnGainsRate: payload.peaSocialContributionsOnGainsRate ?? null,
-        investmentStrategyJson: payload.investmentStrategy ? JSON.stringify(payload.investmentStrategy) : null,
+        investmentStrategyJson: JSON.stringify(strategyPayload),
         ...(updatedAt ? { updatedAt } : {}),
       },
     });

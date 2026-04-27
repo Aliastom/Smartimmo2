@@ -23,6 +23,8 @@ export interface InvestmentSettings {
   athPeriod: AthPeriod;
   availableCash: number;
   monthlyDcaAmount: number;
+  /** Jour cible du mois pour l'investissement DCA (1-31). Optionnel pour compat legacy. */
+  monthlyInvestmentDay?: number;
   reinforce10Threshold: number;
   reinforce20Threshold: number;
   reinforce10Amount: number;

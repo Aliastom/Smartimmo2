@@ -32,6 +32,7 @@ export const defaultInvestmentSettings = (organizationId: string): InvestmentSet
   athPeriod: 'MAX',
   availableCash: 15000,
   monthlyDcaAmount: 1000,
+  monthlyInvestmentDay: 5,
   reinforce10Threshold: -10,
   reinforce20Threshold: -20,
   reinforce10Amount: 1000,
@@ -133,6 +134,13 @@ export class MarketInvestmentStorage {
       const normalized = {
         ...existing,
         referenceSymbol: symNorm,
+        monthlyInvestmentDay:
+          typeof existing.monthlyInvestmentDay === 'number' &&
+          Number.isFinite(existing.monthlyInvestmentDay) &&
+          existing.monthlyInvestmentDay >= 1 &&
+          existing.monthlyInvestmentDay <= 31
+            ? Math.trunc(existing.monthlyInvestmentDay)
+            : 5,
         strategy: existing.strategy ?? 'DCA_PLUS_REINFORCE',
         reinforce10Threshold:
           typeof existing.reinforce10Threshold === 'number' ? existing.reinforce10Threshold : -10,
@@ -156,6 +164,13 @@ export class MarketInvestmentStorage {
     const normalized = {
       ...settings,
       referenceSymbol: normalizeMarketStorageSymbol(settings.referenceSymbol),
+      monthlyInvestmentDay:
+        typeof settings.monthlyInvestmentDay === 'number' &&
+        Number.isFinite(settings.monthlyInvestmentDay) &&
+        settings.monthlyInvestmentDay >= 1 &&
+        settings.monthlyInvestmentDay <= 31
+          ? Math.trunc(settings.monthlyInvestmentDay)
+          : 5,
       investmentStrategy: { ...baseStrategy, monthlyDca: settings.monthlyDcaAmount },
       updatedAt: nowIso(),
     };

@@ -23,9 +23,9 @@ export function MarketPageCore({ mode }: MarketPageCoreProps) {
   const { settings } = useMarketInvestment(organizationId, { source: 'market' });
 
   return (
-    <div className="w-full max-w-full space-y-4">
+    <div className="w-full max-w-full space-y-3">
       <Card className="border-slate-200 bg-white shadow-sm">
-        <CardContent className="py-4">
+        <CardContent className="py-3">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex flex-wrap items-center gap-2">

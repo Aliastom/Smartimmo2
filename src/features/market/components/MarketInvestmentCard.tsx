@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { generateDecisionMessage } from '@/features/market/services/marketDecisionV2';
-import { DEFAULT_REINFORCE_LEVELS } from '@/features/market/services/marketInvestmentStrategy';
+import {
+  DEFAULT_REINFORCE_LEVELS,
+  computeNextInvestmentDates,
+  resolveMonthlyInvestmentDay,
+} from '@/features/market/services/marketInvestmentStrategy';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -20,7 +24,10 @@ import {
 } from '@/features/market/marketSymbolAliases';
 import { MarketPriceChart } from '@/features/market/components/MarketPriceChart';
 import { MarketRadarPanel } from '@/features/market/components/MarketRadarPanel';
+import { MarketInvestmentSettingsDialogV2 } from '@/features/market/components/MarketInvestmentSettingsDialogV2';
 import { MarketStrategySimulationCard } from '@/features/market/components/MarketStrategySimulationCard';
+import { MarketTabs } from '@/features/market/components/MarketTabs';
+import { MarketTabPanel } from '@/features/market/components/MarketTabPanel';
 import type { MarketHistoryPoint } from '@/features/market/services/marketDataService';
 import type {
   AthPeriod,
@@ -89,6 +96,16 @@ interface MarketInvestmentCardProps {
   openSettingsSignal?: number;
 }
 
+const USE_MARKET_SETTINGS_DIALOG_V2 = true;
+const MARKET_TAB_ITEMS = [
+  { key: 'synthese', label: 'Synthèse' },
+  { key: 'analyse-prix', label: 'Analyse prix' },
+  { key: 'simulation', label: 'Simulation' },
+  { key: 'historique', label: 'Historique' },
+  { key: 'parametres', label: 'Paramètres' },
+] as const;
+type MarketTabKey = (typeof MARKET_TAB_ITEMS)[number]['key'];
+
 export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmentCardProps) {
   const compactSelectClass =
     'h-10 min-h-0 w-full rounded-xl border border-violet-200 bg-violet-50 px-3 py-0 text-sm font-medium leading-tight text-violet-800';
@@ -134,6 +151,16 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
   const [historyEditSaving, setHistoryEditSaving] = useState(false);
   const [historyDeleteId, setHistoryDeleteId] = useState<string | null>(null);
   const [historyDeleteSaving, setHistoryDeleteSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<MarketTabKey>('synthese');
+
+  const compactDialogClassName =
+    'h-auto w-[calc(100vw-24px)] max-w-md rounded-3xl overflow-hidden p-0';
+  const compactDialogHeaderClassName = 'px-6 pt-6 pb-3';
+  const compactDialogBodyClassName = 'px-6 py-3';
+  const compactDialogFooterClassName =
+    'px-6 pt-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] border-t border-slate-200 bg-white flex flex-col gap-2 sm:flex-row sm:items-center';
+  const largeFormDialogClassName =
+    'flex w-[calc(100vw-24px)] max-h-[calc(100dvh-24px)] max-w-lg flex-col overflow-hidden rounded-3xl p-3 sm:max-h-[85vh] sm:max-w-3xl';
   const [validateAmount, setValidateAmount] = useState('');
   const [validateReason, setValidateReason] = useState('');
   const [, setRefreshAgeTick] = useState(0);
@@ -151,6 +178,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     athPeriod: 'MAX',
     strategy: 'DCA_PLUS_REINFORCE',
     monthlyDcaAmount: '',
+    monthlyInvestmentDay: '5',
     reinforce10Threshold: '',
     reinforce20Threshold: '',
     reinforce10Amount: '',
@@ -497,6 +525,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
       ? 'Enregistrer l’investissement'
       : validationPrimaryLabel;
   const hasAnyDcaDoneThisMonth = marketModuleDcaBannerInfo.monthlyDcaDone > 0;
+  const nextPlannedInvestmentDates = computeNextInvestmentDates(resolveMonthlyInvestmentDay(settings), 3);
   const validationAssistantPrimaryLabel =
     hasAnyDcaDoneThisMonth && recommendation?.decisionType === 'DCA_ONLY'
       ? 'Réinvestir ce mois'
@@ -679,6 +708,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
   const saveCashUpdate = async () => {
     const cash = Number(settingsForm.availableCash);
     const dca = Number(settingsForm.monthlyDcaAmount);
+    const monthlyInvestmentDay = Number(settingsForm.monthlyInvestmentDay);
     const threshold10 = Number(settingsForm.reinforce10Threshold);
     const threshold20 = Number(settingsForm.reinforce20Threshold);
     const r10 = Number(settingsForm.reinforce10Amount);
@@ -688,6 +718,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     const a30 = Number(settingsForm.reinforceAlloc30);
     const a40 = Number(settingsForm.reinforceAlloc40);
     if (![cash, dca, r10, r20, a10, a20, a30, a40].every((v) => Number.isFinite(v) && v >= 0)) return;
+    if (!Number.isFinite(monthlyInvestmentDay) || monthlyInvestmentDay < 1 || monthlyInvestmentDay > 31) return;
     if (![a10, a20, a30, a40].every((v) => v <= 100)) return;
     if (![threshold10, threshold20].every((v) => Number.isFinite(v) && v <= 0)) return;
     const selectedAlias =
@@ -709,6 +740,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
         strategy: settingsForm.strategy as InvestmentSettings['strategy'],
         availableCash: cash,
         monthlyDcaAmount: dca,
+        monthlyInvestmentDay: Math.trunc(monthlyInvestmentDay),
         reinforce10Threshold: threshold10,
         reinforce20Threshold: threshold20,
         reinforce10Amount: r10,
@@ -742,6 +774,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
       athPeriod: settings.athPeriod,
       strategy: settings.strategy,
       monthlyDcaAmount: String(settings.monthlyDcaAmount),
+      monthlyInvestmentDay: String(settings.monthlyInvestmentDay ?? 5),
       reinforce10Threshold: String(settings.reinforce10Threshold),
       reinforce20Threshold: String(settings.reinforce20Threshold),
       reinforce10Amount: String(settings.reinforce10Amount),
@@ -755,16 +788,309 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     setEditOpen(true);
   };
 
-  return (
-    <div className="w-full space-y-6">
-      <MarketRadarPanel
-        entries={radarEntries}
-        currency={settings.currency}
-        lastUpdatedAt={radarLastRefreshedAt}
-        athPeriod={settings.athPeriod}
-      />
+  const settingsDialogFields = (
+    <>
+      <div className="rounded-lg border border-slate-200 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">A. ETF suivi</p>
+        <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Preset ETF</label>
+            <select
+              className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
+              value={settingsForm.etfPreset}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === CUSTOM_MARKET_SYMBOL_KEY) {
+                  setSettingsForm((p) => ({
+                    ...p,
+                    etfPreset: value,
+                    referenceLabel: '',
+                    referenceSymbol: '',
+                  }));
+                  return;
+                }
+                const alias = ETF_REFERENCE_ALIASES.find((item) => item.key === value);
+                if (!alias) return;
+                setSettingsForm((p) => ({
+                  ...p,
+                  etfPreset: value,
+                  referenceLabel: alias.label,
+                  referenceSymbol: alias.defaultProviderSymbol,
+                }));
+              }}
+            >
+              {ETF_REFERENCE_ALIASES.map((alias) => (
+                <option key={alias.key} value={alias.key}>
+                  {alias.label} ({alias.defaultProviderSymbol})
+                </option>
+              ))}
+              <option value={CUSTOM_MARKET_SYMBOL_KEY}>Symbole personnalisé</option>
+            </select>
+            <p className="text-xs text-slate-500">
+              Smartimmo suit un seul ETF de référence à la fois. Après modification, les données sont automatiquement actualisées.
+            </p>
+            {settingsForm.etfPreset === CUSTOM_MARKET_SYMBOL_KEY && (
+              <p className="text-xs text-violet-700">
+                Mode personnalisé : vous saisissez votre propre ETF (source Yahoo Finance)
+              </p>
+            )}
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Libellé ETF</label>
+            <Input
+              placeholder={settingsForm.etfPreset === CUSTOM_MARKET_SYMBOL_KEY ? 'Ex: MSCI World perso' : 'Ex: Amundi MSCI World UCITS ETF'}
+              value={settingsForm.referenceLabel}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, referenceLabel: e.target.value, etfPreset: CUSTOM_MARKET_SYMBOL_KEY }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Symbole marché</label>
+            <Input
+              placeholder={settingsForm.etfPreset === CUSTOM_MARKET_SYMBOL_KEY ? 'Ex: VWCE.DE' : 'Ex: CW8.PA'}
+              value={settingsForm.referenceSymbol}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, referenceSymbol: e.target.value, etfPreset: CUSTOM_MARKET_SYMBOL_KEY }))}
+            />
+            <p className="text-xs text-slate-500">
+              Symbole utilisé : {resolveMarketSymbol(settingsForm.referenceSymbol || settings.referenceSymbol)}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Enveloppe</label>
+            <select
+              className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
+              value={settingsForm.envelope}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, envelope: e.target.value }))}
+            >
+              <option value="PEA">PEA</option>
+              <option value="CTO">CTO</option>
+              <option value="ASSURANCE_VIE">Assurance-vie</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Période ATH</label>
+            <select
+              className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
+              value={settingsForm.athPeriod}
+              onChange={(e) =>
+                setSettingsForm((p) => ({ ...p, athPeriod: e.target.value as InvestmentSettings['athPeriod'] }))
+              }
+            >
+              <option value="5Y">ATH 5 ans</option>
+              <option value="10Y">ATH 10 ans</option>
+              <option value="MAX">ATH max</option>
+            </select>
+          </div>
+        </div>
+      </div>
 
-      <Card className="w-full border-slate-200 bg-white shadow-sm" padding="none">
+      <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-slate-700">Mode de renfort</label>
+          <select
+            className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
+            value={settingsForm.reinforceMode}
+            onChange={(e) => {
+              const value = e.target.value === 'FIXED' ? 'FIXED' : 'DYNAMIC';
+              setSettingsForm((p) => ({ ...p, reinforceMode: value }));
+            }}
+          >
+            <option value="DYNAMIC">Dynamique (% du cash)</option>
+            <option value="FIXED">Montant fixe</option>
+          </select>
+        </div>
+        <div className="mt-2 rounded-md border border-slate-200 bg-white/75 px-2.5 py-2">
+          <p className="text-xs text-slate-700">
+            Deux approches possibles : renfort en % du cash (dynamique) ou renfort en montant fixe.
+          </p>
+          <p className="mt-1 text-xs font-medium text-slate-800">
+            Mode actif : {settingsForm.reinforceMode === 'DYNAMIC' ? 'Dynamique (% du cash)' : 'Montant fixe'}
+          </p>
+        </div>
+      </div>
+
+      {settingsForm.reinforceMode === 'DYNAMIC' && (
+      <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">💡 B. Stratégie d’investissement</p>
+        <p className="mt-1 text-xs text-amber-900">
+          Définit comment vous investissez : DCA mensuel (investissement régulier) et renforts automatiques en cas de baisse du marché.
+        </p>
+        <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Stratégie</label>
+            <select
+              className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
+              value={settingsForm.strategy ?? 'DCA_PLUS_REINFORCE'}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, strategy: e.target.value }))}
+            >
+              <option value="DCA_ONLY">DCA seul</option>
+              <option value="DCA_PLUS_REINFORCE">DCA + renfort</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">DCA mensuel</label>
+            <Input
+              type="number"
+              placeholder="Ex: 1000"
+              value={settingsForm.monthlyDcaAmount}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, monthlyDcaAmount: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Jour d’investissement mensuel</label>
+            <Input
+              type="number"
+              min={1}
+              max={31}
+              placeholder="Ex: 5"
+              value={settingsForm.monthlyInvestmentDay}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, monthlyInvestmentDay: e.target.value }))}
+            />
+            <p className="text-xs text-slate-500">Le dernier jour du mois est utilisé automatiquement si besoin.</p>
+          </div>
+        </div>
+        <p className="mt-3 text-xs font-semibold uppercase tracking-wider text-amber-700">Renforts (% du cash disponible)</p>
+        <p className="mt-1 text-xs text-slate-500">
+          % du cash investi automatiquement selon la baisse du marché.
+        </p>
+        <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">≤ -10 %</label>
+            <Input
+              type="number"
+              value={settingsForm.reinforceAlloc10}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, reinforceAlloc10: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">≤ -20 %</label>
+            <Input
+              type="number"
+              value={settingsForm.reinforceAlloc20}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, reinforceAlloc20: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">≤ -30 %</label>
+            <Input
+              type="number"
+              value={settingsForm.reinforceAlloc30}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, reinforceAlloc30: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">≤ -40 %</label>
+            <Input
+              type="number"
+              value={settingsForm.reinforceAlloc40}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, reinforceAlloc40: e.target.value }))}
+            />
+          </div>
+        </div>
+      </div>
+      )}
+
+      {settingsForm.reinforceMode === 'FIXED' && (
+      <div className="rounded-lg border border-orange-200 bg-orange-50/70 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-orange-700">⚠️ C. Seuils d’opportunité (montants fixes)</p>
+        <p className="mt-1 text-xs text-orange-900">Montants fixes proposés lorsque certains niveaux de baisse sont atteints.</p>
+        <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Seuil opportunité (%)</label>
+            <Input
+              type="number"
+              placeholder="Ex: -10"
+              value={settingsForm.reinforce10Threshold}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, reinforce10Threshold: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Montant renfort opportunité</label>
+            <Input
+              type="number"
+              placeholder="Ex: 1000"
+              value={settingsForm.reinforce10Amount}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, reinforce10Amount: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Seuil forte opportunité (%)</label>
+            <Input
+              type="number"
+              placeholder="Ex: -20"
+              value={settingsForm.reinforce20Threshold}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, reinforce20Threshold: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Montant renfort forte opportunité</label>
+            <Input
+              type="number"
+              placeholder="Ex: 2000"
+              value={settingsForm.reinforce20Amount}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, reinforce20Amount: e.target.value }))}
+            />
+          </div>
+        </div>
+      </div>
+      )}
+
+      <div className="rounded-lg border border-slate-200 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">D. Cash</p>
+        <div className="mt-2 grid grid-cols-1 gap-2">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Cash restant à investir</label>
+            <Input
+              type="number"
+              placeholder="Ex: 15000"
+              value={settingsForm.availableCash}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, availableCash: e.target.value }))}
+            />
+            <p className="text-xs text-slate-500">Le suivi “déjà alloué” est calculé automatiquement depuis le cash initial.</p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="w-full space-y-3">
+      <MarketTabs tabs={[...MARKET_TAB_ITEMS]} activeTab={activeTab} onChange={(tab) => setActiveTab(tab as MarketTabKey)} />
+
+      <MarketTabPanel activeTab={activeTab} tabKey="synthese">
+        <MarketRadarPanel
+          entries={radarEntries}
+          currency={settings.currency}
+          lastUpdatedAt={radarLastRefreshedAt}
+          athPeriod={settings.athPeriod}
+        />
+
+        <Card className="w-full border-slate-200 bg-white shadow-sm" padding="none">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Synthèse rapide</p>
+              <p className="text-sm font-medium text-slate-900">
+                Cash disponible : {formatCurrency(settings.availableCash, settings.currency)}
+              </p>
+              {snapshot && (
+                <p className="text-xs text-slate-600">
+                  Statut marché: drawdown {formatPct(snapshot.drawdownPercent)} vs ATH {formatPriceStat(snapshot.athPrice, settings.currency)}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {snapshotStatus && <Badge size="sm" variant={snapshotStatus.variant}>{snapshotStatus.label}</Badge>}
+              {recommendation && scoreBadge && (
+                <Badge size="sm" variant={scoreBadge.variant}>
+                  {recommendation.marketScoreLabel}
+                </Badge>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </MarketTabPanel>
+
+      <MarketTabPanel activeTab={activeTab} tabKey="analyse-prix">
+        <Card className="w-full border-slate-200 bg-white shadow-sm" padding="none">
         <CardContent className="flex flex-col gap-3 px-4 py-3">
           <div className="flex w-full flex-col gap-3">
             <div className="flex w-full flex-col">
@@ -839,7 +1165,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
         </CardContent>
       </Card>
 
-      <Card className="border-slate-200 bg-white shadow-sm">
+        <Card className="border-slate-200 bg-white shadow-sm">
         <CardContent className="space-y-4 py-4">
             <p className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-violet-700">
               <ChartNoAxesCombined className="h-3.5 w-3.5 shrink-0" />
@@ -926,9 +1252,11 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
             )}
 
           </CardContent>
-      </Card>
+        </Card>
+      </MarketTabPanel>
 
-      {snapshot && recommendation && decisionMessage && (
+      <MarketTabPanel activeTab={activeTab} tabKey="synthese">
+        {snapshot && recommendation && decisionMessage && (
         <Card className="border border-slate-200 bg-white shadow-sm">
           <CardContent className="p-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1025,11 +1353,15 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
                 </div>
           </CardContent>
         </Card>
-      )}
+        )}
+      </MarketTabPanel>
 
-      <MarketStrategySimulationCard settings={settings} snapshot={snapshot} />
+      <MarketTabPanel activeTab={activeTab} tabKey="simulation">
+        <MarketStrategySimulationCard settings={settings} snapshot={snapshot} />
+      </MarketTabPanel>
 
-      <Card className="border-slate-200 bg-white shadow-sm">
+      <MarketTabPanel activeTab={activeTab} tabKey="historique">
+        <Card className="border-slate-200 bg-white shadow-sm">
         <CardContent className="space-y-6 py-4">
           <div className="rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Historique</p>
@@ -1093,7 +1425,56 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
             </p>
           </div>
         </CardContent>
-      </Card>
+        </Card>
+      </MarketTabPanel>
+
+      <MarketTabPanel activeTab={activeTab} tabKey="parametres">
+        <Card className="border-slate-200 bg-white shadow-sm">
+          <CardContent className="space-y-4 py-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Configuration active</p>
+                  <p className="text-sm font-medium text-slate-900">Paramètres d’investissement ETF</p>
+                </div>
+                <Button size="sm" onClick={openSettingsModal}>
+                  Modifier les paramètres
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">ETF suivi</p>
+                  <p className="text-sm font-semibold text-slate-900">{settings.referenceSymbol}</p>
+                  <p className="text-xs text-slate-600">{settings.referenceLabel}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">DCA mensuel</p>
+                  <p className="text-sm font-semibold text-slate-900">{formatCurrency(settings.monthlyDcaAmount, settings.currency)}</p>
+                  <p className="text-xs text-slate-600">Jour cible : {resolveMonthlyInvestmentDay(settings)}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Mode renfort</p>
+                  <p className="text-sm font-semibold text-slate-900">{resolveInitialReinforceMode(settings) === 'DYNAMIC' ? 'Dynamique' : 'Fixe'}</p>
+                  <p className="text-xs text-slate-600">{settings.reinforce10Threshold.toFixed(0)}% / {settings.reinforce20Threshold.toFixed(0)}%</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Cash disponible</p>
+                  <p className="text-sm font-semibold text-slate-900">{formatCurrency(settings.availableCash, settings.currency)}</p>
+                  <p className="text-xs text-slate-600">Devise : {settings.currency}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 sm:col-span-2 lg:col-span-2">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Prochaines échéances d’investissement</p>
+                  <p className="text-sm font-semibold text-slate-900">{nextPlannedInvestmentDates.join(' • ')}</p>
+                  <p className="text-xs text-slate-600">Projection calendrier basée sur le jour d’investissement mensuel.</p>
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">
+              Les paramètres restent inchangés en structure et en logique. Le formulaire complet s’ouvre dans la même modal qu’avant.
+            </p>
+          </CardContent>
+        </Card>
+      </MarketTabPanel>
 
       <Dialog
         open={validateOpen}
@@ -1171,14 +1552,14 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
           if (!open) setHistoryEditLogId(null);
         }}
       >
-        <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-20px)] flex-col overflow-hidden p-3 sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className={compactDialogClassName}>
+          <DialogHeader className={compactDialogHeaderClassName}>
             <DialogTitle>Modifier la décision</DialogTitle>
             <DialogDescription>
               Seuls le montant validé et la raison / note peuvent être modifiés. Le type, le symbole et le contexte marché enregistrés à la date de la décision restent inchangés.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1 pb-2">
+          <div className={`${compactDialogBodyClassName} space-y-3`}>
             <p className="text-xs text-slate-500">
               Montant max :{' '}
               <span className="font-medium text-slate-700">
@@ -1213,16 +1594,16 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
               <Input id="hist-edit-note" value={historyEditNote} onChange={(e) => setHistoryEditNote(e.target.value)} />
             </div>
           </div>
-          <DialogFooter className="sticky bottom-0 z-10 border-t border-slate-200 bg-white pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+          <DialogFooter className={compactDialogFooterClassName}>
             <Button
-              className="w-full sm:w-auto"
+              className="order-2 w-full sm:order-none sm:w-auto"
               variant="outline"
               onClick={() => setHistoryEditOpen(false)}
               disabled={historyEditSaving}
             >
               Annuler
             </Button>
-            <Button className="w-full sm:w-auto" onClick={() => submitHistoryEdit().catch(() => undefined)} disabled={historyEditSaving}>
+            <Button className="order-1 w-full sm:order-none sm:w-auto" onClick={() => submitHistoryEdit().catch(() => undefined)} disabled={historyEditSaving}>
               {historyEditSaving ? 'Enregistrement...' : 'Enregistrer'}
             </Button>
           </DialogFooter>
@@ -1230,14 +1611,14 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
       </Dialog>
 
       <Dialog open={historyDeleteId !== null} onOpenChange={(open) => { if (!open) setHistoryDeleteId(null); }}>
-        <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-20px)] flex-col overflow-hidden p-3 sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className={compactDialogClassName}>
+          <DialogHeader className={compactDialogHeaderClassName}>
             <DialogTitle>Supprimer cette décision ?</DialogTitle>
             <DialogDescription>Le cash restant sera recalculé.</DialogDescription>
           </DialogHeader>
-          <DialogFooter className="sticky bottom-0 z-10 border-t border-slate-200 bg-white pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+          <DialogFooter className={compactDialogFooterClassName}>
             <Button
-              className="w-full sm:w-auto"
+              className="order-2 w-full sm:order-none sm:w-auto"
               variant="outline"
               onClick={() => setHistoryDeleteId(null)}
               disabled={historyDeleteSaving}
@@ -1245,7 +1626,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
               Annuler
             </Button>
             <Button
-              className="w-full sm:w-auto"
+              className="order-1 w-full sm:order-none sm:w-auto"
               variant="primary"
               onClick={() => confirmHistoryDelete().catch(() => undefined)}
               disabled={historyDeleteSaving}
@@ -1256,271 +1637,37 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
         </DialogContent>
       </Dialog>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-20px)] flex-col overflow-hidden p-3 sm:max-h-[85vh] sm:max-w-3xl">
-          <DialogHeader className="pr-8">
-            <DialogTitle>Paramètres Marché & Investissement</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 space-y-4 overflow-y-auto overscroll-contain pr-1 pb-2">
-            <div className="rounded-lg border border-slate-200 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">A. ETF suivi</p>
-              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Preset ETF</label>
-                  <select
-                    className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
-                    value={settingsForm.etfPreset}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value === CUSTOM_MARKET_SYMBOL_KEY) {
-                        setSettingsForm((p) => ({
-                          ...p,
-                          etfPreset: value,
-                          referenceLabel: '',
-                          referenceSymbol: '',
-                        }));
-                        return;
-                      }
-                      const alias = ETF_REFERENCE_ALIASES.find((item) => item.key === value);
-                      if (!alias) return;
-                      setSettingsForm((p) => ({
-                        ...p,
-                        etfPreset: value,
-                        referenceLabel: alias.label,
-                        referenceSymbol: alias.defaultProviderSymbol,
-                      }));
-                    }}
-                  >
-                    {ETF_REFERENCE_ALIASES.map((alias) => (
-                      <option key={alias.key} value={alias.key}>
-                        {alias.label} ({alias.defaultProviderSymbol})
-                      </option>
-                    ))}
-                    <option value={CUSTOM_MARKET_SYMBOL_KEY}>Symbole personnalisé</option>
-                  </select>
-                  <p className="text-xs text-slate-500">
-                    Smartimmo suit un seul ETF de référence à la fois. Après modification, les données sont automatiquement actualisées.
-                  </p>
-                  {settingsForm.etfPreset === CUSTOM_MARKET_SYMBOL_KEY && (
-                    <p className="text-xs text-violet-700">
-                      Mode personnalisé : vous saisissez votre propre ETF (source Yahoo Finance)
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Libellé ETF</label>
-                  <Input
-                    placeholder={settingsForm.etfPreset === CUSTOM_MARKET_SYMBOL_KEY ? 'Ex: MSCI World perso' : 'Ex: Amundi MSCI World UCITS ETF'}
-                    value={settingsForm.referenceLabel}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, referenceLabel: e.target.value, etfPreset: CUSTOM_MARKET_SYMBOL_KEY }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Symbole marché</label>
-                  <Input
-                    placeholder={settingsForm.etfPreset === CUSTOM_MARKET_SYMBOL_KEY ? 'Ex: VWCE.DE' : 'Ex: CW8.PA'}
-                    value={settingsForm.referenceSymbol}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, referenceSymbol: e.target.value, etfPreset: CUSTOM_MARKET_SYMBOL_KEY }))}
-                  />
-                  <p className="text-xs text-slate-500">
-                    Symbole utilisé : {resolveMarketSymbol(settingsForm.referenceSymbol || settings.referenceSymbol)}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Enveloppe</label>
-                  <select
-                    className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
-                    value={settingsForm.envelope}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, envelope: e.target.value }))}
-                  >
-                    <option value="PEA">PEA</option>
-                    <option value="CTO">CTO</option>
-                    <option value="ASSURANCE_VIE">Assurance-vie</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Période ATH</label>
-                  <select
-                    className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
-                    value={settingsForm.athPeriod}
-                    onChange={(e) =>
-                      setSettingsForm((p) => ({ ...p, athPeriod: e.target.value as InvestmentSettings['athPeriod'] }))
-                    }
-                  >
-                    <option value="5Y">ATH 5 ans</option>
-                    <option value="10Y">ATH 10 ans</option>
-                    <option value="MAX">ATH max</option>
-                  </select>
-                </div>
-              </div>
+      {USE_MARKET_SETTINGS_DIALOG_V2 ? (
+        <MarketInvestmentSettingsDialogV2
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          onCancel={() => setEditOpen(false)}
+          onSave={saveCashUpdate}
+          isSaving={isSavingSettings}
+        >
+          {settingsDialogFields}
+        </MarketInvestmentSettingsDialogV2>
+      ) : (
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent className={largeFormDialogClassName}>
+            <DialogHeader className="pr-8">
+              <DialogTitle>Paramètres Marché & Investissement</DialogTitle>
+            </DialogHeader>
+            <div className="min-h-0 space-y-4 overflow-y-auto overscroll-contain pr-1 pb-2 max-h-[calc(100dvh-220px)] sm:max-h-none">
+              {settingsDialogFields}
             </div>
-
-            <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Mode de renfort</label>
-                <select
-                  className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
-                  value={settingsForm.reinforceMode}
-                  onChange={(e) => {
-                    const value = e.target.value === 'FIXED' ? 'FIXED' : 'DYNAMIC';
-                    setSettingsForm((p) => ({ ...p, reinforceMode: value }));
-                  }}
-                >
-                  <option value="DYNAMIC">Dynamique (% du cash)</option>
-                  <option value="FIXED">Montant fixe</option>
-                </select>
-              </div>
-              <div className="mt-2 rounded-md border border-slate-200 bg-white/75 px-2.5 py-2">
-                <p className="text-xs text-slate-700">
-                  Deux approches possibles : renfort en % du cash (dynamique) ou renfort en montant fixe.
-                </p>
-                <p className="mt-1 text-xs font-medium text-slate-800">
-                  Mode actif : {settingsForm.reinforceMode === 'DYNAMIC' ? 'Dynamique (% du cash)' : 'Montant fixe'}
-                </p>
-              </div>
-            </div>
-
-            {settingsForm.reinforceMode === 'DYNAMIC' && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">💡 B. Stratégie d’investissement</p>
-              <p className="mt-1 text-xs text-amber-900">
-                Définit comment vous investissez : DCA mensuel (investissement régulier) et renforts automatiques en cas de baisse du marché.
+            <DialogFooter className="shrink-0 flex-col gap-2 border-t border-slate-200 bg-white pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:items-center">
+              <p className="w-full text-xs leading-5 text-slate-500 sm:mr-auto sm:w-auto">
+                Ces paramètres sont déclaratifs, locaux à Smartimmo, et ne déclenchent aucun ordre bancaire.
               </p>
-              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Stratégie</label>
-                  <select
-                    className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
-                    value={settingsForm.strategy ?? 'DCA_PLUS_REINFORCE'}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, strategy: e.target.value }))}
-                  >
-                    <option value="DCA_ONLY">DCA seul</option>
-                    <option value="DCA_PLUS_REINFORCE">DCA + renfort</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">DCA mensuel</label>
-                  <Input
-                    type="number"
-                    placeholder="Ex: 1000"
-                    value={settingsForm.monthlyDcaAmount}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, monthlyDcaAmount: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <p className="mt-3 text-xs font-semibold uppercase tracking-wider text-amber-700">Renforts (% du cash disponible)</p>
-              <p className="mt-1 text-xs text-slate-500">
-                % du cash investi automatiquement selon la baisse du marché.
-              </p>
-              <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">≤ -10 %</label>
-                  <Input
-                    type="number"
-                    value={settingsForm.reinforceAlloc10}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, reinforceAlloc10: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">≤ -20 %</label>
-                  <Input
-                    type="number"
-                    value={settingsForm.reinforceAlloc20}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, reinforceAlloc20: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">≤ -30 %</label>
-                  <Input
-                    type="number"
-                    value={settingsForm.reinforceAlloc30}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, reinforceAlloc30: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">≤ -40 %</label>
-                  <Input
-                    type="number"
-                    value={settingsForm.reinforceAlloc40}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, reinforceAlloc40: e.target.value }))}
-                  />
-                </div>
-              </div>
-            </div>
-            )}
-
-            {settingsForm.reinforceMode === 'FIXED' && (
-            <div className="rounded-lg border border-orange-200 bg-orange-50/70 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-orange-700">⚠️ C. Seuils d’opportunité (montants fixes)</p>
-              <p className="mt-1 text-xs text-orange-900">Montants fixes proposés lorsque certains niveaux de baisse sont atteints.</p>
-              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Seuil opportunité (%)</label>
-                  <Input
-                    type="number"
-                    placeholder="Ex: -10"
-                    value={settingsForm.reinforce10Threshold}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, reinforce10Threshold: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Montant renfort opportunité</label>
-                  <Input
-                    type="number"
-                    placeholder="Ex: 1000"
-                    value={settingsForm.reinforce10Amount}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, reinforce10Amount: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Seuil forte opportunité (%)</label>
-                  <Input
-                    type="number"
-                    placeholder="Ex: -20"
-                    value={settingsForm.reinforce20Threshold}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, reinforce20Threshold: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Montant renfort forte opportunité</label>
-                  <Input
-                    type="number"
-                    placeholder="Ex: 2000"
-                    value={settingsForm.reinforce20Amount}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, reinforce20Amount: e.target.value }))}
-                  />
-                </div>
-              </div>
-            </div>
-            )}
-
-            <div className="rounded-lg border border-slate-200 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">D. Cash</p>
-              <div className="mt-2 grid grid-cols-1 gap-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Cash restant à investir</label>
-                  <Input
-                    type="number"
-                    placeholder="Ex: 15000"
-                    value={settingsForm.availableCash}
-                    onChange={(e) => setSettingsForm((p) => ({ ...p, availableCash: e.target.value }))}
-                  />
-                  <p className="text-xs text-slate-500">Le suivi “déjà alloué” est calculé automatiquement depuis le cash initial.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="sticky bottom-0 z-10 border-t border-slate-200 bg-white pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
-            <p className="mr-auto text-xs leading-5 text-slate-500">
-              Ces paramètres sont déclaratifs, locaux à Smartimmo, et ne déclenchent aucun ordre bancaire.
-            </p>
-            <Button className="w-full sm:w-auto" variant="outline" onClick={() => setEditOpen(false)} disabled={isSavingSettings}>Annuler</Button>
-            <Button className="w-full sm:w-auto" onClick={saveCashUpdate} disabled={isSavingSettings}>
-              {isSavingSettings ? 'Enregistrement...' : 'Enregistrer'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              <Button className="order-2 w-full sm:order-none sm:w-auto" variant="outline" onClick={() => setEditOpen(false)} disabled={isSavingSettings}>Annuler</Button>
+              <Button className="order-1 w-full sm:order-none sm:w-auto" onClick={saveCashUpdate} disabled={isSavingSettings}>
+                {isSavingSettings ? 'Enregistrement...' : 'Enregistrer'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

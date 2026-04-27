@@ -55,3 +55,29 @@ export function pickActiveReinforceLevel(
   }
   return chosen;
 }
+
+export function resolveMonthlyInvestmentDay(settings: Pick<InvestmentSettings, 'monthlyInvestmentDay'>): number {
+  const raw = settings.monthlyInvestmentDay;
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 1 && raw <= 31) {
+    return Math.trunc(raw);
+  }
+  return 5;
+}
+
+export function computeNextInvestmentDates(monthlyInvestmentDay: number, count = 3): string[] {
+  const safeDay = Math.min(31, Math.max(1, Math.trunc(monthlyInvestmentDay)));
+  const now = new Date();
+  const dates: string[] = [];
+  let monthOffset = 0;
+  while (dates.length < count) {
+    const anchor = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+    const lastDay = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate();
+    const targetDay = Math.min(safeDay, lastDay);
+    const candidate = new Date(anchor.getFullYear(), anchor.getMonth(), targetDay);
+    if (candidate >= now || monthOffset > 0) {
+      dates.push(candidate.toLocaleDateString('fr-FR'));
+    }
+    monthOffset += 1;
+  }
+  return dates;
+}
