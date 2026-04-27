@@ -6,11 +6,14 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import {
   ETF_LIBRARY,
+  assetClassLabel,
   categoryLabel,
   computeEtfQualityScore,
   envelopeLabel,
+  isTrackableMarketAsset,
   isTrackedEtf,
   roleLabel,
+  type MarketAssetClass,
   type EtfCategory,
   type EtfEnvelope,
   type EtfLibraryItem,
@@ -25,6 +28,7 @@ interface MarketEtfLibrarySectionProps {
 const ALL_FILTER = 'ALL';
 
 export function MarketEtfLibrarySection({ trackedSymbol, onSetTrackedEtf }: MarketEtfLibrarySectionProps) {
+  const [assetClassFilter, setAssetClassFilter] = useState<MarketAssetClass | typeof ALL_FILTER>(ALL_FILTER);
   const [categoryFilter, setCategoryFilter] = useState<EtfCategory | typeof ALL_FILTER>(ALL_FILTER);
   const [envelopeFilter, setEnvelopeFilter] = useState<EtfEnvelope | typeof ALL_FILTER>(ALL_FILTER);
   const [roleFilter, setRoleFilter] = useState<EtfPortfolioRole | typeof ALL_FILTER>(ALL_FILTER);
@@ -33,12 +37,13 @@ export function MarketEtfLibrarySection({ trackedSymbol, onSetTrackedEtf }: Mark
 
   const filteredRows = useMemo(() => {
     return ETF_LIBRARY.filter((item) => {
+      if (assetClassFilter !== ALL_FILTER && item.assetClass !== assetClassFilter) return false;
       if (categoryFilter !== ALL_FILTER && item.category !== categoryFilter) return false;
       if (envelopeFilter !== ALL_FILTER && !item.eligibleEnvelopes.includes(envelopeFilter)) return false;
       if (roleFilter !== ALL_FILTER && item.portfolioRole !== roleFilter) return false;
       return true;
     });
-  }, [categoryFilter, envelopeFilter, roleFilter]);
+  }, [assetClassFilter, categoryFilter, envelopeFilter, roleFilter]);
 
   const comparedRows = useMemo(
     () => ETF_LIBRARY.filter((item) => compareIds.includes(item.id)),
@@ -67,15 +72,27 @@ export function MarketEtfLibrarySection({ trackedSymbol, onSetTrackedEtf }: Mark
       <CardContent className="space-y-4 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Bibliothèque ETF</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Bibliothèque d’actifs</p>
             <p className="text-sm font-medium text-slate-900">Comparatif interne local-first pour enrichir le suivi marché.</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            ETF suivi actuel : <span className="font-semibold text-slate-900">{trackedSymbol}</span>
+            Actif suivi actuel : <span className="font-semibold text-slate-900">{trackedSymbol}</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+          <select
+            className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700"
+            value={assetClassFilter}
+            onChange={(e) => setAssetClassFilter(e.target.value as MarketAssetClass | typeof ALL_FILTER)}
+          >
+            <option value={ALL_FILTER}>Toutes classes</option>
+            {(['ETF_ACTION', 'ETF_OBLIGATAIRE', 'ETC_OR', 'ETN_CRYPTO', 'SCPI', 'PRIVATE_EQUITY', 'FONDS_DATE'] as const).map((value) => (
+              <option key={value} value={value}>
+                {assetClassLabel(value)}
+              </option>
+            ))}
+          </select>
           <select
             className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700"
             value={categoryFilter}
@@ -154,11 +171,13 @@ export function MarketEtfLibrarySection({ trackedSymbol, onSetTrackedEtf }: Mark
               {filteredRows.map((item) => {
                 const score = computeEtfQualityScore(item);
                 const tracked = isTrackedEtf(item, trackedSymbol);
+                const trackable = isTrackableMarketAsset(item.assetClass);
                 return (
                   <tr key={item.id} className={tracked ? 'bg-emerald-50/40' : ''}>
                     <td className="px-3 py-2 align-top">
                       <p className="font-medium text-slate-900">{item.name}</p>
                       <p className="text-xs text-slate-600">{item.ticker} • ISIN {item.isin}</p>
+                      <p className="text-xs text-slate-600">{assetClassLabel(item.assetClass)}</p>
                       <p className="text-xs text-slate-500">{item.issuer}</p>
                       <p className="mt-1 text-xs text-slate-500">{item.shortComment}</p>
                     </td>
@@ -187,10 +206,16 @@ export function MarketEtfLibrarySection({ trackedSymbol, onSetTrackedEtf }: Mark
                         <Button
                           size="sm"
                           variant={tracked ? 'soft' : 'outline'}
-                          disabled={tracked || isApplyingTicker === item.ticker}
+                          disabled={tracked || !trackable || isApplyingTicker === item.ticker}
                           onClick={() => handleSetTracked(item)}
                         >
-                          {tracked ? 'ETF suivi' : isApplyingTicker === item.ticker ? 'Application...' : 'Définir comme ETF suivi'}
+                          {tracked
+                            ? 'Actif suivi'
+                            : !trackable
+                              ? 'Non suivi dans moteur marché'
+                              : isApplyingTicker === item.ticker
+                                ? 'Application...'
+                                : 'Définir comme actif suivi'}
                         </Button>
                       </div>
                     </td>

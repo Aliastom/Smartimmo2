@@ -14,6 +14,14 @@ export type EtfCategory =
 export type EtfEnvelope = 'PEA' | 'CTO' | 'ASSURANCE_VIE' | 'AUTRE';
 export type EtfDistribution = 'CAPITALISANT' | 'DISTRIBUANT';
 export type EtfPortfolioRole = 'PILIER' | 'DIVERSIFICATION' | 'SATELLITE' | 'SPECULATIF';
+export type MarketAssetClass =
+  | 'ETF_ACTION'
+  | 'ETF_OBLIGATAIRE'
+  | 'ETC_OR'
+  | 'ETN_CRYPTO'
+  | 'SCPI'
+  | 'PRIVATE_EQUITY'
+  | 'FONDS_DATE';
 
 export interface EtfLibraryItem {
   id: string;
@@ -22,6 +30,7 @@ export interface EtfLibraryItem {
   isin: string;
   issuer: string;
   category: EtfCategory;
+  assetClass: MarketAssetClass;
   eligibleEnvelopes: EtfEnvelope[];
   totalExpenseRatioPct: number;
   aumBillionEur: number;
@@ -68,6 +77,7 @@ export const ETF_LIBRARY: EtfLibraryItem[] = [
     isin: 'LU1681043599',
     issuer: 'Amundi',
     category: 'WORLD',
+    assetClass: 'ETF_ACTION',
     eligibleEnvelopes: ['PEA', 'CTO', 'ASSURANCE_VIE'],
     totalExpenseRatioPct: 0.38,
     aumBillionEur: 6.8,
@@ -84,6 +94,7 @@ export const ETF_LIBRARY: EtfLibraryItem[] = [
     isin: 'IE00B4L5Y983',
     issuer: 'iShares',
     category: 'WORLD',
+    assetClass: 'ETF_ACTION',
     eligibleEnvelopes: ['CTO', 'ASSURANCE_VIE'],
     totalExpenseRatioPct: 0.2,
     aumBillionEur: 64,
@@ -100,6 +111,7 @@ export const ETF_LIBRARY: EtfLibraryItem[] = [
     isin: 'IE00B3XXRP09',
     issuer: 'Vanguard',
     category: 'SP500',
+    assetClass: 'ETF_ACTION',
     eligibleEnvelopes: ['CTO', 'ASSURANCE_VIE'],
     totalExpenseRatioPct: 0.07,
     aumBillionEur: 36,
@@ -110,12 +122,30 @@ export const ETF_LIBRARY: EtfLibraryItem[] = [
     portfolioRole: 'PILIER',
   },
   {
+    id: 'amundi-pea-sp500',
+    name: 'Amundi PEA S&P 500 UCITS ETF',
+    ticker: '500.PA',
+    isin: 'FR0013412285',
+    issuer: 'Amundi',
+    category: 'SP500',
+    assetClass: 'ETF_ACTION',
+    eligibleEnvelopes: ['PEA', 'CTO', 'ASSURANCE_VIE'],
+    totalExpenseRatioPct: 0.15,
+    aumBillionEur: 4.7,
+    distributionPolicy: 'CAPITALISANT',
+    inceptionYear: 2019,
+    volatilityPct: 18.1,
+    shortComment: 'Version PEA de l’exposition S&P 500.',
+    portfolioRole: 'PILIER',
+  },
+  {
     id: 'invesco-nasdaq-eqqq',
     name: 'Invesco EQQQ Nasdaq-100 UCITS ETF',
     ticker: 'EQQQ.L',
     isin: 'IE0032077012',
     issuer: 'Invesco',
     category: 'NASDAQ',
+    assetClass: 'ETF_ACTION',
     eligibleEnvelopes: ['CTO', 'ASSURANCE_VIE'],
     totalExpenseRatioPct: 0.3,
     aumBillionEur: 8.9,
@@ -126,12 +156,30 @@ export const ETF_LIBRARY: EtfLibraryItem[] = [
     portfolioRole: 'SATELLITE',
   },
   {
+    id: 'lyxor-nasdaq-100-pea',
+    name: 'Amundi PEA Nasdaq-100 UCITS ETF',
+    ticker: 'PANX.PA',
+    isin: 'FR0011871110',
+    issuer: 'Amundi',
+    category: 'NASDAQ',
+    assetClass: 'ETF_ACTION',
+    eligibleEnvelopes: ['PEA', 'CTO'],
+    totalExpenseRatioPct: 0.3,
+    aumBillionEur: 2.3,
+    distributionPolicy: 'CAPITALISANT',
+    inceptionYear: 2014,
+    volatilityPct: 27.5,
+    shortComment: 'Nasdaq PEA, plus concentré et volatil.',
+    portfolioRole: 'SATELLITE',
+  },
+  {
     id: 'amundi-msci-emerging-aeem',
     name: 'Amundi MSCI Emerging Markets UCITS ETF',
     ticker: 'AEEM.PA',
     isin: 'LU1681045370',
     issuer: 'Amundi',
     category: 'EMERGENTS',
+    assetClass: 'ETF_ACTION',
     eligibleEnvelopes: ['CTO', 'ASSURANCE_VIE'],
     totalExpenseRatioPct: 0.2,
     aumBillionEur: 1.7,
@@ -142,12 +190,30 @@ export const ETF_LIBRARY: EtfLibraryItem[] = [
     portfolioRole: 'DIVERSIFICATION',
   },
   {
+    id: 'amundi-europe-stoxx600',
+    name: 'Amundi STOXX Europe 600 UCITS ETF',
+    ticker: 'MEUD.PA',
+    isin: 'LU1681040223',
+    issuer: 'Amundi',
+    category: 'EUROPE',
+    assetClass: 'ETF_ACTION',
+    eligibleEnvelopes: ['CTO', 'ASSURANCE_VIE'],
+    totalExpenseRatioPct: 0.18,
+    aumBillionEur: 2.1,
+    distributionPolicy: 'CAPITALISANT',
+    inceptionYear: 2017,
+    volatilityPct: 19.2,
+    shortComment: 'Diversification actions Europe large/mid caps.',
+    portfolioRole: 'DIVERSIFICATION',
+  },
+  {
     id: 'ishares-core-euro-government-bond',
     name: 'iShares Core Euro Government Bond UCITS ETF',
     ticker: 'IEGA.AS',
     isin: 'IE00B4WXJJ64',
     issuer: 'iShares',
     category: 'OBLIGATIONS',
+    assetClass: 'ETF_OBLIGATAIRE',
     eligibleEnvelopes: ['CTO', 'ASSURANCE_VIE'],
     totalExpenseRatioPct: 0.09,
     aumBillionEur: 4.2,
@@ -158,12 +224,30 @@ export const ETF_LIBRARY: EtfLibraryItem[] = [
     portfolioRole: 'DIVERSIFICATION',
   },
   {
-    id: 'wisdomtree-physical-gold',
+    id: 'amundi-euro-gov-bond-1-3y',
+    name: 'Amundi Euro Government Bond 1-3Y UCITS ETF',
+    ticker: 'EM13.PA',
+    isin: 'LU1650487413',
+    issuer: 'Amundi',
+    category: 'OBLIGATIONS',
+    assetClass: 'ETF_OBLIGATAIRE',
+    eligibleEnvelopes: ['CTO', 'ASSURANCE_VIE'],
+    totalExpenseRatioPct: 0.14,
+    aumBillionEur: 1.8,
+    distributionPolicy: 'CAPITALISANT',
+    inceptionYear: 2017,
+    volatilityPct: 4.8,
+    shortComment: 'Obligataire court terme, profil défensif.',
+    portfolioRole: 'DIVERSIFICATION',
+  },
+  {
+    id: 'wisdomtree-physical-gold-etc',
     name: 'WisdomTree Physical Gold',
     ticker: 'PHAU.L',
     isin: 'JE00B1VS3770',
     issuer: 'WisdomTree',
     category: 'OR',
+    assetClass: 'ETC_OR',
     eligibleEnvelopes: ['CTO', 'AUTRE'],
     totalExpenseRatioPct: 0.39,
     aumBillionEur: 15.4,
@@ -174,12 +258,13 @@ export const ETF_LIBRARY: EtfLibraryItem[] = [
     portfolioRole: 'DIVERSIFICATION',
   },
   {
-    id: 'coinshares-physical-bitcoin',
+    id: 'coinshares-physical-bitcoin-etn',
     name: 'CoinShares Physical Bitcoin ETP',
     ticker: 'BITC.SW',
     isin: 'GB00BLD4ZL17',
     issuer: 'CoinShares',
     category: 'CRYPTO',
+    assetClass: 'ETN_CRYPTO',
     eligibleEnvelopes: ['CTO', 'AUTRE'],
     totalExpenseRatioPct: 0.98,
     aumBillionEur: 1.2,
@@ -189,6 +274,74 @@ export const ETF_LIBRARY: EtfLibraryItem[] = [
     shortComment: 'Exposition bitcoin, risque très élevé.',
     portfolioRole: 'SPECULATIF',
   },
+  {
+    id: 'coinshares-physical-ethereum-etn',
+    name: 'CoinShares Physical Ethereum ETP',
+    ticker: 'ETHE.SW',
+    isin: 'GB00BLD4ZM24',
+    issuer: 'CoinShares',
+    category: 'CRYPTO',
+    assetClass: 'ETN_CRYPTO',
+    eligibleEnvelopes: ['CTO', 'AUTRE'],
+    totalExpenseRatioPct: 1.25,
+    aumBillionEur: 0.8,
+    distributionPolicy: 'CAPITALISANT',
+    inceptionYear: 2021,
+    volatilityPct: 78,
+    shortComment: 'Exposition ethereum, très spéculatif.',
+    portfolioRole: 'SPECULATIF',
+  },
+  {
+    id: 'primovie-scpi',
+    name: 'Primonial Primovie',
+    ticker: 'SCPI-PRIMOVIE',
+    isin: 'SCPI00000001',
+    issuer: 'Primonial REIM',
+    category: 'EUROPE',
+    assetClass: 'SCPI',
+    eligibleEnvelopes: ['ASSURANCE_VIE', 'AUTRE'],
+    totalExpenseRatioPct: 1.85,
+    aumBillionEur: 5.2,
+    distributionPolicy: 'DISTRIBUANT',
+    inceptionYear: 2012,
+    volatilityPct: 8,
+    shortComment: 'SCPI de rendement, non ETF classique.',
+    portfolioRole: 'DIVERSIFICATION',
+  },
+  {
+    id: 'blackstone-private-equity',
+    name: 'Blackstone Private Equity Strategies',
+    ticker: 'PE-BXPE',
+    isin: 'PE0000000001',
+    issuer: 'Blackstone',
+    category: 'SECTORIEL',
+    assetClass: 'PRIVATE_EQUITY',
+    eligibleEnvelopes: ['AUTRE'],
+    totalExpenseRatioPct: 2.4,
+    aumBillionEur: 3.1,
+    distributionPolicy: 'CAPITALISANT',
+    inceptionYear: 2019,
+    volatilityPct: 24,
+    shortComment: 'Private equity non coté, liquidité réduite.',
+    portfolioRole: 'SATELLITE',
+  },
+  {
+    id: 'fonds-date-euro-2030',
+    name: 'Fonds daté obligataire Euro 2030',
+    ticker: 'FD-2030',
+    isin: 'FD0000002030',
+    issuer: 'BNP Paribas AM',
+    category: 'OBLIGATIONS',
+    assetClass: 'FONDS_DATE',
+    eligibleEnvelopes: ['ASSURANCE_VIE', 'CTO'],
+    totalExpenseRatioPct: 1.1,
+    aumBillionEur: 1.4,
+    distributionPolicy: 'DISTRIBUANT',
+    inceptionYear: 2024,
+    volatilityPct: 7.2,
+    shortComment: 'Fonds daté, profil distinct des ETF obligataires.',
+    portfolioRole: 'DIVERSIFICATION',
+  },
 ];
 
 function scoreFees(terPct: number): number {
@@ -196,6 +349,31 @@ function scoreFees(terPct: number): number {
   if (terPct <= 0.2) return 22;
   if (terPct <= 0.3) return 18;
   if (terPct <= 0.45) return 12;
+  return 6;
+}
+
+function scoreFeesByAssetClass(item: EtfLibraryItem): number {
+  if (item.assetClass === 'ETF_ACTION' || item.assetClass === 'ETF_OBLIGATAIRE') {
+    return scoreFees(item.totalExpenseRatioPct);
+  }
+  if (item.assetClass === 'ETC_OR') {
+    if (item.totalExpenseRatioPct <= 0.2) return 20;
+    if (item.totalExpenseRatioPct <= 0.4) return 15;
+    if (item.totalExpenseRatioPct <= 0.7) return 10;
+    return 6;
+  }
+  if (item.assetClass === 'ETN_CRYPTO') {
+    if (item.totalExpenseRatioPct <= 0.6) return 18;
+    if (item.totalExpenseRatioPct <= 1) return 14;
+    if (item.totalExpenseRatioPct <= 1.5) return 10;
+    return 6;
+  }
+  if (item.assetClass === 'SCPI' || item.assetClass === 'PRIVATE_EQUITY' || item.assetClass === 'FONDS_DATE') {
+    if (item.totalExpenseRatioPct <= 1) return 14;
+    if (item.totalExpenseRatioPct <= 1.8) return 11;
+    if (item.totalExpenseRatioPct <= 2.5) return 8;
+    return 5;
+  }
   return 6;
 }
 
@@ -225,18 +403,22 @@ function scoreVolatilityConsistency(item: EtfLibraryItem): number {
 }
 
 function scorePeaEligibility(item: EtfLibraryItem): number {
+  if (item.assetClass !== 'ETF_ACTION') return 7;
   if (!EQUITY_CATEGORIES.includes(item.category)) return 7;
   return item.eligibleEnvelopes.includes('PEA') ? 10 : 4;
 }
 
 function scoreAccumulationPolicy(item: EtfLibraryItem): number {
+  if (item.assetClass === 'SCPI' || item.assetClass === 'FONDS_DATE') return 8;
+  if (item.assetClass === 'ETN_CRYPTO') return 10;
+  if (item.assetClass === 'PRIVATE_EQUITY') return 11;
   if (!EQUITY_CATEGORIES.includes(item.category)) return 11;
   return item.distributionPolicy === 'CAPITALISANT' ? 15 : 9;
 }
 
 export function computeEtfQualityScore(item: EtfLibraryItem): EtfQualityScoreResult {
   const breakdown: EtfQualityScoreBreakdown = {
-    fees: scoreFees(item.totalExpenseRatioPct),
+    fees: scoreFeesByAssetClass(item),
     aum: scoreAum(item.aumBillionEur),
     age: scoreAge(item.inceptionYear),
     volatilityConsistency: scoreVolatilityConsistency(item),
@@ -280,6 +462,28 @@ export function envelopeLabel(envelope: EtfEnvelope): string {
     AUTRE: 'Autre',
   };
   return labels[envelope];
+}
+
+export function assetClassLabel(assetClass: MarketAssetClass): string {
+  const labels: Record<MarketAssetClass, string> = {
+    ETF_ACTION: 'ETF action',
+    ETF_OBLIGATAIRE: 'ETF obligataire',
+    ETC_OR: 'ETC or',
+    ETN_CRYPTO: 'ETN crypto',
+    SCPI: 'SCPI',
+    PRIVATE_EQUITY: 'Private equity',
+    FONDS_DATE: 'Fonds daté',
+  };
+  return labels[assetClass];
+}
+
+export function isTrackableMarketAsset(assetClass: MarketAssetClass): boolean {
+  return (
+    assetClass === 'ETF_ACTION' ||
+    assetClass === 'ETF_OBLIGATAIRE' ||
+    assetClass === 'ETC_OR' ||
+    assetClass === 'ETN_CRYPTO'
+  );
 }
 
 export function isTrackedEtf(item: EtfLibraryItem, currentSymbol: string): boolean {

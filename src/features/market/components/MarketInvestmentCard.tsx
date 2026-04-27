@@ -104,7 +104,7 @@ const MARKET_TAB_ITEMS = [
   { key: 'analyse-prix', label: 'Analyse prix' },
   { key: 'simulation', label: 'Simulation' },
   { key: 'historique', label: 'Historique' },
-  { key: 'bibliotheque-etf', label: 'Bibliothèque ETF' },
+  { key: 'bibliotheque-etf', label: 'Bibliothèque d’actifs' },
   { key: 'parametres', label: 'Paramètres' },
 ] as const;
 type MarketTabKey = (typeof MARKET_TAB_ITEMS)[number]['key'];
@@ -624,7 +624,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
       referenceSymbol: item.ticker,
       referenceLabel: item.name,
     });
-    toast.success(`ETF actif mis à jour: ${item.ticker}`);
+    toast.success(`Actif suivi mis à jour: ${item.ticker}`);
   };
 
   const handleAthPeriodChange = async (nextPeriod: AthPeriod) => {
