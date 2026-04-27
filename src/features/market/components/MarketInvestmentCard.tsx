@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/Input';
 import { ChartNoAxesCombined, CircleCheckBig, Lightbulb, Loader2 } from 'lucide-react';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
-import { useMarketInvestment } from '@/features/market/hooks/useMarketInvestment';
+import type { MarketInvestmentController } from '@/features/market/hooks/useMarketInvestment';
 import {
   CUSTOM_MARKET_SYMBOL_KEY,
   ETF_REFERENCE_ALIASES,
@@ -22,7 +22,11 @@ import {
   normalizeMarketStorageSymbol,
   resolveMarketSymbol,
 } from '@/features/market/marketSymbolAliases';
-import { pushRecentPrincipalSymbol, readRecentPrincipalSymbols } from '@/features/market/marketRefreshSymbols';
+import {
+  countFullMarketRefreshSymbols,
+  pushRecentPrincipalSymbol,
+  readRecentPrincipalSymbols,
+} from '@/features/market/marketRefreshSymbols';
 import { MarketPriceChart } from '@/features/market/components/MarketPriceChart';
 import { MarketRadarPanel } from '@/features/market/components/MarketRadarPanel';
 import { MarketInvestmentSettingsDialogV2 } from '@/features/market/components/MarketInvestmentSettingsDialogV2';
@@ -97,6 +101,7 @@ function resolveInitialReinforceMode(settings: InvestmentSettings): 'DYNAMIC' | 
 
 interface MarketInvestmentCardProps {
   openSettingsSignal?: number;
+  market: MarketInvestmentController;
 }
 
 const USE_MARKET_SETTINGS_DIALOG_V2 = true;
@@ -110,7 +115,7 @@ const MARKET_TAB_ITEMS = [
 ] as const;
 type MarketTabKey = (typeof MARKET_TAB_ITEMS)[number]['key'];
 
-export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmentCardProps) {
+export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketInvestmentCardProps) {
   const compactSelectClass =
     'h-10 min-h-0 w-full rounded-xl border border-violet-200 bg-violet-50 px-3 py-0 text-sm font-medium leading-tight text-violet-800';
   const freshnessTtlHours = 12;
@@ -136,13 +141,14 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     lastMarketRefreshScope,
     radarEntries,
     refreshAllMarketData,
+    refreshFullTrackableLibrary,
     updateSettings,
     validateDecision,
     ignoreDecision,
     requestManualAnalysis,
     updateHistoryDecision,
     deleteHistoryDecision,
-  } = useMarketInvestment(organizationId, { source: 'market' });
+  } = market;
 
   const [editOpen, setEditOpen] = useState(false);
   const [validateOpen, setValidateOpen] = useState(false);
@@ -194,6 +200,11 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     reinforceAlloc30: '',
     reinforceAlloc40: '',
     availableCash: '',
+    minCashReservePercent: '0',
+    cautionCashRatioPercent: '20',
+    reinforceCooldownDays: '14',
+    suggestionSuppressDays: '7',
+    suggestionReopenDrawdownDelta: '5',
   });
 
   const snapshotStatus = useMemo(() => {
@@ -210,6 +221,13 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     if (!recommendation) return null;
     return marketScoreBadge(recommendation.marketScoreLabel);
   }, [recommendation]);
+
+  const fullLibraryRefreshSymbolCount = useMemo(() => {
+    if (!organizationId || !settings) return 0;
+    const radarSymbols = ETF_REFERENCE_ALIASES.map((a) => a.defaultProviderSymbol);
+    return countFullMarketRefreshSymbols(settings, organizationId, radarSymbols);
+  }, [organizationId, settings]);
+
   const resolvedMarketSymbol = useMemo(
     () => resolveMarketSymbol(settings?.referenceSymbol ?? ''),
     [settings?.referenceSymbol]
@@ -709,6 +727,20 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     }, 9000);
   };
 
+  const handleRefreshLibraryClick = async () => {
+    if (isRefreshingMarket || isRefreshingRadar || !organizationId || !settings) return;
+    const n = fullLibraryRefreshSymbolCount;
+    if (n <= 0) return;
+    if (
+      !window.confirm(
+        `Actualiser ${n} actif${n > 1 ? 's' : ''} de marché (bibliothèque trackable + périmètre standard) ? Les API gratuites peuvent être limitées.`
+      )
+    ) {
+      return;
+    }
+    await refreshFullTrackableLibrary();
+  };
+
   const handleRefreshClick = async () => {
     if (isRefreshingMarket || isRefreshingRadar) return;
     if (!hasAnyMarketData || !isMarketDataFresh) {
@@ -767,7 +799,18 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     const a20 = Number(settingsForm.reinforceAlloc20);
     const a30 = Number(settingsForm.reinforceAlloc30);
     const a40 = Number(settingsForm.reinforceAlloc40);
+    const minRes = Number(settingsForm.minCashReservePercent);
+    const cautionPct = Number(settingsForm.cautionCashRatioPercent);
+    const cooldownDays = Number(settingsForm.reinforceCooldownDays);
+    const suppressDays = Number(settingsForm.suggestionSuppressDays);
+    const reopenDelta = Number(settingsForm.suggestionReopenDrawdownDelta);
     if (![cash, dca, a10, a20, a30, a40].every((v) => Number.isFinite(v) && v >= 0)) return;
+    if (![minRes, cautionPct, cooldownDays, suppressDays, reopenDelta].every((v) => Number.isFinite(v))) return;
+    if (minRes < 0 || minRes > 100) return;
+    if (cautionPct < 1 || cautionPct > 100) return;
+    if (cooldownDays < 0 || cooldownDays > 365) return;
+    if (suppressDays < 1 || suppressDays > 365) return;
+    if (reopenDelta < 0.5 || reopenDelta > 50) return;
     if (!Number.isFinite(monthlyInvestmentDay) || monthlyInvestmentDay < 1 || monthlyInvestmentDay > 31) return;
     if (![a10, a20, a30, a40].every((v) => v <= 100)) return;
     if (![threshold10, threshold20].every((v) => Number.isFinite(v) && v <= 0)) return;
@@ -795,6 +838,11 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
         reinforce20Threshold: threshold20,
         reinforce10Amount: settings.reinforce10Amount,
         reinforce20Amount: settings.reinforce20Amount,
+        minCashReservePercent: minRes,
+        cautionCashRatioThreshold: cautionPct / 100,
+        reinforceCooldownDays: Math.trunc(cooldownDays),
+        suggestionSuppressDays: Math.trunc(suppressDays),
+        suggestionReopenDrawdownDelta: reopenDelta,
         investmentStrategy: {
           monthlyDca: dca,
           reinforceLevels: [
@@ -803,6 +851,11 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
             { threshold: -30, allocationPercent: a30 },
             { threshold: -40, allocationPercent: a40 },
           ],
+          minCashReservePercent: minRes,
+          cautionCashRatioThreshold: cautionPct / 100,
+          reinforceCooldownDays: Math.trunc(cooldownDays),
+          suggestionSuppressDays: Math.trunc(suppressDays),
+          suggestionReopenDrawdownDelta: reopenDelta,
         },
       });
       setEditOpen(false);
@@ -834,6 +887,11 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
       reinforceAlloc30: allocForThreshold(settings, -30) || '30',
       reinforceAlloc40: allocForThreshold(settings, -40) || '40',
       availableCash: String(settings.availableCash),
+      minCashReservePercent: String(settings.minCashReservePercent ?? 0),
+      cautionCashRatioPercent: String(Math.round((settings.cautionCashRatioThreshold ?? 0.2) * 100)),
+      reinforceCooldownDays: String(settings.reinforceCooldownDays ?? 14),
+      suggestionSuppressDays: String(settings.suggestionSuppressDays ?? 7),
+      suggestionReopenDrawdownDelta: String(settings.suggestionReopenDrawdownDelta ?? 5),
     });
     setEditOpen(true);
   };
@@ -1090,6 +1148,69 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
           </div>
         </div>
       </div>
+
+      <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">E. Garde-fous moteur</p>
+        <p className="mt-1 text-xs text-slate-600">
+          Valeurs par défaut = comportement historique (réserve 0 %, prudence à 20 % du cash de référence, 14 j / 7 j / 5 pts).
+        </p>
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Réserve cash min. (% du cash de réf.)</label>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={settingsForm.minCashReservePercent}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, minCashReservePercent: e.target.value }))}
+            />
+            <p className="text-[11px] text-slate-500">0 = désactivé. Réduit d’abord les renforts pour ne pas descendre sous ce plancher.</p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Seuil prudence (cash / réf., %)</label>
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={settingsForm.cautionCashRatioPercent}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, cautionCashRatioPercent: e.target.value }))}
+            />
+            <p className="text-[11px] text-slate-500">Sous ce % du cash de référence, les renforts sont divisés par 2.</p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Cooldown renfort similaire (jours)</label>
+            <Input
+              type="number"
+              min={0}
+              max={365}
+              value={settingsForm.reinforceCooldownDays}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, reinforceCooldownDays: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Suppression suggestion palier (jours)</label>
+            <Input
+              type="number"
+              min={1}
+              max={365}
+              value={settingsForm.suggestionSuppressDays}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, suggestionSuppressDays: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-xs font-medium text-slate-700">Réouverture si aggravation drawdown (points)</label>
+            <Input
+              type="number"
+              min={0.5}
+              max={50}
+              step={0.5}
+              value={settingsForm.suggestionReopenDrawdownDelta}
+              onChange={(e) => setSettingsForm((p) => ({ ...p, suggestionReopenDrawdownDelta: e.target.value }))}
+            />
+            <p className="text-[11px] text-slate-500">Baisse du drawdown vs la dernière décision sur le même palier.</p>
+          </div>
+        </div>
+      </div>
     </>
   );
 
@@ -1123,34 +1244,52 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
                   minute: '2-digit',
                 })}
                 ) :{' '}
-                {lastMarketRefreshScope === 'principal_radar_comparaisons'
-                  ? 'actif principal + radar + comparaisons'
-                  : 'actif principal + radar'}
+                {lastMarketRefreshScope === 'full_library'
+                  ? 'bibliothèque trackable + périmètre standard (radar, principal, comparaisons, récents)'
+                  : lastMarketRefreshScope === 'principal_radar_comparaisons'
+                    ? 'actif principal + radar + comparaisons + actifs récents'
+                    : 'actif principal + radar + actifs récents'}
               </p>
             )}
+            <p className="max-w-xl text-[11px] leading-snug text-slate-500">
+              Le refresh standard met à jour l’actif principal, le radar, les comparaisons et les actifs récents. La
+              bibliothèque complète peut consommer davantage d’appels API (actifs trackables hors SCPI, private equity,
+              fonds datés et crypto).
+            </p>
             {controlsDataFreshnessLine && (
               <p className={`text-[11px] leading-snug ${controlsDataFreshnessLine.className}`}>
                 {controlsDataFreshnessLine.text}
               </p>
             )}
           </div>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => handleRefreshClick().catch(() => undefined)}
-            disabled={isRefreshingMarket || isRefreshingRadar}
-          >
-            {isRefreshingMarket ? (
-              <span className="inline-flex items-center gap-1.5">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
-                Actualisation...
-              </span>
-            ) : isForceRefreshArmed ? (
-              'Forcer l’actualisation'
-            ) : (
-              'Actualiser les données marché'
-            )}
-          </Button>
+          <div className="flex flex-col items-end gap-1.5">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => handleRefreshClick().catch(() => undefined)}
+              disabled={isRefreshingMarket || isRefreshingRadar}
+            >
+              {isRefreshingMarket ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
+                  Actualisation...
+                </span>
+              ) : isForceRefreshArmed ? (
+                'Forcer l’actualisation'
+              ) : (
+                'Actualiser les données marché'
+              )}
+            </Button>
+            <button
+              type="button"
+              className="text-[11px] font-medium text-violet-700 underline decoration-violet-300 underline-offset-2 hover:text-violet-900 disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline"
+              disabled={isRefreshingMarket || isRefreshingRadar || fullLibraryRefreshSymbolCount <= 0}
+              onClick={() => handleRefreshLibraryClick().catch(() => undefined)}
+            >
+              Actualiser la bibliothèque
+              {fullLibraryRefreshSymbolCount > 0 ? ` (${fullLibraryRefreshSymbolCount} actifs)` : ''}
+            </button>
+          </div>
         </CardContent>
       </Card>
 

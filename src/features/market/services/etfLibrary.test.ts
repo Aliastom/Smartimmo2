@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ETF_LIBRARY,
   computeEtfQualityScore,
+  isFullLibraryMarketRefreshable,
   isTrackableMarketAsset,
   isTrackedEtf,
 } from '@/features/market/services/etfLibrary';
@@ -53,5 +54,19 @@ describe('etfLibrary', () => {
     );
     expect(nonTrackable.length).toBeGreaterThan(0);
     expect(nonTrackable.every((item) => !isTrackableMarketAsset(item.assetClass))).toBe(true);
+  });
+
+  it('isFullLibraryMarketRefreshable exclut SCPI / PE / fonds datés et la crypto par défaut', () => {
+    const bitcoin = ETF_LIBRARY.find((item) => item.id === 'coinshares-physical-bitcoin-etn');
+    const world = ETF_LIBRARY.find((item) => item.id === 'ishares-core-msci-world-eunl');
+    const scpi = ETF_LIBRARY.find((item) => item.assetClass === 'SCPI');
+    expect(bitcoin).toBeTruthy();
+    expect(world).toBeTruthy();
+    expect(scpi).toBeTruthy();
+    if (!bitcoin || !world || !scpi) return;
+    expect(isFullLibraryMarketRefreshable(bitcoin)).toBe(false);
+    expect(isFullLibraryMarketRefreshable(bitcoin, { excludeCrypto: false })).toBe(true);
+    expect(isFullLibraryMarketRefreshable(world)).toBe(true);
+    expect(isFullLibraryMarketRefreshable(scpi)).toBe(false);
   });
 });

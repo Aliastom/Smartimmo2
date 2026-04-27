@@ -486,6 +486,34 @@ export function isTrackableMarketAsset(assetClass: MarketAssetClass): boolean {
   );
 }
 
+/**
+ * Actifs de la bibliothèque éligibles à un refresh Yahoo en masse (hors SCPI, private equity, fonds datés).
+ * Par défaut, exclut la crypto (ETN / catégorie CRYPTO) — API peu fiable pour un refresh catalogue.
+ */
+export function isFullLibraryMarketRefreshable(
+  item: EtfLibraryItem,
+  options?: { excludeCrypto?: boolean }
+): boolean {
+  const excludeCrypto = options?.excludeCrypto ?? true;
+  if (
+    item.assetClass === 'SCPI' ||
+    item.assetClass === 'PRIVATE_EQUITY' ||
+    item.assetClass === 'FONDS_DATE'
+  ) {
+    return false;
+  }
+  const yahooLike =
+    item.assetClass === 'ETF_ACTION' ||
+    item.assetClass === 'ETF_OBLIGATAIRE' ||
+    item.assetClass === 'ETC_OR' ||
+    item.assetClass === 'ETN_CRYPTO';
+  if (!yahooLike) return false;
+  if (excludeCrypto && (item.assetClass === 'ETN_CRYPTO' || item.category === 'CRYPTO')) {
+    return false;
+  }
+  return true;
+}
+
 export function isTrackedEtf(item: EtfLibraryItem, currentSymbol: string): boolean {
   return normalizeMarketStorageSymbol(item.ticker) === normalizeMarketStorageSymbol(currentSymbol);
 }

@@ -16,8 +16,10 @@ import {
   normalizeMarketStorageSymbol,
 } from '@/features/market/marketSymbolAliases';
 import {
+  buildFullTrackableLibrarySymbols,
   buildMarketRefreshSymbols,
   buildMarketSnapshotKeepSet,
+  mergeUniqueMarketRefreshSymbols,
   readMarketCompareSymbols,
   readRecentPrincipalSymbols,
   type MarketLastRefreshScope,
@@ -82,6 +84,10 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
   const radarRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const previousRadarOpportunityKeyRef = useRef<string>('');
 
+  useEffect(() => {
+    hasTriedAutoRefreshRef.current = false;
+  }, [organizationId]);
+
   const logHistoryDebug = useCallback(
     (context: string, input: { symbol: string; activeEtf: string; snapshot: MarketSnapshot | null; historyLength: number }) => {
       if (process.env.NODE_ENV !== 'development') return;
@@ -115,14 +121,23 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
       radarMap[marketSnapshotCacheKey(row.symbol, row.athPeriod)] = row;
     }
 
+    const activeCanon = normalizeMarketStorageSymbol(loadedSettings.referenceSymbol);
+    const activeKey = marketSnapshotCacheKey(activeCanon, loadedSettings.athPeriod);
+    let activeLocalSnapshot = radarMap[activeKey] ?? null;
+    if (!activeLocalSnapshot) {
+      const fromDb = await marketInvestmentStorage.getSnapshot(organizationId, activeCanon, loadedSettings.athPeriod);
+      if (fromDb) {
+        activeLocalSnapshot = fromDb;
+        radarMap[activeKey] = fromDb;
+      }
+    }
+
     setSettings(loadedSettings);
     setRadarSnapshots(radarMap);
-    const activeKey = marketSnapshotCacheKey(loadedSettings.referenceSymbol, loadedSettings.athPeriod);
-    const activeLocalSnapshot = radarMap[activeKey] ?? null;
     setSnapshot(activeLocalSnapshot);
     const localHistory = marketInvestmentStorage.getPriceHistory(
       organizationId,
-      normalizeMarketStorageSymbol(loadedSettings.referenceSymbol),
+      activeCanon,
       loadedSettings.athPeriod
     );
     setPriceHistory(localHistory);
@@ -152,17 +167,30 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
   }, [settings, snapshot, history]);
 
   const refreshRadar = useCallback(
-    async (options?: { force?: boolean; reason?: 'auto' | 'manual' | 'page-load'; source?: MarketTTLSource }) => {
+    async (options?: {
+      force?: boolean;
+      reason?: 'auto' | 'manual' | 'page-load';
+      source?: MarketTTLSource;
+      symbolScope?: 'standard' | 'full_library';
+    }) => {
       if (!organizationId || !settings) return;
       const force = options?.force ?? false;
+      const symbolScope = options?.symbolScope ?? 'standard';
       const ttlMs = MARKET_PRESET_TTL_HOURS * 60 * 60 * 1000;
       const radarSymbols = ETF_REFERENCE_ALIASES.map((item) => item.defaultProviderSymbol);
       const recentEntries = readRecentPrincipalSymbols(organizationId);
       const recentSymbols = recentEntries.map((e) => e.symbol);
       const comparedSymbols = readMarketCompareSymbols(organizationId);
-      const symbolsToRefresh = buildMarketRefreshSymbols(settings, radarSymbols, comparedSymbols, recentSymbols);
+      const standardSymbols = buildMarketRefreshSymbols(settings, radarSymbols, comparedSymbols, recentSymbols);
+      const symbolsToRefresh =
+        symbolScope === 'full_library'
+          ? mergeUniqueMarketRefreshSymbols([
+              standardSymbols,
+              buildFullTrackableLibrarySymbols({ excludeCrypto: true }),
+            ])
+          : standardSymbols;
       const periods = MARKET_CACHE_ATH_PERIODS as readonly AthPeriod[];
-      const refreshScopeKey = `${organizationId}:${symbolsToRefresh.join('|')}:${periods.join('|')}`;
+      const refreshScopeKey = `${organizationId}:${symbolScope}:${symbolsToRefresh.join('|')}:${periods.join('|')}`;
       const logSource = options?.source ?? ttlSource;
 
       const ttlCheck = await (async () => {
@@ -309,7 +337,11 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
           });
           setRadarLastRefreshedAt(now);
           setLastMarketRefreshScope(
-            comparedSymbols.length > 0 ? 'principal_radar_comparaisons' : 'principal_radar'
+            symbolScope === 'full_library'
+              ? 'full_library'
+              : comparedSymbols.length > 0
+                ? 'principal_radar_comparaisons'
+                : 'principal_radar'
           );
           setSnapshot(activeLocalSnapshot);
           if (activeLocalSnapshot) {
@@ -381,26 +413,17 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
   useEffect(() => {
     if (!settings || !organizationId) return undefined;
     let cancelled = false;
-    const sym = settings.referenceSymbol;
+    const sym = normalizeMarketStorageSymbol(settings.referenceSymbol);
     const ath = settings.athPeriod;
     const activeKey = marketSnapshotCacheKey(sym, ath);
 
     (async () => {
-      let activeLocalSnapshot = radarSnapshots[activeKey] ?? null;
-      if (!activeLocalSnapshot) {
-        const fromDb = await marketInvestmentStorage.getSnapshot(organizationId, sym, ath);
-        if (cancelled) return;
-        if (fromDb) {
-          activeLocalSnapshot = fromDb;
-          setRadarSnapshots((m) => (m[activeKey] ? m : { ...m, [activeKey]: fromDb }));
-        }
-      }
+      const activeLocalSnapshot = await marketInvestmentStorage.getSnapshot(organizationId, sym, ath);
       if (cancelled) return;
-      const localHistory = marketInvestmentStorage.getPriceHistory(
-        organizationId,
-        normalizeMarketStorageSymbol(sym),
-        ath
-      );
+      if (activeLocalSnapshot) {
+        setRadarSnapshots((m) => (m[activeKey] ? m : { ...m, [activeKey]: activeLocalSnapshot }));
+      }
+      const localHistory = marketInvestmentStorage.getPriceHistory(organizationId, sym, ath);
       setSnapshot(activeLocalSnapshot);
       setPriceHistory(localHistory);
       logHistoryDebug('activeSymbolAthHydrate', {
@@ -421,7 +444,7 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     return () => {
       cancelled = true;
     };
-  }, [logHistoryDebug, organizationId, radarSnapshots, settings?.athPeriod, settings?.referenceSymbol]);
+  }, [logHistoryDebug, organizationId, settings?.athPeriod, settings?.referenceSymbol]);
 
   const saveManualSnapshot = useCallback(
     async (input: { currentPrice: number; athPrice: number; athDate?: string }) => {
@@ -546,7 +569,7 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
   }, [organizationId, recommendation, settings, snapshot]);
 
   useEffect(() => {
-    if (!organizationId || !recommendation?.thresholdKey) {
+    if (!organizationId || !settings || !recommendation?.thresholdKey) {
       setSuppressedSuggestion(false);
       return;
     }
@@ -562,11 +585,12 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
             latestDecision: latest,
             currentDrawdownPercent: snapshot?.drawdownPercent ?? 0,
             manualAnalysisAt,
+            policySettings: settings,
           })
         );
       })
       .catch(() => setSuppressedSuggestion(false));
-  }, [manualAnalysisAt, organizationId, recommendation, recommendation?.thresholdKey, snapshot?.drawdownPercent]);
+  }, [manualAnalysisAt, organizationId, recommendation, recommendation?.thresholdKey, settings, snapshot?.drawdownPercent]);
 
   const requestManualAnalysis = useCallback(() => {
     setManualAnalysisAt(Date.now());
@@ -580,7 +604,30 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     setLastRefreshAttemptAt(startedAtIso);
     setLastRefreshStatus('loading');
     try {
-      await refreshRadar({ force: true, reason: 'manual' });
+      await refreshRadar({ force: true, reason: 'manual', symbolScope: 'standard' });
+      const completedAtIso = new Date().toISOString();
+      setRefreshCompletedAt(completedAtIso);
+      setLastSuccessfulRefreshAt(completedAtIso);
+      setLastRefreshStatus('success');
+      setLastRefreshError(null);
+    } catch (error) {
+      const mapped = mapMarketProviderErrorToMessage(error);
+      setMarketError(mapped);
+      setLastRefreshError(mapped);
+      setLastRefreshStatus('error');
+    } finally {
+      setIsRefreshingMarket(false);
+    }
+  }, [refreshRadar]);
+
+  const refreshFullTrackableLibrary = useCallback(async () => {
+    const startedAtIso = new Date().toISOString();
+    setIsRefreshingMarket(true);
+    setRefreshStartedAt(startedAtIso);
+    setLastRefreshAttemptAt(startedAtIso);
+    setLastRefreshStatus('loading');
+    try {
+      await refreshRadar({ force: true, reason: 'manual', symbolScope: 'full_library' });
       const completedAtIso = new Date().toISOString();
       setRefreshCompletedAt(completedAtIso);
       setLastSuccessfulRefreshAt(completedAtIso);
@@ -728,6 +775,7 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     suppressedSuggestion,
     refreshSnapshot: refreshAllMarketData,
     refreshAllMarketData,
+    refreshFullTrackableLibrary,
     refreshRadar,
     saveManualSnapshot,
     updateSettings,
@@ -739,3 +787,5 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     reload: load,
   };
 }
+
+export type MarketInvestmentController = ReturnType<typeof useMarketInvestment>;
