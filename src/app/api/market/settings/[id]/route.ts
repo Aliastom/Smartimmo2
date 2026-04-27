@@ -93,7 +93,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
   }
 }
 
-export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function updateSettings(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const user = await requireAuth();
     const { id } = await context.params;
@@ -145,4 +145,12 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     console.error('[api/market/settings/:id PATCH]', error);
     return NextResponse.json({ error: 'Erreur lors de la mise à jour des paramètres marché' }, { status: 500 });
   }
+}
+
+export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  return updateSettings(request, context);
+}
+
+export async function PUT(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  return updateSettings(request, context);
 }
