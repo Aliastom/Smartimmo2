@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
-import { ChartNoAxesCombined, CircleCheckBig, Info, Lightbulb, Loader2 } from 'lucide-react';
+import { ChartNoAxesCombined, CircleCheckBig, Lightbulb, Loader2 } from 'lucide-react';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useMarketInvestment } from '@/features/market/hooks/useMarketInvestment';
 import {
@@ -28,7 +28,9 @@ import { MarketInvestmentSettingsDialogV2 } from '@/features/market/components/M
 import { MarketStrategySimulationCard } from '@/features/market/components/MarketStrategySimulationCard';
 import { MarketTabs } from '@/features/market/components/MarketTabs';
 import { MarketTabPanel } from '@/features/market/components/MarketTabPanel';
+import { MarketEtfLibrarySection } from '@/features/market/components/MarketEtfLibrarySection';
 import type { MarketHistoryPoint } from '@/features/market/services/marketDataService';
+import type { EtfLibraryItem } from '@/features/market/services/etfLibrary';
 import type {
   AthPeriod,
   InvestmentActionLog,
@@ -102,6 +104,7 @@ const MARKET_TAB_ITEMS = [
   { key: 'analyse-prix', label: 'Analyse prix' },
   { key: 'simulation', label: 'Simulation' },
   { key: 'historique', label: 'Historique' },
+  { key: 'bibliotheque-etf', label: 'Bibliothèque ETF' },
   { key: 'parametres', label: 'Paramètres' },
 ] as const;
 type MarketTabKey = (typeof MARKET_TAB_ITEMS)[number]['key'];
@@ -614,6 +617,14 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
       referenceSymbol: selected.referenceSymbol,
       referenceLabel: selected.referenceLabel,
     });
+  };
+
+  const handleSetTrackedEtfFromLibrary = async (item: EtfLibraryItem) => {
+    await updateSettings({
+      referenceSymbol: item.ticker,
+      referenceLabel: item.name,
+    });
+    toast.success(`ETF actif mis à jour: ${item.ticker}`);
   };
 
   const handleAthPeriodChange = async (nextPeriod: AthPeriod) => {
@@ -1426,6 +1437,13 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
           </div>
         </CardContent>
         </Card>
+      </MarketTabPanel>
+
+      <MarketTabPanel activeTab={activeTab} tabKey="bibliotheque-etf">
+        <MarketEtfLibrarySection
+          trackedSymbol={settings.referenceSymbol}
+          onSetTrackedEtf={handleSetTrackedEtfFromLibrary}
+        />
       </MarketTabPanel>
 
       <MarketTabPanel activeTab={activeTab} tabKey="parametres">
