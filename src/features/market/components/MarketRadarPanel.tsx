@@ -16,6 +16,15 @@ function formatActionAmount(value: number, currency: string): string {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value);
 }
 
+function formatPriceCurrent(value: number, currency: string): string {
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
 function computeDrawdownShort(currentPrice: number, athPrice: number): number {
   if (!Number.isFinite(currentPrice) || !Number.isFinite(athPrice) || athPrice <= 0) return 0;
   return ((currentPrice - athPrice) / athPrice) * 100;
@@ -109,8 +118,8 @@ export function MarketRadarPanel({ entries, currency, lastUpdatedAt = null, athP
             <Radar className="h-3.5 w-3.5" />
           </span>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-violet-700">Radar ETF World</p>
-          <p className="text-xs text-slate-500">Vue d’ensemble des 3 ETF suivis</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-violet-700">Radar marché — actifs surveillés</p>
+          <p className="text-xs text-slate-500">Vue d’ensemble de la liste courte des actifs surveillés</p>
           <p className="mt-0.5 text-[11px] font-medium text-slate-600">Période globale : {athColumnLabel}</p>
           </div>
         </div>
@@ -137,6 +146,11 @@ export function MarketRadarPanel({ entries, currency, lastUpdatedAt = null, athP
                 <div>
                   <p className="text-base font-bold leading-5 text-slate-900">{entry.symbol}</p>
                   <p className="text-xs text-slate-600">{entry.label}</p>
+                  {entry.snapshot && (
+                    <p className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
+                      Prix actuel : {formatPriceCurrent(entry.snapshot.currentPrice, currency)}
+                    </p>
+                  )}
                   {shortDrawdown !== null && (
                     <p
                       className={`mt-1 inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold tabular-nums ${drawdownShortChipTone(shortDrawdown)} ${drawdownShortTone(shortDrawdown)}`}
@@ -172,8 +186,10 @@ export function MarketRadarPanel({ entries, currency, lastUpdatedAt = null, athP
         })}
       </div>
       <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-        <Info className="h-3.5 w-3.5 text-violet-500" />
-        <p>Les actions proposées sont des suggestions d’aide à la décision basées sur vos paramètres.</p>
+        <Info className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+        <p>
+          Historique des décisions pris en compte (même logique que l’actif principal). Indicatif — aucun ordre bancaire.
+        </p>
       </div>
     </div>
   );

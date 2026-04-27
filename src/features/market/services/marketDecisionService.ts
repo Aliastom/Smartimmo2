@@ -5,9 +5,10 @@ import type {
   MarketSnapshot,
   InvestmentActionLog,
 } from '@/features/market/types';
-import { computeInvestmentRecommendation } from '@/features/market/services/marketDecisionV2';
+import { computeInvestmentRecommendation, resolveDecisionTypeFromDrawdown } from '@/features/market/services/marketDecisionV2';
 
-export { computeDrawdownPercent, resolveMarketStatus } from '@/features/market/services/marketMetrics';
+export { computeDrawdownPercent, normalizeThresholds, resolveMarketStatus } from '@/features/market/services/marketMetrics';
+export { resolveDecisionTypeFromDrawdown };
 
 export function buildThresholdKey(symbol: string, status: MarketOpportunityStatus): string | null {
   if (status === 'NORMAL') return null;

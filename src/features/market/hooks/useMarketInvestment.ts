@@ -11,11 +11,17 @@ import {
 import { marketInvestmentStorage } from '@/features/market/services/marketInvestmentStorage';
 import {
   ETF_REFERENCE_ALIASES,
-  findEtfAliasFromSettings,
   MARKET_CACHE_ATH_PERIODS,
   marketSnapshotCacheKey,
   normalizeMarketStorageSymbol,
 } from '@/features/market/marketSymbolAliases';
+import {
+  buildMarketRefreshSymbols,
+  buildMarketSnapshotKeepSet,
+  readMarketCompareSymbols,
+  readRecentPrincipalSymbols,
+  type MarketLastRefreshScope,
+} from '@/features/market/marketRefreshSymbols';
 import { shouldSuppressSuggestion } from '@/features/market/services/marketSuggestionPolicy';
 import type { AthPeriod, InvestmentRecommendation, InvestmentSettings, MarketSnapshot } from '@/features/market/types';
 import { toast } from 'sonner';
@@ -28,29 +34,6 @@ type MarketTTLSource = 'market' | 'dashboard';
 
 interface UseMarketInvestmentOptions {
   source?: MarketTTLSource;
-}
-
-function buildSymbolsToRefresh(settings: InvestmentSettings): string[] {
-  const presetSymbols = ETF_REFERENCE_ALIASES.map((item) => item.defaultProviderSymbol);
-  const seen = new Set<string>();
-  const list: string[] = [];
-  for (const s of presetSymbols) {
-    const n = normalizeMarketStorageSymbol(s);
-    if (!seen.has(n)) {
-      seen.add(n);
-      list.push(n);
-    }
-  }
-  const ref = settings.referenceSymbol.trim();
-  const matchesPresetRow = findEtfAliasFromSettings(settings.referenceLabel, settings.referenceSymbol);
-  if (ref && !matchesPresetRow) {
-    const n = normalizeMarketStorageSymbol(ref);
-    if (!seen.has(n)) {
-      seen.add(n);
-      list.push(n);
-    }
-  }
-  return list;
 }
 
 function isCachedAthPeriod(value: string): value is AthPeriod {
@@ -93,6 +76,7 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
   const [radarRefreshNote, setRadarRefreshNote] = useState<string | null>(null);
   const [radarRefreshMode, setRadarRefreshMode] = useState<'idle' | 'manual-forced' | 'auto' | 'skipped-fresh' | 'error'>('idle');
   const [radarLastRefreshedAt, setRadarLastRefreshedAt] = useState<string | null>(null);
+  const [lastMarketRefreshScope, setLastMarketRefreshScope] = useState<MarketLastRefreshScope | null>(null);
   const hasTriedAutoRefreshRef = useRef(false);
   const activeRadarToastIdRef = useRef<string | null>(null);
   const radarRefreshInFlightRef = useRef<Promise<void> | null>(null);
@@ -118,19 +102,17 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     if (!organizationId) return;
     setLoading(true);
     const loadedSettings = await marketInvestmentStorage.getSettings(organizationId);
-    const presetSymbols = ETF_REFERENCE_ALIASES.map((item) => item.defaultProviderSymbol);
-    const refNorm = normalizeMarketStorageSymbol(loadedSettings.referenceSymbol);
+    const radarSymbols = ETF_REFERENCE_ALIASES.map((item) => item.defaultProviderSymbol);
+    const keepSet = buildMarketSnapshotKeepSet(loadedSettings, organizationId, radarSymbols);
     const allRows = await marketInvestmentStorage.listAllSnapshots(organizationId);
     const loadedHistory = await marketInvestmentStorage.listActionLogs(organizationId, 24);
 
     const radarMap: Record<string, MarketSnapshot> = {};
     for (const row of allRows) {
       if (!isCachedAthPeriod(row.athPeriod)) continue;
-      const rowSym = row.symbol.trim();
-      const isPreset = presetSymbols.some((p) => normalizeMarketStorageSymbol(p) === normalizeMarketStorageSymbol(rowSym));
-      const isCustom = normalizeMarketStorageSymbol(rowSym) === refNorm;
-      if (!isPreset && !isCustom) continue;
-      radarMap[marketSnapshotCacheKey(rowSym, row.athPeriod)] = row;
+      const rowNorm = normalizeMarketStorageSymbol(row.symbol);
+      if (!keepSet.has(rowNorm)) continue;
+      radarMap[marketSnapshotCacheKey(row.symbol, row.athPeriod)] = row;
     }
 
     setSettings(loadedSettings);
@@ -140,7 +122,7 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     setSnapshot(activeLocalSnapshot);
     const localHistory = marketInvestmentStorage.getPriceHistory(
       organizationId,
-      loadedSettings.referenceSymbol,
+      normalizeMarketStorageSymbol(loadedSettings.referenceSymbol),
       loadedSettings.athPeriod
     );
     setPriceHistory(localHistory);
@@ -174,7 +156,11 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
       if (!organizationId || !settings) return;
       const force = options?.force ?? false;
       const ttlMs = MARKET_PRESET_TTL_HOURS * 60 * 60 * 1000;
-      const symbolsToRefresh = buildSymbolsToRefresh(settings);
+      const radarSymbols = ETF_REFERENCE_ALIASES.map((item) => item.defaultProviderSymbol);
+      const recentEntries = readRecentPrincipalSymbols(organizationId);
+      const recentSymbols = recentEntries.map((e) => e.symbol);
+      const comparedSymbols = readMarketCompareSymbols(organizationId);
+      const symbolsToRefresh = buildMarketRefreshSymbols(settings, radarSymbols, comparedSymbols, recentSymbols);
       const periods = MARKET_CACHE_ATH_PERIODS as readonly AthPeriod[];
       const refreshScopeKey = `${organizationId}:${symbolsToRefresh.join('|')}:${periods.join('|')}`;
       const logSource = options?.source ?? ttlSource;
@@ -270,7 +256,7 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
         }
         try {
           const now = new Date().toISOString();
-          const nextRadarMap = { ...radarSnapshots };
+          const patch: Record<string, MarketSnapshot> = {};
           const totalLots = symbolsToRefresh.length * periods.length;
           let done = 0;
 
@@ -295,7 +281,7 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
                 source: 'yahoo-api',
               };
               await marketInvestmentStorage.saveSnapshot(snapshotRow);
-              nextRadarMap[marketSnapshotCacheKey(canonSym, athPeriod)] = snapshotRow;
+              patch[marketSnapshotCacheKey(canonSym, athPeriod)] = snapshotRow;
               marketInvestmentStorage.savePriceHistory(organizationId, canonSym, athPeriod, bundle.history);
               if (process.env.NODE_ENV === 'development') {
                 console.info('[MarketRefreshGroup]', {
@@ -307,24 +293,37 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
             }
           }
 
-          setRadarSnapshots(nextRadarMap);
+          const activeCanon = normalizeMarketStorageSymbol(settings.referenceSymbol);
+          const activeKey = marketSnapshotCacheKey(activeCanon, settings.athPeriod);
+          const activeLocalSnapshot = await marketInvestmentStorage.getSnapshot(
+            organizationId,
+            activeCanon,
+            settings.athPeriod
+          );
+          setRadarSnapshots((prev) => {
+            const merged = { ...prev, ...patch };
+            if (activeLocalSnapshot) {
+              merged[activeKey] = activeLocalSnapshot;
+            }
+            return merged;
+          });
           setRadarLastRefreshedAt(now);
-          const activeKey = marketSnapshotCacheKey(settings.referenceSymbol, settings.athPeriod);
-          const activeLocalSnapshot = nextRadarMap[activeKey] ?? null;
+          setLastMarketRefreshScope(
+            comparedSymbols.length > 0 ? 'principal_radar_comparaisons' : 'principal_radar'
+          );
           setSnapshot(activeLocalSnapshot);
           if (activeLocalSnapshot) {
             setMarketError(null);
           }
-          const activeSymbol = settings.referenceSymbol;
           const activeHistory = marketInvestmentStorage.getPriceHistory(
             organizationId,
-            activeSymbol,
+            activeCanon,
             settings.athPeriod
           );
           setPriceHistory(activeHistory);
           logHistoryDebug('refreshRadar', {
-            symbol: activeSymbol,
-            activeEtf: activeSymbol,
+            symbol: activeCanon,
+            activeEtf: activeCanon,
             snapshot: activeLocalSnapshot,
             historyLength: activeHistory.length,
           });
@@ -351,7 +350,7 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
         radarRefreshInFlightRef.current = null;
       }
     },
-    [organizationId, radarSnapshots, settings, ttlSource]
+    [organizationId, settings, ttlSource]
   );
 
   useEffect(() => {
@@ -397,7 +396,11 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
         }
       }
       if (cancelled) return;
-      const localHistory = marketInvestmentStorage.getPriceHistory(organizationId, sym, ath);
+      const localHistory = marketInvestmentStorage.getPriceHistory(
+        organizationId,
+        normalizeMarketStorageSymbol(sym),
+        ath
+      );
       setSnapshot(activeLocalSnapshot);
       setPriceHistory(localHistory);
       logHistoryDebug('activeSymbolAthHydrate', {
@@ -406,8 +409,10 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
         snapshot: activeLocalSnapshot,
         historyLength: localHistory.length,
       });
-      if (!activeLocalSnapshot || localHistory.length === 0) {
-        setMarketError('Données non chargées pour cette période — cliquez sur Actualiser');
+      if (!activeLocalSnapshot) {
+        setMarketError('Données locales absentes pour cet actif. Actualisation nécessaire.');
+      } else if (localHistory.length === 0) {
+        setMarketError('Historique prix local absent pour cette période. Actualisation nécessaire.');
       } else {
         setMarketError(null);
       }
@@ -597,7 +602,7 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     return ETF_REFERENCE_ALIASES.map((alias) => {
       const rowKey = marketSnapshotCacheKey(alias.defaultProviderSymbol, settings.athPeriod);
       const row = radarSnapshots[rowKey] ?? null;
-      const recommendationForRow = row ? computeRecommendation(settings, row, []) : null;
+      const recommendationForRow = row ? computeRecommendation(settings, row, history) : null;
       const isActive =
         normalizeMarketStorageSymbol(settings.referenceSymbol) ===
         normalizeMarketStorageSymbol(alias.defaultProviderSymbol);
@@ -609,7 +614,7 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
         isActive,
       };
     });
-  }, [radarSnapshots, settings]);
+  }, [history, radarSnapshots, settings]);
 
   useEffect(() => {
     if (!organizationId || !settings || radarEntries.length === 0) return;
@@ -715,6 +720,7 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     radarRefreshNote,
     radarRefreshMode,
     radarLastRefreshedAt,
+    lastMarketRefreshScope,
     recommendation,
     radarEntries,
     priceHistory,

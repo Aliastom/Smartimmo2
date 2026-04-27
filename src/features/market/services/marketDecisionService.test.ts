@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   computeDrawdownPercent,
   computeRecommendation,
+  resolveDecisionTypeFromDrawdown,
   resolveMarketStatus,
 } from '@/features/market/services/marketDecisionService';
 import type { InvestmentSettings, MarketSnapshot } from '@/features/market/types';
@@ -85,6 +86,27 @@ describe('marketDecisionService: statut marché', () => {
     expect(resolveMarketStatus(-10, custom)).toBe('OPPORTUNITE');
     expect(resolveMarketStatus(-16, custom)).toBe('FORTE_OPPORTUNITE');
   });
+
+  it('retourne NORMAL si drawdown non fini', () => {
+    expect(resolveMarketStatus(Number.NaN, makeSettings())).toBe('NORMAL');
+    expect(resolveMarketStatus(Number.POSITIVE_INFINITY, makeSettings())).toBe('NORMAL');
+  });
+});
+
+describe('resolveDecisionTypeFromDrawdown', () => {
+  it('suit les seuils paramétrables et reste cohérent avec resolveMarketStatus en zone légère', () => {
+    const s = makeSettings({ reinforce10Threshold: -8, reinforce20Threshold: -16 });
+    expect(resolveDecisionTypeFromDrawdown(s, -7)).toBe('DCA_ONLY');
+    expect(resolveMarketStatus(-7, s)).toBe('NORMAL');
+    expect(resolveDecisionTypeFromDrawdown(s, -12)).toBe('LIGHT_REINFORCE');
+    expect(resolveMarketStatus(-12, s)).toBe('OPPORTUNITE');
+  });
+
+  it('dérive la zone MEDIUM/STRONG depuis les paliers % cash', () => {
+    const s = makeSettings();
+    expect(resolveDecisionTypeFromDrawdown(s, -22)).toBe('MEDIUM_REINFORCE');
+    expect(resolveDecisionTypeFromDrawdown(s, -35)).toBe('STRONG_REINFORCE');
+  });
 });
 
 describe('marketDecisionService: recommandations V2', () => {
@@ -143,7 +165,17 @@ describe('marketDecisionService: recommandations V2', () => {
     expect(rec.reinforcePortion).toBe(0);
   });
 
-  it('renfort similaire récent => renfort divisé par 2', () => {
+  it('drawdown NaN => DCA uniquement, pas de renfort, données insuffisantes', () => {
+    const rec = computeRecommendation(makeSettings(), makeSnapshot({ drawdownPercent: Number.NaN }), []);
+    expect(rec.decisionType).toBe('DCA_ONLY');
+    expect(rec.insufficientMarketData).toBe(true);
+    expect(rec.reinforcePortion).toBe(0);
+    expect(rec.suggestedAmount).toBe(1000);
+    expect(rec.actionType).toBe('DCA');
+    expect(rec.status).toBe('NORMAL');
+  });
+
+  it('même logique radar / principal : historique vide vs historique avec renfort similaire', () => {
     const history = [
       {
         id: '1',
@@ -165,8 +197,39 @@ describe('marketDecisionService: recommandations V2', () => {
         thresholdKey: 'CW8.PA:LIGHT_REINFORCE',
       },
     ];
-    const rec = computeRecommendation(makeSettings(), makeSnapshot({ drawdownPercent: -16 }), history);
-    expect(rec.recentSimilarReinforce).toBe(true);
-    expect(rec.suggestedAmount).toBe(1500);
+    const snap = makeSnapshot({ drawdownPercent: -16 });
+    const avecHistorique = computeRecommendation(makeSettings(), snap, history);
+    const sansHistorique = computeRecommendation(makeSettings(), snap, []);
+    expect(avecHistorique.recentSimilarReinforce).toBe(true);
+    expect(sansHistorique.recentSimilarReinforce).toBe(false);
+    expect(avecHistorique.suggestedAmount).toBe(1500);
+    expect(sansHistorique.suggestedAmount).toBe(2000);
+  });
+
+  it('renfort similaire : autre symbole dans l’historique ne réduit pas le renfort', () => {
+    const history = [
+      {
+        id: '1',
+        organizationId: 'org-1',
+        date: new Date().toISOString(),
+        type: 'REINFORCE_10' as const,
+        recommendedAmount: 2000,
+        validatedAmount: 2000,
+        cashBefore: 10000,
+        cashAfter: 8000,
+        reason: 'test',
+        drawdownAtDecision: -15,
+        athPriceAtDecision: 100,
+        currentPriceAtDecision: 85,
+        symbolAtDecision: 'OTHER.PA',
+        marketStatusAtDecision: 'OPPORTUNITE' as const,
+        athPeriodAtDecision: '5Y' as const,
+        status: 'validated' as const,
+        thresholdKey: 'OTHER.PA:LIGHT_REINFORCE',
+      },
+    ];
+    const rec = computeRecommendation(makeSettings(), makeSnapshot({ symbol: 'CW8.PA', drawdownPercent: -16 }), history);
+    expect(rec.recentSimilarReinforce).toBe(false);
+    expect(rec.suggestedAmount).toBe(2000);
   });
 });

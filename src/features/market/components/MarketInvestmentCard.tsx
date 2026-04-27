@@ -22,6 +22,7 @@ import {
   normalizeMarketStorageSymbol,
   resolveMarketSymbol,
 } from '@/features/market/marketSymbolAliases';
+import { pushRecentPrincipalSymbol, readRecentPrincipalSymbols } from '@/features/market/marketRefreshSymbols';
 import { MarketPriceChart } from '@/features/market/components/MarketPriceChart';
 import { MarketRadarPanel } from '@/features/market/components/MarketRadarPanel';
 import { MarketInvestmentSettingsDialogV2 } from '@/features/market/components/MarketInvestmentSettingsDialogV2';
@@ -132,6 +133,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     radarRefreshNote,
     radarRefreshMode,
     radarLastRefreshedAt,
+    lastMarketRefreshScope,
     radarEntries,
     refreshAllMarketData,
     updateSettings,
@@ -155,6 +157,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
   const [historyDeleteId, setHistoryDeleteId] = useState<string | null>(null);
   const [historyDeleteSaving, setHistoryDeleteSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<MarketTabKey>('synthese');
+  const [recentPrincipalExtras, setRecentPrincipalExtras] = useState<{ symbol: string; label: string }[]>([]);
 
   const compactDialogClassName =
     'h-auto w-[calc(100vw-24px)] max-w-md rounded-3xl overflow-hidden p-0';
@@ -211,27 +214,56 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     () => resolveMarketSymbol(settings?.referenceSymbol ?? ''),
     [settings?.referenceSymbol]
   );
-  const activeEtfOptions = useMemo(() => {
-    const base = ETF_REFERENCE_ALIASES.map((alias) => ({
+  type ActiveEtfOption = {
+    key: string;
+    label: string;
+    referenceLabel: string;
+    referenceSymbol: string;
+  };
+
+  const activeEtfOptions = useMemo((): ActiveEtfOption[] => {
+    if (!settings) return [];
+    const presetOpts: ActiveEtfOption[] = ETF_REFERENCE_ALIASES.map((alias) => ({
       key: alias.defaultProviderSymbol,
       label: `${alias.label} — ${alias.defaultProviderSymbol}`,
       referenceLabel: alias.label,
       referenceSymbol: alias.defaultProviderSymbol,
     }));
-    const activeSymNorm = normalizeMarketStorageSymbol(settings?.referenceSymbol ?? '');
-    const currentIsPreset = base.some((item) => normalizeMarketStorageSymbol(item.referenceSymbol) === activeSymNorm);
-    if (!settings || currentIsPreset) return base;
-    const sym = normalizeMarketStorageSymbol(settings.referenceSymbol);
-    return [
-      ...base,
-      {
-        key: sym,
-        label: `${settings.referenceLabel || 'Symbole personnalisé'} — ${sym}`,
-        referenceLabel: settings.referenceLabel || sym,
-        referenceSymbol: sym,
-      },
-    ];
-  }, [settings]);
+    const seen = new Set(presetOpts.map((o) => normalizeMarketStorageSymbol(o.referenceSymbol)));
+    const extras: ActiveEtfOption[] = [];
+    const principalNorm = normalizeMarketStorageSymbol(settings.referenceSymbol);
+    if (!seen.has(principalNorm)) {
+      seen.add(principalNorm);
+      extras.push({
+        key: principalNorm,
+        label: `${settings.referenceLabel || 'Symbole personnalisé'} — ${principalNorm}`,
+        referenceLabel: settings.referenceLabel || principalNorm,
+        referenceSymbol: principalNorm,
+      });
+    }
+    for (const e of recentPrincipalExtras) {
+      const n = normalizeMarketStorageSymbol(e.symbol);
+      if (seen.has(n)) continue;
+      seen.add(n);
+      const lab = (e.label || n).trim() || n;
+      extras.push({
+        key: n,
+        label: `${lab} — ${n}`,
+        referenceLabel: lab,
+        referenceSymbol: n,
+      });
+    }
+    extras.sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+    return [...presetOpts, ...extras];
+  }, [settings, recentPrincipalExtras]);
+
+  useEffect(() => {
+    if (!organizationId) {
+      setRecentPrincipalExtras([]);
+      return;
+    }
+    setRecentPrincipalExtras(readRecentPrincipalSymbols(organizationId));
+  }, [organizationId]);
   const latestKnownMarketUpdateAt = useMemo(() => {
     const candidates = [snapshot?.fetchedAt ?? null, radarLastRefreshedAt ?? null]
       .filter((value): value is string => Boolean(value))
@@ -617,6 +649,10 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
       referenceSymbol: selected.referenceSymbol,
       referenceLabel: selected.referenceLabel,
     });
+    if (organizationId) {
+      pushRecentPrincipalSymbol(organizationId, selected.referenceSymbol, selected.referenceLabel);
+      setRecentPrincipalExtras(readRecentPrincipalSymbols(organizationId));
+    }
   };
 
   const handleSetTrackedEtfFromLibrary = async (item: EtfLibraryItem) => {
@@ -624,7 +660,11 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
       referenceSymbol: item.ticker,
       referenceLabel: item.name,
     });
-    toast.success(`Actif suivi mis à jour: ${item.ticker}`);
+    if (organizationId) {
+      pushRecentPrincipalSymbol(organizationId, item.ticker, item.name);
+      setRecentPrincipalExtras(readRecentPrincipalSymbols(organizationId));
+    }
+    toast.success(`Actif principal mis à jour: ${item.ticker}`);
   };
 
   const handleAthPeriodChange = async (nextPeriod: AthPeriod) => {
@@ -717,18 +757,17 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
   };
 
   const saveCashUpdate = async () => {
+    if (!settings) return;
     const cash = Number(settingsForm.availableCash);
     const dca = Number(settingsForm.monthlyDcaAmount);
     const monthlyInvestmentDay = Number(settingsForm.monthlyInvestmentDay);
     const threshold10 = Number(settingsForm.reinforce10Threshold);
     const threshold20 = Number(settingsForm.reinforce20Threshold);
-    const r10 = Number(settingsForm.reinforce10Amount);
-    const r20 = Number(settingsForm.reinforce20Amount);
     const a10 = Number(settingsForm.reinforceAlloc10);
     const a20 = Number(settingsForm.reinforceAlloc20);
     const a30 = Number(settingsForm.reinforceAlloc30);
     const a40 = Number(settingsForm.reinforceAlloc40);
-    if (![cash, dca, r10, r20, a10, a20, a30, a40].every((v) => Number.isFinite(v) && v >= 0)) return;
+    if (![cash, dca, a10, a20, a30, a40].every((v) => Number.isFinite(v) && v >= 0)) return;
     if (!Number.isFinite(monthlyInvestmentDay) || monthlyInvestmentDay < 1 || monthlyInvestmentDay > 31) return;
     if (![a10, a20, a30, a40].every((v) => v <= 100)) return;
     if (![threshold10, threshold20].every((v) => Number.isFinite(v) && v <= 0)) return;
@@ -754,8 +793,8 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
         monthlyInvestmentDay: Math.trunc(monthlyInvestmentDay),
         reinforce10Threshold: threshold10,
         reinforce20Threshold: threshold20,
-        reinforce10Amount: r10,
-        reinforce20Amount: r20,
+        reinforce10Amount: settings.reinforce10Amount,
+        reinforce20Amount: settings.reinforce20Amount,
         investmentStrategy: {
           monthlyDca: dca,
           reinforceLevels: [
@@ -802,7 +841,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
   const settingsDialogFields = (
     <>
       <div className="rounded-lg border border-slate-200 p-3">
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">A. ETF suivi</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">A. Actif principal suivi</p>
         <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-700">Preset ETF</label>
@@ -1002,8 +1041,12 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
 
       {settingsForm.reinforceMode === 'FIXED' && (
       <div className="rounded-lg border border-orange-200 bg-orange-50/70 p-3">
-        <p className="text-xs font-semibold uppercase tracking-wider text-orange-700">⚠️ C. Seuils d’opportunité (montants fixes)</p>
-        <p className="mt-1 text-xs text-orange-900">Montants fixes proposés lorsque certains niveaux de baisse sont atteints.</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-orange-700">C. Seuils d’opportunité (drawdown vs ATH)</p>
+        <p className="mt-1 text-xs text-orange-900">
+          Ces seuils pilotent le statut marché et le type de décision (avec la frontière profonde dérivée des paliers % du cash).
+          Les montants fixes historiques ne sont pas appliqués par le moteur V2 (renforts = % du cash uniquement) — ils restent
+          enregistrés tels quels pour compatibilité.
+        </p>
         <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-700">Seuil opportunité (%)</label>
@@ -1015,15 +1058,6 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-700">Montant renfort opportunité</label>
-            <Input
-              type="number"
-              placeholder="Ex: 1000"
-              value={settingsForm.reinforce10Amount}
-              onChange={(e) => setSettingsForm((p) => ({ ...p, reinforce10Amount: e.target.value }))}
-            />
-          </div>
-          <div className="space-y-1">
             <label className="text-xs font-medium text-slate-700">Seuil forte opportunité (%)</label>
             <Input
               type="number"
@@ -1032,16 +1066,12 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
               onChange={(e) => setSettingsForm((p) => ({ ...p, reinforce20Threshold: e.target.value }))}
             />
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-700">Montant renfort forte opportunité</label>
-            <Input
-              type="number"
-              placeholder="Ex: 2000"
-              value={settingsForm.reinforce20Amount}
-              onChange={(e) => setSettingsForm((p) => ({ ...p, reinforce20Amount: e.target.value }))}
-            />
-          </div>
         </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-orange-900/90">
+          Legacy (non utilisé par le calcul actuel) : montants fixes en base{' '}
+          <span className="font-mono tabular-nums">{settingsForm.reinforce10Amount}</span> /{' '}
+          <span className="font-mono tabular-nums">{settingsForm.reinforce20Amount}</span> — inchangés à l’enregistrement.
+        </p>
       </div>
       )}
 
@@ -1067,6 +1097,63 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
     <div className="w-full space-y-3">
       <MarketTabs tabs={[...MARKET_TAB_ITEMS]} activeTab={activeTab} onChange={(tab) => setActiveTab(tab as MarketTabKey)} />
 
+      <Card className="w-full border-slate-200 bg-white shadow-sm" padding="none">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Opportunités Marché</p>
+            <p className="text-sm text-slate-700">
+              Actif principal : <span className="font-semibold text-slate-900">{settings.referenceSymbol}</span>
+            </p>
+            {snapshot && (
+              <p className="text-base font-semibold tabular-nums text-slate-900">
+                Prix actuel : {formatPriceStat(snapshot.currentPrice, settings.currency)}
+              </p>
+            )}
+            <p className="text-xs text-slate-600">
+              Radar marché : {radarEntries.length} actifs surveillés
+            </p>
+            {lastMarketRefreshScope && radarLastRefreshedAt && (
+              <p className="text-[11px] leading-snug text-slate-600">
+                Dernière MAJ (
+                {new Date(radarLastRefreshedAt).toLocaleString('fr-FR', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+                ) :{' '}
+                {lastMarketRefreshScope === 'principal_radar_comparaisons'
+                  ? 'actif principal + radar + comparaisons'
+                  : 'actif principal + radar'}
+              </p>
+            )}
+            {controlsDataFreshnessLine && (
+              <p className={`text-[11px] leading-snug ${controlsDataFreshnessLine.className}`}>
+                {controlsDataFreshnessLine.text}
+              </p>
+            )}
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => handleRefreshClick().catch(() => undefined)}
+            disabled={isRefreshingMarket || isRefreshingRadar}
+          >
+            {isRefreshingMarket ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
+                Actualisation...
+              </span>
+            ) : isForceRefreshArmed ? (
+              'Forcer l’actualisation'
+            ) : (
+              'Actualiser les données marché'
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
       <MarketTabPanel activeTab={activeTab} tabKey="synthese">
         <MarketRadarPanel
           entries={radarEntries}
@@ -1083,9 +1170,15 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
                 Cash disponible : {formatCurrency(settings.availableCash, settings.currency)}
               </p>
               {snapshot && (
-                <p className="text-xs text-slate-600">
-                  Statut marché: drawdown {formatPct(snapshot.drawdownPercent)} vs ATH {formatPriceStat(snapshot.athPrice, settings.currency)}
-                </p>
+                <>
+                  <p className="text-base font-semibold tabular-nums text-slate-900">
+                    Prix actuel : {formatPriceStat(snapshot.currentPrice, settings.currency)}
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    Statut marché: drawdown {formatPct(snapshot.drawdownPercent)} vs ATH{' '}
+                    {formatPriceStat(snapshot.athPrice, settings.currency)}
+                  </p>
+                </>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1093,6 +1186,11 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
               {recommendation && scoreBadge && (
                 <Badge size="sm" variant={scoreBadge.variant}>
                   {recommendation.marketScoreLabel}
+                </Badge>
+              )}
+              {recommendation?.insufficientMarketData && (
+                <Badge size="sm" variant="secondary">
+                  Données drawdown indisponibles
                 </Badge>
               )}
             </div>
@@ -1106,7 +1204,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
           <div className="flex w-full flex-col gap-3">
             <div className="flex w-full flex-col">
               <label htmlFor="market-active-etf" className="mb-1 text-xs font-medium leading-none text-gray-500">
-                ETF actif
+                Actif principal
               </label>
               <select
                 id="market-active-etf"
@@ -1148,29 +1246,15 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
                 {recommendation.marketScoreLabel}
               </Badge>
             )}
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => handleRefreshClick().catch(() => undefined)}
-              disabled={isRefreshingMarket || isRefreshingRadar}
-            >
-              {isRefreshingMarket ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
-                  Actualisation...
-                </span>
-              ) : isForceRefreshArmed ? (
-                'Forcer l’actualisation'
-              ) : (
-                'Actualiser'
-              )}
-            </Button>
+            {recommendation?.insufficientMarketData && (
+              <Badge size="sm" variant="secondary">
+                Données drawdown indisponibles
+              </Badge>
+            )}
           </div>
-          {controlsDataFreshnessLine && (
-            <p
-              className={`w-full border-t border-slate-100 pt-2 text-[11px] font-normal leading-snug ${controlsDataFreshnessLine.className}`}
-            >
-              {controlsDataFreshnessLine.text}
+          {snapshot && (
+            <p className="rounded-lg border border-violet-100 bg-violet-50/80 px-3 py-2 text-sm font-semibold tabular-nums text-violet-950">
+              Prix actuel : {formatPriceStat(snapshot.currentPrice, settings.currency)}
             </p>
           )}
         </CardContent>
@@ -1197,7 +1281,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
               <div className="flex min-h-[220px] flex-col justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6">
                 <p className="text-center text-sm leading-6 text-slate-700">
                   {marketError ??
-                    'Données non chargées pour cette période — cliquez sur Actualiser.'}
+                    'Données locales absentes pour cet actif. Actualisation nécessaire.'}
                 </p>
               </div>
             )}
@@ -1443,6 +1527,9 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
         <MarketEtfLibrarySection
           trackedSymbol={settings.referenceSymbol}
           onSetTrackedEtf={handleSetTrackedEtfFromLibrary}
+          organizationId={organizationId}
+          athPeriod={settings.athPeriod}
+          currency={settings.currency}
         />
       </MarketTabPanel>
 
@@ -1461,7 +1548,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0 }: MarketInvestmen
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500">ETF suivi</p>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Actif principal</p>
                   <p className="text-sm font-semibold text-slate-900">{settings.referenceSymbol}</p>
                   <p className="text-xs text-slate-600">{settings.referenceLabel}</p>
                 </div>

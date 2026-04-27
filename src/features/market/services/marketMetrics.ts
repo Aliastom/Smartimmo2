@@ -5,7 +5,7 @@ export function computeDrawdownPercent(currentPrice: number, athPrice: number): 
   return ((currentPrice - athPrice) / athPrice) * 100;
 }
 
-function normalizeThresholds(settings: Pick<InvestmentSettings, 'reinforce10Threshold' | 'reinforce20Threshold'>): {
+export function normalizeThresholds(settings: Pick<InvestmentSettings, 'reinforce10Threshold' | 'reinforce20Threshold'>): {
   reinforce10Threshold: number;
   reinforce20Threshold: number;
 } {
@@ -20,6 +20,7 @@ export function resolveMarketStatus(
   drawdownPercent: number,
   settings: Pick<InvestmentSettings, 'reinforce10Threshold' | 'reinforce20Threshold'>
 ): MarketOpportunityStatus {
+  if (!Number.isFinite(drawdownPercent)) return 'NORMAL';
   const { reinforce10Threshold, reinforce20Threshold } = normalizeThresholds(settings);
   if (drawdownPercent <= reinforce20Threshold) return 'FORTE_OPPORTUNITE';
   if (drawdownPercent <= reinforce10Threshold) return 'OPPORTUNITE';

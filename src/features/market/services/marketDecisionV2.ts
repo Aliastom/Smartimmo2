@@ -9,7 +9,12 @@ import type {
   MarketScoreLabel,
   MarketSnapshot,
 } from '@/features/market/types';
-import { getEffectiveInvestmentStrategy, pickActiveReinforceLevel } from '@/features/market/services/marketInvestmentStrategy';
+import {
+  getEffectiveInvestmentStrategy,
+  normalizeReinforceLevels,
+  pickActiveReinforceLevel,
+} from '@/features/market/services/marketInvestmentStrategy';
+import { normalizeThresholds } from '@/features/market/services/marketMetrics';
 
 const SCORE_ANCHORS: Array<{ dd: number; score: number }> = [
   { dd: -40, score: 10 },
@@ -55,10 +60,22 @@ function scoreToLabel(score: number): MarketScoreLabel {
   return 'OPPORTUNITÉ';
 }
 
-export function decisionTypeFromDrawdown(drawdownPercent: number): InvestmentDecisionType {
-  if (drawdownPercent > -10) return 'DCA_ONLY';
-  if (drawdownPercent > -20) return 'LIGHT_REINFORCE';
-  if (drawdownPercent > -30) return 'MEDIUM_REINFORCE';
+/**
+ * Type de décision à partir du drawdown et des seuils paramétrables (reinforce10/20)
+ * + frontière tertiaire dérivée des paliers % cash (premier seuil strictement sous le seuil « forte »).
+ */
+export function resolveDecisionTypeFromDrawdown(settings: InvestmentSettings, drawdownPercent: number): InvestmentDecisionType {
+  const { reinforce10Threshold: t10, reinforce20Threshold: t20 } = normalizeThresholds(settings);
+  if (drawdownPercent > t10) return 'DCA_ONLY';
+  const strategy = getEffectiveInvestmentStrategy(settings);
+  const levelThresholds = normalizeReinforceLevels(strategy.reinforceLevels).map((l) => l.threshold);
+  const deeper = levelThresholds.filter((t) => t < t20);
+  let t30 = deeper.length > 0 ? Math.max(...deeper) : t20 - 10;
+  if (!(t30 < t20)) {
+    t30 = t20 - 1e-6;
+  }
+  if (drawdownPercent > t20) return 'LIGHT_REINFORCE';
+  if (drawdownPercent > t30) return 'MEDIUM_REINFORCE';
   return 'STRONG_REINFORCE';
 }
 
@@ -126,8 +143,36 @@ export function computeInvestmentRecommendation(
   const cash = Math.max(0, settings.availableCash);
   const cashRef = Math.max(0, settings.cashReferenceAmount || cash || 1);
   const prudenceMode = cash / cashRef < 0.2;
+  const dd = snapshot.drawdownPercent;
 
-  let decisionType = decisionTypeFromDrawdown(snapshot.drawdownPercent);
+  if (!Number.isFinite(dd)) {
+    const decisionType: InvestmentDecisionType = 'DCA_ONLY';
+    const monthlyDcaPortion = Math.min(dca, cash);
+    const suggestedAmount = Math.round(monthlyDcaPortion * 100) / 100;
+    const { score, label: marketScoreLabel } = computeMarketScore(snapshot);
+    return {
+      status: 'NORMAL',
+      decisionType,
+      score,
+      marketScoreLabel,
+      message: 'Continuer le DCA',
+      reason:
+        'Drawdown indisponible ou non numérique — suggestion limitée au DCA mensuel, sans renfort.',
+      suggestedAmount,
+      monthlyDcaPortion: suggestedAmount,
+      reinforcePortion: 0,
+      baseAmount: suggestedAmount,
+      cashLimited: false,
+      actionType: 'DCA',
+      thresholdKey: null,
+      confidenceLevel: 'low',
+      prudenceMode,
+      recentSimilarReinforce: false,
+      insufficientMarketData: true,
+    };
+  }
+
+  let decisionType = resolveDecisionTypeFromDrawdown(settings, dd);
   if (settings.strategy === 'DCA_ONLY') {
     decisionType = 'DCA_ONLY';
   }
@@ -136,7 +181,7 @@ export function computeInvestmentRecommendation(
 
   const activeLevel =
     settings.strategy === 'DCA_PLUS_REINFORCE' && decisionType !== 'DCA_ONLY'
-      ? pickActiveReinforceLevel(snapshot.drawdownPercent, strategy.reinforceLevels)
+      ? pickActiveReinforceLevel(dd, strategy.reinforceLevels)
       : null;
 
   let reinforcePortion =
@@ -161,7 +206,7 @@ export function computeInvestmentRecommendation(
   const thresholdKey = buildThresholdKey(snapshot.symbol, decisionType);
 
   const reasonParts = [
-    `Drawdown ${snapshot.drawdownPercent.toFixed(2)}% vs ATH ${settings.athPeriod}`,
+    `Drawdown ${dd.toFixed(2)}% vs ATH ${settings.athPeriod}`,
     decisionType === 'DCA_ONLY'
       ? 'Stratégie : DCA mensuel uniquement (marché proche des hauts)'
       : `Renfort progressif : ${activeLevel ? `${activeLevel.allocationPercent}% du cash disponible` : '—'}`,
@@ -221,6 +266,21 @@ export function generateDecisionMessage(
       n
     );
 
+  if (rec.insufficientMarketData) {
+    return {
+      headline: 'Données de marché insuffisantes',
+      strategyBlock:
+        'Le drawdown n’a pas pu être évalué correctement.\nStratégie recommandée :\nContinuer uniquement le DCA mensuel, sans renfort automatique.',
+      amountLine: `Montant indicatif (DCA mensuel) : ${fmt(rec.monthlyDcaPortion)}.`,
+      whyBullets: [
+        'Sans niveau de baisse fiable par rapport au sommet, aucun renfort n’est proposé.',
+        'Actualisez les données marché ou vérifiez les prix saisis.',
+        'Le DCA régulier reste la base la plus prudente dans ce cas.',
+      ],
+      importantBlock: PEDAGOGICAL_IMPORTANT_BLOCK,
+    };
+  }
+
   if (rec.decisionType === 'DCA_ONLY') {
     return {
       headline: 'Marché proche de ses plus hauts',
@@ -243,12 +303,13 @@ export function generateDecisionMessage(
         ? 'correction marquée'
         : 'forte baisse';
 
+  const ddLabel = Number.isFinite(dd) ? `${dd.toFixed(0)}%` : '—';
   const headline =
     rec.score > 80
       ? 'Marché proche de ses plus hauts'
       : rec.decisionType === 'STRONG_REINFORCE'
-        ? `Marché en forte baisse (${dd.toFixed(0)}%).`
-        : `Marché en ${depthLabel} (${dd.toFixed(0)}%).`;
+        ? `Marché en forte baisse (${ddLabel}).`
+        : `Marché en ${depthLabel} (${ddLabel}).`;
 
   const oppWord =
     rec.decisionType === 'STRONG_REINFORCE' ? 'Opportunité rare' : 'Opportunité intéressante';

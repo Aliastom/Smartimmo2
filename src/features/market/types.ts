@@ -121,6 +121,8 @@ export interface InvestmentRecommendation {
   prudenceMode: boolean;
   /** Renfort similaire récent : montant renfort réduit */
   recentSimilarReinforce: boolean;
+  /** Drawdown absent ou non numérique : pas de renfort, suggestion DCA uniquement */
+  insufficientMarketData?: boolean;
 }
 
 export interface MarketAlert {
