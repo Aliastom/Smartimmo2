@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { getLocalDB } from '@/lib/offline/db';
+import { getLocalDB, resetDbStatus } from '@/lib/offline/db';
 import type { PendingOperation } from '@/lib/offline/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Table, TableHeader, TableHeaderCell, TableBody, TableRow, TableCell } from '@/components/ui/Table';
@@ -61,6 +61,7 @@ export function PendingSyncView({ organizationId }: PendingSyncViewProps) {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [resettingAppLocal, setResettingAppLocal] = useState(false);
   const [preloading, setPreloading] = useState(false);
   const [runningFullSync, setRunningFullSync] = useState(false);
   const [idbStats, setIdbStats] = useState<IndexedDBStats[]>([]);
@@ -538,6 +539,76 @@ export function PendingSyncView({ organizationId }: PendingSyncViewProps) {
     }
   };
 
+  const handleResetLocalApp = async () => {
+    if (!confirm('Réinitialiser complètement l’application locale sur cet appareil ?\n\nCette action supprime le cache PWA, le service worker et toutes les données locales IndexedDB. Un rechargement complet sera effectué.')) {
+      return;
+    }
+
+    setResettingAppLocal(true);
+    try {
+      // 1) Stopper/retirer les Service Workers
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+
+      // 2) Vider tous les caches applicatifs
+      if (typeof window !== 'undefined' && 'caches' in window) {
+        const cacheKeys = await caches.keys();
+        await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+      }
+
+      // 3) Supprimer la base locale Dexie
+      try {
+        const db = await getLocalDB();
+        if (db) {
+          try {
+            if (db.isOpen()) {
+              db.close();
+            }
+          } catch {
+            // no-op
+          }
+          if (typeof db.delete === 'function') {
+            await db.delete();
+          }
+        }
+      } catch {
+        // no-op: on tente ensuite une suppression brute indexedDB
+      }
+
+      // 4) Fallback suppression brute de la DB par nom
+      if (typeof window !== 'undefined' && 'indexedDB' in window) {
+        await new Promise<void>((resolve) => {
+          const req = window.indexedDB.deleteDatabase('SmartimmoLocalDB');
+          req.onsuccess = () => resolve();
+          req.onerror = () => resolve();
+          req.onblocked = () => resolve();
+        });
+      }
+
+      // 5) Réinitialiser l'état mémoire du helper DB
+      resetDbStatus();
+      localStorage.removeItem('syncLogs');
+
+      await showAlert({
+        type: 'success',
+        title: 'Application locale réinitialisée',
+        message: 'Le cache et les données locales ont été supprimés. Rechargement en cours...',
+      });
+
+      window.location.assign(`/app?view=sync&localReset=${Date.now()}`);
+    } catch (error: any) {
+      console.error('[PendingSyncView] Erreur reset app locale:', error);
+      await showAlert({
+        type: 'error',
+        title: 'Erreur',
+        message: error?.message || 'Impossible de réinitialiser l’application locale.',
+      });
+      setResettingAppLocal(false);
+    }
+  };
+
   // Précharger les pages importantes
   const handlePreloadPages = async () => {
     try {
@@ -815,7 +886,7 @@ export function PendingSyncView({ organizationId }: PendingSyncViewProps) {
               </Button>
             </>
           )}
-          {isOnline && fullSyncDone && (
+            {isOnline && fullSyncDone && (
             <Button 
               onClick={handleResetSync} 
               disabled={resetting || syncing || preloading || runningFullSync || fullSyncRunning}
@@ -835,6 +906,24 @@ export function PendingSyncView({ organizationId }: PendingSyncViewProps) {
               )}
             </Button>
             )}
+            <Button
+              onClick={handleResetLocalApp}
+              disabled={resettingAppLocal || resetting || syncing || preloading || runningFullSync || fullSyncRunning}
+              variant="outline"
+              className="flex items-center gap-2 text-red-600 hover:text-red-700"
+            >
+              {resettingAppLocal ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Réinitialisation locale...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4" />
+                  Réinitialiser l’app locale
+                </>
+              )}
+            </Button>
           </div>
         </div>
         
