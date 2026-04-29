@@ -9,10 +9,12 @@ import type { PatrimoineSnapshotResult } from '@/features/patrimoine/hooks/usePa
 export interface PatrimoineGlobalBadgesProps {
   snapshot: PatrimoineSnapshotResult;
   className?: string;
+  /** Hypothèses en cours d’édition (panel brouillon). */
+  hypothesesDirty?: boolean;
 }
 
-/** Une seule rangée de statuts sources (fiscal, marché, hypothèses). */
-export function PatrimoineGlobalBadges({ snapshot, className }: PatrimoineGlobalBadgesProps) {
+/** Statuts sources (fiscal, marché, cash, DCA, hypothèses). */
+export function PatrimoineGlobalBadges({ snapshot, className, hypothesesDirty = false }: PatrimoineGlobalBadgesProps) {
   const yearLabel = snapshot.fiscalYear != null ? ` (${snapshot.fiscalYear})` : '';
 
   let fiscal: string;
@@ -50,6 +52,9 @@ export function PatrimoineGlobalBadges({ snapshot, className }: PatrimoineGlobal
     marketRing = 'bg-indigo-50 text-indigo-950 ring-indigo-200/70';
   }
 
+  const cashSource = snapshot.sourceCash === 'MARKET' ? 'Marché' : 'Manuel';
+  const dcaSource = snapshot.sourceDca === 'MARKET' ? 'Marché' : 'Manuel';
+
   return (
     <div
       className={cn(
@@ -69,8 +74,21 @@ export function PatrimoineGlobalBadges({ snapshot, className }: PatrimoineGlobal
       <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 font-medium ring-1', marketRing)}>
         Marché : {market}
       </span>
-      <span className="inline-flex items-center rounded-full bg-slate-900/5 px-2.5 py-1 font-medium text-slate-800 ring-1 ring-slate-200/80">
-        Hypothèses : sauvegardées
+      <span className="inline-flex items-center rounded-full bg-cyan-50 px-2.5 py-1 font-medium text-cyan-950 ring-1 ring-cyan-200/70">
+        Cash : {cashSource}
+      </span>
+      <span className="inline-flex items-center rounded-full bg-violet-50 px-2.5 py-1 font-medium text-violet-950 ring-1 ring-violet-200/70">
+        DCA : {dcaSource}
+      </span>
+      <span
+        className={cn(
+          'inline-flex items-center rounded-full px-2.5 py-1 font-medium ring-1',
+          hypothesesDirty
+            ? 'bg-amber-50 text-amber-950 ring-amber-200/80'
+            : 'bg-slate-900/5 text-slate-800 ring-slate-200/80'
+        )}
+      >
+        {hypothesesDirty ? 'Hypothèses : brouillon' : 'Hypothèses : sauvegardées'}
       </span>
     </div>
   );

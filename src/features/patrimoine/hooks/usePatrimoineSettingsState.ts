@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   loadPatrimoineUserSettings,
+  replacePatrimoineUserSettings,
   savePatrimoineUserSettings,
   type PatrimoineUserSettings,
 } from '@/features/patrimoine/store/patrimoineSettings';
@@ -27,5 +28,14 @@ export function usePatrimoineSettingsState(organizationId: string | undefined) {
     [organizationId]
   );
 
-  return { settings, updateSettings };
+  const replaceSettings = useCallback(
+    (next: PatrimoineUserSettings) => {
+      if (!organizationId) return;
+      replacePatrimoineUserSettings(organizationId, next);
+      setRevision((r) => r + 1);
+    },
+    [organizationId]
+  );
+
+  return { settings, updateSettings, replaceSettings };
 }

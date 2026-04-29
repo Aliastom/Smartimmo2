@@ -67,6 +67,10 @@ export function minimalPatrimoineSnapshot(overrides: Partial<PatrimoineSnapshotR
     marketInvestmentSelectionMode: 'AUTO',
     availableMarketInvestments: [],
     marketSelectionWarning: null,
+    sourceCash: 'PATRIMOINE',
+    sourceDca: 'PATRIMOINE',
+    sourceDcaDay: 'PATRIMOINE',
+    marketProfileSummary: null,
     loading: false,
     error: null,
   };

@@ -31,26 +31,31 @@ describe('Patrimoine UI smoke', () => {
     expect(screen.getByText(/pourquoi cette recommandation/i)).toBeInTheDocument();
   });
 
-  it('PatrimoineAssumptionsPanel : reset appelle onSettingsChange avec les défauts', () => {
-    const onSettingsChange = vi.fn();
+  it('PatrimoineAssumptionsPanel : reset appelle onCommit avec les défauts', () => {
+    vi.spyOn(window, 'dispatchEvent').mockImplementation(() => true);
+    const onCommit = vi.fn();
     const defaults = getPatrimoineSettingsDefaults();
-    const snap = minimalPatrimoineSnapshot();
+    const snap = minimalPatrimoineSnapshot({
+      sourceCash: 'PATRIMOINE',
+      sourceDca: 'PATRIMOINE',
+      sourceDcaDay: 'PATRIMOINE',
+    });
     render(
       <PatrimoineAssumptionsPanel
         organizationId="org-x"
-        settings={{
+        savedSettings={{
           cashDisponible: 99_999,
           cashSecurite: 1,
           peaEtfValue: 12_000,
           dcaDayOfMonth: 12,
           objective: 'croissance',
         }}
-        onSettingsChange={onSettingsChange}
+        onCommit={onCommit}
         snapshot={snap}
       />
     );
     fireEvent.click(screen.getByRole('button', { name: /réinitialiser/i }));
-    expect(onSettingsChange).toHaveBeenCalledWith(
+    expect(onCommit).toHaveBeenCalledWith(
       expect.objectContaining({
         cashDisponible: defaults.cashDisponible,
         cashSecurite: defaults.cashSecurite,
@@ -61,6 +66,7 @@ describe('Patrimoine UI smoke', () => {
         selectedMarketInvestmentId: defaults.selectedMarketInvestmentId ?? null,
       })
     );
+    vi.restoreAllMocks();
   });
 
   it('PatrimoineGlobalBadges affiche les états fiscal / marché', () => {
@@ -79,9 +85,14 @@ describe('Patrimoine UI smoke', () => {
       hasMarketData: true,
       availableMarketInvestments: [{ id: 'default', label: 'CW8.PA · test' }],
       marketInvestmentSelectionMode: 'AUTO',
+      sourceCash: 'MARKET',
+      sourceDca: 'MARKET',
+      sourceDcaDay: 'MARKET',
     });
     rerender(<PatrimoineGlobalBadges snapshot={snapOn} />);
     expect(container.textContent).toMatch(/auto|manuelle/i);
     expect(container.textContent).toMatch(/marché\s*:\s*auto/i);
+    expect(container.textContent).toMatch(/cash\s*:\s*marché/i);
+    expect(container.textContent).toMatch(/dca\s*:\s*marché/i);
   });
 });

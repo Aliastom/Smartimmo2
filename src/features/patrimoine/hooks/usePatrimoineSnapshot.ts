@@ -33,6 +33,7 @@ import {
 } from '@/features/patrimoine/services/patrimoineFiscalSelection';
 import {
   buildAvailableMarketInvestmentsForPatrimoine,
+  formatPatrimoineMarketProfileLabel,
   resolvePatrimoineMarketInvestment,
   type MarketInvestmentSelectionMode,
   type PatrimoineAvailableMarketInvestment,
@@ -51,6 +52,9 @@ import {
 } from '@/features/patrimoine/services/patrimoineProjectionService';
 
 export const DEFAULT_ETF_ANNUAL_YIELD = 0.07;
+
+/** Origine affichée pour cash / montant DCA cockpit (profil Marché vs saisie Patrimoine). */
+export type PatrimoineAmountSource = 'MARKET' | 'PATRIMOINE';
 
 export interface PatrimoineNextEvents {
   nextTaxPayment: string | null;
@@ -122,6 +126,14 @@ export interface PatrimoineSnapshotResult {
   marketInvestmentSelectionMode: MarketInvestmentSelectionMode;
   availableMarketInvestments: PatrimoineAvailableMarketInvestment[];
   marketSelectionWarning: string | null;
+  /** Cash disponible cockpit : profil Marché (`availableCash`) si profil résolu, sinon hypothèses. */
+  sourceCash: PatrimoineAmountSource;
+  /** Montant DCA de référence : moteur Marché si profil résolu, sinon logique Patrimoine. */
+  sourceDca: PatrimoineAmountSource;
+  /** Jour de versement DCA : `monthlyInvestmentDay` du profil Marché si défini, sinon hypothèse. */
+  sourceDcaDay: PatrimoineAmountSource;
+  /** Libellé du profil marché effectif (symbole · DCA · cash). */
+  marketProfileSummary: string | null;
   loading: boolean;
   error: string | null;
 }
@@ -131,6 +143,7 @@ export type {
   FiscalSimulationSelectionMode,
   PatrimoineAvailableMarketInvestment,
   MarketInvestmentSelectionMode,
+  PatrimoineAmountSource,
 };
 
 function monthKeyNow(): string {
@@ -316,9 +329,11 @@ async function loadPatrimoineSnapshotCore(
     }
   }
 
-  const cashFromSettings = Math.max(0, userSettings.cashDisponible);
+  const hasMarketProfile = marketSettings != null;
+  const cashFromPatrimoine = Math.max(0, userSettings.cashDisponible);
   const cashFromMarket = marketSettings ? Math.max(0, marketSettings.availableCash ?? 0) : 0;
-  const cashDisponible = cashFromSettings > 0 ? cashFromSettings : cashFromMarket;
+  const sourceCash: PatrimoineAmountSource = hasMarketProfile ? 'MARKET' : 'PATRIMOINE';
+  const cashDisponible = hasMarketProfile ? cashFromMarket : cashFromPatrimoine;
   const cashSecurite = Math.max(0, userSettings.cashSecurite);
 
   const peaEtfValue = Math.max(0, userSettings.peaEtfValue);
@@ -337,11 +352,14 @@ async function loadPatrimoineSnapshotCore(
   const cashExcess = Math.max(0, cashDisponible - cashSecurite);
   const investableCash = cashExcess;
 
-  const dcaRecommended = marketRecommendation
+  const marketDcaBase =
+    marketSettings && Number.isFinite(marketSettings.monthlyDcaAmount) ? Math.max(0, marketSettings.monthlyDcaAmount) : 0;
+  const dcaFromMarketEngine = marketRecommendation
     ? marketRecommendation.monthlyDcaPortion
-    : marketSettings
-      ? marketSettings.monthlyDcaAmount
+    : hasMarketProfile
+      ? marketDcaBase
       : 0;
+  const sourceDca: PatrimoineAmountSource = hasMarketProfile ? 'MARKET' : 'PATRIMOINE';
   const reinforceRecommended = marketRecommendation ? marketRecommendation.reinforcePortion : 0;
 
   const reserveCashMoteur =
@@ -394,14 +412,26 @@ async function loadPatrimoineSnapshotCore(
 
   const patrimoineReco = computePatrimoineRecommendation(decisionInput);
 
+  const dcaRecommended = hasMarketProfile ? dcaFromMarketEngine : patrimoineReco.dcaAmount;
+
   const monthlyCapacity = Math.round((revenuLocatifNet / 12) * 100) / 100;
   const monthlyCapacitySafe = Number.isFinite(monthlyCapacity) ? Math.max(0, monthlyCapacity) : 0;
   const effort = effortFiscalMensuel ?? 0;
   const netMonthlyFreeCash = Math.round((monthlyCapacitySafe - effort) * 100) / 100;
 
+  const marketDayRaw = marketSettings?.monthlyInvestmentDay;
+  const hasMarketDcaDay =
+    typeof marketDayRaw === 'number' &&
+    Number.isFinite(marketDayRaw) &&
+    marketDayRaw >= 1 &&
+    marketDayRaw <= 31;
+  const sourceDcaDay: PatrimoineAmountSource = hasMarketProfile && hasMarketDcaDay ? 'MARKET' : 'PATRIMOINE';
   const effectiveDcaDayOfMonth = Math.min(
     31,
-    Math.max(1, userSettings.dcaDayOfMonth || marketSettings?.monthlyInvestmentDay || 5)
+    Math.max(
+      1,
+      hasMarketDcaDay ? Math.trunc(marketDayRaw!) : userSettings.dcaDayOfMonth || 5
+    )
   );
   const nextDcaDate = nextDcaDateIso(effectiveDcaDayOfMonth, new Date());
   const nextLoanPayment = computeNextLoanPaymentIso(loans);
@@ -431,6 +461,8 @@ async function loadPatrimoineSnapshotCore(
     5
   );
   const hasMarketData = marketSnap != null;
+
+  const marketProfileSummary = marketSettings ? formatPatrimoineMarketProfileLabel(marketSettings) : null;
 
   return {
     immobilierBrut,
@@ -486,6 +518,10 @@ async function loadPatrimoineSnapshotCore(
     marketInvestmentSelectionMode,
     availableMarketInvestments,
     marketSelectionWarning,
+    sourceCash,
+    sourceDca,
+    sourceDcaDay,
+    marketProfileSummary,
   };
 }
 
@@ -632,6 +668,10 @@ export function usePatrimoineSnapshot(options: UsePatrimoineSnapshotOptions): Pa
       marketInvestmentSelectionMode: 'AUTO',
       availableMarketInvestments: [],
       marketSelectionWarning: null,
+      sourceCash: 'PATRIMOINE',
+      sourceDca: 'PATRIMOINE',
+      sourceDcaDay: 'PATRIMOINE',
+      marketProfileSummary: null,
       loading,
       error,
     }),

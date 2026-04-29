@@ -123,9 +123,54 @@ export function loadPatrimoineUserSettings(organizationId: string | undefined): 
   return parsed ?? { ...DEFAULTS };
 }
 
+function clampFullSettings(input: PatrimoineUserSettings): PatrimoineUserSettings {
+  const objective: PatrimoineObjective =
+    input.objective === 'croissance' || input.objective === 'securite' || input.objective === 'equilibre'
+      ? input.objective
+      : DEFAULTS.objective;
+  let selectedFiscalSimulationId: string | null = DEFAULTS.selectedFiscalSimulationId ?? null;
+  if (typeof input.selectedFiscalSimulationId === 'string' && input.selectedFiscalSimulationId.length > 0) {
+    selectedFiscalSimulationId = input.selectedFiscalSimulationId;
+  } else if (input.selectedFiscalSimulationId === null) {
+    selectedFiscalSimulationId = null;
+  }
+  let selectedMarketInvestmentId: string | null = DEFAULTS.selectedMarketInvestmentId ?? null;
+  if (typeof input.selectedMarketInvestmentId === 'string' && input.selectedMarketInvestmentId.length > 0) {
+    selectedMarketInvestmentId = input.selectedMarketInvestmentId;
+  } else if (input.selectedMarketInvestmentId === null) {
+    selectedMarketInvestmentId = null;
+  }
+  return {
+    cashDisponible:
+      typeof input.cashDisponible === 'number' && Number.isFinite(input.cashDisponible)
+        ? Math.max(0, input.cashDisponible)
+        : DEFAULTS.cashDisponible,
+    cashSecurite:
+      typeof input.cashSecurite === 'number' && Number.isFinite(input.cashSecurite)
+        ? Math.max(0, input.cashSecurite)
+        : DEFAULTS.cashSecurite,
+    peaEtfValue:
+      typeof input.peaEtfValue === 'number' && Number.isFinite(input.peaEtfValue)
+        ? Math.max(0, input.peaEtfValue)
+        : DEFAULTS.peaEtfValue,
+    dcaDayOfMonth: Math.min(
+      31,
+      Math.max(
+        1,
+        typeof input.dcaDayOfMonth === 'number' && Number.isFinite(input.dcaDayOfMonth)
+          ? Math.trunc(input.dcaDayOfMonth)
+          : DEFAULTS.dcaDayOfMonth
+      )
+    ),
+    objective,
+    selectedFiscalSimulationId,
+    selectedMarketInvestmentId,
+  };
+}
+
 export function savePatrimoineUserSettings(organizationId: string, patch: Partial<PatrimoineUserSettings>): PatrimoineUserSettings {
   if (typeof window === 'undefined') {
-    return { ...DEFAULTS, ...patch };
+    return clampFullSettings({ ...DEFAULTS, ...patch } as PatrimoineUserSettings);
   }
   const prev = loadPatrimoineUserSettings(organizationId);
   const next: PatrimoineUserSettings = {
@@ -143,6 +188,20 @@ export function savePatrimoineUserSettings(organizationId: string, patch: Partia
     // ignore quota
   }
   return next;
+}
+
+/** Remplace entièrement les paramètres (ex. validation du panel hypothèses). */
+export function replacePatrimoineUserSettings(organizationId: string | undefined, next: PatrimoineUserSettings): PatrimoineUserSettings {
+  const normalized = clampFullSettings(next);
+  if (typeof window === 'undefined' || !organizationId) {
+    return normalized;
+  }
+  try {
+    localStorage.setItem(keyForOrg(organizationId), JSON.stringify(normalized));
+  } catch {
+    // ignore quota
+  }
+  return normalized;
 }
 
 export function getPatrimoineSettingsDefaults(): PatrimoineUserSettings {

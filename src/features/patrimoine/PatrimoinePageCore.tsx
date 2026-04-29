@@ -9,9 +9,9 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Button } from '@/components/ui/Button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shared/select';
 import { PatrimoineKPIs } from '@/components/dashboard/PatrimoineKPIs';
@@ -27,7 +27,9 @@ import {
   PatrimoineV4OverviewMain,
 } from './components/PatrimoineDecisionCockpit';
 import { PatrimoineAssumptionsPanel } from './components/PatrimoineAssumptionsPanel';
+import { PatrimoineFinancierSection } from './components/PatrimoineFinancierSection';
 import { PatrimoineGlobalBadges } from './components/PatrimoineGlobalBadges';
+import type { PatrimoineUserSettings } from './store/patrimoineSettings';
 import { usePropertiesData } from '@/features/properties/hooks/usePropertiesData';
 import { PatrimoineMode, PatrimoineFilters } from '@/types/dashboard';
 import { Download, Calendar, Filter, FileSpreadsheet, FileText, ChevronDown, Menu, X } from 'lucide-react';
@@ -147,12 +149,6 @@ export function PatrimoinePageCore({
     filters,
   });
 
-  const { settings: patrimoineUserSettings, updateSettings: updatePatrimoineUserSettings } = usePatrimoineSettingsState(organizationId);
-  const patrimoineSnapshot = usePatrimoineSnapshot({
-    organizationId: organizationId ?? undefined,
-    userSettings: patrimoineUserSettings,
-  });
-
   // Fonction d'export
   const [isExporting, setIsExporting] = useState(false);
   
@@ -245,6 +241,21 @@ export function PatrimoinePageCore({
   ] as const;
 
   const [activeSection, setActiveSection] = useState<string>(sectionNavItems[0].id);
+  const [wealthTab, setWealthTab] = useState<'synthese' | 'immobilier' | 'financier'>('synthese');
+  const [assumptionsDirty, setAssumptionsDirty] = useState(false);
+
+  const { settings: patrimoineUserSettings, replaceSettings } = usePatrimoineSettingsState(organizationId);
+  const patrimoineSnapshot = usePatrimoineSnapshot({
+    organizationId: organizationId ?? undefined,
+    userSettings: patrimoineUserSettings,
+  });
+
+  const commitAssumptions = useCallback(
+    (next: PatrimoineUserSettings) => {
+      replaceSettings(next);
+    },
+    [replaceSettings]
+  );
 
   return (
     <div className="space-y-5">
@@ -297,53 +308,90 @@ export function PatrimoinePageCore({
           </div>
         </div>
         
-        {/* Ligne 2 : Description + Tabs */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <p className="text-sm sm:text-base text-gray-600">Vue d&apos;ensemble de votre patrimoine immobilier</p>
-          <Tabs value={modeState} onValueChange={(value) => setModeState(value as PatrimoineMode)}>
-            <TabsList>
-              <TabsTrigger value="realise">Réalisé</TabsTrigger>
-              <TabsTrigger value="prevision">Prévisionnel</TabsTrigger>
-              <TabsTrigger value="lisse">Lissé</TabsTrigger>
-            </TabsList>
-          </Tabs>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm sm:text-base text-gray-600">
+            Synthèse patrimoniale, détail immobilier et enveloppe financière (PEA / ETF / Marché).
+          </p>
         </div>
-
       </div>
 
-      {/* Cockpit : Hero → badges → overview → analyse compacte */}
-      <section
-        aria-label="Cockpit décisionnel patrimoine"
-        className="max-w-full overflow-x-hidden rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm sm:p-4"
-      >
-        {patrimoineSnapshot.loading ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-10 text-slate-600">
-            <div className="h-9 w-9 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />
-            <p className="text-sm">Chargement du snapshot patrimoine…</p>
-          </div>
-        ) : patrimoineSnapshot.error ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{patrimoineSnapshot.error}</div>
-        ) : (
-          <div className="space-y-3">
-            <PatrimoineV4Hero snapshot={patrimoineSnapshot} />
-            <PatrimoineGlobalBadges snapshot={patrimoineSnapshot} />
-            <PatrimoineV4OverviewMain
-              organizationId={organizationId ?? undefined}
-              snapshot={patrimoineSnapshot}
-            />
-            <PatrimoineDecisionCockpit organizationId={organizationId ?? undefined} snapshot={patrimoineSnapshot} />
-          </div>
-        )}
-      </section>
-
-      {!patrimoineSnapshot.loading && !patrimoineSnapshot.error && organizationId && (
+      {organizationId && (
         <PatrimoineAssumptionsPanel
           organizationId={organizationId}
-          settings={patrimoineUserSettings}
-          onSettingsChange={updatePatrimoineUserSettings}
+          savedSettings={patrimoineUserSettings}
           snapshot={patrimoineSnapshot}
+          onCommit={commitAssumptions}
+          onDirtyChange={setAssumptionsDirty}
         />
       )}
+
+      <Tabs
+        value={wealthTab}
+        onValueChange={(v) => setWealthTab(v as 'synthese' | 'immobilier' | 'financier')}
+        className="w-full"
+      >
+        <TabsList className="mb-1 flex-wrap gap-1 border-0 bg-transparent sm:gap-2">
+          <TabsTrigger value="synthese">Synthèse</TabsTrigger>
+          <TabsTrigger value="immobilier">Immobilier</TabsTrigger>
+          <TabsTrigger value="financier">Financier</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="synthese" className="space-y-4 !pt-2">
+          <section
+            aria-label="Cockpit décisionnel patrimoine"
+            className="max-w-full overflow-x-hidden rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm sm:p-4"
+          >
+            {patrimoineSnapshot.loading ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-10 text-slate-600">
+                <div className="h-9 w-9 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />
+                <p className="text-sm">Chargement du snapshot patrimoine…</p>
+              </div>
+            ) : patrimoineSnapshot.error ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {patrimoineSnapshot.error}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <PatrimoineV4Hero snapshot={patrimoineSnapshot} />
+                <PatrimoineGlobalBadges
+                  snapshot={patrimoineSnapshot}
+                  hypothesesDirty={assumptionsDirty}
+                />
+                {!patrimoineSnapshot.loading && !patrimoineSnapshot.error && (
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2 text-[11px] text-slate-700 sm:text-xs">
+                    <p>
+                      <span className="font-semibold text-slate-800">Fiscalité sélectionnée :</span>{' '}
+                      {patrimoineSnapshot.hasFiscalSimulation && patrimoineSnapshot.fiscalYear != null
+                        ? `Année ${patrimoineSnapshot.fiscalYear}`
+                        : 'Non reliée'}
+                    </p>
+                    <p className="mt-1">
+                      <span className="font-semibold text-slate-800">Marché sélectionné :</span>{' '}
+                      {patrimoineSnapshot.marketProfileSummary ?? '—'}
+                    </p>
+                  </div>
+                )}
+                <PatrimoineV4OverviewMain
+                  organizationId={organizationId ?? undefined}
+                  snapshot={patrimoineSnapshot}
+                />
+                <PatrimoineDecisionCockpit organizationId={organizationId ?? undefined} snapshot={patrimoineSnapshot} />
+              </div>
+            )}
+          </section>
+        </TabsContent>
+
+        <TabsContent value="immobilier" className="space-y-4 !pt-2">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <p className="text-sm text-gray-600">Période, filtres et analyses du patrimoine immobilier.</p>
+            <Tabs value={modeState} onValueChange={(value) => setModeState(value as PatrimoineMode)}>
+              <TabsList className="flex-wrap border-0 bg-gray-100/80">
+                <TabsTrigger value="realise">Réalisé</TabsTrigger>
+                <TabsTrigger value="prevision">Prévisionnel</TabsTrigger>
+                <TabsTrigger value="lisse">Lissé</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
 
       {/* Filtres */}
       <div className="flex flex-wrap items-center gap-2.5 p-3 bg-gray-50 rounded-lg border border-gray-200 sm:gap-3">
@@ -570,6 +618,12 @@ export function PatrimoinePageCore({
           </div>
         </div>
       )}
+        </TabsContent>
+
+        <TabsContent value="financier" className="!pt-2">
+          <PatrimoineFinancierSection mode={mode} snapshot={patrimoineSnapshot} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
