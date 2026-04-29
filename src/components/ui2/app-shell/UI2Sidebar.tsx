@@ -29,6 +29,7 @@ import { AppShellUserDisplay } from '@/components/auth/AppShellUserDisplay';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
 import { buildViewPath, type ViewType } from '@/utils/appShellNavigation';
 import { useAppSession } from '@/features/auth/useAppSession';
+import { AppVersionBadge } from '@/components/layout/AppVersionBadge';
 
 // Composant Property Context (identique à UnifiedSidebar, juste le style change)
 function UI2PropertyContextSection({ searchParams }: { searchParams: URLSearchParams | null }) {
@@ -307,8 +308,19 @@ export function UI2Sidebar({
         </ul>
       </nav>
 
-      {/* Footer - User display (réutilise AppShellUserDisplay) */}
-      <div className="p-4 border-t border-gray-200 flex-shrink-0">
+      {/* Footer - Version + user display */}
+      <div className="px-4 pt-2 pb-4 border-t border-gray-200 flex-shrink-0 space-y-2">
+        {!collapsed ? (
+          <div className="flex justify-center">
+            <AppVersionBadge />
+          </div>
+        ) : (
+          <div className="flex justify-center">
+            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
+              <span className="text-[8px] text-slate-400 font-mono">v</span>
+            </div>
+          </div>
+        )}
         <AppShellUserDisplay />
       </div>
     </aside>

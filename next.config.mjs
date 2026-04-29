@@ -23,6 +23,9 @@ const nextConfig = {
     // Exposer les variables Git Vercel côté client (si disponibles)
     NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA || '',
     NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF: process.env.VERCEL_GIT_COMMIT_REF || '',
+    // Horodatage du build et environnement déployé pour debug prod/dev
+    NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),
+    NEXT_PUBLIC_DEPLOY_ENV: process.env.VERCEL_ENV || process.env.NODE_ENV || 'development',
   },
   // Configuration webpack
   webpack: (config, { isServer }) => {
