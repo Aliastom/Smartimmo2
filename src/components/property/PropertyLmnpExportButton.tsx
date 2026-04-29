@@ -313,7 +313,7 @@ export function PropertyLmnpExportButton({
           variant="outline"
           size={compact ? 'sm' : 'md'}
           onClick={() => {
-            const url = `/app?view=lmnp&propertyId=${encodeURIComponent(propertyId)}`;
+            const url = `/app?view=lmnp-activities&propertyId=${encodeURIComponent(propertyId)}`;
             router.push(url);
           }}
           className="whitespace-nowrap"

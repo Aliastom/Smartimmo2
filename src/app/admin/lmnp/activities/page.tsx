@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function LmnpActivitiesAdminPage() {
-  redirect('/parametres/lmnp-activities');
+  redirect('/app?view=lmnp-activities');
 }

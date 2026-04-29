@@ -26,10 +26,10 @@ export default function ParametresClient() {
     },
     {
       id: 'lmnp-activities',
-      title: 'Activités LMNP (SIRET)',
-      description: 'Gérez vos activités LMNP (SIRET) pour vos locations meublées.',
+      title: 'LMNP',
+      description: 'Gérez vos activités LMNP, analysez vos biens et générez votre dossier comptable.',
       icon: FileSpreadsheet,
-      href: '/parametres/lmnp-activities',
+      href: '/app?view=lmnp-activities',
       color: 'blue' as const
     },
     {

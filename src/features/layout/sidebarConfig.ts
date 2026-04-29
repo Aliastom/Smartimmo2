@@ -200,12 +200,12 @@ export const sidebarConfig: SidebarItemConfig[] = [
   },
   {
     id: 'lmnp-pilotage',
-    label: 'Pilotage LMNP',
+    label: 'LMNP',
     icon: FileArchive,
     type: 'main',
     section: 'analyse',
-    normalPath: '/app?view=lmnp',
-    appView: 'lmnp',
+    normalPath: '/app?view=lmnp-activities',
+    appView: 'lmnp-activities',
   },
   {
     id: 'market',

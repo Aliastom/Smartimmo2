@@ -11,6 +11,7 @@ export type ViewType =
   | 'baux' 
   | 'transactions' 
   | 'lmnp'
+  | 'lmnp-activities'
   | 'market'
   | 'documents' 
   | 'echeances' 

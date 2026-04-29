@@ -46,10 +46,10 @@ export function ParametresPageCore({
     },
     {
       id: 'lmnp-activities',
-      title: 'Activités LMNP (SIRET)',
-      description: 'Gérez vos activités LMNP (SIRET) pour vos locations meublées.',
+      title: 'LMNP',
+      description: 'Gérez vos activités LMNP, analysez vos biens et générez votre dossier comptable.',
       icon: FileSpreadsheet,
-      href: '/parametres/lmnp-activities',
+      href: '/app?view=lmnp-activities',
       color: 'blue' as const,
       external: false
     },
@@ -103,6 +103,8 @@ export function ParametresPageCore({
         } else if (section.id === 'gestion-societes') {
           // Navigation vers gestion-deleguee en app-shell
           navigateToView('gestion-deleguee');
+        } else if (section.id === 'lmnp-activities') {
+          navigateToView('lmnp-activities');
         } else if (section.href.startsWith('/app?')) {
           // Extraire la vue depuis l'URL
           const url = new URL(section.href, window.location.origin);

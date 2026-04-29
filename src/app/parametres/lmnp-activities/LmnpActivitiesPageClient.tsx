@@ -37,7 +37,7 @@ const emptyForm = {
   fiscalRegime: 'reel_simplifie' as const,
 };
 
-export default function LmnpActivitiesPageClient() {
+export default function LmnpActivitiesPageClient({ mode = 'normal' }: { mode?: 'normal' | 'app-shell' }) {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<Activity[]>([]);
 
@@ -155,7 +155,10 @@ export default function LmnpActivitiesPageClient() {
     <div className="space-y-6 p-6 max-w-[1400px] mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link href="/parametres" className="text-sm text-primary-600 hover:underline inline-flex items-center gap-1 mb-2">
+          <Link
+            href={mode === 'app-shell' ? '/app?view=parametres' : '/parametres'}
+            className="text-sm text-primary-600 hover:underline inline-flex items-center gap-1 mb-2"
+          >
             <ArrowLeft className="h-4 w-4" /> Paramètres
           </Link>
           <h1 className="text-2xl font-bold text-gray-900">Activités LMNP (SIRET)</h1>
@@ -226,6 +229,11 @@ export default function LmnpActivitiesPageClient() {
                           <Trash2 className="h-3.5 w-3.5 mr-1" />
                           Supprimer
                         </Button>
+                        {count > 0 && (
+                          <p className="text-[11px] text-amber-700">
+                            Suppression impossible : {count} bien(s) rattaché(s).
+                          </p>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -293,7 +301,7 @@ export default function LmnpActivitiesPageClient() {
                       Type fiscal: {p.fiscalTypeId || '—'} · Régime: {p.fiscalRegimeId || '—'}
                     </p>
                   </div>
-                  <Link href={`/biens/${p.id}`}>
+                  <Link href={mode === 'app-shell' ? `/app?view=property&propertyId=${p.id}` : `/biens/${p.id}`}>
                     <Button type="button" size="sm" variant="outline">
                       Ouvrir le bien
                     </Button>

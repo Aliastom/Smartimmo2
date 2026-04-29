@@ -98,8 +98,6 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
   const [loadingRegimes, setLoadingRegimes] = useState(false);
   const [activeTab, setActiveTab] = useState('essentials');
   const [lmnpActivities, setLmnpActivities] = useState<Array<{ id: string; name: string; siret: string; fiscalRegime: string }>>([]);
-  const [showCreateActivity, setShowCreateActivity] = useState(false);
-  const [newActivity, setNewActivity] = useState({ name: '', siret: '', fiscalRegime: 'reel_simplifie' });
 
   // ✅ Détecter le mode app-shell
   const isAppShell = typeof window !== 'undefined' && window.location.pathname.startsWith('/app');
@@ -401,26 +399,6 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
     /(lmnp|lmp|meuble|meublé)/i.test(selectedFiscalTypeText) &&
     /(reel|réel)/i.test(selectedRegimeText) &&
     /(simplifie|simplifié)/i.test(selectedRegimeText);
-
-  const handleCreateLmnpActivity = async () => {
-    if (!newActivity.name || !/^\d{14}$/.test(newActivity.siret)) return;
-    try {
-      const res = await fetch('/api/lmnp/activities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newActivity),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.success) return;
-      const created = json.data as { id: string; name: string; siret: string; fiscalRegime: string };
-      setLmnpActivities((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name, 'fr')));
-      handleChange('lmnpActivityId', created.id);
-      setShowCreateActivity(false);
-      setNewActivity({ name: '', siret: '', fiscalRegime: 'reel_simplifie' });
-    } catch {
-      // no-op UX minimal
-    }
-  };
 
   return (
     <Modal
@@ -732,50 +710,13 @@ export default function PropertyForm({ isOpen, onClose, onSubmit, initialData, s
                     {errors.lmnpActivityId && <p className="text-red-500 text-sm mt-1">{errors.lmnpActivityId}</p>}
                     <div className="mt-1">
                       <Link
-                        href="/parametres/lmnp-activities"
+                        href="/app?view=lmnp-activities"
                         className="text-xs text-orange-700 hover:text-orange-800 underline"
                       >
                         Gérer mes activités LMNP
                       </Link>
                     </div>
                   </div>
-                  {!showCreateActivity ? (
-                    <button
-                      type="button"
-                      className="text-xs text-orange-700 hover:text-orange-800 underline"
-                      onClick={() => setShowCreateActivity(true)}
-                    >
-                      + Créer une activité
-                    </button>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                      <input
-                        type="text"
-                        placeholder="Nom activité"
-                        value={newActivity.name}
-                        onChange={(e) => setNewActivity((p) => ({ ...p, name: e.target.value }))}
-                        className="px-2 py-1.5 border border-gray-300 rounded-md text-sm"
-                      />
-                      <input
-                        type="text"
-                        placeholder="SIRET (14 chiffres)"
-                        value={newActivity.siret}
-                        onChange={(e) => setNewActivity((p) => ({ ...p, siret: e.target.value.replace(/\D/g, '').slice(0, 14) }))}
-                        className="px-2 py-1.5 border border-gray-300 rounded-md text-sm"
-                      />
-                      <div className="flex gap-2">
-                        <SmartSelect
-                          value={newActivity.fiscalRegime}
-                          onChange={(value) => setNewActivity((p) => ({ ...p, fiscalRegime: value }))}
-                          options={[
-                            { value: 'reel_simplifie', label: 'Réel simplifié' },
-                            { value: 'micro_bic', label: 'Micro BIC' },
-                          ]}
-                        />
-                        <Button type="button" size="sm" onClick={handleCreateLmnpActivity}>Créer</Button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
