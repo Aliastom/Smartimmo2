@@ -161,6 +161,17 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     load().catch(() => setLoading(false));
   }, [load]);
 
+  useEffect(() => {
+    const onMarket = (ev: Event) => {
+      const d = (ev as CustomEvent<{ organizationId?: string }>).detail;
+      if (d?.organizationId && d.organizationId !== organizationId) return;
+      void load();
+    };
+    if (typeof window === 'undefined') return;
+    window.addEventListener('market:refresh', onMarket);
+    return () => window.removeEventListener('market:refresh', onMarket);
+  }, [load, organizationId]);
+
   const recommendation = useMemo(() => {
     if (!settings || !snapshot) return null;
     return computeRecommendation(settings, snapshot, history);

@@ -168,6 +168,12 @@ export class MarketInvestmentStorage {
     return `${MARKET_HISTORY_STORAGE_PREFIX}:${organizationId}:${(symbol || '').trim()}:${athPeriod}`;
   }
 
+  async getInvestmentProfileById(organizationId: string, profileId: string): Promise<InvestmentSettings | null> {
+    const db = await getLocalDB();
+    const row = await db.InvestmentSettings.get([organizationId, profileId]);
+    return row ? normalizeInvestmentSettingsRecord(row) : null;
+  }
+
   async getSettings(organizationId: string): Promise<InvestmentSettings> {
     const db = await getLocalDB();
     const existing = await db.InvestmentSettings.get([organizationId, SETTINGS_ID]);
@@ -179,6 +185,39 @@ export class MarketInvestmentStorage {
     const defaults = defaultInvestmentSettings(organizationId);
     await db.InvestmentSettings.put(defaults);
     return defaults;
+  }
+
+  /** Mise à jour ciblée d’un profil marché depuis le cockpit Patrimoine (cash / DCA / jour). */
+  async updateInvestmentProfileFromPatrimoine(
+    organizationId: string,
+    profileId: string,
+    patch: {
+      availableCash?: number;
+      monthlyDcaAmount?: number;
+      monthlyInvestmentDay?: number;
+    }
+  ): Promise<'ok' | 'not_found'> {
+    const db = await getLocalDB();
+    const row = await db.InvestmentSettings.get([organizationId, profileId]);
+    if (!row) return 'not_found';
+    const base = normalizeInvestmentSettingsRecord(row);
+    const next: InvestmentSettings = { ...base };
+    if (patch.availableCash !== undefined) {
+      const v = Math.round(Math.max(0, Number(patch.availableCash)) * 100) / 100;
+      next.availableCash = Number.isFinite(v) ? v : base.availableCash;
+    }
+    if (patch.monthlyDcaAmount !== undefined) {
+      const v = Math.round(Math.max(0, Number(patch.monthlyDcaAmount)) * 100) / 100;
+      next.monthlyDcaAmount = Number.isFinite(v) ? v : base.monthlyDcaAmount;
+    }
+    if (patch.monthlyInvestmentDay !== undefined) {
+      const raw = Math.trunc(Number(patch.monthlyInvestmentDay));
+      if (Number.isFinite(raw) && raw >= 1 && raw <= 31) {
+        next.monthlyInvestmentDay = raw;
+      }
+    }
+    await this.saveSettings(next);
+    return 'ok';
   }
 
   async saveSettings(settings: InvestmentSettings): Promise<void> {

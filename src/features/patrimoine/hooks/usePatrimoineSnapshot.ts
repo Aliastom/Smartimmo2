@@ -12,6 +12,7 @@ import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/Propert
 import { getLoanRepositoryOffline } from '@/lib/offline/repositories/LoanRepositoryOffline';
 import { buildSchedule, crdAtDate, type ScheduleRow } from '@/lib/finance/amortization';
 import type {
+  AthPeriod,
   InvestmentActionLog,
   InvestmentRecommendation,
   MarketOpportunityStatus,
@@ -134,6 +135,14 @@ export interface PatrimoineSnapshotResult {
   sourceDcaDay: PatrimoineAmountSource;
   /** Libellé du profil marché effectif (symbole · DCA · cash). */
   marketProfileSummary: string | null;
+  /** Données brutes profil résolu (synchro édition Patrimoine ↔ Marché). */
+  resolvedMarketAvailableCash: number | null;
+  resolvedMarketMonthlyDca: number | null;
+  resolvedMarketInvestmentDay: number | null;
+  /** Symbole / cours cockpit pour performance des décisions (profil résolu + snapshot). */
+  cockpitMarketSymbol: string | null;
+  cockpitMarketCurrentPrice: number | null;
+  cockpitMarketAthPeriod: AthPeriod | null;
   loading: boolean;
   error: string | null;
 }
@@ -412,7 +421,10 @@ async function loadPatrimoineSnapshotCore(
 
   const patrimoineReco = computePatrimoineRecommendation(decisionInput);
 
-  const dcaRecommended = hasMarketProfile ? dcaFromMarketEngine : patrimoineReco.dcaAmount;
+  const refDca = userSettings.patrimoineReferenceMonthlyDca;
+  const dcaFromPatrimoineSettings =
+    refDca != null && Number.isFinite(refDca) && refDca >= 0 ? refDca : patrimoineReco.dcaAmount;
+  const dcaRecommended = hasMarketProfile ? dcaFromMarketEngine : dcaFromPatrimoineSettings;
 
   const monthlyCapacity = Math.round((revenuLocatifNet / 12) * 100) / 100;
   const monthlyCapacitySafe = Number.isFinite(monthlyCapacity) ? Math.max(0, monthlyCapacity) : 0;
@@ -463,6 +475,13 @@ async function loadPatrimoineSnapshotCore(
   const hasMarketData = marketSnap != null;
 
   const marketProfileSummary = marketSettings ? formatPatrimoineMarketProfileLabel(marketSettings) : null;
+
+  const cockpitSym = marketSettings ? normalizeMarketStorageSymbol(marketSettings.referenceSymbol) : null;
+  const cockpitPrice =
+    marketSnap && Number.isFinite(marketSnap.currentPrice) && marketSnap.currentPrice > 0
+      ? marketSnap.currentPrice
+      : null;
+  const cockpitAth = marketSettings?.athPeriod ?? null;
 
   return {
     immobilierBrut,
@@ -522,6 +541,21 @@ async function loadPatrimoineSnapshotCore(
     sourceDca,
     sourceDcaDay,
     marketProfileSummary,
+    resolvedMarketAvailableCash: marketSettings ? Math.max(0, marketSettings.availableCash ?? 0) : null,
+    resolvedMarketMonthlyDca: marketSettings
+      ? Math.max(0, Number.isFinite(marketSettings.monthlyDcaAmount) ? marketSettings.monthlyDcaAmount : 0)
+      : null,
+    resolvedMarketInvestmentDay: marketSettings
+      ? typeof marketSettings.monthlyInvestmentDay === 'number' &&
+        Number.isFinite(marketSettings.monthlyInvestmentDay) &&
+        marketSettings.monthlyInvestmentDay >= 1 &&
+        marketSettings.monthlyInvestmentDay <= 31
+        ? Math.trunc(marketSettings.monthlyInvestmentDay)
+        : null
+      : null,
+    cockpitMarketSymbol: cockpitSym,
+    cockpitMarketCurrentPrice: cockpitPrice,
+    cockpitMarketAthPeriod: cockpitAth,
   };
 }
 
@@ -553,6 +587,7 @@ export function usePatrimoineSnapshot(options: UsePatrimoineSnapshotOptions): Pa
   const objective = userSettings.objective;
   const selectedFiscalSimulationIdPref = userSettings.selectedFiscalSimulationId ?? null;
   const selectedMarketInvestmentIdPref = userSettings.selectedMarketInvestmentId ?? null;
+  const patrimoineReferenceMonthlyDcaPref = userSettings.patrimoineReferenceMonthlyDca;
 
   const reload = useCallback(async () => {
     if (!organizationId) {
@@ -571,6 +606,9 @@ export function usePatrimoineSnapshot(options: UsePatrimoineSnapshotOptions): Pa
         objective,
         selectedFiscalSimulationId: selectedFiscalSimulationIdPref,
         selectedMarketInvestmentId: selectedMarketInvestmentIdPref,
+        ...(patrimoineReferenceMonthlyDcaPref !== undefined
+          ? { patrimoineReferenceMonthlyDca: patrimoineReferenceMonthlyDcaPref }
+          : {}),
       };
       const data = await loadPatrimoineSnapshotCore(organizationId, settingsSlice);
       setCore(data);
@@ -590,6 +628,7 @@ export function usePatrimoineSnapshot(options: UsePatrimoineSnapshotOptions): Pa
     objective,
     selectedFiscalSimulationIdPref,
     selectedMarketInvestmentIdPref,
+    patrimoineReferenceMonthlyDcaPref,
   ]);
 
   useEffect(() => {
@@ -600,13 +639,20 @@ export function usePatrimoineSnapshot(options: UsePatrimoineSnapshotOptions): Pa
     const onSync = () => {
       void reload();
     };
+    const onMarket = (ev: Event) => {
+      const d = (ev as CustomEvent<{ organizationId?: string }>).detail;
+      if (d?.organizationId && d.organizationId !== organizationId) return;
+      void reload();
+    };
     window.addEventListener('sync:refresh', onSync);
     window.addEventListener('patrimoine:refresh', onSync);
+    window.addEventListener('market:refresh', onMarket);
     return () => {
       window.removeEventListener('sync:refresh', onSync);
       window.removeEventListener('patrimoine:refresh', onSync);
+      window.removeEventListener('market:refresh', onMarket);
     };
-  }, [reload]);
+  }, [reload, organizationId]);
 
   const emptySnapshot = useMemo(
     (): PatrimoineSnapshotResult => ({
@@ -672,6 +718,12 @@ export function usePatrimoineSnapshot(options: UsePatrimoineSnapshotOptions): Pa
       sourceDca: 'PATRIMOINE',
       sourceDcaDay: 'PATRIMOINE',
       marketProfileSummary: null,
+      resolvedMarketAvailableCash: null,
+      resolvedMarketMonthlyDca: null,
+      resolvedMarketInvestmentDay: null,
+      cockpitMarketSymbol: null,
+      cockpitMarketCurrentPrice: null,
+      cockpitMarketAthPeriod: null,
       loading,
       error,
     }),

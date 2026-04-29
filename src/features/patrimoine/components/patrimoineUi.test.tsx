@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PatrimoineAssumptionsPanel } from '@/features/patrimoine/components/PatrimoineAssumptionsPanel';
 import { PatrimoineDecisionCockpit } from '@/features/patrimoine/components/PatrimoineDecisionCockpit';
 import { PatrimoineGlobalBadges } from '@/features/patrimoine/components/PatrimoineGlobalBadges';
@@ -31,7 +31,7 @@ describe('Patrimoine UI smoke', () => {
     expect(screen.getByText(/pourquoi cette recommandation/i)).toBeInTheDocument();
   });
 
-  it('PatrimoineAssumptionsPanel : reset appelle onCommit avec les défauts', () => {
+  it('PatrimoineAssumptionsPanel : reset appelle onCommit avec les défauts', async () => {
     vi.spyOn(window, 'dispatchEvent').mockImplementation(() => true);
     const onCommit = vi.fn();
     const defaults = getPatrimoineSettingsDefaults();
@@ -55,6 +55,7 @@ describe('Patrimoine UI smoke', () => {
       />
     );
     fireEvent.click(screen.getByRole('button', { name: /réinitialiser/i }));
+    await waitFor(() => expect(onCommit).toHaveBeenCalled());
     expect(onCommit).toHaveBeenCalledWith(
       expect.objectContaining({
         cashDisponible: defaults.cashDisponible,

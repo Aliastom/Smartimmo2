@@ -71,6 +71,12 @@ export function minimalPatrimoineSnapshot(overrides: Partial<PatrimoineSnapshotR
     sourceDca: 'PATRIMOINE',
     sourceDcaDay: 'PATRIMOINE',
     marketProfileSummary: null,
+    resolvedMarketAvailableCash: null,
+    resolvedMarketMonthlyDca: null,
+    resolvedMarketInvestmentDay: null,
+    cockpitMarketSymbol: null,
+    cockpitMarketCurrentPrice: null,
+    cockpitMarketAthPeriod: null,
     loading: false,
     error: null,
   };

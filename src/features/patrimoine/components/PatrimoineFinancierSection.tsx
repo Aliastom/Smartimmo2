@@ -9,16 +9,18 @@ import { formatCurrencyEUR } from '@/utils/format';
 import { cn } from '@/utils/cn';
 import { Button } from '@/components/ui/Button';
 import type { PatrimoineSnapshotResult } from '@/features/patrimoine/hooks/usePatrimoineSnapshot';
+import { PatrimoineDecisionPerformancePanel } from '@/features/patrimoine/components/PatrimoineDecisionPerformancePanel';
 
 export interface PatrimoineFinancierSectionProps {
   mode: 'normal' | 'app-shell';
+  organizationId: string | undefined;
   snapshot: PatrimoineSnapshotResult;
   className?: string;
 }
 
 const MARKET_APP_HREF = '/app?view=market';
 
-export function PatrimoineFinancierSection({ mode, snapshot, className }: PatrimoineFinancierSectionProps) {
+export function PatrimoineFinancierSection({ mode, organizationId, snapshot, className }: PatrimoineFinancierSectionProps) {
   const reco = snapshot.marketRecommendation;
   const marketLine =
     reco?.message ??
@@ -103,6 +105,8 @@ export function PatrimoineFinancierSection({ mode, snapshot, className }: Patrim
           <p className="mt-1 text-[10px] text-slate-600">Score : {snapshot.marketScoreLabel}</p>
         )}
       </div>
+
+      <PatrimoineDecisionPerformancePanel organizationId={organizationId} snapshot={snapshot} />
     </section>
   );
 }

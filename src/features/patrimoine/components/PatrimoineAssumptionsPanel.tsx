@@ -4,20 +4,23 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, RotateCcw } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '@/utils/cn';
 import { formatCurrencyEUR } from '@/utils/format';
 import type { PatrimoineSnapshotResult } from '@/features/patrimoine/hooks/usePatrimoineSnapshot';
 import type { PatrimoineUserSettings } from '@/features/patrimoine/store/patrimoineSettings';
 import { getPatrimoineSettingsDefaults } from '@/features/patrimoine/store/patrimoineSettings';
 import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
+import { marketInvestmentStorage } from '@/features/market/services/marketInvestmentStorage';
 
 export interface PatrimoineAssumptionsPanelProps {
   organizationId: string | undefined;
   /** Dernière sauvegarde locale (localStorage). */
   savedSettings: PatrimoineUserSettings;
   snapshot: PatrimoineSnapshotResult;
-  /** Persistance complète + le parent déclenche `patrimoine:refresh`. */
-  onCommit: (next: PatrimoineUserSettings) => void;
+  /** Persistance : le parent met à jour localStorage et réagit à `patrimoine:refresh`. */
+  onCommit: (next: PatrimoineUserSettings) => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
   className?: string;
 }
@@ -28,10 +31,10 @@ function objectiveLabel(o: PatrimoineUserSettings['objective']): string {
   return 'Équilibre';
 }
 
-function ReadOnlyMarketHint({ children }: { children: React.ReactNode }) {
+function MarketSyncHint() {
   return (
-    <p className="text-[10px] italic text-slate-500 sm:text-[11px]" data-testid="market-pilot-hint">
-      {children}
+    <p className="text-[10px] text-slate-600 sm:text-[11px]" data-testid="market-sync-hint">
+      Synchronisé avec le profil Marché — les changements sont appliqués à la validation.
     </p>
   );
 }
@@ -45,13 +48,68 @@ export function PatrimoineAssumptionsPanel({
   className,
 }: PatrimoineAssumptionsPanelProps) {
   const [draft, setDraft] = useState<PatrimoineUserSettings>(savedSettings);
+  const [marketLinked, setMarketLinked] = useState<{
+    cash: number;
+    dcaMonthly: number;
+    day: number;
+  } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const effectiveMarketProfileId = draft.selectedMarketInvestmentId ?? snapshot.selectedMarketInvestmentId ?? null;
+  const hasResolvedMarketProfile = Boolean(effectiveMarketProfileId);
+
+  const refreshMarketLinkedFromSnapshot = useCallback(() => {
+    if (!snapshot.selectedMarketInvestmentId) {
+      setMarketLinked(null);
+      return;
+    }
+    setMarketLinked({
+      cash: snapshot.cashDisponible,
+      dcaMonthly: snapshot.resolvedMarketMonthlyDca ?? snapshot.dcaRecommended,
+      day: snapshot.effectiveDcaDayOfMonth,
+    });
+  }, [snapshot]);
 
   useEffect(() => {
     if (!isDirty) {
       setDraft(savedSettings);
     }
   }, [savedSettings, isDirty]);
+
+  useEffect(() => {
+    if (isDirty) return;
+    const sel = draft.selectedMarketInvestmentId ?? null;
+    const snapId = snapshot.selectedMarketInvestmentId ?? null;
+    if (!organizationId || !effectiveMarketProfileId) {
+      setMarketLinked(null);
+      return;
+    }
+    if (sel === null || sel === snapId) {
+      refreshMarketLinkedFromSnapshot();
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const p = await marketInvestmentStorage.getInvestmentProfileById(organizationId, effectiveMarketProfileId);
+      if (cancelled || !p) return;
+      setMarketLinked({
+        cash: Math.max(0, p.availableCash ?? 0),
+        dcaMonthly: Math.max(0, p.monthlyDcaAmount ?? 0),
+        day: p.monthlyInvestmentDay ?? 5,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    organizationId,
+    draft.selectedMarketInvestmentId,
+    snapshot.selectedMarketInvestmentId,
+    effectiveMarketProfileId,
+    isDirty,
+    refreshMarketLinkedFromSnapshot,
+  ]);
 
   const setDirty = useCallback(
     (dirty: boolean) => {
@@ -70,46 +128,129 @@ export function PatrimoineAssumptionsPanel({
     [organizationId, setDirty]
   );
 
-  const handleValidate = useCallback(() => {
-    if (!organizationId) return;
-    onCommit(draft);
-    setDirty(false);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('patrimoine:refresh'));
+  const bumpMarketLinked = useCallback(
+    (patch: Partial<{ cash: number; dcaMonthly: number; day: number }>) => {
+      if (!organizationId) return;
+      setMarketLinked((prev) => {
+        const base = prev ?? {
+          cash: snapshot.cashDisponible,
+          dcaMonthly: snapshot.resolvedMarketMonthlyDca ?? snapshot.dcaRecommended,
+          day: snapshot.effectiveDcaDayOfMonth,
+        };
+        return { ...base, ...patch };
+      });
+      setDirty(true);
+    },
+    [organizationId, snapshot, setDirty]
+  );
+
+  const handleValidate = useCallback(async () => {
+    if (!organizationId || isSaving || !isDirty) return;
+    setIsSaving(true);
+    try {
+      const profileId = draft.selectedMarketInvestmentId ?? snapshot.selectedMarketInvestmentId ?? null;
+
+      const linked =
+        marketLinked ??
+        (profileId
+          ? {
+              cash: snapshot.cashDisponible,
+              dcaMonthly: snapshot.resolvedMarketMonthlyDca ?? snapshot.dcaRecommended,
+              day: snapshot.effectiveDcaDayOfMonth,
+            }
+          : null);
+
+      if (profileId && linked) {
+        await marketInvestmentStorage.updateInvestmentProfileFromPatrimoine(organizationId, profileId, {
+          availableCash: linked.cash,
+          monthlyDcaAmount: linked.dcaMonthly,
+          monthlyInvestmentDay: linked.day,
+        });
+      }
+
+      const pureNext: PatrimoineUserSettings = { ...draft };
+      if (profileId) {
+        pureNext.cashDisponible = savedSettings.cashDisponible;
+        pureNext.dcaDayOfMonth = savedSettings.dcaDayOfMonth;
+        delete pureNext.patrimoineReferenceMonthlyDca;
+      } else {
+        pureNext.cashDisponible = draft.cashDisponible;
+        pureNext.dcaDayOfMonth = draft.dcaDayOfMonth;
+        if (draft.patrimoineReferenceMonthlyDca !== undefined) {
+          pureNext.patrimoineReferenceMonthlyDca = draft.patrimoineReferenceMonthlyDca;
+        }
+      }
+
+      await Promise.resolve(onCommit(pureNext));
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('patrimoine:refresh'));
+        window.dispatchEvent(new CustomEvent('market:refresh', { detail: { organizationId } }));
+      }
+      toast.success('Hypothèses patrimoine mises à jour');
+      setDirty(false);
+    } catch (e) {
+      console.error('[PatrimoineAssumptionsPanel]', e);
+      toast.error('Impossible d’enregistrer les hypothèses.');
+    } finally {
+      setIsSaving(false);
     }
-  }, [organizationId, draft, onCommit, setDirty]);
+  }, [
+    organizationId,
+    isSaving,
+    isDirty,
+    draft,
+    snapshot.selectedMarketInvestmentId,
+    marketLinked,
+    snapshot.cashDisponible,
+    snapshot.resolvedMarketMonthlyDca,
+    snapshot.dcaRecommended,
+    snapshot.effectiveDcaDayOfMonth,
+    savedSettings.cashDisponible,
+    savedSettings.dcaDayOfMonth,
+    onCommit,
+    setDirty,
+  ]);
 
   const handleCancel = useCallback(() => {
     setDraft(savedSettings);
+    refreshMarketLinkedFromSnapshot();
     setDirty(false);
-  }, [savedSettings, setDirty]);
+  }, [savedSettings, refreshMarketLinkedFromSnapshot, setDirty]);
 
   const handleReset = useCallback(() => {
     if (!organizationId) return;
     const d = getPatrimoineSettingsDefaults();
-    onCommit(d);
+    void Promise.resolve(onCommit(d));
     setDraft(d);
     setDirty(false);
+    refreshMarketLinkedFromSnapshot();
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('patrimoine:refresh'));
     }
-  }, [organizationId, onCommit, setDirty]);
+  }, [organizationId, onCommit, setDirty, refreshMarketLinkedFromSnapshot]);
 
   const disabled = !organizationId;
-  const marketCash = snapshot.sourceCash === 'MARKET';
-  const marketDcaAmt = snapshot.sourceDca === 'MARKET';
-  const marketDcaDay = snapshot.sourceDcaDay === 'MARKET';
-
-  const previewCashDisponible = marketCash ? snapshot.cashDisponible : draft.cashDisponible;
+  const previewCashDisponible = hasResolvedMarketProfile && marketLinked ? marketLinked.cash : draft.cashDisponible;
   const previewExcess = Math.max(0, previewCashDisponible - draft.cashSecurite);
+  const dcaPatrimoineDisplay =
+    draft.patrimoineReferenceMonthlyDca ?? snapshot.patrimoineReco.dcaAmount ?? snapshot.dcaRecommended;
 
   const summaryLine = [
     formatCurrencyEUR(previewCashDisponible),
     formatCurrencyEUR(draft.cashSecurite),
     formatCurrencyEUR(draft.peaEtfValue),
     objectiveLabel(draft.objective),
-    `J${marketDcaDay ? snapshot.effectiveDcaDayOfMonth : draft.dcaDayOfMonth}`,
+    `J${
+      hasResolvedMarketProfile && marketLinked
+        ? marketLinked.day
+        : snapshot.sourceDcaDay === 'MARKET'
+          ? snapshot.effectiveDcaDayOfMonth
+          : draft.dcaDayOfMonth
+    }`,
   ].join(' · ');
+
+  const validateButtonLabel = !isDirty ? 'Aucune modification' : isSaving ? 'Validation…' : 'Valider les hypothèses';
 
   return (
     <details
@@ -131,7 +272,10 @@ export function PatrimoineAssumptionsPanel({
                 Modifications non enregistrées
               </span>
             ) : (
-              <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-900 ring-1 ring-emerald-200/70">
+              <span
+                className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-900 ring-1 ring-emerald-200/70"
+                data-testid="badge-assumptions-saved"
+              >
                 Hypothèses sauvegardées
               </span>
             )}
@@ -181,7 +325,24 @@ export function PatrimoineAssumptionsPanel({
                 value={draft.selectedMarketInvestmentId ?? ''}
                 onChange={(e) => {
                   const v = e.target.value;
-                  bumpDraft({ selectedMarketInvestmentId: v === '' ? null : v });
+                  const id = v === '' ? null : v;
+                  bumpDraft({ selectedMarketInvestmentId: id });
+                  if (!organizationId) return;
+                  void (async () => {
+                    const targetId = id ?? snapshot.selectedMarketInvestmentId;
+                    if (!targetId) {
+                      setMarketLinked(null);
+                      return;
+                    }
+                    const p = await marketInvestmentStorage.getInvestmentProfileById(organizationId, targetId);
+                    if (p) {
+                      setMarketLinked({
+                        cash: Math.max(0, p.availableCash ?? 0),
+                        dcaMonthly: Math.max(0, p.monthlyDcaAmount ?? 0),
+                        day: p.monthlyInvestmentDay ?? 5,
+                      });
+                    }
+                  })();
                 }}
               >
                 <option value="">Auto — profil principal</option>
@@ -261,13 +422,25 @@ export function PatrimoineAssumptionsPanel({
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {marketCash ? (
-            <div className="flex flex-col gap-0.5 rounded-lg border border-slate-100 bg-slate-50/50 px-2 py-1.5">
-              <span className="text-[10px] font-medium text-slate-600 sm:text-[11px]">Cash disponible</span>
-              <span className="text-xs font-semibold tabular-nums text-slate-900 sm:text-sm">
-                {formatCurrencyEUR(snapshot.cashDisponible)}
-              </span>
-              <ReadOnlyMarketHint>Piloté par le profil Marché (availableCash).</ReadOnlyMarketHint>
+          {hasResolvedMarketProfile && marketLinked ? (
+            <div className="flex flex-col gap-1 rounded-lg border border-violet-100 bg-violet-50/40 px-2 py-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-medium text-slate-600 sm:text-[11px]">Cash disponible</span>
+                <Badge variant="secondary" size="sm" className="text-[9px]">
+                  Marché
+                </Badge>
+              </div>
+              <input
+                type="number"
+                min={0}
+                step={100}
+                disabled={disabled || isSaving}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs tabular-nums sm:text-sm"
+                data-testid="input-cash-disponible-market"
+                value={marketLinked.cash || ''}
+                onChange={(e) => bumpMarketLinked({ cash: Number(e.target.value) || 0 })}
+              />
+              <MarketSyncHint />
             </div>
           ) : (
             <label className="flex flex-col gap-0.5">
@@ -276,7 +449,7 @@ export function PatrimoineAssumptionsPanel({
                 type="number"
                 min={0}
                 step={100}
-                disabled={disabled}
+                disabled={disabled || isSaving}
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs tabular-nums disabled:opacity-50 sm:text-sm"
                 data-testid="input-cash-disponible"
                 value={draft.cashDisponible || ''}
@@ -292,7 +465,7 @@ export function PatrimoineAssumptionsPanel({
               type="number"
               min={0}
               step={100}
-              disabled={disabled}
+              disabled={disabled || isSaving}
               className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs tabular-nums disabled:opacity-50 sm:text-sm"
               value={draft.cashSecurite}
               onChange={(e) => bumpDraft({ cashSecurite: Number(e.target.value) || 0 })}
@@ -305,7 +478,7 @@ export function PatrimoineAssumptionsPanel({
               type="number"
               min={0}
               step={100}
-              disabled={disabled}
+              disabled={disabled || isSaving}
               className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs tabular-nums disabled:opacity-50 sm:text-sm"
               value={draft.peaEtfValue || ''}
               placeholder="0"
@@ -316,7 +489,7 @@ export function PatrimoineAssumptionsPanel({
           <label className="flex flex-col gap-0.5">
             <span className="text-[10px] font-medium text-slate-600 sm:text-[11px]">Objectif</span>
             <select
-              disabled={disabled}
+              disabled={disabled || isSaving}
               className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs disabled:opacity-50 sm:text-sm"
               value={draft.objective}
               onChange={(e) =>
@@ -331,29 +504,64 @@ export function PatrimoineAssumptionsPanel({
             </select>
           </label>
 
-          {marketDcaAmt ? (
-            <div className="flex flex-col gap-0.5 rounded-lg border border-slate-100 bg-slate-50/50 px-2 py-1.5">
-              <span className="text-[10px] font-medium text-slate-600 sm:text-[11px]">DCA mensuel (réf.)</span>
-              <span className="text-xs font-semibold tabular-nums text-slate-900 sm:text-sm">
-                {formatCurrencyEUR(snapshot.dcaRecommended)}
-              </span>
-              <ReadOnlyMarketHint>Piloté par le profil Marché.</ReadOnlyMarketHint>
+          {hasResolvedMarketProfile && marketLinked ? (
+            <div className="flex flex-col gap-1 rounded-lg border border-violet-100 bg-violet-50/40 px-2 py-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-medium text-slate-600 sm:text-[11px]">DCA mensuel</span>
+                <Badge variant="secondary" size="sm" className="text-[9px]">
+                  Marché
+                </Badge>
+              </div>
+              <input
+                type="number"
+                min={0}
+                step={50}
+                disabled={disabled || isSaving}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs tabular-nums sm:text-sm"
+                data-testid="input-dca-monthly-market"
+                value={marketLinked.dcaMonthly || ''}
+                onChange={(e) => bumpMarketLinked({ dcaMonthly: Number(e.target.value) || 0 })}
+              />
+              <MarketSyncHint />
             </div>
           ) : (
-            <div className="flex flex-col gap-0.5 rounded-lg border border-dashed border-slate-200 px-2 py-1.5">
+            <label className="flex flex-col gap-0.5">
               <span className="text-[10px] font-medium text-slate-600 sm:text-[11px]">DCA mensuel (réf.)</span>
-              <span className="text-xs font-semibold tabular-nums text-slate-800 sm:text-sm">
-                {formatCurrencyEUR(snapshot.dcaRecommended)}
-              </span>
-              <ReadOnlyMarketHint>Selon la recommandation Patrimoine (pas de profil Marché).</ReadOnlyMarketHint>
-            </div>
+              <input
+                type="number"
+                min={0}
+                step={50}
+                disabled={disabled || isSaving}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs tabular-nums sm:text-sm"
+                data-testid="input-dca-monthly-patrimoine"
+                value={dcaPatrimoineDisplay || ''}
+                onChange={(e) =>
+                  bumpDraft({ patrimoineReferenceMonthlyDca: Number(e.target.value) || 0 })
+                }
+              />
+              <p className="text-[10px] italic text-slate-500 sm:text-[11px]">Stocké localement (pas de profil Marché).</p>
+            </label>
           )}
 
-          {marketDcaDay ? (
-            <div className="flex flex-col gap-0.5 rounded-lg border border-slate-100 bg-slate-50/50 px-2 py-1.5">
-              <span className="text-[10px] font-medium text-slate-600 sm:text-[11px]">Jour DCA</span>
-              <span className="text-xs font-semibold text-slate-900 sm:text-sm">{snapshot.effectiveDcaDayOfMonth}</span>
-              <ReadOnlyMarketHint>Piloté par le profil Marché.</ReadOnlyMarketHint>
+          {hasResolvedMarketProfile && marketLinked ? (
+            <div className="flex flex-col gap-1 rounded-lg border border-violet-100 bg-violet-50/40 px-2 py-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-medium text-slate-600 sm:text-[11px]">Jour DCA</span>
+                <Badge variant="secondary" size="sm" className="text-[9px]">
+                  Marché
+                </Badge>
+              </div>
+              <input
+                type="number"
+                min={1}
+                max={31}
+                disabled={disabled || isSaving}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs tabular-nums sm:text-sm"
+                data-testid="input-dca-day-market"
+                value={marketLinked.day}
+                onChange={(e) => bumpMarketLinked({ day: Number(e.target.value) || 5 })}
+              />
+              <MarketSyncHint />
             </div>
           ) : (
             <label className="flex flex-col gap-0.5">
@@ -362,7 +570,7 @@ export function PatrimoineAssumptionsPanel({
                 type="number"
                 min={1}
                 max={31}
-                disabled={disabled}
+                disabled={disabled || isSaving}
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs tabular-nums disabled:opacity-50 sm:text-sm"
                 data-testid="input-dca-day"
                 value={draft.dcaDayOfMonth}
@@ -382,7 +590,7 @@ export function PatrimoineAssumptionsPanel({
               type="button"
               variant="outline"
               size="sm"
-              disabled={disabled || !isDirty}
+              disabled={disabled || isSaving || !isDirty}
               className="h-8 px-2 text-[11px] sm:h-9 sm:px-3 sm:text-xs"
               onClick={handleCancel}
             >
@@ -392,7 +600,7 @@ export function PatrimoineAssumptionsPanel({
               type="button"
               variant="outline"
               size="sm"
-              disabled={disabled}
+              disabled={disabled || isSaving}
               className="h-8 gap-1 px-2 text-[11px] sm:h-9 sm:px-3 sm:text-xs"
               onClick={handleReset}
             >
@@ -401,13 +609,18 @@ export function PatrimoineAssumptionsPanel({
             </Button>
             <Button
               type="button"
+              variant="primary"
               size="sm"
-              disabled={disabled || !isDirty}
-              className="h-8 px-2 text-[11px] sm:h-9 sm:px-3 sm:text-xs"
+              loading={isSaving}
+              disabled={disabled || !isDirty || isSaving}
+              className={cn(
+                'h-8 px-2 text-[11px] sm:h-9 sm:px-3 sm:text-xs',
+                !isDirty && 'opacity-80'
+              )}
               data-testid="btn-validate-assumptions"
-              onClick={handleValidate}
+              onClick={() => void handleValidate()}
             >
-              Valider les hypothèses
+              {validateButtonLabel}
             </Button>
           </div>
         </div>

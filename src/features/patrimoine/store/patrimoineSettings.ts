@@ -24,6 +24,11 @@ export interface PatrimoineUserSettings {
    * `null` / absent = automatique (profil « default » si présent, sinon dernier profil actif par date).
    */
   selectedMarketInvestmentId?: string | null;
+  /**
+   * Montant DCA mensuel de référence (€) — utilisé uniquement si aucun profil Marché résolu.
+   * Si absent, le moteur patrimoine (reco) fournit le montant affiché.
+   */
+  patrimoineReferenceMonthlyDca?: number;
 }
 
 const STORAGE_PREFIX = 'smartimmo.patrimoine.userSettings.v2';
@@ -96,6 +101,14 @@ function parseStored(raw: string | null): PatrimoineUserSettings | null {
         selectedMarketInvestmentId = null;
       }
     }
+    let patrimoineReferenceMonthlyDca: number | undefined;
+    if (
+      typeof o.patrimoineReferenceMonthlyDca === 'number' &&
+      Number.isFinite(o.patrimoineReferenceMonthlyDca) &&
+      o.patrimoineReferenceMonthlyDca >= 0
+    ) {
+      patrimoineReferenceMonthlyDca = Math.round(o.patrimoineReferenceMonthlyDca * 100) / 100;
+    }
     return {
       cashDisponible:
         typeof o.cashDisponible === 'number' && Number.isFinite(o.cashDisponible) ? o.cashDisponible : DEFAULTS.cashDisponible,
@@ -106,6 +119,7 @@ function parseStored(raw: string | null): PatrimoineUserSettings | null {
       objective,
       selectedFiscalSimulationId,
       selectedMarketInvestmentId,
+      ...(patrimoineReferenceMonthlyDca !== undefined ? { patrimoineReferenceMonthlyDca } : {}),
     };
   } catch {
     return null;
@@ -140,6 +154,14 @@ function clampFullSettings(input: PatrimoineUserSettings): PatrimoineUserSetting
   } else if (input.selectedMarketInvestmentId === null) {
     selectedMarketInvestmentId = null;
   }
+  let patrimoineReferenceMonthlyDca: number | undefined;
+  if (
+    typeof input.patrimoineReferenceMonthlyDca === 'number' &&
+    Number.isFinite(input.patrimoineReferenceMonthlyDca) &&
+    input.patrimoineReferenceMonthlyDca >= 0
+  ) {
+    patrimoineReferenceMonthlyDca = Math.round(input.patrimoineReferenceMonthlyDca * 100) / 100;
+  }
   return {
     cashDisponible:
       typeof input.cashDisponible === 'number' && Number.isFinite(input.cashDisponible)
@@ -165,6 +187,7 @@ function clampFullSettings(input: PatrimoineUserSettings): PatrimoineUserSetting
     objective,
     selectedFiscalSimulationId,
     selectedMarketInvestmentId,
+    ...(patrimoineReferenceMonthlyDca !== undefined ? { patrimoineReferenceMonthlyDca } : {}),
   };
 }
 

@@ -28,6 +28,7 @@ import {
 } from './components/PatrimoineDecisionCockpit';
 import { PatrimoineAssumptionsPanel } from './components/PatrimoineAssumptionsPanel';
 import { PatrimoineFinancierSection } from './components/PatrimoineFinancierSection';
+import { PatrimoineDecisionPerformancePanel } from './components/PatrimoineDecisionPerformancePanel';
 import { PatrimoineGlobalBadges } from './components/PatrimoineGlobalBadges';
 import type { PatrimoineUserSettings } from './store/patrimoineSettings';
 import { usePropertiesData } from '@/features/properties/hooks/usePropertiesData';
@@ -376,6 +377,11 @@ export function PatrimoinePageCore({
                   snapshot={patrimoineSnapshot}
                 />
                 <PatrimoineDecisionCockpit organizationId={organizationId ?? undefined} snapshot={patrimoineSnapshot} />
+                <PatrimoineDecisionPerformancePanel
+                  organizationId={organizationId ?? undefined}
+                  snapshot={patrimoineSnapshot}
+                  variant="compact"
+                />
               </div>
             )}
           </section>
@@ -621,7 +627,7 @@ export function PatrimoinePageCore({
         </TabsContent>
 
         <TabsContent value="financier" className="!pt-2">
-          <PatrimoineFinancierSection mode={mode} snapshot={patrimoineSnapshot} />
+          <PatrimoineFinancierSection mode={mode} organizationId={organizationId} snapshot={patrimoineSnapshot} />
         </TabsContent>
       </Tabs>
     </div>
