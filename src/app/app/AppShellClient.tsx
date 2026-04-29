@@ -74,12 +74,23 @@ function AppShellClientContent() {
   // Dériver currentView directement depuis searchParams (réactif, pas de polling)
   const currentView = useMemo<ViewType>(() => {
     const viewParam = searchParams.get('view');
-    if (viewParam && ['dashboard', 'patrimoine', 'biens', 'locataires', 'baux', 'transactions', 'lmnp', 'market', 'documents', 'echeances', 'loans', 'fiscal', 'admin', 'parametres', 'sync', 'property', 'profil', 'gestion-deleguee', 'alertes'].includes(viewParam)) {
+    if (viewParam === 'lmnp') {
+      return 'lmnp-activities';
+    }
+    if (viewParam && ['dashboard', 'patrimoine', 'biens', 'locataires', 'baux', 'transactions', 'lmnp', 'lmnp-activities', 'market', 'documents', 'echeances', 'loans', 'fiscal', 'admin', 'parametres', 'sync', 'property', 'profil', 'gestion-deleguee', 'alertes'].includes(viewParam)) {
       console.log('[AppShellClient] 📍 Vue calculée depuis URL:', viewParam, 'URL:', window.location.href);
       return viewParam as ViewType;
     }
     console.log('[AppShellClient] 📍 Vue par défaut: dashboard');
     return 'dashboard';
+  }, [searchParams]);
+
+  useEffect(() => {
+    const viewParam = searchParams.get('view');
+    if (viewParam !== 'lmnp' || typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', 'lmnp-activities');
+    window.history.replaceState({ view: 'lmnp-activities' }, '', url.toString());
   }, [searchParams]);
 
   // ✅ Ref pour garder la vue précédente (pour safeCurrentView)
@@ -556,6 +567,8 @@ function AppShellClientContent() {
           />
         );
       case 'lmnp':
+        return <LmnpPilotagePageCore />;
+      case 'lmnp-activities':
         return <LmnpPilotagePageCore />;
       case 'market':
         return <MarketPageCore mode="app-shell" />;
