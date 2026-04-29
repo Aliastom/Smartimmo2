@@ -309,8 +309,11 @@ export function UnifiedSidebar({
           className={itemClassName}
           onClick={(e) => {
             e.preventDefault();
-            router.push(href, { scroll: false });
-            onNavigate?.(view);
+            if (onNavigate) {
+              onNavigate(view);
+            } else {
+              router.push(href, { scroll: false });
+            }
             openOnlySection(item.section);
             if (sidebarContext && typeof window !== 'undefined' && window.innerWidth < 1024) {
               sidebarContext.setSidebarOpen(false);
