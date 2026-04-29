@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
 import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
@@ -114,6 +115,7 @@ export function UI2Sidebar({
   onCollapsedChange,
   className,
 }: UI2SidebarProps) {
+  const router = useRouter();
   const sidebarContext = useSidebarOptional();
   const searchParams = useSearchParams();
 
@@ -136,7 +138,8 @@ export function UI2Sidebar({
 
   const handleNavClick = (view: ViewType, e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
-    onNavigate(view);
+    const path = buildViewPath(view);
+    router.push(path, { scroll: false });
     const sectionId = getSectionForView(view);
     openOnlySection(sectionId);
     if (sidebarContext && typeof window !== 'undefined' && window.innerWidth < 1024) {
