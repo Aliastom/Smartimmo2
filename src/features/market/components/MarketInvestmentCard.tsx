@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/Input';
 import { ChartNoAxesCombined, CircleCheckBig, Lightbulb, Loader2 } from 'lucide-react';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
-import type { MarketInvestmentController } from '@/features/market/hooks/useMarketInvestment';
+import { useMarketInvestment, type MarketInvestmentController } from '@/features/market/hooks/useMarketInvestment';
 import {
   CUSTOM_MARKET_SYMBOL_KEY,
   ETF_REFERENCE_ALIASES,
@@ -101,7 +101,7 @@ function resolveInitialReinforceMode(settings: InvestmentSettings): 'DYNAMIC' | 
 
 interface MarketInvestmentCardProps {
   openSettingsSignal?: number;
-  market: MarketInvestmentController;
+  market?: MarketInvestmentController | null;
 }
 
 const USE_MARKET_SETTINGS_DIALOG_V2 = true;
@@ -121,6 +121,8 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
   const freshnessTtlHours = 12;
   const freshnessTtlMs = freshnessTtlHours * 60 * 60 * 1000;
   const { organizationId } = useCurrentOrganization();
+  const fallbackMarket = useMarketInvestment(organizationId, { source: 'market' });
+  const resolvedMarket = market ?? fallbackMarket;
   const {
     settings,
     snapshot,
@@ -147,7 +149,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
     requestManualAnalysis,
     updateHistoryDecision,
     deleteHistoryDecision,
-  } = market;
+  } = resolvedMarket;
 
   const [editOpen, setEditOpen] = useState(false);
   const [validateOpen, setValidateOpen] = useState(false);
