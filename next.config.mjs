@@ -1,5 +1,8 @@
 import withPWA from 'next-pwa';
 
+const CACHE_VERSION = (process.env.VERCEL_GIT_COMMIT_SHA || process.env.VERCEL_GIT_COMMIT_REF || 'local').slice(0, 12);
+const cacheName = (base) => `${base}-${CACHE_VERSION}`;
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -90,7 +93,7 @@ const pwaConfig = withPWA({
       urlPattern: /^\/api\/.*/,
       handler: 'NetworkOnly',
       options: {
-        cacheName: 'api-requests',
+        cacheName: cacheName('api-requests'),
         expiration: {
           maxEntries: 0, // Pas de cache
         },
@@ -101,7 +104,7 @@ const pwaConfig = withPWA({
       urlPattern: /^https:\/\/.*\.supabase\.co\/auth\/v1\//,
       handler: 'NetworkOnly',
       options: {
-        cacheName: 'supabase-auth',
+        cacheName: cacheName('supabase-auth'),
         expiration: {
           maxEntries: 0, // Pas de cache
         },
@@ -112,7 +115,7 @@ const pwaConfig = withPWA({
       urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/v1\//,
       handler: 'NetworkFirst',
       options: {
-        cacheName: 'supabase-data',
+        cacheName: cacheName('supabase-data'),
         expiration: {
           maxEntries: 50,
           maxAgeSeconds: 60, // Cache très court (1 minute)
@@ -125,7 +128,7 @@ const pwaConfig = withPWA({
       urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/v1\//,
       handler: 'NetworkFirst',
       options: {
-        cacheName: 'supabase-storage',
+        cacheName: cacheName('supabase-storage'),
         expiration: {
           maxEntries: 100,
           maxAgeSeconds: 300, // 5 minutes
@@ -138,7 +141,7 @@ const pwaConfig = withPWA({
       urlPattern: /^\/_next\/static\/.*/,
       handler: 'StaleWhileRevalidate',
       options: {
-        cacheName: 'next-static',
+        cacheName: cacheName('next-static'),
         expiration: {
           maxEntries: 200,
           maxAgeSeconds: 31536000, // 1 an
@@ -150,7 +153,7 @@ const pwaConfig = withPWA({
       urlPattern: /^\/icons\/.*/,
       handler: 'CacheFirst',
       options: {
-        cacheName: 'icons',
+        cacheName: cacheName('icons'),
         expiration: {
           maxEntries: 50,
           maxAgeSeconds: 31536000, // 1 an
@@ -162,7 +165,7 @@ const pwaConfig = withPWA({
       urlPattern: /^\/uploads\/.*/,
       handler: 'NetworkFirst',
       options: {
-        cacheName: 'uploads',
+        cacheName: cacheName('uploads'),
         expiration: {
           maxEntries: 100,
           maxAgeSeconds: 86400, // 1 jour
@@ -177,7 +180,7 @@ const pwaConfig = withPWA({
       urlPattern: ({ url }) => url.searchParams.has('_rsc'),
       handler: 'CacheFirst',
       options: {
-        cacheName: 'rsc-pages',
+        cacheName: cacheName('rsc-pages'),
         expiration: {
           maxEntries: 100,
           maxAgeSeconds: 86400 * 7, // 7 jours
@@ -200,7 +203,7 @@ const pwaConfig = withPWA({
             fetchDidFail: async ({ request }) => {
               // En mode offline, chercher dans le cache
               console.log('[SW] Requête RSC échouée, recherche dans le cache:', request.url);
-              const cache = await caches.open('rsc-pages');
+              const cache = await caches.open(cacheName('rsc-pages'));
               
               // Chercher avec l'URL exacte
               let cached = await cache.match(request);
@@ -250,7 +253,7 @@ const pwaConfig = withPWA({
       handler: 'NetworkFirst',
       options: {
         networkTimeoutSeconds: 0,
-        cacheName: 'app-shell-fallback',
+        cacheName: cacheName('app-shell-fallback'),
         expiration: { maxEntries: 0 },
         precacheFallback: { fallbackURL: '/app' },
       },
