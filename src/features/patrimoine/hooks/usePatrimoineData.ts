@@ -14,8 +14,9 @@ import { getLoanRepositoryOffline } from '@/lib/offline/repositories/LoanReposit
 import { getLocalDB } from '@/lib/offline/db';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { buildSchedule, crdAtDate } from '@/lib/finance/amortization';
-import { expandEcheances } from '@/lib/echeances/expandEcheances';
-import type { PatrimoineResponse, PatrimoineFilters, PatrimoineMode, PerformanceParBienItem, AnnualTimelineMonth } from '@/types/dashboard';
+import { expandEcheances, type EcheanceRecurrenteInput } from '@/lib/echeances/expandEcheances';
+import type { EcheanceType, Periodicite, SensEcheance } from '@prisma/client';
+import type { PatrimoineResponse, PatrimoineFilters, PerformanceParBienItem, AnnualTimelineMonth } from '@/types/dashboard';
 import type { LocalTransaction, LocalProperty, LocalLease, LocalLoan, LocalEcheanceRecurrente, CachedNature } from '@/lib/offline/db';
 
 const MOIS_LABELS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
@@ -98,7 +99,7 @@ export function usePatrimoineData(options: UsePatrimoineDataOptions) {
     if (mode === 'app-shell' && organizationId) {
       let cancelled = false;
 
-      async function loadData() {
+      const loadData = async () => {
         try {
           setLoading(true);
           setError(null);
@@ -132,16 +133,16 @@ export function usePatrimoineData(options: UsePatrimoineDataOptions) {
             setNatures(natureMap);
             setLoading(false);
           }
-        } catch (e: any) {
+        } catch (e: unknown) {
           if (!cancelled) {
             console.error('[usePatrimoineData] Erreur chargement app-shell:', e);
             setError('Impossible de charger les données du patrimoine.');
             setLoading(false);
           }
         }
-      }
+      };
 
-      loadData();
+      void loadData();
 
       return () => {
         cancelled = true;
@@ -233,7 +234,6 @@ export function usePatrimoineData(options: UsePatrimoineDataOptions) {
 
           const month = tx.accounting_month;
           const amount = Math.abs(tx.amount || 0);
-          const nature = tx.nature ? natures.get(tx.nature) : null;
           const isLoyer = tx.nature === 'LOYER' || (tx.amount > 0 && !filters.type) || filters.type === 'loyer';
           const isCharge = tx.nature?.includes('CHARGE') || (tx.amount < 0 && !filters.type) || filters.type === 'charges';
 
@@ -507,16 +507,16 @@ export function usePatrimoineData(options: UsePatrimoineDataOptions) {
         }
 
         // Calculer les charges via expandEcheances
-        const echeancesInput = activeEcheances.map(e => ({
+        const echeancesInput: EcheanceRecurrenteInput[] = activeEcheances.map((e) => ({
           id: e.id,
           propertyId: e.propertyId || null,
           leaseId: e.leaseId || null,
           label: e.label,
-          type: e.type as any,
-          periodicite: e.periodicite as any,
+          type: e.type as EcheanceType,
+          periodicite: e.periodicite as Periodicite,
           montant: Number(e.montant),
           recuperable: e.recuperable,
-          sens: e.sens as any,
+          sens: e.sens as SensEcheance,
           startAt: new Date(e.startAt),
           endAt: e.endAt ? new Date(e.endAt) : null,
           isActive: e.isActive,
@@ -626,7 +626,6 @@ export function usePatrimoineData(options: UsePatrimoineDataOptions) {
             const property = filteredProperties.find(p => p.id === occ.propertyId);
             const label = property?.name || `Bien ${occ.propertyId}`;
             const isCharge = occ.type === 'CHARGE' || occ.type === 'CHARGES' || occ.amount < 0;
-            const isLoyer = occ.type === 'LOYER' || occ.amount > 0;
             const amount = Math.abs(occ.amount || 0);
             
             if (isCharge) {
@@ -661,7 +660,6 @@ export function usePatrimoineData(options: UsePatrimoineDataOptions) {
         for (const month of months.slice(0, 12)) { // Limiter à 12 mois pour l'agenda
           const occurrences = expandEcheances(echeancesInput, month, month);
           for (const occ of occurrences) {
-            const property = filteredProperties.find(p => p.id === occ.propertyId);
             agenda.push({
               date: occ.date,
               type: occ.type.toLowerCase(),

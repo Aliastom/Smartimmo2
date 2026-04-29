@@ -11,7 +11,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Button } from '@/components/ui/Button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shared/select';
 import { PatrimoineKPIs } from '@/components/dashboard/PatrimoineKPIs';
@@ -19,6 +19,15 @@ import { PatrimoineCharts } from '@/components/dashboard/PatrimoineCharts';
 import { PatrimoineInsights } from '@/components/dashboard/PatrimoineInsights';
 import { PatrimoineSynthèse } from '@/components/dashboard/PatrimoineSynthèse';
 import { usePatrimoineData } from './hooks/usePatrimoineData';
+import { usePatrimoineSnapshot } from './hooks/usePatrimoineSnapshot';
+import { usePatrimoineSettingsState } from './hooks/usePatrimoineSettingsState';
+import {
+  PatrimoineDecisionCockpit,
+  PatrimoineV4Hero,
+  PatrimoineV4OverviewMain,
+} from './components/PatrimoineDecisionCockpit';
+import { PatrimoineAssumptionsPanel } from './components/PatrimoineAssumptionsPanel';
+import { PatrimoineGlobalBadges } from './components/PatrimoineGlobalBadges';
 import { usePropertiesData } from '@/features/properties/hooks/usePropertiesData';
 import { PatrimoineMode, PatrimoineFilters } from '@/types/dashboard';
 import { Download, Calendar, Filter, FileSpreadsheet, FileText, ChevronDown, Menu, X } from 'lucide-react';
@@ -31,41 +40,41 @@ import {
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useSidebarOptional } from '@/contexts/SidebarContext';
 import { DashboardPerformanceParBien } from '@/features/dashboard/components/DashboardPerformanceParBien';
-import { cn } from '@/utils/cn';
 
 export interface PatrimoinePageCoreProps {
   mode: 'normal' | 'app-shell';
 }
 
+// eslint-disable-next-line @typescript-eslint/naming-convention -- composant React (PascalCase)
 export function PatrimoinePageCore({
   mode,
 }: PatrimoinePageCoreProps) {
   const { organizationId } = useCurrentOrganization();
-  const router = mode === 'normal' ? useRouter() : null;
-  const searchParamsHook = mode === 'normal' ? useSearchParams() : null;
+  const router = useRouter();
+  const searchParamsHook = useSearchParams();
   const sidebarContext = useSidebarOptional();
   
   // Initialiser les états depuis les query params
   const [modeState, setModeState] = useState<PatrimoineMode>(() => {
-    if (mode === 'normal' && searchParamsHook) {
+    if (mode === 'normal') {
       return (searchParamsHook.get('mode') as PatrimoineMode) || 'realise';
     }
     return 'realise';
   });
   const [propertyId, setPropertyId] = useState<string | undefined>(() => {
-    if (mode === 'normal' && searchParamsHook) {
+    if (mode === 'normal') {
       return searchParamsHook.get('propertyId') || undefined;
     }
     return undefined;
   });
   const [type, setType] = useState<'loyer' | 'charges' | undefined>(() => {
-    if (mode === 'normal' && searchParamsHook) {
+    if (mode === 'normal') {
       return (searchParamsHook.get('type') as 'loyer' | 'charges') || undefined;
     }
     return undefined;
   });
   const [leaseStatus, setLeaseStatus] = useState<'ACTIF' | 'RESILIE' | undefined>(() => {
-    if (mode === 'normal' && searchParamsHook) {
+    if (mode === 'normal') {
       return (searchParamsHook.get('leaseStatus') as 'ACTIF' | 'RESILIE') || undefined;
     }
     return undefined;
@@ -136,6 +145,12 @@ export function PatrimoinePageCore({
   const { data, isLoading, error } = usePatrimoineData({
     mode,
     filters,
+  });
+
+  const { settings: patrimoineUserSettings, updateSettings: updatePatrimoineUserSettings } = usePatrimoineSettingsState(organizationId);
+  const patrimoineSnapshot = usePatrimoineSnapshot({
+    organizationId: organizationId ?? undefined,
+    userSettings: patrimoineUserSettings,
   });
 
   // Fonction d'export
@@ -232,7 +247,7 @@ export function PatrimoinePageCore({
   const [activeSection, setActiveSection] = useState<string>(sectionNavItems[0].id);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header avec Hamburger + Titre + Actions */}
       <div className="mb-4 sm:mb-6 space-y-3">
         {/* Ligne 1 : Hamburger + Titre + Actions */}
@@ -284,7 +299,7 @@ export function PatrimoinePageCore({
         
         {/* Ligne 2 : Description + Tabs */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <p className="text-sm sm:text-base text-gray-600">Vue d'ensemble de votre patrimoine immobilier</p>
+          <p className="text-sm sm:text-base text-gray-600">Vue d&apos;ensemble de votre patrimoine immobilier</p>
           <Tabs value={modeState} onValueChange={(value) => setModeState(value as PatrimoineMode)}>
             <TabsList>
               <TabsTrigger value="realise">Réalisé</TabsTrigger>
@@ -296,8 +311,42 @@ export function PatrimoinePageCore({
 
       </div>
 
+      {/* Cockpit : Hero → badges → overview → analyse compacte */}
+      <section
+        aria-label="Cockpit décisionnel patrimoine"
+        className="max-w-full overflow-x-hidden rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm sm:p-4"
+      >
+        {patrimoineSnapshot.loading ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-10 text-slate-600">
+            <div className="h-9 w-9 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />
+            <p className="text-sm">Chargement du snapshot patrimoine…</p>
+          </div>
+        ) : patrimoineSnapshot.error ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{patrimoineSnapshot.error}</div>
+        ) : (
+          <div className="space-y-3">
+            <PatrimoineV4Hero snapshot={patrimoineSnapshot} />
+            <PatrimoineGlobalBadges snapshot={patrimoineSnapshot} />
+            <PatrimoineV4OverviewMain
+              organizationId={organizationId ?? undefined}
+              snapshot={patrimoineSnapshot}
+            />
+            <PatrimoineDecisionCockpit organizationId={organizationId ?? undefined} snapshot={patrimoineSnapshot} />
+          </div>
+        )}
+      </section>
+
+      {!patrimoineSnapshot.loading && !patrimoineSnapshot.error && organizationId && (
+        <PatrimoineAssumptionsPanel
+          organizationId={organizationId}
+          settings={patrimoineUserSettings}
+          onSettingsChange={updatePatrimoineUserSettings}
+          snapshot={patrimoineSnapshot}
+        />
+      )}
+
       {/* Filtres */}
-      <div className="flex flex-wrap items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+      <div className="flex flex-wrap items-center gap-2.5 p-3 bg-gray-50 rounded-lg border border-gray-200 sm:gap-3">
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-gray-500" />
           <span className="text-sm font-medium text-gray-700">Période:</span>
@@ -344,13 +393,13 @@ export function PatrimoinePageCore({
           <SelectTrigger className="w-48">
             <SelectValue>
               {propertyId 
-                ? (Array.isArray(properties) ? properties.find((p: any) => p.id === propertyId)?.name : null) || 'Bien inconnu'
+                ? (Array.isArray(properties) ? properties.find((p) => p.id === propertyId)?.name : null) || 'Bien inconnu'
                 : 'Tous les biens'}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="tous">Tous les biens</SelectItem>
-            {Array.isArray(properties) && properties.map((prop: any) => (
+            {Array.isArray(properties) && properties.map((prop) => (
               <SelectItem key={prop.id} value={prop.id}>
                 {prop.name}
               </SelectItem>
