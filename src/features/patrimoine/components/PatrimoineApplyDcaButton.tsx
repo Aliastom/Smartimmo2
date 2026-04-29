@@ -15,6 +15,8 @@ export interface PatrimoineApplyDcaButtonProps {
   compact?: boolean;
   /** Afficher la ligne « Dernière action » */
   showLastActionHint?: boolean;
+  /** Désactive l’action si aucun profil marché résolu (cockpit Patrimoine). */
+  hasMarketProfile?: boolean;
 }
 
 export function PatrimoineApplyDcaButton({
@@ -23,6 +25,7 @@ export function PatrimoineApplyDcaButton({
   className,
   compact = false,
   showLastActionHint = true,
+  hasMarketProfile = true,
 }: PatrimoineApplyDcaButtonProps) {
   const hydrate = usePatrimoineActionsStore((s) => s.hydrateLastAppliedFromStorage);
   const applyDca = usePatrimoineActionsStore((s) => s.applyDca);
@@ -51,10 +54,12 @@ export function PatrimoineApplyDcaButton({
   const relative = formatPatrimoineLastActionRelative(lastAppliedAt);
 
   const amountOk = Number.isFinite(amountEuros) && amountEuros > 0;
-  const disabled = !organizationId || isApplyingDca || !amountOk;
+  const profileOk = hasMarketProfile;
+  const disabled = !organizationId || isApplyingDca || !amountOk || !profileOk;
 
   const ariaLabel = (() => {
     if (!organizationId) return 'Organisation requise pour appliquer le DCA';
+    if (!profileOk) return 'Aucun profil marché — définis un profil dans le module Marché ou attends la synchro';
     if (!amountOk) return 'Montant DCA invalide ou nul — vérifie les hypothèses';
     if (isApplyingDca) return 'Application du DCA en cours';
     return 'Appliquer le montant DCA aux paramètres marché';
@@ -66,11 +71,17 @@ export function PatrimoineApplyDcaButton({
         type="button"
         aria-label={ariaLabel}
         title={
-          !organizationId ? 'Organisation requise' : !amountOk ? 'Montant DCA à définir (> 0 €)' : undefined
+          !organizationId
+            ? 'Organisation requise'
+            : !profileOk
+              ? 'Profil marché requis'
+              : !amountOk
+                ? 'Montant DCA à définir (> 0 €)'
+                : undefined
         }
         disabled={disabled}
         onClick={() => {
-          if (!organizationId || !amountOk) return;
+          if (!organizationId || !amountOk || !profileOk) return;
           void applyDca({ organizationId, amountEuros });
         }}
         className={cn(

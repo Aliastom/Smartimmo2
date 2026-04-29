@@ -246,4 +246,33 @@ describe('buildPatrimoineRecommendationTrace', () => {
     expect(alloc?.value).toBe('0 %');
     expect(alloc?.value).not.toMatch(/NaN/i);
   });
+
+  it('fiscalité reliée : mention Auto selon le mode de sélection', () => {
+    const snap = minimalPatrimoineSnapshot({
+      hasFiscalSimulation: true,
+      revenuLocatifNet: 7704,
+      fiscalSimulationSelectionMode: 'AUTO',
+    });
+    const fiscalRow = buildPatrimoineRecommendationTrace(snap).find((r) => r.label === 'Fiscalité');
+    expect(fiscalRow?.value).toContain('Simulation fiscale · Auto');
+    expect(fiscalRow?.value).toContain('7');
+  });
+
+  it('marché : source trace Auto vs Choisi', () => {
+    const autoSnap = minimalPatrimoineSnapshot({
+      hasMarketData: true,
+      availableMarketInvestments: [{ id: 'x', label: 'L' }],
+      marketInvestmentSelectionMode: 'AUTO',
+    });
+    const mRow = buildPatrimoineRecommendationTrace(autoSnap).find((r) => r.label === 'Marché');
+    expect(mRow?.source).toContain('Module Marché · Auto');
+
+    const manSnap = minimalPatrimoineSnapshot({
+      hasMarketData: true,
+      availableMarketInvestments: [{ id: 'x', label: 'L' }],
+      marketInvestmentSelectionMode: 'MANUAL',
+    });
+    const m2 = buildPatrimoineRecommendationTrace(manSnap).find((r) => r.label === 'Marché');
+    expect(m2?.source).toContain('Module Marché · Choisi');
+  });
 });

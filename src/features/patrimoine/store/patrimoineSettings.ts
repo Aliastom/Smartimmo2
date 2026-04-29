@@ -14,6 +14,16 @@ export interface PatrimoineUserSettings {
   dcaDayOfMonth: number;
   /** Stratégie globale affichée dans les reco */
   objective: PatrimoineObjective;
+  /**
+   * Simulation fiscale à utiliser dans le cockpit.
+   * `null` / absent = automatique (dernière simulation « valide » en local, comme avant).
+   */
+  selectedFiscalSimulationId?: string | null;
+  /**
+   * Profil marché / ETF du module Marché utilisé pour la reco cockpit.
+   * `null` / absent = automatique (profil « default » si présent, sinon dernier profil actif par date).
+   */
+  selectedMarketInvestmentId?: string | null;
 }
 
 const STORAGE_PREFIX = 'smartimmo.patrimoine.userSettings.v2';
@@ -24,6 +34,8 @@ const DEFAULTS: PatrimoineUserSettings = {
   peaEtfValue: 0,
   dcaDayOfMonth: 5,
   objective: 'equilibre',
+  selectedFiscalSimulationId: null,
+  selectedMarketInvestmentId: null,
 };
 
 function keyForOrg(organizationId: string): string {
@@ -46,6 +58,8 @@ function migrateFromV1(organizationId: string): PatrimoineUserSettings | null {
       peaEtfValue: typeof o.peaEtfValue === 'number' && Number.isFinite(o.peaEtfValue) ? o.peaEtfValue : DEFAULTS.peaEtfValue,
       dcaDayOfMonth: DEFAULTS.dcaDayOfMonth,
       objective: DEFAULTS.objective,
+      selectedFiscalSimulationId: DEFAULTS.selectedFiscalSimulationId,
+      selectedMarketInvestmentId: DEFAULTS.selectedMarketInvestmentId ?? null,
     };
     localStorage.setItem(keyForOrg(organizationId), JSON.stringify(migrated));
     return migrated;
@@ -66,6 +80,22 @@ function parseStored(raw: string | null): PatrimoineUserSettings | null {
       typeof o.dcaDayOfMonth === 'number' && Number.isFinite(o.dcaDayOfMonth)
         ? Math.min(31, Math.max(1, Math.trunc(o.dcaDayOfMonth)))
         : DEFAULTS.dcaDayOfMonth;
+    let selectedFiscalSimulationId: string | null = DEFAULTS.selectedFiscalSimulationId ?? null;
+    if (Object.prototype.hasOwnProperty.call(o, 'selectedFiscalSimulationId')) {
+      if (typeof o.selectedFiscalSimulationId === 'string' && o.selectedFiscalSimulationId.length > 0) {
+        selectedFiscalSimulationId = o.selectedFiscalSimulationId;
+      } else if (o.selectedFiscalSimulationId === null) {
+        selectedFiscalSimulationId = null;
+      }
+    }
+    let selectedMarketInvestmentId: string | null = DEFAULTS.selectedMarketInvestmentId ?? null;
+    if (Object.prototype.hasOwnProperty.call(o, 'selectedMarketInvestmentId')) {
+      if (typeof o.selectedMarketInvestmentId === 'string' && o.selectedMarketInvestmentId.length > 0) {
+        selectedMarketInvestmentId = o.selectedMarketInvestmentId;
+      } else if (o.selectedMarketInvestmentId === null) {
+        selectedMarketInvestmentId = null;
+      }
+    }
     return {
       cashDisponible:
         typeof o.cashDisponible === 'number' && Number.isFinite(o.cashDisponible) ? o.cashDisponible : DEFAULTS.cashDisponible,
@@ -74,6 +104,8 @@ function parseStored(raw: string | null): PatrimoineUserSettings | null {
       peaEtfValue: typeof o.peaEtfValue === 'number' && Number.isFinite(o.peaEtfValue) ? o.peaEtfValue : DEFAULTS.peaEtfValue,
       dcaDayOfMonth,
       objective,
+      selectedFiscalSimulationId,
+      selectedMarketInvestmentId,
     };
   } catch {
     return null;

@@ -57,23 +57,31 @@ describe('Patrimoine UI smoke', () => {
         peaEtfValue: defaults.peaEtfValue,
         dcaDayOfMonth: defaults.dcaDayOfMonth,
         objective: defaults.objective,
+        selectedFiscalSimulationId: defaults.selectedFiscalSimulationId ?? null,
+        selectedMarketInvestmentId: defaults.selectedMarketInvestmentId ?? null,
       })
     );
   });
 
   it('PatrimoineGlobalBadges affiche les états fiscal / marché', () => {
-    const snapOff = minimalPatrimoineSnapshot({ hasFiscalSimulation: false, hasMarketData: false });
+    const snapOff = minimalPatrimoineSnapshot({
+      hasFiscalSimulation: false,
+      hasMarketData: false,
+      availableMarketInvestments: [],
+    });
     const { rerender, container } = render(<PatrimoineGlobalBadges snapshot={snapOff} />);
     expect(container.textContent).toMatch(/non reliée/i);
-    expect(container.textContent).toMatch(/non disponibles/i);
+    expect(container.textContent).toMatch(/marché\s*:\s*non disponible/i);
 
     const snapOn = minimalPatrimoineSnapshot({
       hasFiscalSimulation: true,
       fiscalYear: 2025,
       hasMarketData: true,
+      availableMarketInvestments: [{ id: 'default', label: 'CW8.PA · test' }],
+      marketInvestmentSelectionMode: 'AUTO',
     });
     rerender(<PatrimoineGlobalBadges snapshot={snapOn} />);
-    expect(container.textContent).toMatch(/liée/i);
-    expect(container.textContent).toMatch(/disponibles/i);
+    expect(container.textContent).toMatch(/auto|manuelle/i);
+    expect(container.textContent).toMatch(/marché\s*:\s*auto/i);
   });
 });

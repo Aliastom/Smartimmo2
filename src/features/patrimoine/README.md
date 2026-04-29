@@ -6,7 +6,7 @@ La page **Patrimoine** offre une vue consolidée du patrimoine immobilier (KPI, 
 
 ## Sources de données
 
-- **Fiscal** : simulation fiscale enregistrée (IndexedDB) lorsqu’elle existe — sinon les indicateurs fiscaux du cockpit restent « non reliés ».
+- **Fiscal** : simulations enregistrées dans IndexedDB ; le cockpit peut être en **choix automatique** (dernière simulation au résultat exploitable, tri par date) ou **manuel** (simulation précise via les hypothèses). Si l’id choisie n’existe plus, **fallback** automatique avec avertissement.
 - **Marché** : moteur d’investissement / recommandation existant (symbole, cours, drawdown) — optionnel ; le snapshot gère l’absence de données.
 - **Paramètres utilisateur** : `localStorage` par organisation (`patrimoineSettings`) : cash disponible, coussin de sécurité, valorisation PEA/ETF, jour de DCA, objectif (croissance / sécurité / équilibre).
 - **Patrimoine immobilier** : biens, prêts, transactions, baux, etc. via les repositories / hooks existants pour les agrégats de la page.

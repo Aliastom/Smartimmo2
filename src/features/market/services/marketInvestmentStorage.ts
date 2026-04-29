@@ -20,7 +20,8 @@ import {
 } from '@/features/market/services/marketGuardrails';
 import { normalizeMarketStorageSymbol } from '@/features/market/marketSymbolAliases';
 
-const SETTINGS_ID = 'default';
+export const DEFAULT_MARKET_INVESTMENT_SETTINGS_ID = 'default';
+const SETTINGS_ID = DEFAULT_MARKET_INVESTMENT_SETTINGS_ID;
 const MARKET_HISTORY_STORAGE_PREFIX = 'smartimmo.market.history';
 
 function nowIso(): string {
@@ -29,6 +30,53 @@ function nowIso(): string {
 
 type MarketPendingEntity = 'marketInvestmentSettings' | 'marketInvestmentActionLog';
 type MarketPendingOperationType = 'create' | 'update' | 'delete';
+
+/** Normalise un enregistrement profil marché (sans écriture DB) — utilisé par liste multi-profils / cockpit Patrimoine. */
+export function normalizeInvestmentSettingsRecord(existing: InvestmentSettings): InvestmentSettings {
+  const monthlyDca =
+    typeof existing.monthlyDcaAmount === 'number' && Number.isFinite(existing.monthlyDcaAmount)
+      ? existing.monthlyDcaAmount
+      : 0;
+  const rawIs = existing.investmentStrategy as InvestmentSettings['investmentStrategy'] | undefined;
+  const hasLevels = Boolean(rawIs?.reinforceLevels?.length);
+  const investmentStrategy: InvestmentSettings['investmentStrategy'] = hasLevels
+    ? {
+        monthlyDca: Number.isFinite(rawIs!.monthlyDca) && rawIs!.monthlyDca >= 0 ? rawIs!.monthlyDca : monthlyDca,
+        reinforceLevels: rawIs!.reinforceLevels,
+      }
+    : defaultInvestmentStrategyConfig(monthlyDca);
+  investmentStrategy.monthlyDca = monthlyDca;
+  const symNorm = normalizeMarketStorageSymbol(existing.referenceSymbol);
+  const normalized = {
+    ...existing,
+    referenceSymbol: symNorm,
+    monthlyInvestmentDay:
+      typeof existing.monthlyInvestmentDay === 'number' &&
+      Number.isFinite(existing.monthlyInvestmentDay) &&
+      existing.monthlyInvestmentDay >= 1 &&
+      existing.monthlyInvestmentDay <= 31
+        ? Math.trunc(existing.monthlyInvestmentDay)
+        : 5,
+    strategy: existing.strategy ?? 'DCA_PLUS_REINFORCE',
+    reinforce10Threshold: typeof existing.reinforce10Threshold === 'number' ? existing.reinforce10Threshold : -10,
+    reinforce20Threshold: typeof existing.reinforce20Threshold === 'number' ? existing.reinforce20Threshold : -20,
+    cashReferenceAmount:
+      typeof existing.cashReferenceAmount === 'number' ? existing.cashReferenceAmount : existing.availableCash ?? 0,
+    investmentStrategy,
+  } as InvestmentSettings;
+  const guards = {
+    minCashReservePercent: resolveMinCashReservePercent(normalized),
+    cautionCashRatioThreshold: resolveCautionCashRatioThreshold(normalized),
+    reinforceCooldownDays: resolveReinforceCooldownDays(normalized),
+    suggestionSuppressDays: resolveSuggestionSuppressDays(normalized),
+    suggestionReopenDrawdownDelta: resolveSuggestionReopenDrawdownDelta(normalized),
+  };
+  return {
+    ...normalized,
+    ...guards,
+    investmentStrategy: { ...investmentStrategy, ...guards },
+  } as InvestmentSettings;
+}
 
 export const defaultInvestmentSettings = (organizationId: string): InvestmentSettings => ({
   id: SETTINGS_ID,
@@ -124,50 +172,7 @@ export class MarketInvestmentStorage {
     const db = await getLocalDB();
     const existing = await db.InvestmentSettings.get([organizationId, SETTINGS_ID]);
     if (existing) {
-      const monthlyDca =
-        typeof existing.monthlyDcaAmount === 'number' && Number.isFinite(existing.monthlyDcaAmount)
-          ? existing.monthlyDcaAmount
-          : 0;
-      const rawIs = existing.investmentStrategy as InvestmentSettings['investmentStrategy'] | undefined;
-      const hasLevels = Boolean(rawIs?.reinforceLevels?.length);
-      const investmentStrategy: InvestmentSettings['investmentStrategy'] = hasLevels
-        ? {
-            monthlyDca: Number.isFinite(rawIs!.monthlyDca) && rawIs!.monthlyDca >= 0 ? rawIs!.monthlyDca : monthlyDca,
-            reinforceLevels: rawIs!.reinforceLevels,
-          }
-        : defaultInvestmentStrategyConfig(monthlyDca);
-      investmentStrategy.monthlyDca = monthlyDca;
-      const symNorm = normalizeMarketStorageSymbol(existing.referenceSymbol);
-      const normalized = {
-        ...existing,
-        referenceSymbol: symNorm,
-        monthlyInvestmentDay:
-          typeof existing.monthlyInvestmentDay === 'number' &&
-          Number.isFinite(existing.monthlyInvestmentDay) &&
-          existing.monthlyInvestmentDay >= 1 &&
-          existing.monthlyInvestmentDay <= 31
-            ? Math.trunc(existing.monthlyInvestmentDay)
-            : 5,
-        strategy: existing.strategy ?? 'DCA_PLUS_REINFORCE',
-        reinforce10Threshold:
-          typeof existing.reinforce10Threshold === 'number' ? existing.reinforce10Threshold : -10,
-        reinforce20Threshold:
-          typeof existing.reinforce20Threshold === 'number' ? existing.reinforce20Threshold : -20,
-        cashReferenceAmount: typeof existing.cashReferenceAmount === 'number' ? existing.cashReferenceAmount : existing.availableCash ?? 0,
-        investmentStrategy,
-      } as InvestmentSettings;
-      const guards = {
-        minCashReservePercent: resolveMinCashReservePercent(normalized),
-        cautionCashRatioThreshold: resolveCautionCashRatioThreshold(normalized),
-        reinforceCooldownDays: resolveReinforceCooldownDays(normalized),
-        suggestionSuppressDays: resolveSuggestionSuppressDays(normalized),
-        suggestionReopenDrawdownDelta: resolveSuggestionReopenDrawdownDelta(normalized),
-      };
-      const merged = {
-        ...normalized,
-        ...guards,
-        investmentStrategy: { ...investmentStrategy, ...guards },
-      } as InvestmentSettings;
+      const merged = normalizeInvestmentSettingsRecord(existing);
       await db.InvestmentSettings.put(merged);
       return merged;
     }
@@ -213,6 +218,15 @@ export class MarketInvestmentStorage {
       payload: normalized as unknown as Record<string, unknown>,
       organizationId: normalized.organizationId,
     });
+  }
+
+  /** Tous les profils marché normalisés (tri updatedAt desc) — sélection cockpit Patrimoine. */
+  async listAllInvestmentProfilesNormalized(organizationId: string): Promise<InvestmentSettings[]> {
+    const db = await getLocalDB();
+    const rows = await db.InvestmentSettings.where('organizationId').equals(organizationId).toArray();
+    const list = rows.map((r) => normalizeInvestmentSettingsRecord(r));
+    list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return list;
   }
 
   async getSnapshot(organizationId: string, symbol: string, athPeriod: AthPeriod): Promise<MarketSnapshot | null> {

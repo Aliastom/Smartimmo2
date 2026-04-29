@@ -11,6 +11,17 @@ export interface PatrimoineRecommendationTraceRow {
   source: string;
 }
 
+function formatMarketModuleSource(snapshot: PatrimoineSnapshotResult): string {
+  if (snapshot.availableMarketInvestments.length === 0) {
+    return 'Module Marché';
+  }
+  const mode = snapshot.marketInvestmentSelectionMode ?? 'AUTO';
+  if (mode === 'MANUAL') {
+    return 'Module Marché · Choisi';
+  }
+  return 'Module Marché · Auto';
+}
+
 function formatMarketAthLine(snapshot: PatrimoineSnapshotResult): string {
   if (!snapshot.hasMarketData) {
     return 'Non disponible';
@@ -35,7 +46,14 @@ function formatFiscalLine(snapshot: PatrimoineSnapshotResult): string {
   if (!Number.isFinite(net)) {
     return '—';
   }
-  return `${formatCurrencyEUR(net)} / an net`;
+  const mode = snapshot.fiscalSimulationSelectionMode ?? 'AUTO';
+  const sourceTag =
+    mode === 'AUTO'
+      ? 'Simulation fiscale · Auto'
+      : mode === 'MANUAL'
+        ? 'Simulation fiscale · Choisie'
+        : 'Simulation fiscale · Fallback';
+  return `${formatCurrencyEUR(net)} / an net — ${sourceTag}`;
 }
 
 function formatInvestableLine(amount: number): string {
@@ -66,7 +84,7 @@ export function buildPatrimoineRecommendationTrace(snapshot: PatrimoineSnapshotR
     {
       label: 'Marché',
       value: formatMarketAthLine(snapshot),
-      source: 'Module Marché',
+      source: formatMarketModuleSource(snapshot),
     },
     {
       label: 'Fiscalité',

@@ -7,13 +7,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getLocalDB } from '@/lib/offline/db';
-import type { LocalFiscalSimulation, LocalLoan } from '@/lib/offline/db';
+import type { LocalLoan } from '@/lib/offline/db';
 import { getPropertyRepositoryOffline } from '@/lib/offline/repositories/PropertyRepositoryOffline';
 import { getLoanRepositoryOffline } from '@/lib/offline/repositories/LoanRepositoryOffline';
 import { buildSchedule, crdAtDate, type ScheduleRow } from '@/lib/finance/amortization';
-import type { SimulationResult } from '@/types/fiscal';
-import type { FiscalInputs } from '@/types/fiscal';
 import type {
+  InvestmentActionLog,
   InvestmentRecommendation,
   MarketOpportunityStatus,
   MarketScoreLabel,
@@ -24,6 +23,20 @@ import { computeInvestmentRecommendation } from '@/features/market/services/mark
 import { normalizeMarketStorageSymbol } from '@/features/market/marketSymbolAliases';
 import { resolveMinCashReservePercent } from '@/features/market/services/marketGuardrails';
 import type { PatrimoineUserSettings, PatrimoineObjective } from '@/features/patrimoine/store/patrimoineSettings';
+import {
+  buildAvailableFiscalSimulations,
+  parseFiscalInputs,
+  parseSimulationResult,
+  resolveFiscalSimulationForPatrimoine,
+  type FiscalSimulationSelectionMode,
+  type PatrimoineAvailableFiscalSimulation,
+} from '@/features/patrimoine/services/patrimoineFiscalSelection';
+import {
+  buildAvailableMarketInvestmentsForPatrimoine,
+  resolvePatrimoineMarketInvestment,
+  type MarketInvestmentSelectionMode,
+  type PatrimoineAvailableMarketInvestment,
+} from '@/features/patrimoine/services/patrimoineMarketSelection';
 import { computeAllocationScore } from '@/features/patrimoine/services/patrimoineAllocationScore';
 import {
   buildPatrimoineDecisionInput,
@@ -98,9 +111,27 @@ export interface PatrimoineSnapshotResult {
   projectionTrend: PatrimoineProjectionTrend;
   /** Variation relative du patrimoine sur la fenêtre de projection (ex. 0.08 = +8 %) */
   projectionPatrimoineDeltaRatio: number;
+  /** Simulation fiscale effectivement utilisée pour les agrégats (peut différer du choix si fallback). */
+  selectedFiscalSimulationId: string | null;
+  fiscalSimulationSelectionMode: FiscalSimulationSelectionMode;
+  availableFiscalSimulations: PatrimoineAvailableFiscalSimulation[];
+  /** Message utilisateur si le choix manuel est introuvable ou illisible. */
+  fiscalSimulationWarning: string | null;
+  /** Profil marché effectivement utilisé pour ETF / DCA / marché (null si aucun profil local). */
+  selectedMarketInvestmentId: string | null;
+  marketInvestmentSelectionMode: MarketInvestmentSelectionMode;
+  availableMarketInvestments: PatrimoineAvailableMarketInvestment[];
+  marketSelectionWarning: string | null;
   loading: boolean;
   error: string | null;
 }
+
+export type {
+  PatrimoineAvailableFiscalSimulation,
+  FiscalSimulationSelectionMode,
+  PatrimoineAvailableMarketInvestment,
+  MarketInvestmentSelectionMode,
+};
 
 function monthKeyNow(): string {
   const d = new Date();
@@ -113,33 +144,6 @@ function computeAthDistancePercent(marketSnap: MarketSnapshot | null): number | 
   if (!Number.isFinite(athPrice) || athPrice <= 0 || !Number.isFinite(currentPrice)) return null;
   const raw = ((athPrice - currentPrice) / athPrice) * 100;
   return Math.round(Math.max(0, raw) * 100) / 100;
-}
-
-function parseSimulationResult(row: LocalFiscalSimulation): SimulationResult | null {
-  try {
-    const r = JSON.parse(row.resultJson) as SimulationResult;
-    if (!r || typeof r !== 'object' || !('resume' in r)) return null;
-    return r;
-  } catch {
-    return null;
-  }
-}
-
-function parseFiscalInputs(row: LocalFiscalSimulation): FiscalInputs | null {
-  try {
-    return JSON.parse(row.inputsJson) as FiscalInputs;
-  } catch {
-    return null;
-  }
-}
-
-function pickLatestUsableFiscalSimulation(rows: LocalFiscalSimulation[]): LocalFiscalSimulation | null {
-  const usable = rows
-    .map((row) => ({ row, result: parseSimulationResult(row) }))
-    .filter((x): x is { row: LocalFiscalSimulation; result: SimulationResult } => x.result !== null);
-  if (usable.length === 0) return null;
-  usable.sort((a, b) => new Date(b.row.updatedAt).getTime() - new Date(a.row.updatedAt).getTime());
-  return usable[0].row;
 }
 
 function nextSeptemberDeadline(declarationYear: number, now: Date): { date: Date; monthsRemaining: number } {
@@ -251,7 +255,11 @@ async function loadPatrimoineSnapshotCore(
   const immobilierNet = Math.max(0, immobilierBrut - dette);
 
   const fiscalRows = await db.FiscalSimulation.where('organizationId').equals(organizationId).toArray();
-  const fiscalRow = pickLatestUsableFiscalSimulation(fiscalRows);
+  const availableFiscalSimulations = buildAvailableFiscalSimulations(fiscalRows);
+  const resolved = resolveFiscalSimulationForPatrimoine(fiscalRows, userSettings.selectedFiscalSimulationId ?? null);
+  const fiscalRow = resolved.fiscalRow;
+  const fiscalSimulationSelectionMode = resolved.mode;
+  const fiscalSimulationWarning = resolved.fiscalSimulationWarning;
   const fiscalResult = fiscalRow ? parseSimulationResult(fiscalRow) : null;
   const hasFiscalSimulation = fiscalResult != null;
   const fiscalInputs = fiscalRow ? parseFiscalInputs(fiscalRow) : null;
@@ -286,18 +294,30 @@ async function loadPatrimoineSnapshotCore(
     nextTaxIso = taxDate.toISOString();
   }
 
-  const marketSettings = await marketInvestmentStorage.getSettings(organizationId);
-  const sym = normalizeMarketStorageSymbol(marketSettings.referenceSymbol);
-  const marketSnap = await marketInvestmentStorage.getSnapshot(organizationId, sym, marketSettings.athPeriod);
-  const history = await marketInvestmentStorage.listActionLogs(organizationId, 48);
+  const availableInvestmentRows = await marketInvestmentStorage.listAllInvestmentProfilesNormalized(organizationId);
+  const marketResolved = resolvePatrimoineMarketInvestment(
+    availableInvestmentRows,
+    userSettings.selectedMarketInvestmentId ?? null
+  );
+  const marketInvestmentSelectionMode = marketResolved.mode;
+  const marketSelectionWarning = marketResolved.warning;
+  const availableMarketInvestments = buildAvailableMarketInvestmentsForPatrimoine(marketResolved.availableInvestments);
+  const marketSettings = marketResolved.selectedInvestment;
 
+  let marketSnap: MarketSnapshot | null = null;
+  let history: InvestmentActionLog[] = [];
   let marketRecommendation: InvestmentRecommendation | null = null;
-  if (marketSnap) {
-    marketRecommendation = computeInvestmentRecommendation(marketSettings, marketSnap, history);
+  if (marketSettings) {
+    const sym = normalizeMarketStorageSymbol(marketSettings.referenceSymbol);
+    marketSnap = await marketInvestmentStorage.getSnapshot(organizationId, sym, marketSettings.athPeriod);
+    history = await marketInvestmentStorage.listActionLogs(organizationId, 48);
+    if (marketSnap) {
+      marketRecommendation = computeInvestmentRecommendation(marketSettings, marketSnap, history);
+    }
   }
 
   const cashFromSettings = Math.max(0, userSettings.cashDisponible);
-  const cashFromMarket = Math.max(0, marketSettings.availableCash ?? 0);
+  const cashFromMarket = marketSettings ? Math.max(0, marketSettings.availableCash ?? 0) : 0;
   const cashDisponible = cashFromSettings > 0 ? cashFromSettings : cashFromMarket;
   const cashSecurite = Math.max(0, userSettings.cashSecurite);
 
@@ -317,14 +337,26 @@ async function loadPatrimoineSnapshotCore(
   const cashExcess = Math.max(0, cashDisponible - cashSecurite);
   const investableCash = cashExcess;
 
-  const dcaRecommended = marketRecommendation ? marketRecommendation.monthlyDcaPortion : marketSettings.monthlyDcaAmount;
+  const dcaRecommended = marketRecommendation
+    ? marketRecommendation.monthlyDcaPortion
+    : marketSettings
+      ? marketSettings.monthlyDcaAmount
+      : 0;
   const reinforceRecommended = marketRecommendation ? marketRecommendation.reinforcePortion : 0;
 
-  const cashRef = Math.max(0, marketSettings.cashReferenceAmount || cashDisponible || 1);
-  const reservePct = resolveMinCashReservePercent(marketSettings);
-  const reserveCashMoteur = cashRef * (reservePct / 100);
+  const reserveCashMoteur =
+    marketSettings != null
+      ? (() => {
+          const cashRef = Math.max(0, marketSettings.cashReferenceAmount || cashDisponible || 1);
+          const reservePct = resolveMinCashReservePercent(marketSettings);
+          const raw = cashRef * (reservePct / 100);
+          return Number.isFinite(raw) ? raw : 0;
+        })()
+      : 0;
 
-  const drawdownPercent = marketSnap?.drawdownPercent ?? null;
+  const rawDd = marketSnap?.drawdownPercent;
+  const drawdownPercent =
+    rawDd != null && Number.isFinite(rawDd) ? rawDd : null;
   const athDistancePercent = computeAthDistancePercent(marketSnap);
 
   const rec = marketRecommendation;
@@ -354,7 +386,7 @@ async function loadPatrimoineSnapshotCore(
     cashExcess,
     investableCash,
     patrimoineNetGlobal,
-    marketMonthlyDcaPortion: marketRecommendation?.monthlyDcaPortion ?? marketSettings.monthlyDcaAmount,
+    marketMonthlyDcaPortion: marketRecommendation?.monthlyDcaPortion ?? marketSettings?.monthlyDcaAmount ?? 0,
     marketReinforcePortion: marketRecommendation?.reinforcePortion ?? 0,
     marketSuggestedTotal: marketRecommendation?.suggestedAmount ?? 0,
     objective,
@@ -369,7 +401,7 @@ async function loadPatrimoineSnapshotCore(
 
   const effectiveDcaDayOfMonth = Math.min(
     31,
-    Math.max(1, userSettings.dcaDayOfMonth || marketSettings.monthlyInvestmentDay || 5)
+    Math.max(1, userSettings.dcaDayOfMonth || marketSettings?.monthlyInvestmentDay || 5)
   );
   const nextDcaDate = nextDcaDateIso(effectiveDcaDayOfMonth, new Date());
   const nextLoanPayment = computeNextLoanPaymentIso(loans);
@@ -446,6 +478,14 @@ async function loadPatrimoineSnapshotCore(
     hasMarketData,
     projectionTrend: projection5y.trend,
     projectionPatrimoineDeltaRatio: projection5y.patrimoineDeltaRatio,
+    selectedFiscalSimulationId: fiscalRow?.id ?? null,
+    fiscalSimulationSelectionMode,
+    availableFiscalSimulations,
+    fiscalSimulationWarning,
+    selectedMarketInvestmentId: marketSettings?.id ?? null,
+    marketInvestmentSelectionMode,
+    availableMarketInvestments,
+    marketSelectionWarning,
   };
 }
 
@@ -475,6 +515,8 @@ export function usePatrimoineSnapshot(options: UsePatrimoineSnapshotOptions): Pa
   const peaEtfValueSetting = userSettings.peaEtfValue;
   const dcaDayOfMonth = userSettings.dcaDayOfMonth;
   const objective = userSettings.objective;
+  const selectedFiscalSimulationIdPref = userSettings.selectedFiscalSimulationId ?? null;
+  const selectedMarketInvestmentIdPref = userSettings.selectedMarketInvestmentId ?? null;
 
   const reload = useCallback(async () => {
     if (!organizationId) {
@@ -491,6 +533,8 @@ export function usePatrimoineSnapshot(options: UsePatrimoineSnapshotOptions): Pa
         peaEtfValue: peaEtfValueSetting,
         dcaDayOfMonth,
         objective,
+        selectedFiscalSimulationId: selectedFiscalSimulationIdPref,
+        selectedMarketInvestmentId: selectedMarketInvestmentIdPref,
       };
       const data = await loadPatrimoineSnapshotCore(organizationId, settingsSlice);
       setCore(data);
@@ -501,7 +545,16 @@ export function usePatrimoineSnapshot(options: UsePatrimoineSnapshotOptions): Pa
     } finally {
       setLoading(false);
     }
-  }, [organizationId, cashDisponible, cashSecurite, peaEtfValueSetting, dcaDayOfMonth, objective]);
+  }, [
+    organizationId,
+    cashDisponible,
+    cashSecurite,
+    peaEtfValueSetting,
+    dcaDayOfMonth,
+    objective,
+    selectedFiscalSimulationIdPref,
+    selectedMarketInvestmentIdPref,
+  ]);
 
   useEffect(() => {
     void reload();
@@ -571,6 +624,14 @@ export function usePatrimoineSnapshot(options: UsePatrimoineSnapshotOptions): Pa
       hasMarketData: false,
       projectionTrend: 'stagnation',
       projectionPatrimoineDeltaRatio: 0,
+      selectedFiscalSimulationId: null,
+      fiscalSimulationSelectionMode: 'AUTO',
+      availableFiscalSimulations: [],
+      fiscalSimulationWarning: null,
+      selectedMarketInvestmentId: null,
+      marketInvestmentSelectionMode: 'AUTO',
+      availableMarketInvestments: [],
+      marketSelectionWarning: null,
       loading,
       error,
     }),

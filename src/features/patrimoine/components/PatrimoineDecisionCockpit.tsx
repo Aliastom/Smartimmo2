@@ -103,7 +103,9 @@ export function PatrimoineV4OverviewMain({
   className,
 }: PatrimoineV4OverviewProps) {
   const reco = snapshot.patrimoineReco;
-  const dcaAmountEuros = Math.max(0, reco.dcaAmount || snapshot.dcaRecommended);
+  const rawDca = Number.isFinite(reco.dcaAmount) ? reco.dcaAmount : snapshot.dcaRecommended;
+  const dcaAmountEuros = Math.max(0, Number.isFinite(rawDca) ? rawDca : 0);
+  const hasMarketProfile = snapshot.selectedMarketInvestmentId != null;
   const incomeYieldPct =
     snapshot.patrimoineNetGlobal > 0
       ? (snapshot.revenuGlobalEstime / snapshot.patrimoineNetGlobal) * 100
@@ -243,6 +245,7 @@ export function PatrimoineV4OverviewMain({
                 amountEuros={dcaAmountEuros}
                 compact
                 showLastActionHint={false}
+                hasMarketProfile={hasMarketProfile}
                 className="w-full min-w-0 sm:w-auto"
               />
             </div>
@@ -305,7 +308,9 @@ export function PatrimoineDecisionCockpit({
   }, [organizationId]);
 
   const reco = snapshot.patrimoineReco;
-  const dcaAmountEuros = Math.max(0, reco.dcaAmount || snapshot.dcaRecommended);
+  const rawDcaMain = Number.isFinite(reco.dcaAmount) ? reco.dcaAmount : snapshot.dcaRecommended;
+  const dcaAmountEuros = Math.max(0, Number.isFinite(rawDcaMain) ? rawDcaMain : 0);
+  const hasMarketProfile = snapshot.selectedMarketInvestmentId != null;
 
   const recommendationTrace = useMemo(() => buildPatrimoineRecommendationTrace(snapshot), [snapshot]);
 
@@ -401,6 +406,7 @@ export function PatrimoineDecisionCockpit({
               amountEuros={dcaAmountEuros}
               compact
               showLastActionHint={false}
+              hasMarketProfile={hasMarketProfile}
               className="w-full sm:w-auto"
             />
             <p className="text-[10px] text-slate-500 sm:text-right">Hypothèses : voir le bloc repliable ci-dessous.</p>
