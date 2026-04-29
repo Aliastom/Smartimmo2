@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/naming-convention -- Route handlers Next.js App Router (GET, POST) */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
@@ -14,9 +15,18 @@ const reinforceLevelSchema = z.object({
   allocationPercent: z.number().finite().min(0).max(100),
 });
 
+const engineGuardSchema = {
+  minCashReservePercent: z.number().finite().min(0).max(100).optional(),
+  cautionCashRatioThreshold: z.number().finite().min(0.01).max(1).optional(),
+  reinforceCooldownDays: z.number().finite().int().min(0).max(365).optional(),
+  suggestionSuppressDays: z.number().finite().int().min(1).max(365).optional(),
+  suggestionReopenDrawdownDelta: z.number().finite().min(0.5).max(50).optional(),
+};
+
 const investmentStrategySchema = z.object({
   monthlyDca: z.number().finite().min(0),
   reinforceLevels: z.array(reinforceLevelSchema),
+  ...engineGuardSchema,
 });
 
 const marketSettingsSchema = z.object({
@@ -38,6 +48,11 @@ const marketSettingsSchema = z.object({
   peaSocialContributionsOnGainsRate: z.number().finite().min(0).max(1).optional(),
   investmentStrategy: investmentStrategySchema.nullish(),
   updatedAt: z.string().datetime().optional(),
+  minCashReservePercent: z.number().finite().min(0).max(100).optional(),
+  cautionCashRatioThreshold: z.number().finite().min(0.01).max(1).optional(),
+  reinforceCooldownDays: z.number().finite().int().min(0).max(365).optional(),
+  suggestionSuppressDays: z.number().finite().int().min(1).max(365).optional(),
+  suggestionReopenDrawdownDelta: z.number().finite().min(0.5).max(50).optional(),
 });
 
 function toResponseShape(row: {
@@ -80,6 +95,23 @@ function toResponseShape(row: {
       investmentStrategy = null;
     }
   }
+  const guardFromStrategy: Record<string, number> = {};
+  const ENGINE_GUARD_KEYS = [
+    'minCashReservePercent',
+    'cautionCashRatioThreshold',
+    'reinforceCooldownDays',
+    'suggestionSuppressDays',
+    'suggestionReopenDrawdownDelta',
+  ] as const;
+  if (investmentStrategy && typeof investmentStrategy === 'object') {
+    const o = investmentStrategy as Record<string, unknown>;
+    for (const k of ENGINE_GUARD_KEYS) {
+      const v = o[k];
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        guardFromStrategy[k] = v;
+      }
+    }
+  }
   return {
     id: row.id,
     organizationId: row.organizationId,
@@ -99,6 +131,7 @@ function toResponseShape(row: {
     currency: row.currency,
     peaSocialContributionsOnGainsRate: row.peaSocialContributionsOnGainsRate ?? undefined,
     investmentStrategy,
+    ...guardFromStrategy,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -133,6 +166,14 @@ export async function POST(request: NextRequest) {
     const updatedAt = payload.updatedAt ? new Date(payload.updatedAt) : undefined;
     const strategyPayload = payload.investmentStrategy ? { ...payload.investmentStrategy } : {};
     (strategyPayload as Record<string, unknown>).monthlyInvestmentDay = payload.monthlyInvestmentDay ?? 5;
+    const sp = strategyPayload as Record<string, unknown>;
+    if (payload.minCashReservePercent !== undefined) sp.minCashReservePercent = payload.minCashReservePercent;
+    if (payload.cautionCashRatioThreshold !== undefined) sp.cautionCashRatioThreshold = payload.cautionCashRatioThreshold;
+    if (payload.reinforceCooldownDays !== undefined) sp.reinforceCooldownDays = payload.reinforceCooldownDays;
+    if (payload.suggestionSuppressDays !== undefined) sp.suggestionSuppressDays = payload.suggestionSuppressDays;
+    if (payload.suggestionReopenDrawdownDelta !== undefined) {
+      sp.suggestionReopenDrawdownDelta = payload.suggestionReopenDrawdownDelta;
+    }
 
     const row = await prisma.marketInvestmentSettings.upsert({
       where: { organizationId_id: { organizationId: user.organizationId, id: payload.id } },

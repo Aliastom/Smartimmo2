@@ -1,5 +1,7 @@
+/* eslint-disable @typescript-eslint/naming-convention -- Route handlers Next.js App Router (GET, PATCH, PUT) */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import type { MarketInvestmentSettings } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
 
@@ -34,6 +36,11 @@ const patchSchema = z
             allocationPercent: z.number().finite().min(0).max(100),
           })
         ),
+        minCashReservePercent: z.number().finite().min(0).max(100).optional(),
+        cautionCashRatioThreshold: z.number().finite().min(0.01).max(1).optional(),
+        reinforceCooldownDays: z.number().finite().int().min(0).max(365).optional(),
+        suggestionSuppressDays: z.number().finite().int().min(1).max(365).optional(),
+        suggestionReopenDrawdownDelta: z.number().finite().min(0.5).max(50).optional(),
       })
       .nullable()
       .optional(),
@@ -41,7 +48,7 @@ const patchSchema = z
   })
   .refine((obj) => Object.keys(obj).length > 0, { message: 'Aucun champ à mettre à jour' });
 
-function toResponseShape(row: any) {
+function toResponseShape(row: MarketInvestmentSettings) {
   let investmentStrategy: unknown = null;
   if (row.investmentStrategyJson) {
     try {

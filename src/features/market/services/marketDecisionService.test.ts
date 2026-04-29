@@ -232,4 +232,56 @@ describe('marketDecisionService: recommandations V2', () => {
     expect(rec.recentSimilarReinforce).toBe(false);
     expect(rec.suggestedAmount).toBe(2000);
   });
+
+  it('réserve cash minimale : plafonne le montant suggéré', () => {
+    const s = makeSettings({
+      minCashReservePercent: 80,
+      cashReferenceAmount: 10000,
+      availableCash: 10000,
+    });
+    const rec = computeRecommendation(s, makeSnapshot({ drawdownPercent: -35 }), []);
+    expect(rec.suggestedAmount).toBe(2000);
+  });
+
+  it('seuil prudence personnalisé atténue le renfort', () => {
+    const s = makeSettings({
+      cautionCashRatioThreshold: 0.5,
+      availableCash: 4000,
+      cashReferenceAmount: 10000,
+    });
+    const rec = computeRecommendation(s, makeSnapshot({ drawdownPercent: -15 }), []);
+    expect(rec.prudenceMode).toBe(true);
+    // 10 % du cash disponible (4000) = 400, puis moitié en mode prudence = 200
+    expect(rec.reinforcePortion).toBe(200);
+  });
+
+  it('cooldown renfort paramétrable : hors fenêtre = pas de renfort similaire', () => {
+    const s = makeSettings({ reinforceCooldownDays: 3 });
+    const history = [
+      {
+        id: '1',
+        organizationId: 'org-1',
+        date: '2026-01-01T00:00:00.000Z',
+        type: 'REINFORCE_10' as const,
+        recommendedAmount: 2000,
+        validatedAmount: 2000,
+        cashBefore: 10000,
+        cashAfter: 8000,
+        reason: 'test',
+        drawdownAtDecision: -15,
+        athPriceAtDecision: 100,
+        currentPriceAtDecision: 85,
+        symbolAtDecision: 'CW8.PA',
+        marketStatusAtDecision: 'OPPORTUNITE' as const,
+        athPeriodAtDecision: '5Y' as const,
+        status: 'validated' as const,
+        thresholdKey: 'CW8.PA:LIGHT_REINFORCE',
+      },
+    ];
+    const rec = computeRecommendation(s, makeSnapshot({ drawdownPercent: -16 }), history, {
+      nowMs: new Date('2026-01-05T12:00:00.000Z').getTime(),
+    });
+    expect(rec.recentSimilarReinforce).toBe(false);
+    expect(rec.suggestedAmount).toBe(2000);
+  });
 });

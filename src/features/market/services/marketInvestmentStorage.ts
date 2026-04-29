@@ -11,6 +11,13 @@ import type {
   MarketOpportunityStatus,
 } from '@/features/market/types';
 import { defaultInvestmentStrategyConfig } from '@/features/market/services/marketInvestmentStrategy';
+import {
+  resolveCautionCashRatioThreshold,
+  resolveMinCashReservePercent,
+  resolveReinforceCooldownDays,
+  resolveSuggestionReopenDrawdownDelta,
+  resolveSuggestionSuppressDays,
+} from '@/features/market/services/marketGuardrails';
 import { normalizeMarketStorageSymbol } from '@/features/market/marketSymbolAliases';
 
 const SETTINGS_ID = 'default';
@@ -149,8 +156,20 @@ export class MarketInvestmentStorage {
         cashReferenceAmount: typeof existing.cashReferenceAmount === 'number' ? existing.cashReferenceAmount : existing.availableCash ?? 0,
         investmentStrategy,
       } as InvestmentSettings;
-      await db.InvestmentSettings.put(normalized);
-      return normalized;
+      const guards = {
+        minCashReservePercent: resolveMinCashReservePercent(normalized),
+        cautionCashRatioThreshold: resolveCautionCashRatioThreshold(normalized),
+        reinforceCooldownDays: resolveReinforceCooldownDays(normalized),
+        suggestionSuppressDays: resolveSuggestionSuppressDays(normalized),
+        suggestionReopenDrawdownDelta: resolveSuggestionReopenDrawdownDelta(normalized),
+      };
+      const merged = {
+        ...normalized,
+        ...guards,
+        investmentStrategy: { ...investmentStrategy, ...guards },
+      } as InvestmentSettings;
+      await db.InvestmentSettings.put(merged);
+      return merged;
     }
     const defaults = defaultInvestmentSettings(organizationId);
     await db.InvestmentSettings.put(defaults);
@@ -161,8 +180,20 @@ export class MarketInvestmentStorage {
     const db = await getLocalDB();
     const existing = await db.InvestmentSettings.get([settings.organizationId, settings.id]);
     const baseStrategy = settings.investmentStrategy ?? defaultInvestmentStrategyConfig(settings.monthlyDcaAmount);
+    const draft: InvestmentSettings = {
+      ...settings,
+      investmentStrategy: { ...baseStrategy, monthlyDca: settings.monthlyDcaAmount },
+    };
+    const guards = {
+      minCashReservePercent: resolveMinCashReservePercent(draft),
+      cautionCashRatioThreshold: resolveCautionCashRatioThreshold(draft),
+      reinforceCooldownDays: resolveReinforceCooldownDays(draft),
+      suggestionSuppressDays: resolveSuggestionSuppressDays(draft),
+      suggestionReopenDrawdownDelta: resolveSuggestionReopenDrawdownDelta(draft),
+    };
     const normalized = {
       ...settings,
+      ...guards,
       referenceSymbol: normalizeMarketStorageSymbol(settings.referenceSymbol),
       monthlyInvestmentDay:
         typeof settings.monthlyInvestmentDay === 'number' &&
@@ -171,7 +202,7 @@ export class MarketInvestmentStorage {
         settings.monthlyInvestmentDay <= 31
           ? Math.trunc(settings.monthlyInvestmentDay)
           : 5,
-      investmentStrategy: { ...baseStrategy, monthlyDca: settings.monthlyDcaAmount },
+      investmentStrategy: { ...baseStrategy, monthlyDca: settings.monthlyDcaAmount, ...guards },
       updatedAt: nowIso(),
     };
     await db.InvestmentSettings.put(normalized);

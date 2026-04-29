@@ -488,6 +488,11 @@ export interface LocalUserProfile {
 export interface InvestmentStrategyConfigRow {
   monthlyDca: number;
   reinforceLevels: Array<{ threshold: number; allocationPercent: number }>;
+  minCashReservePercent?: number;
+  cautionCashRatioThreshold?: number;
+  reinforceCooldownDays?: number;
+  suggestionSuppressDays?: number;
+  suggestionReopenDrawdownDelta?: number;
 }
 
 export interface InvestmentSettings {
@@ -511,6 +516,11 @@ export interface InvestmentSettings {
   /** PEA : PS sur les gains après 5 ans (ex. 0,172) — optionnel, défaut côté app si absent */
   peaSocialContributionsOnGainsRate?: number;
   investmentStrategy?: InvestmentStrategyConfigRow | null;
+  minCashReservePercent?: number;
+  cautionCashRatioThreshold?: number;
+  reinforceCooldownDays?: number;
+  suggestionSuppressDays?: number;
+  suggestionReopenDrawdownDelta?: number;
 }
 
 export interface MarketSnapshot {

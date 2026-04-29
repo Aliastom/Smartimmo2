@@ -21,7 +21,8 @@ export function buildThresholdKey(symbol: string, status: MarketOpportunityStatu
 export function computeRecommendation(
   settings: InvestmentSettings,
   snapshot: MarketSnapshot,
-  history: InvestmentActionLog[] = []
+  history: InvestmentActionLog[] = [],
+  options?: { nowMs?: number }
 ): InvestmentRecommendation {
-  return computeInvestmentRecommendation(settings, snapshot, history);
+  return computeInvestmentRecommendation(settings, snapshot, history, options);
 }

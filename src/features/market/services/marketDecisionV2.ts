@@ -15,6 +15,11 @@ import {
   pickActiveReinforceLevel,
 } from '@/features/market/services/marketInvestmentStrategy';
 import { normalizeThresholds } from '@/features/market/services/marketMetrics';
+import {
+  resolveCautionCashRatioThreshold,
+  resolveMinCashReservePercent,
+  resolveReinforceCooldownMs,
+} from '@/features/market/services/marketGuardrails';
 
 const SCORE_ANCHORS: Array<{ dd: number; score: number }> = [
   { dd: -40, score: 10 },
@@ -23,8 +28,6 @@ const SCORE_ANCHORS: Array<{ dd: number; score: number }> = [
   { dd: -10, score: 60 },
   { dd: 0, score: 95 },
 ];
-
-const RECENT_REINFORCE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 export function computeMarketScore(snapshot: Pick<MarketSnapshot, 'drawdownPercent'>): {
   score: number;
@@ -105,12 +108,13 @@ function hasRecentSameLevelReinforce(
   history: InvestmentActionLog[],
   symbol: string,
   decisionType: InvestmentDecisionType,
-  nowMs: number
+  nowMs: number,
+  settings: InvestmentSettings
 ): boolean {
   if (decisionType === 'DCA_ONLY') return false;
   const key = buildThresholdKey(symbol, decisionType);
   if (!key) return false;
-  const cutoff = nowMs - RECENT_REINFORCE_WINDOW_MS;
+  const cutoff = nowMs - resolveReinforceCooldownMs(settings);
   return history.some((row) => {
     if (row.status !== 'validated') return false;
     if (row.symbolAtDecision !== symbol) return false;
@@ -142,7 +146,8 @@ export function computeInvestmentRecommendation(
   const dca = Math.max(0, settings.monthlyDcaAmount);
   const cash = Math.max(0, settings.availableCash);
   const cashRef = Math.max(0, settings.cashReferenceAmount || cash || 1);
-  const prudenceMode = cash / cashRef < 0.2;
+  const cautionTh = resolveCautionCashRatioThreshold(settings);
+  const prudenceMode = cash / cashRef < cautionTh;
   const dd = snapshot.drawdownPercent;
 
   if (!Number.isFinite(dd)) {
@@ -189,7 +194,7 @@ export function computeInvestmentRecommendation(
       ? (cash * Math.min(100, Math.max(0, activeLevel.allocationPercent))) / 100
       : 0;
 
-  const recentSimilar = hasRecentSameLevelReinforce(history, snapshot.symbol, decisionType, nowMs);
+  const recentSimilar = hasRecentSameLevelReinforce(history, snapshot.symbol, decisionType, nowMs, settings);
   if (recentSimilar && reinforcePortion > 0) {
     reinforcePortion *= 0.5;
   }
@@ -197,10 +202,27 @@ export function computeInvestmentRecommendation(
     reinforcePortion *= 0.5;
   }
 
-  const monthlyDcaPortion = Math.min(dca, cash);
-  let suggestedAmount = Math.min(cash, monthlyDcaPortion + reinforcePortion);
+  let monthlyDcaPortion = Math.min(dca, cash);
+  const combinedAfterHalvings = monthlyDcaPortion + reinforcePortion;
+
+  const reservePct = resolveMinCashReservePercent(settings);
+  const reserveFloor = cashRef * (reservePct / 100);
+  const maxOutlay = Math.max(0, cash - reserveFloor);
+  let combined = combinedAfterHalvings;
+  if (combined > maxOutlay + 1e-6) {
+    let over = combined - maxOutlay;
+    reinforcePortion = Math.max(0, reinforcePortion - over);
+    combined = monthlyDcaPortion + reinforcePortion;
+    if (combined > maxOutlay + 1e-6) {
+      over = combined - maxOutlay;
+      monthlyDcaPortion = Math.max(0, monthlyDcaPortion - over);
+      combined = monthlyDcaPortion + reinforcePortion;
+    }
+  }
+
+  const suggestedAmount = Math.round(Math.min(cash, combined, maxOutlay) * 100) / 100;
   const baseBeforeCap = monthlyDcaPortion + reinforcePortion;
-  const cashLimited = baseBeforeCap > cash + 1e-6;
+  const cashLimited = combinedAfterHalvings > cash + 1e-6 || combinedAfterHalvings > maxOutlay + 1e-6;
 
   const actionType = actionTypeFromDecision(decisionType, activeLevel?.allocationPercent ?? 0);
   const thresholdKey = buildThresholdKey(snapshot.symbol, decisionType);
@@ -211,6 +233,9 @@ export function computeInvestmentRecommendation(
       ? 'Stratégie : DCA mensuel uniquement (marché proche des hauts)'
       : `Renfort progressif : ${activeLevel ? `${activeLevel.allocationPercent}% du cash disponible` : '—'}`,
   ];
+  if (reservePct > 0 && combinedAfterHalvings > maxOutlay + 1e-6) {
+    reasonParts.push(`Réserve cash minimale (${reservePct.toFixed(1)} % de la référence) : montant ajusté`);
+  }
   if (prudenceMode) reasonParts.push('Mode prudence : cash restant faible vs référence initiale');
   if (recentSimilar) reasonParts.push('Renfort similaire récemment enregistré : renfort divisé par 2');
 

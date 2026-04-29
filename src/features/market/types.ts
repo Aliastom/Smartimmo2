@@ -12,6 +12,16 @@ export interface ReinforceLevelConfig {
 export interface InvestmentStrategyConfig {
   monthlyDca: number;
   reinforceLevels: ReinforceLevelConfig[];
+  /** % du cash de référence à ne pas investir (0 = désactivé). */
+  minCashReservePercent?: number;
+  /** Ratio (0–1) en dessous duquel le mode prudence atténue les renforts. Défaut 0,2. */
+  cautionCashRatioThreshold?: number;
+  /** Fenêtre « renfort similaire » en jours. Défaut 14. */
+  reinforceCooldownDays?: number;
+  /** Fenêtre suppression suggestion palier (jours). Défaut 7. */
+  suggestionSuppressDays?: number;
+  /** Points de drawdown d’aggravation pour rouvrir une suggestion. Défaut 5. */
+  suggestionReopenDrawdownDelta?: number;
 }
 
 export interface InvestmentSettings {
@@ -40,6 +50,12 @@ export interface InvestmentSettings {
   peaSocialContributionsOnGainsRate?: number;
   /** V2 : DCA + paliers de % du cash (si absent, valeurs par défaut appliquées à la lecture) */
   investmentStrategy?: InvestmentStrategyConfig | null;
+  /** Garde-fous moteur (souvent aussi présents dans `investmentStrategy` côté stockage JSON). */
+  minCashReservePercent?: number;
+  cautionCashRatioThreshold?: number;
+  reinforceCooldownDays?: number;
+  suggestionSuppressDays?: number;
+  suggestionReopenDrawdownDelta?: number;
 }
 
 export interface MarketSnapshot {

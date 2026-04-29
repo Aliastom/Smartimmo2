@@ -11,6 +11,11 @@ export function defaultInvestmentStrategyConfig(monthlyDca: number): InvestmentS
   return {
     monthlyDca: Math.max(0, monthlyDca),
     reinforceLevels: DEFAULT_REINFORCE_LEVELS.map((l) => ({ ...l })),
+    minCashReservePercent: 0,
+    cautionCashRatioThreshold: 0.2,
+    reinforceCooldownDays: 14,
+    suggestionSuppressDays: 7,
+    suggestionReopenDrawdownDelta: 5,
   };
 }
 
