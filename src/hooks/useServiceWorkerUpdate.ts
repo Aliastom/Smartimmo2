@@ -19,6 +19,13 @@ export function useServiceWorkerUpdate(): ServiceWorkerUpdateState {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const [isUpdateAvailable, setIsUpdateAvailable] = useState(false);
 
+  const hardReload = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('__swu', Date.now().toString());
+    window.location.replace(url.toString());
+  }, []);
+
   // Fonction pour mettre à jour le service worker
   const updateServiceWorker = useCallback(() => {
     if (waitingWorker) {
@@ -31,10 +38,10 @@ export function useServiceWorkerUpdate(): ServiceWorkerUpdateState {
       
       // Recharger la page après un court délai pour laisser le SW se mettre à jour
       setTimeout(() => {
-        window.location.reload();
-      }, 100);
+        hardReload();
+      }, 250);
     }
-  }, [waitingWorker]);
+  }, [hardReload, waitingWorker]);
 
   // Fonction pour ignorer la mise à jour (masquer le bandeau)
   const dismissUpdate = useCallback(() => {
@@ -115,16 +122,45 @@ export function useServiceWorkerUpdate(): ServiceWorkerUpdateState {
     // Vérifier périodiquement (toutes les heures)
     const interval = setInterval(checkForUpdates, 60 * 60 * 1000);
 
+    const isChunkLoadError = (error: unknown): boolean => {
+      const text = String(error || '');
+      return (
+        text.includes('ChunkLoadError') ||
+        text.includes('Loading chunk') ||
+        text.includes('_next/static/chunks')
+      );
+    };
+
+    const recoverFromStaleChunks = () => {
+      // Eviter une boucle de reload infinie.
+      const guardKey = 'smartimmo.chunk-reload-once';
+      const alreadyRetried = sessionStorage.getItem(guardKey) === '1';
+      if (alreadyRetried) return;
+      sessionStorage.setItem(guardKey, '1');
+      hardReload();
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      if (isChunkLoadError(event.reason)) {
+        recoverFromStaleChunks();
+      }
+    };
+
     // Écouter les événements de contrôle du service worker
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      // Le service worker a changé, recharger la page
-      window.location.reload();
-    });
+    const onControllerChange = () => {
+      // Le service worker a changé, recharger avec cache-bust.
+      hardReload();
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
 
     return () => {
       clearInterval(interval);
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
     };
-  }, []);
+  }, [hardReload]);
 
   return {
     waitingWorker,
