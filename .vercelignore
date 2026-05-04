@@ -4,7 +4,8 @@ qdrant_storage/
 # Fichiers uploadés localement (utiliser S3/Vercel Blob en production)
 uploads/
 public/uploads/
-storage/
+# Uniquement le dossier storage à la racine du repo (pas src/lib/storage/)
+/storage/
 
 # Fichiers Git (déjà exclus par défaut mais on s'assure)
 .git/
