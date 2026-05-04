@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { LoanInterestYearAggregator, scheduleRowCalendarYear } from '@/services/tax/LoanInterestYearAggregator';
+import {
+  LoanInterestYearAggregator,
+  aggregateLoanInterestsForProperties,
+  scheduleRowCalendarYear,
+} from '@/services/tax/LoanInterestYearAggregator';
 import { buildSchedule } from '@/lib/finance/amortization';
 
 describe('LoanInterestYearAggregator', () => {
@@ -103,5 +107,21 @@ describe('LoanInterestYearAggregator', () => {
     expect(r.totalInteretsEmprunt).toBe(0);
     expect(r.byLoan).toHaveLength(0);
     expect(r.ambiguities[0]?.loanId).toBe('x');
+  });
+
+  it('multi-biens : somme les intérêts de chaque bien (activité LMNP)', () => {
+    const loanP1 = { ...baseLoan, id: 'l-p1', propertyId: 'prop-a' };
+    const loanP2 = {
+      ...baseLoan,
+      id: 'l-p2',
+      propertyId: 'prop-b',
+      principal: 80_000,
+      startDate: new Date('2025-03-01'),
+    };
+    const merged = aggregateLoanInterestsForProperties([loanP1, loanP2], 2025, ['prop-a', 'prop-b']);
+    const a = LoanInterestYearAggregator.aggregate({ loans: [loanP1], year: 2025, expectedPropertyId: 'prop-a' });
+    const b = LoanInterestYearAggregator.aggregate({ loans: [loanP2], year: 2025, expectedPropertyId: 'prop-b' });
+    expect(merged.totalInteretsEmprunt).toBeCloseTo(a.totalInteretsEmprunt + b.totalInteretsEmprunt, 1);
+    expect(merged.byLoan).toHaveLength(a.byLoan.length + b.byLoan.length);
   });
 });

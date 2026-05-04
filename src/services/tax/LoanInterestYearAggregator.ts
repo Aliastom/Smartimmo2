@@ -220,3 +220,51 @@ class LoanInterestYearAggregatorClass {
 }
 
 export const LoanInterestYearAggregator = new LoanInterestYearAggregatorClass();
+
+/**
+ * Agrège les intérêts / assurance emprunteur sur un ou plusieurs biens (ex. activité LMNP multi-biens).
+ * Un seul appel par bien pour réutiliser la logique d’ambiguïtés existante, puis somme.
+ */
+export function aggregateLoanInterestsForProperties(
+  loans: LoanInterestYearLoanInput[],
+  year: number,
+  propertyIds: string[]
+): Fiscal2044InteretsEmpruntAnnuel {
+  if (propertyIds.length === 0) {
+    return {
+      annee: year,
+      totalInteretsEmprunt: 0,
+      totalAssuranceEmprunteur: 0,
+      byLoan: [],
+      ambiguities: [],
+    };
+  }
+  if (propertyIds.length === 1) {
+    return LoanInterestYearAggregator.aggregate({
+      loans,
+      year,
+      expectedPropertyId: propertyIds[0]!,
+    });
+  }
+  const merged: Fiscal2044InteretsEmpruntAnnuel = {
+    annee: year,
+    totalInteretsEmprunt: 0,
+    totalAssuranceEmprunteur: 0,
+    byLoan: [],
+    ambiguities: [],
+  };
+  for (const pid of propertyIds) {
+    const a = LoanInterestYearAggregator.aggregate({
+      loans,
+      year,
+      expectedPropertyId: pid,
+    });
+    merged.totalInteretsEmprunt += a.totalInteretsEmprunt;
+    merged.totalAssuranceEmprunteur += a.totalAssuranceEmprunteur;
+    merged.byLoan.push(...a.byLoan);
+    merged.ambiguities.push(...a.ambiguities);
+  }
+  merged.totalInteretsEmprunt = Math.round(merged.totalInteretsEmprunt * 100) / 100;
+  merged.totalAssuranceEmprunteur = Math.round(merged.totalAssuranceEmprunteur * 100) / 100;
+  return merged;
+}

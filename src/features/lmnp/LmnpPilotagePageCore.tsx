@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Loader2, FileArchive, Sparkles, AlertTriangle, CheckCircle2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'framer-motion';
+import { resolveLmnpLoanKpisForPilotage } from '@/lib/lmnp/lmnpPilotageKpis';
 
 type Property = { id: string; name: string };
 type LmnpActivity = {
@@ -89,6 +90,8 @@ type DryRunPayload = {
     blockingAnomalyCount: number;
     bucketCounts: Record<string, number>;
     dryRunPayloadHash: string;
+    loanInterestsFromSchedule?: number;
+    loanInsuranceFromSchedule?: number;
   };
   anomalies: DryRunAnomaly[];
   ecrituresPreview: EcriturePreview[];
@@ -547,8 +550,12 @@ export function LmnpPilotagePageCore() {
     const recettes = sumBy((r) => (r.lmnp_bucket || '').includes('RECETTE') || (r.lmnp_bucket || '').includes('LOYER'));
     const chargesExploitation = sumBy((r) => (r.lmnp_bucket || '').includes('EXPLOITATION'));
     const chargesFiscales = sumBy((r) => (r.lmnp_bucket || '').includes('FISCALES'));
-    const interets = sumBy((r) => (r.lmnp_bucket || '').includes('FINANCIER'));
-    const assurance = sumBy((r) => (r.lmnp_bucket || '').includes('ASSURANCE'));
+    const m = dryRun.manifest;
+    const { interets, assurance } = resolveLmnpLoanKpisForPilotage({
+      loanInterestsFromSchedule: m.loanInterestsFromSchedule ?? 0,
+      loanInsuranceFromSchedule: m.loanInsuranceFromSchedule ?? 0,
+      ecritureRows: rows.map((r) => ({ lmnp_bucket: r.lmnp_bucket || '', amount: Number(r.amount) || 0 })),
+    });
     const aClasser = rows.filter((r) => r.lmnp_bucket === 'A_CLASSER').length;
     return {
       recettes,
@@ -769,7 +776,20 @@ export function LmnpPilotagePageCore() {
         toast.error(json?.message || json?.error || 'Export final impossible');
         return;
       }
-      const blob = await res.blob();
+      let blob = await res.blob();
+      let repairSuffix = '';
+      try {
+        const { repairLmnpExportZipWithIndexedDb } = await import(
+          '@/features/lmnp/lmnpExportZipRepairFromIndexedDb'
+        );
+        const { blob: repaired, report } = await repairLmnpExportZipWithIndexedDb(blob);
+        if (report.repaired.length > 0) {
+          blob = repaired;
+          repairSuffix = ` — ${report.repaired.length} PJ complétée(s) depuis IndexedDB`;
+        }
+      } catch {
+        /* pas de client DB : ignorer */
+      }
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -778,7 +798,7 @@ export function LmnpPilotagePageCore() {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Dossier comptable LMNP généré');
+      toast.success(`Dossier comptable LMNP généré${repairSuffix}`);
     } catch {
       toast.error('Erreur réseau');
     } finally {

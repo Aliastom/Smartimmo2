@@ -535,10 +535,27 @@ class FiscalAggregatorClass {
     let chargesDeductiblesCents = 0;
     let chargesCapitalisablesCents = 0;
     let sumTransactionsUsedForSyntheseCents = 0;
+    const lmnpChargesLines: Array<{
+      transactionId: string;
+      bienId: string;
+      date: string | null;
+      moisComptable: string | null;
+      libelle: string;
+      categorie: string;
+      nature: string;
+      montant: number;
+      rapprochement: 'rapprochee' | 'non_rapprochee' | 'inconnu';
+      sourceMappingLmnp: string;
+      bucketFiscal: 'charge_directe' | 'amortissement' | 'hors_charges';
+    }> = [];
     
     // 🆕 Breakdown par catégorie
     const recettesParCategorie: Record<string, { label: string; amount: number }> = {};
     const chargesParCategorie: Record<string, { label: string; amount: number }> = {};
+    const lmnpChargesParCategorie: Record<string, number> = {};
+    const lmnpChargesParBien: Record<string, number> = {};
+    let lmnpChargesRapprochees = 0;
+    let lmnpChargesNonRapprochees = 0;
     
     // 🔍 DEBUG temporaire : liste des dates avec source (paidAt / date / createdAt) pour vérification fiscale
     const debugPaidAtDates: { date: string; source: 'paidAt' | 'date' | 'createdAt' }[] = [];
@@ -626,6 +643,29 @@ class FiscalAggregatorClass {
         // (utile pour le forcing 211 appliqué plus bas lors de la préparation 2044).
       } else if (isDepense) {
         // Dépense - utiliser Category.deductible et Category.capitalizable
+        const fiscalDateIso = fiscalDate
+          ? new Date(fiscalDate).toISOString().slice(0, 10)
+          : null;
+        const monthFromDate = fiscalDateIso ? fiscalDateIso.slice(0, 7) : null;
+        const accountingMonth = (transaction as any).accountingMonth || (transaction as any).periodMonth || monthFromDate;
+        const accountingYear = (transaction as any).periodYear || (accountingMonth ? Number(String(accountingMonth).slice(0, 4)) : null);
+        const moisComptable = accountingMonth && accountingYear
+          ? `${accountingYear}-${String(accountingMonth).padStart(2, '0')}`
+          : monthFromDate;
+        const rapprochementStatus = String((transaction as any).rapprochementStatus || '').toLowerCase();
+        const rapprochement: 'rapprochee' | 'non_rapprochee' | 'inconnu' = rapprochementStatus === 'rapprochee'
+          ? 'rapprochee'
+          : rapprochementStatus
+            ? 'non_rapprochee'
+            : 'inconnu';
+        const sourceMappingLmnp = transaction.Category?.capitalizable === true
+          ? 'category.capitalizable=true'
+          : transaction.Category?.deductible === true
+            ? 'category.deductible=true'
+            : transaction.Category
+              ? 'category fallback (sans indicateur fiscal explicite)'
+              : 'sans category (fallback charge)';
+
         if (transaction.Category?.capitalizable === true) {
           chargesCapitalisablesCents += montantCents;
           excludedTransactionsForSynthese.push({
@@ -633,6 +673,19 @@ class FiscalAggregatorClass {
             label: transaction.label || 'Transaction',
             amountAbs: montant,
             reason: 'charge capitalisable (hors synthèse fiscale courante)',
+          });
+          lmnpChargesLines.push({
+            transactionId: transaction.id,
+            bienId: propertyId,
+            date: fiscalDateIso,
+            moisComptable: moisComptable || null,
+            libelle: transaction.label || 'Transaction',
+            categorie: categoryLabel,
+            nature: natureCode || 'N/A',
+            montant,
+            rapprochement,
+            sourceMappingLmnp,
+            bucketFiscal: 'amortissement',
           });
         } else if (transaction.Category?.deductible === true) {
           chargesDeductiblesCents += montantCents;
@@ -653,6 +706,26 @@ class FiscalAggregatorClass {
           chargesParCategorie[categorySlug].amount = fromCents(
             toCents(chargesParCategorie[categorySlug].amount) + montantCents,
           );
+          lmnpChargesLines.push({
+            transactionId: transaction.id,
+            bienId: propertyId,
+            date: fiscalDateIso,
+            moisComptable: moisComptable || null,
+            libelle: transaction.label || 'Transaction',
+            categorie: categoryLabel,
+            nature: natureCode || 'N/A',
+            montant,
+            rapprochement,
+            sourceMappingLmnp,
+            bucketFiscal: 'charge_directe',
+          });
+          lmnpChargesParCategorie[categoryLabel] = (lmnpChargesParCategorie[categoryLabel] || 0) + montant;
+          lmnpChargesParBien[propertyId] = (lmnpChargesParBien[propertyId] || 0) + montant;
+          if (rapprochement === 'rapprochee') {
+            lmnpChargesRapprochees += montant;
+          } else if (rapprochement === 'non_rapprochee') {
+            lmnpChargesNonRapprochees += montant;
+          }
         } else {
           // Si catégorie non définie → considérer comme déductible par défaut
           chargesDeductiblesCents += montantCents;
@@ -671,9 +744,32 @@ class FiscalAggregatorClass {
           chargesParCategorie[categorySlug].amount = fromCents(
             toCents(chargesParCategorie[categorySlug].amount) + montantCents,
           );
+          lmnpChargesLines.push({
+            transactionId: transaction.id,
+            bienId: propertyId,
+            date: fiscalDateIso,
+            moisComptable: moisComptable || null,
+            libelle: transaction.label || 'Transaction',
+            categorie: categoryLabel,
+            nature: natureCode || 'N/A',
+            montant,
+            rapprochement,
+            sourceMappingLmnp,
+            bucketFiscal: 'charge_directe',
+          });
+          lmnpChargesParCategorie[categoryLabel] = (lmnpChargesParCategorie[categoryLabel] || 0) + montant;
+          lmnpChargesParBien[propertyId] = (lmnpChargesParBien[propertyId] || 0) + montant;
+          if (rapprochement === 'rapprochee') {
+            lmnpChargesRapprochees += montant;
+          } else if (rapprochement === 'non_rapprochee') {
+            lmnpChargesNonRapprochees += montant;
+          }
         }
       }
     }
+
+    /** Charges déductibles issues uniquement des transactions (avant forfait 222 / ajustements). */
+    const chargesDeductiblesFromTxOnlyCents = chargesDeductiblesCents;
 
     const recettesTotales = fromCents(recettesTotalesCents);
     const chargesDeductiblesBase = fromCents(chargesDeductiblesCents);
@@ -863,6 +959,101 @@ class FiscalAggregatorClass {
     const amortissements = (fiscalType?.category === 'BIC')
       ? await this.calculateAmortizations(propertyId, year)
       : undefined;
+    const amortissementsTotal = amortissements
+      ? (amortissements.batiment || 0) + (amortissements.mobilier || 0) + (amortissements.fraisAcquisition || 0)
+      : 0;
+
+    const auditParTransaction = transactions.map((tx) => {
+      const id = tx.id;
+      const label = String(tx.label || '');
+      const ex = excludedTransactionsForSynthese.find((e) => e.id === id);
+      if (ex) {
+        return { transactionId: id, label, statut: 'exclu_agregat_fiscal', detail: ex.reason };
+      }
+      const lmnpTx = lmnpChargesLines.filter((l) => l.transactionId === id);
+      const direct = lmnpTx.find((l) => l.bucketFiscal === 'charge_directe');
+      if (direct) {
+        return {
+          transactionId: id,
+          label,
+          statut: 'charge_lmnp_ligne_directe',
+          detail: `${direct.categorie} · ${direct.sourceMappingLmnp} · rapproch.: ${direct.rapprochement}`,
+        };
+      }
+      const amort = lmnpTx.find((l) => l.bucketFiscal === 'amortissement');
+      if (amort) {
+        return {
+          transactionId: id,
+          label,
+          statut: 'charge_lmnp_amortissement',
+          detail: amort.sourceMappingLmnp,
+        };
+      }
+      const inc = includedTransactionsForSynthese.find((i) => i.id === id);
+      if (inc) {
+        const low = inc.reason.toLowerCase();
+        const isRec = low.includes('recette');
+        return {
+          transactionId: id,
+          label,
+          statut: isRec ? 'recette_fiscale_encaissement' : 'inclus_synthese_autre',
+          detail: inc.reason,
+        };
+      }
+      return {
+        transactionId: id,
+        label,
+        statut: 'non_classé',
+        detail: 'Absent des listes included/excluded — vérifier la logique ou un doublon',
+      };
+    });
+
+    const nombreRecettesSynthese = includedTransactionsForSynthese.filter((i) =>
+      i.reason.toLowerCase().includes('recette'),
+    ).length;
+    const nombreDepensesSynthese = includedTransactionsForSynthese.filter((i) => {
+      const low = i.reason.toLowerCase();
+      return !low.includes('recette') && !String(i.id).startsWith('FORFAIT');
+    }).length;
+
+    const chargesTotalSimulatorCents = chargesDeductiblesCents + toCents(interets.passe);
+    const chargesFromTransactionsCents = chargesDeductiblesFromTxOnlyCents;
+    const chargesOutsideTransactionsCents =
+      chargesTotalSimulatorCents - chargesFromTransactionsCents;
+    const loanInterestsCents = toCents(interetsEmpruntAnnee.totalInteretsEmprunt);
+    const loanInsuranceCents = toCents(interetsEmpruntAnnee.totalAssuranceEmprunteur);
+    const forfaitOrCalculatedChargesCents = forfait222Cents;
+    const scheduleLoanSumCents = loanInterestsCents + loanInsuranceCents;
+    const otherCents =
+      chargesOutsideTransactionsCents - forfaitOrCalculatedChargesCents - scheduleLoanSumCents;
+
+    const lmnpPerimetreDiagnostic = {
+      anneeFiscale: year,
+      transactionsApresDedup: transactions.length,
+      nombreRecettesSynthese,
+      nombreDepensesSynthese,
+      nombreLignesChargesDirectesLmnp: lmnpChargesLines.filter((l) => l.bucketFiscal === 'charge_directe')
+        .length,
+      nombreLignesAmortissementLmnp: lmnpChargesLines.filter((l) => l.bucketFiscal === 'amortissement')
+        .length,
+      nombreExclusions: excludedTransactionsForSynthese.length,
+      totalRecettesRetenues: recettesTotales,
+      totalChargesDepensesTransactions: fromCents(chargesDeductiblesFromTxOnlyCents),
+      totalForfaitHorsTransactions: fromCents(forfait222Cents),
+      montantInteretsEmpruntHorsTransactions: interets.passe,
+      montantAmortissementsComptablesHorsTransactions: amortissementsTotal,
+      chargesFromTransactionsCents,
+      chargesOutsideTransactionsCents,
+      chargesTotalSimulatorCents,
+      outsideTransactionsBreakdown: {
+        loanInterestsCents,
+        loanInsuranceCents,
+        forfaitOrCalculatedChargesCents,
+        otherCents,
+      },
+      exclusionsDetaillees: excludedTransactionsForSynthese.map((e) => ({ ...e })),
+      auditParTransaction,
+    };
     
     return {
       id: propertyId,
@@ -897,6 +1088,25 @@ class FiscalAggregatorClass {
       
       // 🆕 Breakdown détaillé (passé + projection séparés pour onglet Projections)
       breakdown,
+      ...(fiscalType?.category === 'BIC' ? {
+        breakdown: {
+          ...breakdown,
+          lmnpDebug: {
+            chargesLines: lmnpChargesLines,
+            totalsByCategory: lmnpChargesParCategorie,
+            totalsByBien: lmnpChargesParBien,
+            totalsRapprochement: {
+              rapprochees: lmnpChargesRapprochees,
+              nonRapprochees: lmnpChargesNonRapprochees,
+            },
+            totalsDirectChargesVsAmortissements: {
+              chargesDirectes: chargesDeductibles,
+              amortissements: amortissementsTotal,
+            },
+            perimetreDiagnostic: lmnpPerimetreDiagnostic,
+          },
+        },
+      } : {}),
       
       // 🔍 DEBUG temporaire : dates d'encaissement des transactions incluses (pour vérification fiscale)
       _debugPaidAtDates: debugPaidAtDates,
