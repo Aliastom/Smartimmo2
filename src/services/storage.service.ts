@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
-import { formatStorageError } from '../lib/storage/formatStorageError';
+import { formatStorageError } from '@/lib/storage/formatStorageError';
 
 /**
  * Service de stockage de documents
