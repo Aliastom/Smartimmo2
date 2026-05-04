@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
+import { formatStorageError } from '@/lib/storage/formatStorageError';
 
 /**
  * Service de stockage de documents
@@ -173,8 +174,17 @@ class SupabaseStorageProvider implements StorageProvider {
       .download(normalizedKey);
 
     if (error) {
-      console.error('[SupabaseStorage] Erreur download:', error);
-      throw new Error(`Échec du téléchargement depuis Supabase: ${error.message}`);
+      const errText = formatStorageError(error);
+      const statusCode = (error as { statusCode?: string }).statusCode;
+      console.error('[SupabaseStorage] Erreur download:', {
+        bucket: this.bucket,
+        normalizedKey,
+        message: errText,
+        statusCode,
+      });
+      throw new Error(
+        `Échec du téléchargement depuis Supabase [bucket=${this.bucket}] [key=${normalizedKey}]: ${errText}`,
+      );
     }
 
     if (!data) {
@@ -386,6 +396,64 @@ export class StorageService {
    */
   async downloadDocument(key: string): Promise<Buffer> {
     return await this.provider.download(key);
+  }
+
+  /**
+   * Essaie plusieurs chemins de clé jusqu’au premier buffer non vide (LMNP / migrations de bucketKey).
+   */
+  async downloadDocumentFirstKeyWorking(
+    keyCandidates: string[],
+    logContext?: { documentId?: string; originalFilename?: string },
+  ): Promise<
+    | {
+        ok: true;
+        buffer: Buffer;
+        keyUsed: string;
+        attempts: Array<{ key: string; error?: string }>;
+      }
+    | {
+        ok: false;
+        attempts: Array<{ key: string; error: string }>;
+      }
+  > {
+    const attempts: Array<{ key: string; error?: string }> = [];
+    const seen = new Set<string>();
+    for (const key of keyCandidates) {
+      if (!key?.trim()) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      try {
+        const buffer = await this.provider.download(key);
+        if (buffer && buffer.byteLength > 0) {
+          attempts.push({ key });
+          if (logContext?.documentId) {
+            console.info('[StorageService] ✅ PJ téléchargée', {
+              documentId: logContext.documentId,
+              keyUsed: key,
+              triedCount: attempts.length,
+            });
+          }
+          return { ok: true, buffer, keyUsed: key, attempts };
+        }
+        const msg = 'buffer_vide';
+        attempts.push({ key, error: msg });
+      } catch (e: unknown) {
+        const msg = formatStorageError(e);
+        attempts.push({ key, error: msg });
+        if (logContext?.documentId) {
+          console.error('[StorageService] ❌ tentative téléchargement PJ', {
+            documentId: logContext.documentId,
+            storageKey: key,
+            originalFilename: logContext.originalFilename,
+            error: msg,
+          });
+        }
+      }
+    }
+    return {
+      ok: false,
+      attempts: attempts.map((a) => ({ key: a.key, error: a.error || 'unknown' })),
+    };
   }
 
   /**

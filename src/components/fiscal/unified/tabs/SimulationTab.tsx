@@ -31,6 +31,8 @@ import {
 } from 'lucide-react';
 import { Separator } from '@/components/ui/Separator';
 import { FiscalLoadingOverlay } from '@/components/fiscal/FiscalLoadingOverlay';
+import { LmnpDebugPanel } from '@/components/fiscal/LmnpDebugPanel';
+import { showSmartimmoFiscalDebug } from '@/lib/debug/showFiscalDebug';
 import { PilotagePASBlock } from '@/components/fiscal/PilotagePASBlock';
 import {
   Tooltip,
@@ -40,7 +42,8 @@ import {
 } from '@/components/ui/Tooltip';
 
 export default function SimulationTab() {
-  const { simulationDraft, simulationResult, updateDraft, setAutofillCache, autofillCache } = useFiscalStore();
+  const { simulationDraft, simulationResult, updateDraft, setAutofillCache, autofillCache } =
+    useFiscalStore();
   const { session: fiscalSession, loading: fiscalSessionLoading } = useFiscalSession();
   const { organizationId } = useCurrentOrganization();
 
@@ -359,6 +362,16 @@ export default function SimulationTab() {
   const loadAutofillData = useCallback(async (yearOverride?: number) => {
     if (loadingAutofill) return;
 
+    if (!useFiscalStore.getState().consumeAggregateImportArm()) {
+      const shortStack =
+        new Error('fiscal-aggregate-trace').stack?.split('\n').slice(0, 10).join(' ← ') ?? '';
+      console.warn('[FiscalAggregate] REFUS — import sans action utilisateur (fantôme ?)', {
+        source: 'auto',
+        shortStack,
+      });
+      return;
+    }
+
     const year = yearOverride ?? currentIncomeYear;
     const baseCalcul = simulationDraft.options?.baseCalcul ?? 'encaisse';
     const cacheKey = organizationId ? `${organizationId}:${year}:${baseCalcul}` : null;
@@ -567,9 +580,8 @@ export default function SimulationTab() {
   const autofillLoadingRef = useRef(false);
   const lastAutofillYearRef = useRef<number | null>(null);
 
-  // Quand l'année des revenus change (changement déclaration), invalider et recharger immédiatement
+  // Changement d'année revenus : invalider le cache store (aucun agrégat serveur automatique)
   useEffect(() => {
-    // Ne charger que lorsque la session est prête : session chargée (pas le fallback) OU organizationId manquant
     const sessionReady = !fiscalSessionLoading && organizationId && fiscalSession;
     if (!autofill || !sessionReady) return;
     const year = fiscalSession.incomeYear;
@@ -577,79 +589,63 @@ export default function SimulationTab() {
     lastAutofillYearRef.current = year;
 
     if (prevYear !== null && prevYear !== year) {
-      console.log('[Fiscal] Année revenus changée:', prevYear, '→', year, ', rechargement données');
       setAutofillCache(null);
       setAutofillData(null);
-      if (!autofillLoadingRef.current) {
-        autofillLoadingRef.current = true;
-        loadAutofillData(year).finally(() => {
-          autofillLoadingRef.current = false;
-        });
-      }
+      autofillLoadingRef.current = false;
     }
-  }, [fiscalSession?.incomeYear, autofill, fiscalSessionLoading, organizationId, loadAutofillData, setAutofillCache]);
+  }, [fiscalSession?.incomeYear, autofill, fiscalSessionLoading, organizationId, fiscalSession, setAutofillCache]);
 
+  // Aperçu « biens » : uniquement depuis autofillCache (rempli au chargement snapshot / après calcul — pas d'appel /aggregate au montage)
   useEffect(() => {
-    // Ne charger que lorsque la session est prête (évite données 2026 au lieu de 2025 au montage)
     const sessionReady = !fiscalSessionLoading && organizationId && fiscalSession;
     if (!sessionReady) return;
 
     const year = fiscalSession.incomeYear;
     const baseCalcul = simulationDraft.options?.baseCalcul ?? 'encaisse';
 
-    // ✅ Restaurer depuis le cache du store seulement si l'année correspond
-    if (autofill && !autofillData && autofillCache?.biens?.length && autofillCache.year === year) {
-      setAutofillData({
-        biens: autofillCache.biens,
-        loyers: autofillCache.biens.reduce((sum: number, b: any) => sum + (b.loyers || 0), 0),
-        charges: autofillCache.biens.reduce((sum: number, b: any) => sum + (b.charges || 0), 0),
-        nombreBiens: autofillCache.biens.length,
-      });
-      const savedIds = (useFiscalStore.getState().simulationDraft._uiMetadata as any)?.selectedBienIds;
-      if (!savedIds || savedIds.length === 0) {
-        setSelectedBienIds(autofillCache.biens.map((b: any) => b.id));
-      }
+    if (!autofill) {
+      setAutofillData(null);
+      autofillLoadingRef.current = false;
       return;
     }
 
-    // ✅ Charger seulement si besoin : pas de données affichées, ou cache store incohérent (année / base calcul).
-    // Important : si autofillCache est null, (autofillCache?.year !== year) était toujours vrai → rechargement à chaque frappe
-    // car _uiMetadata était dans les deps et changeait à chaque sync formulaire.
-    const cacheMismatch =
-      autofillCache != null &&
-      (autofillCache.year !== year || autofillCache.baseCalcul !== baseCalcul);
-
-    if (autofill && (!autofillData || cacheMismatch) && !autofillLoadingRef.current) {
-      autofillLoadingRef.current = true;
-      loadAutofillData(year).finally(() => {
-        autofillLoadingRef.current = false;
-      });
-    } else if (!autofill) {
+    if (!autofillCache?.biens?.length || autofillCache.year !== year || autofillCache.baseCalcul !== baseCalcul) {
       setAutofillData(null);
-      autofillLoadingRef.current = false;
+      return;
+    }
+
+    setAutofillData({
+      biens: autofillCache.biens,
+      loyers: autofillCache.biens.reduce((sum: number, b: any) => sum + (b.loyers || 0), 0),
+      charges: autofillCache.biens.reduce((sum: number, b: any) => sum + (b.charges || 0), 0),
+      nombreBiens: autofillCache.biens.length,
+    });
+    setAutofillFromCache(false);
+    setOfflineNoCache(false);
+    const savedIds = (useFiscalStore.getState().simulationDraft._uiMetadata as any)?.selectedBienIds;
+    if (!savedIds || savedIds.length === 0) {
+      setSelectedBienIds(autofillCache.biens.map((b: any) => b.id));
     }
   }, [
     autofill,
-    autofillData,
     autofillCache,
     fiscalSession?.incomeYear,
     fiscalSessionLoading,
-    loadAutofillData,
     organizationId,
+    fiscalSession,
     simulationDraft.options?.baseCalcul,
   ]);
 
-  // Réessayer au retour online
+  // Retour online : ne pas relancer l'analyse Smartimmo automatiquement (import explicite : bouton Réessayer ou recalcul)
   useEffect(() => {
     const handleOnline = () => {
       if (autofill && offlineNoCache) {
         setOfflineNoCache(false);
-        loadAutofillData();
       }
     };
     window.addEventListener('online', handleOnline);
     return () => window.removeEventListener('online', handleOnline);
-  }, [autofill, offlineNoCache, loadAutofillData]);
+  }, [autofill, offlineNoCache]);
 
   const toggleBienSelection = (bienId: string) => {
     setSelectedBienIds((prev) =>
@@ -658,6 +654,7 @@ export default function SimulationTab() {
   };
 
   const toggleAllBiens = () => {
+    if (!autofillData?.biens?.length) return;
     if (selectedBienIds.length === autofillData.biens.length) {
       setSelectedBienIds([]);
     } else {
@@ -1214,7 +1211,10 @@ export default function SimulationTab() {
                           variant="outline"
                           size="sm"
                           className="mt-2"
-                          onClick={() => loadAutofillData()}
+                          onClick={() => {
+                            useFiscalStore.getState().armAggregateImport();
+                            void loadAutofillData();
+                          }}
                         >
                           Réessayer
                         </Button>
@@ -1426,6 +1426,12 @@ export default function SimulationTab() {
         </div>
       </div>
     </div>
+
+      {simulationResult && showSmartimmoFiscalDebug() && (
+        <div className="max-w-7xl mx-auto px-6 pb-8 w-full">
+          <LmnpDebugPanel simulation={simulationResult} />
+        </div>
+      )}
     </>
   );
 }

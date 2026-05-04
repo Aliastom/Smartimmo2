@@ -21,6 +21,8 @@ const BodySchema = z.object({
       }),
     )
     .optional(),
+  /** Inclure `lmnp/v2/debug-attachments-scope.json` dans le ZIP (défaut true). */
+  includeDebugAttachmentScope: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -40,7 +42,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { propertyId, lmnpActivityId, exerciseYear, mode, dryRunPayloadHash, transientTxOverrides } = parsed.data;
+    const {
+      propertyId,
+      lmnpActivityId,
+      exerciseYear,
+      mode,
+      dryRunPayloadHash,
+      transientTxOverrides,
+      includeDebugAttachmentScope,
+    } = parsed.data;
     if (!propertyId && !lmnpActivityId) {
       return NextResponse.json({ success: false, error: 'propertyId ou lmnpActivityId requis' }, { status: 400 });
     }
@@ -75,6 +85,7 @@ export async function POST(request: NextRequest) {
       dryRunPayloadHash: dryRunPayloadHash ?? null,
       createdByUserId: user.id,
       transientTxOverrides: transientTxOverrides ?? [],
+      includeDebugAttachmentScope,
     });
 
     if (result.mode === 'dryRun') {

@@ -480,11 +480,8 @@ export default function TransactionDrawer({
       status: newStatus
     }, {
       onSuccess: () => {
-        // Le toast est déjà géré dans useToggleRapprochement
-        // ⚠️ APP-SHELL : Pas de refresh en mode app-shell - les données sont déjà dans IndexedDB
-        // L'état local est déjà à jour via setLocalRapprochementStatus
-        // La liste se mettra à jour naturellement au prochain render (fermeture drawer, etc.)
-        if (mode !== 'app-shell' && onRefresh) {
+        // Toast + patch liste via useToggleRapprochement ; onRefresh aligne le parent (table, KPI, ligne drawer).
+        if (onRefresh) {
           onRefresh();
         }
       },

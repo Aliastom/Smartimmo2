@@ -68,13 +68,15 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const year = searchParams.get('year');
     const baseCalcul = searchParams.get('baseCalcul') || 'encaisse';
+    const propertyId = searchParams.get('propertyId')?.trim();
 
-    const yearNum = year ? parseInt(year) : new Date().getFullYear();
+    const yearNum = year ? parseInt(year, 10) : new Date().getFullYear();
 
     const aggregated = await FiscalAggregator.aggregate({
       organizationId,
       year: yearNum,
       baseCalcul: baseCalcul as 'encaisse' | 'exigible',
+      ...(propertyId ? { scope: { propertyIds: [propertyId] } } : {}),
     });
 
     // Calculer les totaux simples pour l'encart

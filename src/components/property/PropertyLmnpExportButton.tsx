@@ -7,6 +7,8 @@ import { Download, FileArchive, Loader2, SearchCheck, ExternalLink, Copy, CheckC
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { useLmnpPropertyFiscalEligibility } from '@/features/transactions/hooks/useLmnpPropertyFiscalEligibility';
 
 type LmnpAnomaly = {
   entityType: string;
@@ -60,14 +62,6 @@ interface PropertyLmnpExportButtonProps {
   compact?: boolean;
 }
 
-function isLmnpRealEligible(fiscalTypeId?: string, fiscalRegimeId?: string): boolean {
-  const type = (fiscalTypeId || '').trim().toUpperCase();
-  const regime = (fiscalRegimeId || '').trim().toUpperCase();
-  const isLmnpType = type.includes('LMNP') || type.includes('LMP') || type.includes('MEUBLE');
-  const isRealRegime = regime.includes('REEL') || regime.includes('RÉEL');
-  return isLmnpType && isRealRegime;
-}
-
 function formatPercent(rate: number): string {
   return `${Math.round(rate * 100)}%`;
 }
@@ -90,8 +84,8 @@ function resolutionSourceLabel(source: string | undefined): string {
 export function PropertyLmnpExportButton({
   propertyId,
   propertyName,
-  fiscalTypeId,
-  fiscalRegimeId,
+  fiscalTypeId: _fiscalTypeId,
+  fiscalRegimeId: _fiscalRegimeId,
   compact = false,
 }: PropertyLmnpExportButtonProps) {
   const router = useRouter();
@@ -105,9 +99,11 @@ export function PropertyLmnpExportButton({
   const [success, setSuccess] = useState<string | null>(null);
   const [finalSuccess, setFinalSuccess] = useState<{ runId: string; anomalyCount: number } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const canShowLmnp = useMemo(
-    () => isLmnpRealEligible(fiscalTypeId, fiscalRegimeId),
-    [fiscalTypeId, fiscalRegimeId],
+  const { organizationId } = useCurrentOrganization();
+  const { eligible: canShowLmnp, loading: lmnpEligibilityLoading } = useLmnpPropertyFiscalEligibility(
+    propertyId,
+    organizationId,
+    Boolean(propertyId && organizationId),
   );
 
   const blockingAnomalies = useMemo(
@@ -242,7 +238,21 @@ export function PropertyLmnpExportButton({
         throw new Error(payload?.error || payload?.message || 'Export final impossible.');
       }
 
-      const blob = await response.blob();
+      let blob = await response.blob();
+      let indexedDbRepairCount = 0;
+      try {
+        const { repairLmnpExportZipWithIndexedDb } = await import(
+          '@/features/lmnp/lmnpExportZipRepairFromIndexedDb'
+        );
+        const { blob: repaired, report } = await repairLmnpExportZipWithIndexedDb(blob);
+        if (report.repaired.length > 0) {
+          blob = repaired;
+          indexedDbRepairCount = report.repaired.length;
+        }
+      } catch {
+        /* hors App Shell / sans IndexedDB */
+      }
+
       const defaultFilename = `LMNP_${propertyName || propertyId}_${exerciseYear}.zip`;
       const contentDisposition = response.headers.get('content-disposition') || '';
       const match = contentDisposition.match(/filename="([^"]+)"/);
@@ -259,10 +269,14 @@ export function PropertyLmnpExportButton({
       const runId = runIdHeader || '';
       const ac = dryRun.manifest.anomalyCount ?? 0;
       setFinalSuccess({ runId, anomalyCount: ac });
+      const repairMsg =
+        indexedDbRepairCount > 0
+          ? ` ${indexedDbRepairCount} pièce(s) complétée(s) depuis IndexedDB (voir lmnp/v2/export-file-integrity-indexeddb-repair.json).`
+          : '';
       setSuccess(
         runId
-          ? `Export ZIP enregistré. Run d’audit : ${runId.slice(0, 12)}… — ${ac} anomalie(s) ou avertissement(s) listé(s) dans le dossier.`
-          : `Export ZIP téléchargé. ${ac} anomalie(s) ou avertissement(s) listé(s) dans le dossier.`,
+          ? `Export ZIP enregistré. Run d’audit : ${runId.slice(0, 12)}… — ${ac} anomalie(s) ou avertissement(s) listé(s) dans le dossier.${repairMsg}`
+          : `Export ZIP téléchargé. ${ac} anomalie(s) ou avertissement(s) listé(s) dans le dossier.${repairMsg}`,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erreur inattendue pendant l’export final.');
@@ -302,7 +316,7 @@ export function PropertyLmnpExportButton({
     </li>
   );
 
-  if (!canShowLmnp) {
+  if (lmnpEligibilityLoading || !canShowLmnp) {
     return null;
   }
 

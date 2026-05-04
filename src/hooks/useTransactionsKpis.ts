@@ -305,31 +305,34 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
     let cancelled = false;
 
     const handleRefresh = async (event?: Event) => {
-      // ✅ FILTRE STRICT : Si propertyId est défini, accepter UNIQUEMENT les events avec scope='property' ET propertyId correspondant
+      // Filtre ciblé bien : ignorer seulement un scope 'property' explicitement incompatible.
+      // (Les events sans `scope` ne doivent pas bloquer le recalcul — ex. refresh legacy / patch.)
       if (event instanceof CustomEvent && event.detail) {
         const detail = event.detail as { scope?: string; propertyId?: string; reason?: string };
-        
-        if (propertyId) {
-          if (detail.scope !== 'property' || !detail.propertyId || detail.propertyId !== propertyId) {
-            return; // Ignorer les events sans scope, scope différent, ou propertyId différent/absent
-          }
-        }
-        
-        // Anti-loop : ignorer les refresh identiques < 300ms
-        const now = Date.now();
-        const lastRefresh = lastRefreshRef.current;
-        if (lastRefresh && 
-            lastRefresh.propertyId === detail.propertyId && 
-            lastRefresh.reason === detail.reason &&
-            now - lastRefresh.timestamp < 300) {
+
+        if (propertyId && detail.scope === 'property' && detail.propertyId && detail.propertyId !== propertyId) {
           return;
         }
-        
-        lastRefreshRef.current = {
-          propertyId: detail.propertyId,
-          reason: detail.reason,
-          timestamp: now,
-        };
+
+        const now = Date.now();
+        const lastRefresh = lastRefreshRef.current;
+        if (
+          lastRefresh &&
+          detail.propertyId &&
+          lastRefresh.propertyId === detail.propertyId &&
+          lastRefresh.reason === detail.reason &&
+          now - lastRefresh.timestamp < 120
+        ) {
+          return;
+        }
+
+        if (detail.propertyId) {
+          lastRefreshRef.current = {
+            propertyId: detail.propertyId,
+            reason: detail.reason,
+            timestamp: now,
+          };
+        }
       }
       
       try {
@@ -436,7 +439,7 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
       cancelled = true;
       window.removeEventListener('transactions:refresh', handleRefresh);
     };
-  }, [mode, organizationId, periodStart, periodEnd, propertyId]);
+  }, [mode, organizationId, periodStart, periodEnd, propertyId, appShellContext?.organizationId, normalOrg?.organizationId]);
 
   // Retourner les données selon le mode
   if (mode === 'normal') {

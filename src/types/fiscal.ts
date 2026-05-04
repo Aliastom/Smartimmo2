@@ -242,6 +242,65 @@ export interface RentalPropertyInput {
       recettes: Record<string, { label: string; amount: number }>;
       charges: Record<string, { label: string; amount: number }>;
     };
+    lmnpDebug?: {
+      chargesLines: Array<{
+        transactionId: string;
+        bienId: string;
+        date: string | null;
+        moisComptable: string | null;
+        libelle: string;
+        categorie: string;
+        nature: string;
+        montant: number;
+        rapprochement: 'rapprochee' | 'non_rapprochee' | 'inconnu';
+        sourceMappingLmnp: string;
+        bucketFiscal: 'charge_directe' | 'amortissement' | 'hors_charges';
+      }>;
+      totalsByCategory: Record<string, number>;
+      totalsByBien: Record<string, number>;
+      totalsRapprochement: {
+        rapprochees: number;
+        nonRapprochees: number;
+      };
+      totalsDirectChargesVsAmortissements: {
+        chargesDirectes: number;
+        amortissements: number;
+      };
+      perimetreDiagnostic?: {
+        anneeFiscale: number;
+        transactionsApresDedup: number;
+        nombreRecettesSynthese: number;
+        nombreDepensesSynthese: number;
+        nombreLignesChargesDirectesLmnp: number;
+        nombreLignesAmortissementLmnp: number;
+        nombreExclusions: number;
+        totalRecettesRetenues: number;
+        /** € — équivalent charges déductibles issues des seules transactions (hors forfait prêt) */
+        totalChargesDepensesTransactions: number;
+        totalForfaitHorsTransactions: number;
+        /** € — intérêts+assurance fusionnés dans le moteur (calculateLoanInterests) */
+        montantInteretsEmpruntHorsTransactions: number;
+        montantAmortissementsComptablesHorsTransactions: number;
+        /** Cotisations charges simulateur : charges (ID) + prêt — même base que la ligne « Charges déductibles » */
+        chargesFromTransactionsCents: number;
+        chargesOutsideTransactionsCents: number;
+        chargesTotalSimulatorCents: number;
+        outsideTransactionsBreakdown: {
+          loanInterestsCents: number;
+          loanInsuranceCents: number;
+          forfaitOrCalculatedChargesCents: number;
+          /** Écart résiduel ou méthode emprunt ≠ échéancier */
+          otherCents: number;
+        };
+        exclusionsDetaillees: Array<{ id: string; label: string; amountAbs: number; reason: string }>;
+        auditParTransaction: Array<{
+          transactionId: string;
+          label: string;
+          statut: string;
+          detail: string;
+        }>;
+      };
+    };
   };
   
   // Société (pour SCI IS)
@@ -368,6 +427,61 @@ export interface RentalPropertyResult {
     byCategory?: {
       recettes: Record<string, { label: string; amount: number }>;
       charges: Record<string, { label: string; amount: number }>;
+    };
+    lmnpDebug?: {
+      chargesLines: Array<{
+        transactionId: string;
+        bienId: string;
+        date: string | null;
+        moisComptable: string | null;
+        libelle: string;
+        categorie: string;
+        nature: string;
+        montant: number;
+        rapprochement: 'rapprochee' | 'non_rapprochee' | 'inconnu';
+        sourceMappingLmnp: string;
+        bucketFiscal: 'charge_directe' | 'amortissement' | 'hors_charges';
+      }>;
+      totalsByCategory: Record<string, number>;
+      totalsByBien: Record<string, number>;
+      totalsRapprochement: {
+        rapprochees: number;
+        nonRapprochees: number;
+      };
+      totalsDirectChargesVsAmortissements: {
+        chargesDirectes: number;
+        amortissements: number;
+      };
+      perimetreDiagnostic?: {
+        anneeFiscale: number;
+        transactionsApresDedup: number;
+        nombreRecettesSynthese: number;
+        nombreDepensesSynthese: number;
+        nombreLignesChargesDirectesLmnp: number;
+        nombreLignesAmortissementLmnp: number;
+        nombreExclusions: number;
+        totalRecettesRetenues: number;
+        totalChargesDepensesTransactions: number;
+        totalForfaitHorsTransactions: number;
+        montantInteretsEmpruntHorsTransactions: number;
+        montantAmortissementsComptablesHorsTransactions: number;
+        chargesFromTransactionsCents: number;
+        chargesOutsideTransactionsCents: number;
+        chargesTotalSimulatorCents: number;
+        outsideTransactionsBreakdown: {
+          loanInterestsCents: number;
+          loanInsuranceCents: number;
+          forfaitOrCalculatedChargesCents: number;
+          otherCents: number;
+        };
+        exclusionsDetaillees: Array<{ id: string; label: string; amountAbs: number; reason: string }>;
+        auditParTransaction: Array<{
+          transactionId: string;
+          label: string;
+          statut: string;
+          detail: string;
+        }>;
+      };
     };
   };
 

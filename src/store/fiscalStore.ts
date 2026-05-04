@@ -10,6 +10,11 @@ import type { FiscalInputs, SimulationResult } from '@/types/fiscal';
 
 export type FiscalStatus = 'idle' | 'calculating' | 'done' | 'error';
 
+function fiscalShortStack(label: string): string {
+  const e = new Error(label);
+  return e.stack?.split('\n').slice(0, 10).join(' ← ') ?? '';
+}
+
 interface FiscalStore {
   // État de la simulation
   simulationDraft: Partial<FiscalInputs>;
@@ -17,6 +22,10 @@ interface FiscalStore {
   status: FiscalStatus;
   error: string | null;
   savedSimulationId: string | null;
+  /** Gate : true seulement après armManualFiscalCompute() ; consommé au début de computeFiscalSimulation. */
+  isManualTrigger: boolean;
+  /** Un seul import /aggregate autorisé après armAggregateImport() (action utilisateur explicite). */
+  aggregateImportArmed: boolean;
   // ✅ Cache des données autofill pour éviter de recharger
   autofillCache: {
     biens: any[];
@@ -33,6 +42,9 @@ interface FiscalStore {
   setSavedSimulationId: (id: string | null) => void;
   resetSimulation: () => void;
   setAutofillCache: (cache: FiscalStore['autofillCache']) => void;
+  armManualFiscalCompute: () => void;
+  armAggregateImport: () => void;
+  consumeAggregateImportArm: () => boolean;
   computeFiscalSimulation: () => Promise<void>;
 }
 
@@ -78,7 +90,24 @@ export const useFiscalStore = create<FiscalStore>()(
       status: 'idle',
       error: null,
       savedSimulationId: null,
+      isManualTrigger: false,
+      aggregateImportArmed: false,
       autofillCache: null,
+
+      armManualFiscalCompute: () => {
+        set({ isManualTrigger: true });
+      },
+
+      armAggregateImport: () => {
+        set({ aggregateImportArmed: true });
+      },
+
+      consumeAggregateImportArm: () => {
+        const armed = get().aggregateImportArmed;
+        if (!armed) return false;
+        set({ aggregateImportArmed: false });
+        return true;
+      },
 
       // Mettre à jour le draft
       updateDraft: (updates) => {
@@ -124,11 +153,24 @@ export const useFiscalStore = create<FiscalStore>()(
           error: null,
           savedSimulationId: null,
           autofillCache: null,
+          isManualTrigger: false,
+          aggregateImportArmed: false,
         });
       },
 
       // Calculer la simulation
       computeFiscalSimulation: async () => {
+        const shortStack = fiscalShortStack('fiscal-compute');
+        if (!get().isManualTrigger) {
+          console.warn('[FiscalCompute] REFUS — isManualTrigger faux (fantôme ?)', {
+            source: 'auto',
+            shortStack,
+          });
+          return;
+        }
+        set({ isManualTrigger: false });
+        console.info('[FiscalCompute] OK — déclenchement manuel consommé', { source: 'manual', shortStack });
+
         const { simulationDraft, autofillCache } = get();
         
         set({ status: 'calculating', error: null });
@@ -208,11 +250,35 @@ export const useFiscalStore = create<FiscalStore>()(
 
           const mergedResult: SimulationResult = { ...result, inputs: mergedInputs };
 
-          set({
-            simulationResult: mergedResult,
-            status: 'done',
-            error: null,
-          });
+          const draftAfter = get().simulationDraft;
+          const y = mergedResult.inputs.year;
+          const bc = (mergedResult.inputs.options?.baseCalcul ?? draftAfter.options?.baseCalcul ?? 'encaisse') as
+            | 'encaisse'
+            | 'exigible';
+          const biensIn = mergedResult.inputs.biens || [];
+          if (autofillOn && biensIn.length > 0 && y != null) {
+            set({
+              simulationResult: mergedResult,
+              status: 'done',
+              error: null,
+              autofillCache: {
+                biens: biensIn.map((b: any) => ({
+                  id: b.id,
+                  name: b.nom,
+                  loyers: b.loyers ?? 0,
+                  charges: b.charges ?? 0,
+                })),
+                year: y,
+                baseCalcul: bc,
+              },
+            });
+          } else {
+            set({
+              simulationResult: mergedResult,
+              status: 'done',
+              error: null,
+            });
+          }
 
           return mergedResult;
         } catch (error: any) {

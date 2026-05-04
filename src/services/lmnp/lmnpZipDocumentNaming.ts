@@ -120,3 +120,58 @@ export function ensureUniqueZipName(name: string, usedNames: Set<string>): strin
   }
 }
 
+function sanitizeFolderSegment(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80) || 'bien';
+}
+
+/**
+ * Dossier sous 02_justificatifs/ pour classer la PJ par bien.
+ * Ne doit pas dépendre uniquement de tx.Property : si tx est absent (ex. lien sans écriture dans le périmètre exercice),
+ * on utilise Document.propertyId ou le bien unique du périmètre.
+ */
+export function resolveJustificatifPropertySubfolder(input: {
+  doc: { propertyId?: string | null };
+  tx: { propertyId: string; Property?: { name?: string | null } | null } | null;
+  selectedProperties: Array<{ id: string; name: string }>;
+  scopeName: string;
+}): string {
+  const { doc, tx, selectedProperties, scopeName } = input;
+  const pid = tx?.propertyId || doc.propertyId || null;
+  if (pid) {
+    const sp = selectedProperties.find((p) => p.id === pid);
+    if (sp?.name) return `${sanitizeFolderSegment(sp.name)}/`;
+  }
+  if (tx?.Property?.name) return `${sanitizeFolderSegment(tx.Property.name)}/`;
+  if (selectedProperties.length === 1 && selectedProperties[0].name) {
+    return `${sanitizeFolderSegment(selectedProperties[0].name)}/`;
+  }
+  if (scopeName) return `${sanitizeFolderSegment(scopeName)}/`;
+  return '';
+}
+
+/**
+ * Garantit une entrée ZIP unique (évite écrasement silencieux si deux PJ produisaient le même chemin relatif).
+ */
+export function ensureUniqueJustificatifRelPath(relPath: string, usedPaths: Set<string>): {
+  path: string;
+  collisionResolved: boolean;
+} {
+  if (!usedPaths.has(relPath)) {
+    usedPaths.add(relPath);
+    return { path: relPath, collisionResolved: false };
+  }
+  const lastSlash = relPath.lastIndexOf('/');
+  const dir = lastSlash >= 0 ? relPath.slice(0, lastSlash + 1) : '';
+  const file = lastSlash >= 0 ? relPath.slice(lastSlash + 1) : relPath;
+  const parts = splitExt(file);
+  let idx = 2;
+  while (true) {
+    const candidate = `${dir}${parts.base}_${idx}.${parts.ext}`;
+    if (!usedPaths.has(candidate)) {
+      usedPaths.add(candidate);
+      return { path: candidate, collisionResolved: true };
+    }
+    idx += 1;
+  }
+}
+

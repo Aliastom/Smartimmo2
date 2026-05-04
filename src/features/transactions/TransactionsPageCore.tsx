@@ -14,6 +14,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { notify2 } from '@/lib/notify2';
 import { Plus, Loader2, Home } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { Drawer } from '@/components/ui/Drawer';
 import { Badge } from '@/components/ui/Badge';
 import { SectionTitle } from '@/components/ui/SectionTitle';
 import { Pagination } from '@/components/ui/Pagination';
@@ -45,6 +46,19 @@ import { calcCommission } from '@/lib/gestion/calcCommission';
 import { txHotPathDebugLog, txPerfMeasureZone } from '@/lib/utils/logger';
 import { navigateToView } from '@/utils/appShellNavigation';
 import { dispatchTransactionsLocalRefresh } from './txLocalRefresh';
+import { showSmartimmoFiscalDebug } from '@/lib/debug/showFiscalDebug';
+import { usePropertyFiscalAggregate } from '@/features/transactions/hooks/usePropertyFiscalAggregate';
+import { useLmnpPropertyFiscalEligibility } from '@/features/transactions/hooks/useLmnpPropertyFiscalEligibility';
+import {
+  computePropertyGestionMetrics,
+  filterTransactionsByAccountingPeriod,
+  transactionNatureKey,
+} from '@/features/transactions/lib/propertyGestionMetrics';
+import { rentalPropertyInputToPedagogyUx } from '@/lib/fiscal/rentalInputToPedagogy';
+import { GestionVsFiscalExplainer } from '@/features/transactions/components/GestionVsFiscalExplainer';
+import { PropertyFiscalKpiBar } from '@/features/transactions/components/PropertyFiscalKpiBar';
+import { PropertyFiscalReconciliationPanel } from '@/features/transactions/components/PropertyFiscalReconciliationPanel';
+import { PropertyFiscalAuditDebugSection } from '@/features/transactions/components/PropertyFiscalAuditDebugSection';
 import { transactionDocumentsCountForTableRow } from '@/lib/offline/services/documentLinksService';
 
 // ✅ IMPORT STATIQUE pour garantir le fonctionnement offline (évite ChunkLoadError en app-shell)
@@ -122,6 +136,19 @@ export function TransactionsPageCore({
     return (propPropertyId || initialPropertyId || '').trim();
   }, [isPropertyScoped, propPropertyId, initialPropertyId]);
 
+  const lmnpFiscalEligibility = useLmnpPropertyFiscalEligibility(
+    lockedPropertyId || undefined,
+    organizationId,
+    Boolean(isPropertyScoped && lockedPropertyId && organizationId)
+  );
+  /** Vue fiscale LMNP : uniquement pour biens éligibles (chargement terminé). */
+  const showLmnpFiscalView = lmnpFiscalEligibility.eligible && !lmnpFiscalEligibility.loading;
+  /** Barre Gestion/Fiscal : masquée entièrement si le bien n’est pas LMNP/meublé (pas d’onglet orphelin « Gestion » seul). */
+  const showPropertyViewSwitcher =
+    isPropertyScoped &&
+    !!lockedPropertyId &&
+    (lmnpFiscalEligibility.loading || lmnpFiscalEligibility.eligible);
+
   // États pour la période (format YYYY-MM)
   // ⚠️ CORRECTION: Initialiser à "Tous" par défaut (période très large) pour afficher toutes les transactions
   const now = new Date();
@@ -134,6 +161,28 @@ export function TransactionsPageCore({
 
   // État pour le filtre KPI actif (par défaut: 'solde' = vue globale)
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>('solde');
+
+  /** Page bien (App Shell) : bascule KPI gestion vs fiscal LMNP */
+  const [propertyViewMode, setPropertyViewMode] = useState<'gestion' | 'fiscal'>('gestion');
+  const [fiscalYearSelected, setFiscalYearSelected] = useState(() => now.getFullYear());
+  const [ecartsDrawerOpen, setEcartsDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isPropertyScoped) return;
+    if (lmnpFiscalEligibility.loading) return;
+    if (!lmnpFiscalEligibility.eligible && propertyViewMode === 'fiscal') {
+      setPropertyViewMode('gestion');
+    }
+  }, [
+    isPropertyScoped,
+    lmnpFiscalEligibility.loading,
+    lmnpFiscalEligibility.eligible,
+    propertyViewMode,
+  ]);
+
+  useEffect(() => {
+    if (!lmnpFiscalEligibility.eligible) setEcartsDrawerOpen(false);
+  }, [lmnpFiscalEligibility.eligible]);
 
   // États des filtres
   // ⚠️ CRITIQUE: Initialiser propertyId depuis propPropertyId (priorité) ou initialPropertyId en mode app-shell
@@ -497,7 +546,44 @@ export function TransactionsPageCore({
     return name || null;
   }, [filters.leaseId, leases, tenants]);
   const categories = isAppShellWithProps ? [] : hookCategories; // TODO: charger les categories si nécessaire
-  const natures = isAppShellWithProps ? new Map() : hookNatures; // TODO: charger les natures si nécessaire
+  /** Liste pour les filtres (API hook renvoie un tableau, pas une Map). */
+  const naturesList = isAppShellWithProps ? [] : Array.isArray(hookNatures) ? hookNatures : [];
+  /** Map clé nature → métadonnées (pour stats / debug alignés sur les KPI). */
+  const naturesMap = useMemo(() => {
+    if (isAppShellWithProps) return new Map<string, { flow?: string }>();
+    const list = Array.isArray(hookNatures) ? hookNatures : [];
+    return new Map(list.map((n: { key: string }) => [n.key, n]));
+  }, [hookNatures, isAppShellWithProps]);
+
+  const [appShellNaturesMap, setAppShellNaturesMap] = useState<Map<string, { flow?: string }>>(new Map());
+  useEffect(() => {
+    if (!isAppShellWithProps || !organizationId) {
+      setAppShellNaturesMap(new Map());
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const db = getLocalDB();
+        const rows = await db.NatureEntity.toArray();
+        if (!cancelled) {
+          setAppShellNaturesMap(new Map(rows.map((n) => [n.key, { flow: n.flow }])));
+        }
+      } catch {
+        if (!cancelled) setAppShellNaturesMap(new Map());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAppShellWithProps, organizationId]);
+
+  /** App Shell prop transactions : natures depuis IndexedDB pour aligner KPI / rapprochement. */
+  const naturesMapForMetrics = useMemo(() => {
+    if (isAppShellWithProps && appShellNaturesMap.size > 0) return appShellNaturesMap;
+    return naturesMap;
+  }, [isAppShellWithProps, appShellNaturesMap, naturesMap]);
+
   const totalCount = isAppShellWithProps ? allTransactions.length : hookTotalCount;
   const amountsSummary = isAppShellWithProps ? { positiveSum: 0, negativeSum: 0 } : hookAmountsSummary; // TODO: calculer
   const loading = isAppShellWithProps ? (propLoading ?? false) : hookLoading;
@@ -581,6 +667,123 @@ export function TransactionsPageCore({
     return list;
   }, [mode, isAppShellWithProps, allTransactions, sortBy, sortOrder]);
 
+  const fiscalYearResolved = useMemo(() => {
+    const y = parseInt(String(fiscalYearSelected), 10);
+    return Number.isFinite(y) ? y : new Date().getFullYear();
+  }, [fiscalYearSelected]);
+
+  const { data: fiscalAggData, loading: fiscalAggLoading, error: fiscalAggError } = usePropertyFiscalAggregate(
+    lockedPropertyId || undefined,
+    fiscalYearResolved,
+    Boolean(
+      isPropertyScoped &&
+        lockedPropertyId &&
+        showLmnpFiscalView &&
+        propertyViewMode === 'fiscal'
+    )
+  );
+
+  const bienFiscal = useMemo(() => {
+    const biens = fiscalAggData?.biens;
+    if (!biens?.length) return null;
+    return biens[0] ?? null;
+  }, [fiscalAggData]);
+
+  const fiscalPedagogyUx = useMemo(() => {
+    if (!bienFiscal) return null;
+    return rentalPropertyInputToPedagogyUx(bienFiscal);
+  }, [bienFiscal]);
+
+  const gestionMetrics = useMemo(
+    () =>
+      computePropertyGestionMetrics(
+        sortedAllTransactions as Transaction[],
+        naturesMapForMetrics,
+        periodStart,
+        periodEnd
+      ),
+    [sortedAllTransactions, naturesMapForMetrics, periodStart, periodEnd]
+  );
+
+  const transactionsForGestionPeriod = useMemo(
+    () =>
+      filterTransactionsByAccountingPeriod(sortedAllTransactions as Transaction[], periodStart, periodEnd),
+    [sortedAllTransactions, periodStart, periodEnd]
+  );
+
+  const notLmnpContextHint = useMemo(() => {
+    if (!bienFiscal?.type) return false;
+    const t = String(bienFiscal.type).toUpperCase();
+    return !['LMNP', 'MEUBLE', 'LMP'].includes(t);
+  }, [bienFiscal]);
+
+  /** TEMP — périmètre page bien vs fiscal (dev) : même fenêtre mois comptable que les KPI. */
+  const propertyScopeDebug = useMemo(() => {
+    if (!isPropertyScoped || !periodStart || !periodEnd) return null;
+    const rows = sortedAllTransactions.filter((t) => {
+      const accountingMonth = (t as { accounting_month?: string; accountingMonth?: string }).accounting_month
+        ?? (t as { accountingMonth?: string }).accountingMonth;
+      if (accountingMonth) {
+        return accountingMonth >= periodStart && accountingMonth <= periodEnd;
+      }
+      if (t.date) {
+        const d = new Date(t.date);
+        const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        return month >= periodStart && month <= periodEnd;
+      }
+      return false;
+    });
+    const byCategory: Record<string, { count: number; totalSigned: number }> = {};
+    let nRec = 0;
+    let nDep = 0;
+    let recettesSum = 0;
+    let depensesSumNeg = 0;
+    let nRap = 0;
+    let nNonRap = 0;
+    for (const t of rows) {
+      const amount = t.amount || 0;
+      const natureKey = transactionNatureKey(t as Transaction);
+      const natureData = naturesMapForMetrics.get(natureKey);
+      let flow = natureData?.flow?.toUpperCase() || '';
+      if (!flow) {
+        flow = amount > 0 ? 'INCOME' : 'EXPENSE';
+      }
+      const isIncome = flow === 'RECETTE' || flow === 'INCOME';
+      const catLabel =
+        (t as { category?: { label?: string } }).category?.label
+        ?? (t as { Category?: { label?: string } }).Category?.label
+        ?? (String((t as { categoryId?: string }).categoryId || '').trim().slice(0, 10) || natureKey || '—');
+      if (!byCategory[catLabel]) {
+        byCategory[catLabel] = { count: 0, totalSigned: 0 };
+      }
+      byCategory[catLabel].count += 1;
+      byCategory[catLabel].totalSigned += amount;
+      if (isIncome) {
+        nRec += 1;
+        recettesSum += Math.abs(amount);
+      } else {
+        nDep += 1;
+        depensesSumNeg += -Math.abs(amount);
+      }
+      const rap = String((t as { rapprochementStatus?: string }).rapprochementStatus || '').toLowerCase();
+      if (rap === 'rapprochee') {
+        nRap += 1;
+      } else {
+        nNonRap += 1;
+      }
+    }
+    return {
+      totalRows: rows.length,
+      nRec,
+      nDep,
+      recettesSum,
+      depensesSumNeg,
+      nRap,
+      nNonRap,
+      byCategory: Object.entries(byCategory).sort((a, b) => b[1].count - a[1].count),
+    };
+  }, [isPropertyScoped, periodStart, periodEnd, sortedAllTransactions, naturesMapForMetrics]);
+
   // Mode normal : pagination côté serveur (hook retourne déjà la page courante).
   // Mode app-shell : pagination côté client sur le dataset trié.
   const paginatedTransactions = useMemo(() => {
@@ -603,6 +806,27 @@ export function TransactionsPageCore({
   }, [totalCount, pagination.limit]);
 
   const transactions = paginatedTransactions;
+
+  // Drawer : après patch liste (rapprochement, etc.), réaligner la transaction sélectionnée sur la ligne à jour.
+  useEffect(() => {
+    if (!isDrawerOpen || !selectedTransaction?.id) return;
+    const fresh =
+      sortedAllTransactions.find((t) => t.id === selectedTransaction.id) ??
+      allTransactions.find((t) => t.id === selectedTransaction.id);
+    if (!fresh) return;
+    setSelectedTransaction((prev) => {
+      if (!prev || prev.id !== fresh.id) return prev;
+      const pu = String((prev as { updatedAt?: string }).updatedAt ?? '');
+      const fu = String((fresh as { updatedAt?: string }).updatedAt ?? '');
+      if (
+        prev.rapprochementStatus === fresh.rapprochementStatus &&
+        pu === fu
+      ) {
+        return prev;
+      }
+      return fresh as Transaction;
+    });
+  }, [isDrawerOpen, selectedTransaction?.id, sortedAllTransactions, allTransactions]);
 
   // Charger les KPI avec les hooks (utiliser le mode du composant, pas isAppShellWithProps)
   // ⚠️ CRITIQUE: refreshKey retiré - les KPI se recalculent automatiquement via les dépendances (periodStart, periodEnd, propertyId)
@@ -1950,28 +2174,171 @@ export function TransactionsPageCore({
 
   const transactionsDetailSection = (
     <>
-      {/* Graphiques : Évolution cumulée + Recettes vs Dépenses (Répartition par catégorie supprimée) */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
-        <div className="min-w-0">
-          <TransactionsCumulativeChart
-            data={chartsData.timeline}
-            isLoading={chartsLoading}
-          />
+      {showPropertyViewSwitcher ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Vue</span>
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+            <button
+              type="button"
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                propertyViewMode === 'gestion'
+                  ? 'bg-sky-600 text-white shadow'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+              onClick={() => setPropertyViewMode('gestion')}
+            >
+              Vue Gestion
+            </button>
+              {showLmnpFiscalView ? (
+                <button
+                  type="button"
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    propertyViewMode === 'fiscal'
+                      ? 'bg-indigo-600 text-white shadow'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                  onClick={() => setPropertyViewMode('fiscal')}
+                >
+                  Vue Fiscale LMNP
+                </button>
+              ) : null}
+            </div>
+          {propertyViewMode === 'fiscal' && showLmnpFiscalView ? (
+            <label className="ml-auto flex flex-wrap items-center gap-2 text-sm text-slate-700">
+              <span className="text-xs font-medium text-slate-500">Année fiscale</span>
+              <select
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                value={fiscalYearSelected}
+                onChange={(e) => setFiscalYearSelected(parseInt(e.target.value, 10))}
+              >
+                {Array.from({ length: 12 }, (_, i) => now.getFullYear() + 1 - i).map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
-        <div className="min-w-0">
-          <TransactionsIncomeExpenseChart
-            data={chartsData.incomeExpense}
-            isLoading={chartsLoading}
-          />
-        </div>
-      </div>
+      ) : null}
 
-      <TransactionsKpiBar
-        kpis={kpis}
-        activeFilter={activeKpiFilter}
-        onFilterChange={handleKpiFilterChange}
-        isLoading={kpisLoading}
-      />
+      {isPropertyScoped && lockedPropertyId && propertyViewMode === 'fiscal' && showLmnpFiscalView ? (
+        <div className="mb-4 space-y-3">
+          <GestionVsFiscalExplainer />
+          {fiscalAggError ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Périmètre fiscal indisponible : {fiscalAggError}. Vérifiez la connexion ou relancez une
+              synchronisation.
+            </p>
+          ) : null}
+          <PropertyFiscalKpiBar
+            bien={bienFiscal}
+            resultatFiscalApresAmort={fiscalPedagogyUx?.resultatApresAmortissements ?? null}
+            loading={fiscalAggLoading}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full border-slate-300 text-slate-800 sm:w-auto"
+            onClick={() => setEcartsDrawerOpen(true)}
+          >
+            Comprendre les écarts
+          </Button>
+          <Drawer
+            isOpen={ecartsDrawerOpen}
+            onClose={() => setEcartsDrawerOpen(false)}
+            title="Comprendre les écarts"
+            size="2xl"
+            side="right"
+          >
+            <PropertyFiscalReconciliationPanel
+              gestion={gestionMetrics}
+              bienFiscal={bienFiscal}
+              fiscalPedagogy={fiscalPedagogyUx}
+              fiscalYear={fiscalYearResolved}
+              periodStart={periodStart}
+              periodEnd={periodEnd}
+              loading={fiscalAggLoading}
+              notLmnpEligible={notLmnpContextHint}
+              debugMode={showSmartimmoFiscalDebug()}
+            />
+          </Drawer>
+        </div>
+      ) : null}
+
+      {showSmartimmoFiscalDebug() && isPropertyScoped && lockedPropertyId ? (
+        <div className="mb-4">
+          <PropertyFiscalAuditDebugSection
+            bien={bienFiscal}
+            sortedTransactions={sortedAllTransactions as Transaction[]}
+            gestionPeriodTransactions={transactionsForGestionPeriod as Transaction[]}
+            naturesMap={naturesMapForMetrics}
+          />
+        </div>
+      ) : null}
+
+      {(!isPropertyScoped || propertyViewMode === 'gestion') ? (
+        <>
+          {/* Graphiques : Évolution cumulée + Recettes vs Dépenses (Répartition par catégorie supprimée) */}
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+            <div className="min-w-0">
+              <TransactionsCumulativeChart
+                data={chartsData.timeline}
+                isLoading={chartsLoading}
+              />
+            </div>
+            <div className="min-w-0">
+              <TransactionsIncomeExpenseChart
+                data={chartsData.incomeExpense}
+                isLoading={chartsLoading}
+              />
+            </div>
+          </div>
+
+          <TransactionsKpiBar
+            kpis={kpis}
+            activeFilter={activeKpiFilter}
+            onFilterChange={handleKpiFilterChange}
+            isLoading={kpisLoading}
+          />
+        </>
+      ) : null}
+
+      {showSmartimmoFiscalDebug() && isPropertyScoped && propertyScopeDebug && (
+        <div className="rounded-lg border-2 border-dashed border-cyan-500/60 bg-cyan-50/50 px-3 py-3 text-[11px] text-slate-800">
+          <p className="font-bold uppercase tracking-wide text-cyan-950">TEMP DEBUG — Périmètre page bien (mois comptable)</p>
+          <p className="mt-1 text-cyan-950/80">
+            Période {periodStart} → {periodEnd} · même logique de mois que les cartes KPI.
+          </p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded border border-cyan-200 bg-white/90 p-2">
+              <p className="font-semibold text-cyan-950">Totaux</p>
+              <ul className="mt-1 space-y-0.5">
+                <li>Transactions : {propertyScopeDebug.totalRows}</li>
+                <li>Lignes recettes : {propertyScopeDebug.nRec}</li>
+                <li>Lignes dépenses : {propertyScopeDebug.nDep}</li>
+                <li>Total recettes : {propertyScopeDebug.recettesSum.toFixed(2)} €</li>
+                <li>Total dépenses (négatif) : {propertyScopeDebug.depensesSumNeg.toFixed(2)} €</li>
+                <li>Rapprochées / non : {propertyScopeDebug.nRap} / {propertyScopeDebug.nNonRap}</li>
+              </ul>
+            </div>
+            <div className="rounded border border-cyan-200 bg-white/90 p-2 sm:col-span-2">
+              <p className="font-semibold text-cyan-950">Par libellé de catégorie (approx.)</p>
+              <ul className="mt-1 max-h-40 overflow-y-auto space-y-0.5">
+                {propertyScopeDebug.byCategory.map(([label, v]) => (
+                  <li key={label} className="flex justify-between gap-2">
+                    <span className="truncate">{label}</span>
+                    <span className="shrink-0 font-medium">
+                      {v.count} tx · {v.totalSigned.toFixed(2)} €
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isPropertyScoped && filters.leaseId ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5">
@@ -2002,7 +2369,7 @@ export function TransactionsPageCore({
         leases={leases}
         tenants={tenants}
         categories={categories}
-        natures={natures}
+        natures={naturesList}
         periodStart={periodStart}
         periodEnd={periodEnd}
         onPeriodChange={handlePeriodChange}
@@ -2440,10 +2807,14 @@ export function TransactionsPageCore({
         mode={mode}
         onRefresh={() => {
           if (mode === 'app-shell') {
-            // ⚠️ CRITIQUE: Émettre uniquement l'événement ciblé
-            window.dispatchEvent(new CustomEvent('transactions:refresh', {
-              detail: { scope: 'property', propertyId: propPropertyId || initialPropertyId || filters.propertyId }
-            }));
+            const pid = (propPropertyId || initialPropertyId || filters.propertyId || '').trim();
+            if (pid) {
+              window.dispatchEvent(
+                new CustomEvent('transactions:refresh', {
+                  detail: { scope: 'property', propertyId: pid, reason: 'drawer' },
+                }),
+              );
+            }
           }
         }}
         onViewDocument={handleViewDocument}

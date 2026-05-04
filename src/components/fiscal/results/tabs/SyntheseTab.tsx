@@ -29,6 +29,10 @@ import {
   computeLmnpReelPedagogyDisplay,
   isMicroBicRegime,
 } from '@/lib/fiscal/immoTaxDisplayAlloc';
+import { aggregateLmnpChargesVentilation } from '@/lib/fiscal/lmnpVentilation';
+import { showSmartimmoFiscalDebug } from '@/lib/debug/showFiscalDebug';
+import { LmnpDebugPanel } from '@/components/fiscal/LmnpDebugPanel';
+import { GestionVsFiscalExplainer } from '@/features/transactions/components/GestionVsFiscalExplainer';
 
 /** Location nue → revenus fonciers (2044). */
 function isRevenuFoncierNuType(type: TypeBien): boolean {
@@ -151,6 +155,10 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
   const bicMicroBreakdown = useMemo(() => aggregateImmoBreakdown(biensBicMicro), [biensBicMicro]);
   const bicReelBreakdown = useMemo(() => aggregateImmoBreakdown(biensBicReel), [biensBicReel]);
   const lmnpReelUx = useMemo(() => computeLmnpReelPedagogyDisplay(biensBicReel), [biensBicReel]);
+  const lmnpChargesVentilation = useMemo(
+    () => aggregateLmnpChargesVentilation(biensBicReel),
+    [biensBicReel],
+  );
   const biensSciIs = useMemo(
     () => simulation.biens.filter((b) => b.type === 'SCI_IS'),
     [simulation.biens],
@@ -401,6 +409,8 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
                       <p className="text-xs text-gray-500">Déclaration 2042 C PRO · distinct du foncier</p>
                     </div>
 
+                    <GestionVsFiscalExplainer className="mb-4" />
+
                     <div className="space-y-4">
                       {biensBicMicro.length > 0 && (
                         <div className="rounded-lg border border-purple-100 bg-purple-50/40 px-3 py-2.5 space-y-2">
@@ -461,6 +471,47 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
                               – {formatEuro(lmnpReelUx.chargesDeductibles)}
                             </span>
                           </div>
+
+                          {lmnpChargesVentilation.hasData && (
+                            <div className="rounded-md border border-slate-200 bg-white/80 px-3 py-2.5 text-[11px] text-slate-800 space-y-1.5">
+                              <p className="font-semibold text-slate-900">Ventilation des charges déductibles LMNP</p>
+                              <p className="text-slate-600 leading-snug">
+                                Charges déductibles LMNP :{' '}
+                                <span className="font-semibold tabular-nums">
+                                  {formatEuro(lmnpChargesVentilation.chargesTotalSimulator)}
+                                </span>{' '}
+                                · dont charges issues des transactions :{' '}
+                                <span className="font-semibold tabular-nums">
+                                  {formatEuro(lmnpChargesVentilation.chargesFromTransactions)}
+                                </span>
+                              </p>
+                              <ul className="ml-3 list-disc space-y-0.5 text-slate-700">
+                                <li>
+                                  Charges hors transactions :{' '}
+                                  <span className="font-medium tabular-nums">
+                                    {formatEuro(lmnpChargesVentilation.chargesOutsideTransactions)}
+                                  </span>
+                                  <ul className="ml-3 mt-1 list-[circle] space-y-0.5 text-slate-600">
+                                    <li>Intérêts d&apos;emprunt (échéancier) : –{formatEuro(lmnpChargesVentilation.loanInterests)}</li>
+                                    <li>Assurance emprunteur : –{formatEuro(lmnpChargesVentilation.loanInsurance)}</li>
+                                    <li>Forfait / charges calculées : –{formatEuro(lmnpChargesVentilation.forfaitOrCalculated)}</li>
+                                    {Math.abs(lmnpChargesVentilation.other) > 0.005 && (
+                                      <li>
+                                        Autres / résidu (méthodes emprunt, arrondis) : –{formatEuro(lmnpChargesVentilation.other)}
+                                      </li>
+                                    )}
+                                  </ul>
+                                </li>
+                              </ul>
+                              {lmnpChargesVentilation.chargesOutsideTransactions > 0.005 && (
+                                <p className="text-[10px] text-slate-500 leading-snug pt-1 border-t border-slate-100">
+                                  Ces montants hors transactions ne proviennent pas directement des lignes comptables du
+                                  bien : intérêts et assurance issus des prêts, forfaits fiscaux ou autres calculs
+                                  automatiques.
+                                </p>
+                              )}
+                            </div>
+                          )}
 
                           <div className="flex justify-between items-center gap-2">
                             <div className="flex items-center gap-1.5 min-w-0">
@@ -587,6 +638,8 @@ function SyntheseTab({ simulation, onGoToDetails, onGoToOptimizations }: Synthes
                               </p>
                             </div>
                           )}
+
+                          {showSmartimmoFiscalDebug() && <LmnpDebugPanel simulation={simulation} />}
 
                         </div>
                       )}

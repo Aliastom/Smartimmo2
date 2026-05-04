@@ -69,6 +69,7 @@ export function FiscalPage() {
     error,
     savedSimulationId,
     computeFiscalSimulation,
+    armManualFiscalCompute,
     setStatus,
     setSavedSimulationId,
     setResult,
@@ -367,7 +368,8 @@ export function FiscalPage() {
       // Le store met le status à 'done' après computeFiscalSimulation, mais on le remet à 'calculating'
       // pour garder la modal ouverte pendant l'optimisation
       
-      // Étape 1-4 : Simulation fiscale
+      // Étape 1-4 : Simulation fiscale (armement obligatoire — refuse les appels fantômes)
+      armManualFiscalCompute();
       await computeFiscalSimulation();
       
       // ✅ Arrêter l'intervalle avant les mises à jour manuelles pour éviter les conflits

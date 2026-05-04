@@ -3,6 +3,7 @@ import { notify2 } from '@/lib/notify2';
 import { useEffect, useRef } from 'react';
 import { getTransactionRepositoryOffline } from '@/lib/offline/repositories/TransactionRepositoryOffline';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
+import { dispatchTransactionsLocalRefresh } from '@/features/transactions/txLocalRefresh';
 
 export type RapprochementStatus = 'non_rapprochee' | 'rapprochee';
 
@@ -196,17 +197,43 @@ export function useToggleRapprochement(mode: 'normal' | 'app-shell' = 'normal') 
       }
     },
     onSuccess: (data, variables) => {
-      // ⚠️ APP-SHELL OFFLINE-FIRST : En mode app-shell, AUCUNE invalidation de queries
-      // Les données sont déjà dans IndexedDB, l'UI se met à jour via l'état local
-      // Les listes se mettront à jour naturellement au prochain render (fermeture/ouverture drawer, etc.)
       const effectiveMode = variables.mode || mode;
       if (effectiveMode === 'app-shell') {
-        // En app-shell : juste le toast, pas d'invalidation
-        const message = variables.status === 'rapprochee' 
-          ? 'Transaction marquée comme rapprochée' 
-          : 'Transaction repassée en non rapprochée';
+        const message =
+          variables.status === 'rapprochee'
+            ? 'Transaction marquée comme rapprochée'
+            : 'Transaction repassée en non rapprochée';
         notify2.success(message);
-        // Pas d'invalidation, pas de refresh - les données sont déjà dans IndexedDB
+        // Patcher la liste + KPI + graphiques : même flux que `transactions:refresh` (scope bien)
+        void (async () => {
+          if (!organizationId || !data?.id) {
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('transactions:refresh'));
+            }
+            return;
+          }
+          try {
+            const repo = getTransactionRepositoryOffline();
+            const row = await repo.getById(data.id, organizationId);
+            if (row?.propertyId) {
+              dispatchTransactionsLocalRefresh({
+                scope: 'property',
+                propertyId: row.propertyId,
+                patch: { action: 'upsert', rows: [row] },
+                reason: 'rapprochement',
+              });
+            } else {
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('transactions:refresh'));
+              }
+            }
+          } catch (e) {
+            console.warn('[useToggleRapprochement] refresh UI après rapprochement', e);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('transactions:refresh'));
+            }
+          }
+        })();
         return;
       }
 

@@ -329,31 +329,32 @@ export function useTransactionsCharts(options: UseTransactionsChartsOptions) {
     if (mode !== 'app-shell') return;
 
     const handleRefresh = (event?: Event) => {
-      // ✅ FILTRE STRICT : Si propertyId est défini, accepter UNIQUEMENT les events avec scope='property' ET propertyId correspondant
       if (event instanceof CustomEvent && event.detail) {
         const detail = event.detail as { scope?: string; propertyId?: string; reason?: string };
-        
-        if (propertyId) {
-          if (detail.scope !== 'property' || !detail.propertyId || detail.propertyId !== propertyId) {
-            return; // Ignorer les events sans scope, scope différent, ou propertyId différent/absent
-          }
-        }
-        
-        // Anti-loop : ignorer les refresh identiques < 300ms
-        const now = Date.now();
-        const lastRefresh = lastRefreshRef.current;
-        if (lastRefresh && 
-            lastRefresh.propertyId === detail.propertyId && 
-            lastRefresh.reason === detail.reason &&
-            now - lastRefresh.timestamp < 300) {
+
+        if (propertyId && detail.scope === 'property' && detail.propertyId && detail.propertyId !== propertyId) {
           return;
         }
-        
-        lastRefreshRef.current = {
-          propertyId: detail.propertyId,
-          reason: detail.reason,
-          timestamp: now,
-        };
+
+        const now = Date.now();
+        const lastRefresh = lastRefreshRef.current;
+        if (
+          lastRefresh &&
+          detail.propertyId &&
+          lastRefresh.propertyId === detail.propertyId &&
+          lastRefresh.reason === detail.reason &&
+          now - lastRefresh.timestamp < 120
+        ) {
+          return;
+        }
+
+        if (detail.propertyId) {
+          lastRefreshRef.current = {
+            propertyId: detail.propertyId,
+            reason: detail.reason,
+            timestamp: now,
+          };
+        }
       }
       
       // Le useEffect principal se déclenchera automatiquement via les dépendances

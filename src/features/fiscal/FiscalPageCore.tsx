@@ -81,13 +81,15 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
     error,
     savedSimulationId,
     computeFiscalSimulation,
+    armManualFiscalCompute,
     setStatus,
     setSavedSimulationId,
     setResult,
     resetSimulation,
     updateDraft,
+    setAutofillCache,
   } = useFiscalStore();
-  const { session: fiscalSession } = useFiscalSession();
+  const { session: fiscalSession, loading: fiscalSessionLoading } = useFiscalSession();
 
   // Synchroniser le draft avec la session fiscale dès que la session change (ex. combobox Déclaration)
   useEffect(() => {
@@ -128,6 +130,9 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
   const [saveAsPending, setSaveAsPending] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [loadedFromSnapshot, setLoadedFromSnapshot] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [calculationSource, setCalculationSource] = useState<'snapshot' | 'recalculate' | null>(null);
   const [lastSavedSnapshot, setLastSavedSnapshot] = useState<string | null>(null);
   const [pendingOpenId, setPendingOpenId] = useState<string | null>(null);
   const [dirtyConfirmOpen, setDirtyConfirmOpen] = useState(false);
@@ -139,6 +144,8 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
   const optimizationAbortControllerRef = useRef<AbortController | null>(null);
   const optimizationLoadedRef = useRef<string | null>(null);
   const optimizationJustLoadedInCalculateRef = useRef<boolean>(false);
+  const snapshotBootstrapKeyRef = useRef<string | null>(null);
+  const [fiscalSnapshotBootstrapDone, setFiscalSnapshotBootstrapDone] = useState(false);
   const { toast } = useToast();
 
   const currentSaveId = savedSimulationId;
@@ -303,19 +310,45 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
     };
   }, [simulationResult, savedSimulationId, status]);
 
-  // Au montage : réinitialiser le store pour partir sur un formulaire vide
-  // Les données apparaissent uniquement quand l'utilisateur charge une sauvegarde
+  // Au montage : réinitialiser le store ; chargement liste + snapshot après session fiscale prête (effet dédié)
   useEffect(() => {
     localStorage.removeItem('fiscal-simulation-cache');
     localStorage.removeItem('fiscal-store');
     resetSimulation();
+    snapshotBootstrapKeyRef.current = null;
+    setFiscalSnapshotBootstrapDone(false);
     setLastSavedAt(null);
+    setLoadedFromSnapshot(false);
+    setCalculationSource(null);
+    setIsRefreshing(false);
     setLastSavedSnapshot(null);
     setSaveMessage(null);
     setPendingOpenId(null);
     setDirtyConfirmOpen(false);
-    loadSavedSimulations();
-  }, [mode]);
+  }, [mode, resetSimulation]);
+
+  useEffect(() => {
+    if (fiscalSessionLoading) {
+      return;
+    }
+    if (!fiscalSession?.organizationId) {
+      setFiscalSnapshotBootstrapDone(true);
+      return;
+    }
+    const key = `${fiscalSession.organizationId}:${fiscalSession.incomeYear}`;
+    if (snapshotBootstrapKeyRef.current === key) {
+      return;
+    }
+    snapshotBootstrapKeyRef.current = key;
+    setFiscalSnapshotBootstrapDone(false);
+    void (async () => {
+      try {
+        await loadSavedSimulations({ tryAutoLoadSnapshot: true });
+      } finally {
+        setFiscalSnapshotBootstrapDone(true);
+      }
+    })();
+  }, [fiscalSessionLoading, fiscalSession?.incomeYear, fiscalSession?.organizationId, mode]);
 
   // ✅ Si on est sur un onglet résultat (synthese, details, etc.) sans simulation → revenir à Simulation
   useEffect(() => {
@@ -325,7 +358,7 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
     }
   }, [activeTab, simulationResult, setActiveTab]);
 
-  const loadSavedSimulations = async () => {
+  const loadSavedSimulations = async (options?: { tryAutoLoadSnapshot?: boolean }) => {
     setLoadingSimulations(true);
     try {
       const response = await fetch('/api/fiscal/simulations?limit=20');
@@ -339,6 +372,18 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
             setLastSavedAt(active.updatedAt);
           }
         }
+        if (
+          options?.tryAutoLoadSnapshot &&
+          fiscalSession &&
+          sims.length > 0 &&
+          !useFiscalStore.getState().simulationResult
+        ) {
+          const incomeYear = fiscalSession.incomeYear;
+          const latestForYear = sims.find((sim: any) => sim.year === incomeYear);
+          if (latestForYear) {
+            await performLoadSimulation(latestForYear.id, { source: 'snapshot' });
+          }
+        }
       }
     } catch (error) {
       console.error('Erreur chargement simulations:', error);
@@ -347,7 +392,10 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
     }
   };
 
-  const performLoadSimulation = async (simulationId: string) => {
+  const performLoadSimulation = async (
+    simulationId: string,
+    options?: { source?: 'snapshot' | 'recalculate' }
+  ) => {
     setLoadingSimulationId(simulationId);
     try {
       optimizationJustLoadedInCalculateRef.current = false;
@@ -379,8 +427,24 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
         _uiMetadata: inputs._uiMetadata ? { ...(inputs._uiMetadata as object) } : undefined,
       });
       setResult(result);
+      const y = inputs.year;
+      const bc = (inputs.options?.baseCalcul ?? 'encaisse') as 'encaisse' | 'exigible';
+      if (inputs.biens?.length && y != null) {
+        setAutofillCache({
+          biens: inputs.biens.map((b: any) => ({
+            id: b.id,
+            name: b.nom,
+            loyers: b.loyers ?? 0,
+            charges: b.charges ?? 0,
+          })),
+          year: y,
+          baseCalcul: bc,
+        });
+      }
       setSavedSimulationId(simulationId);
       setLastSavedAt(simulationData.updatedAt || simulationData.createdAt || null);
+      setLoadedFromSnapshot(true);
+      setCalculationSource('snapshot');
       setLastSavedSnapshot(
         JSON.stringify({
           inputs: { ...result.inputs, ...inputs },
@@ -388,8 +452,6 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
         })
       );
       setSaveMessage(null);
-
-      setActiveTab('synthese');
     } catch (error) {
       console.error('Erreur chargement simulation:', error);
       if (toast?.error) toast.error('Erreur lors du chargement de la simulation');
@@ -401,7 +463,7 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
 
   const handleLoadSimulation = async (simulationId: string) => {
     if (!simulationResult || !isDirty || simulationId === currentSaveId) {
-      await performLoadSimulation(simulationId);
+      await performLoadSimulation(simulationId, { source: 'snapshot' });
       return;
     }
     setPendingOpenId(simulationId);
@@ -445,6 +507,7 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
   // Calculer la simulation
   const handleCalculate = async () => {
     const startTime = Date.now();
+    setIsRefreshing(true);
     
     optimizationJustLoadedInCalculateRef.current = false;
     
@@ -488,6 +551,8 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
     }, 600);
     
     try {
+      setAutofillCache(null);
+      armManualFiscalCompute();
       await computeFiscalSimulation();
       
       if (progressInterval) {
@@ -583,6 +648,8 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
       await new Promise(resolve => setTimeout(resolve, 400));
       
       setStatus('done');
+      setLoadedFromSnapshot(false);
+      setCalculationSource('recalculate');
       setActiveTab('synthese');
     } catch (error) {
       if (progressInterval) {
@@ -603,6 +670,7 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
           startTime: 0,
         });
       }, 500);
+      setIsRefreshing(false);
     }
   };
 
@@ -958,6 +1026,10 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
                           Dernière sauvegarde · {new Date(lastSavedAt).toLocaleString('fr-FR')}
                         </p>
                       )}
+                      <p className="mt-0.5 truncate text-[10px] leading-snug text-gray-500">
+                        Source calcul · {loadedFromSnapshot ? 'Snapshot sauvegardé' : calculationSource === 'recalculate' ? 'Recalcul manuel' : 'Aucune'}
+                        {isRefreshing ? ' · rafraîchissement en cours' : ''}
+                      </p>
                     </div>
                     <span
                       title={
@@ -1000,7 +1072,7 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
                     ) : (
                       <>
                         <Calculator className="h-4 w-4" />
-                        {hasSimulation ? 'Mettre à jour' : 'Calculer la simulation'}
+                        Mettre à jour / Recalculer
                       </>
                     )}
                   </Button>
@@ -1210,7 +1282,24 @@ function FiscalPageCoreInner({ mode }: FiscalPageCoreProps) {
           id={`tabpanel-${activeTab}`}
           aria-labelledby={`tab-${activeTab}`}
         >
-          {activeTab === 'simulation' && <SimulationTab />}
+          {activeTab === 'simulation' && (
+            <>
+              {fiscalSnapshotBootstrapDone &&
+                !simulationResult &&
+                !loadingSimulationId &&
+                !loadingSimulations && (
+                  <div className="max-w-7xl mx-auto px-4 pt-4">
+                    <Alert className="border-amber-200 bg-amber-50/90 text-amber-950">
+                      <Info className="h-4 w-4 text-amber-700" />
+                      <AlertDescription className="text-sm">
+                        Aucune simulation sauvegardée — cliquez sur Mettre à jour / Recalculer.
+                      </AlertDescription>
+                    </Alert>
+                  </div>
+                )}
+              <SimulationTab />
+            </>
+          )}
           
           {activeTab === 'synthese' && simulationResult && (
             <SyntheseTab

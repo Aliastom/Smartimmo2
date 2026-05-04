@@ -492,7 +492,11 @@ export function useTransactionsData(options: UseTransactionsDataOptions) {
           detail = event.detail as TransactionsRefreshDetail;
 
           if (currentFilters?.propertyId) {
-            if (detail.scope !== 'property' || !detail.propertyId || detail.propertyId !== currentFilters.propertyId) {
+            if (
+              detail.scope === 'property' &&
+              detail.propertyId &&
+              detail.propertyId !== currentFilters.propertyId
+            ) {
               return;
             }
           }
