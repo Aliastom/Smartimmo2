@@ -31,6 +31,28 @@ const nextConfig = {
     NEXT_PUBLIC_DEPLOY_ENV: process.env.VERCEL_ENV || process.env.NODE_ENV || 'development',
   },
   // Configuration webpack
+  async headers() {
+    return [
+      {
+        source: '/sw.js',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=0, must-revalidate',
+          },
+        ],
+      },
+      {
+        source: '/workbox-:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=0, must-revalidate',
+          },
+        ],
+      },
+    ];
+  },
   webpack: (config, { isServer }) => {
     // Désactiver le cache webpack sur Vercel pour éviter problème de taille
     if (process.env.VERCEL) {
@@ -110,7 +132,7 @@ const pwaConfig = withPWA({
         },
       },
     },
-    // Stratégie NetworkFirst pour les données Supabase (toujours vérifier en ligne)
+    // Données Supabase REST : online prioritaire (offline = cache court)
     {
       urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/v1\//,
       handler: 'NetworkFirst',
@@ -136,10 +158,10 @@ const pwaConfig = withPWA({
         networkTimeoutSeconds: 10,
       },
     },
-    // Cache agressif pour les assets statiques Next.js
+    // Chunks JS/CSS hashés : même URL = immuable → CacheFirst (nouveau hash = nouvelle entrée)
     {
       urlPattern: /^\/_next\/static\/.*/,
-      handler: 'StaleWhileRevalidate',
+      handler: 'CacheFirst',
       options: {
         cacheName: cacheName('next-static'),
         expiration: {
@@ -173,18 +195,18 @@ const pwaConfig = withPWA({
         networkTimeoutSeconds: 10,
       },
     },
-    // Requêtes RSC (React Server Components) de Next.js avec ?_rsc=
-    // Ces requêtes sont faites par Next.js pour charger les Server Components
-    // En mode offline, on doit les intercepter et servir depuis le cache ou retourner une réponse vide
+    // RSC ?_rsc= : NetworkFirst pour éviter une coquille HTML/RSC obsolète après déploiement ;
+    // offline → fallback cache Workbox (entrées précédentes).
     {
       urlPattern: ({ url }) => url.searchParams.has('_rsc'),
-      handler: 'CacheFirst',
+      handler: 'NetworkFirst',
       options: {
         cacheName: cacheName('rsc-pages'),
         expiration: {
           maxEntries: 100,
-          maxAgeSeconds: 86400 * 7, // 7 jours
+          maxAgeSeconds: 3600, // 1 h — invalidation rapide après deploy
         },
+        networkTimeoutSeconds: 5,
         fetchOptions: {
           mode: 'cors',
           credentials: 'same-origin',

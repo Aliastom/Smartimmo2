@@ -24,6 +24,7 @@ export async function middleware(request: NextRequest) {
     '/rive',
     // Fichiers PWA - doivent être accessibles sans authentification
     '/manifest.webmanifest',
+    '/version.json',
     '/sw.js',
     '/icons',
     '/robots.txt',

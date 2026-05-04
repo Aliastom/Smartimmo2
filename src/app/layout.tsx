@@ -21,6 +21,7 @@ import { LoadingProvider } from '@/contexts/LoadingContext';
 import { SmartTopLoader } from '@/components/SmartTopLoader';
 import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister';
 import { UpdateBanner } from '@/components/pwa/UpdateBanner';
+import { AppVersionBadge } from '@/components/pwa/AppVersionBadge';
 // Import du helper de test en développement uniquement
 // Note: Import dynamique déplacé dans un composant client pour éviter les problèmes de build
 
@@ -104,6 +105,7 @@ export default function RootLayout({
         <ServiceWorkerRegister />
         {/* Bandeau de notification de mise à jour PWA */}
         <UpdateBanner />
+        <AppVersionBadge />
       </body>
     </html>
   );

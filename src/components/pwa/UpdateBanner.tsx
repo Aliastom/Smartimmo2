@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
+import { useAppUpdate } from '@/hooks/useAppUpdate';
 import { Button } from '@/components/ui/Button';
 import { X, RefreshCw } from 'lucide-react';
 import {
@@ -22,7 +22,8 @@ import {
  * Style inspiré de Slack/Notion : discret, non-intrusif, avec actions claires.
  */
 export function UpdateBanner() {
-  const { isUpdateAvailable, updateServiceWorker, dismissUpdate } = useServiceWorkerUpdate();
+  const { isUpdateAvailable, updateServiceWorker, dismissUpdate, reloadWithoutCache, updateReason } =
+    useAppUpdate();
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [isModalAlreadyViewed, setIsModalAlreadyViewed] = useState(false);
   const latestRelease = getLatestRelease();
@@ -63,7 +64,10 @@ export function UpdateBanner() {
                 Une nouvelle version de SmartImmo est disponible.
               </p>
               <p className="text-xs text-gray-500 mt-0.5">
-                Cliquez sur "Mettre à jour" pour recharger l'application avec la dernière version.
+                {updateReason === 'version-mismatch'
+                  ? 'Une version plus récente est disponible sur le serveur.'
+                  : 'Mettez à jour pour charger la nouvelle version.'}{' '}
+                « Recharger sans cache » en dernier recours (données locales conservées).
               </p>
             </div>
           </div>
@@ -80,10 +84,20 @@ export function UpdateBanner() {
               </Button>
             )}
             <Button
-              onClick={updateServiceWorker}
+              type="button"
+              onClick={() => void updateServiceWorker()}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm font-medium rounded-lg transition-colors"
             >
               Mettre à jour
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void reloadWithoutCache()}
+              className="px-4 py-2 text-sm font-medium rounded-lg"
+              title="Désactive le service worker, vide les caches applicatifs et recharge (IndexedDB conservé)"
+            >
+              Recharger sans cache
             </Button>
             <button
               onClick={dismissUpdate}

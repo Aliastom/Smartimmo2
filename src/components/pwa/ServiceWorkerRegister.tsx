@@ -12,7 +12,7 @@ import { useEffect } from 'react';
  * - Gere les erreurs proprement sans casser l'app
  * - Evite les enregistrements multiples
  * 
- * Note: La detection des mises a jour est geree par useServiceWorkerUpdate()
+ * Note: La détection des mises à jour est gérée par useAppUpdate() (version.json + SW).
  */
 export function ServiceWorkerRegister() {
   useEffect(() => {
