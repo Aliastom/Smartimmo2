@@ -284,4 +284,20 @@ describe('marketDecisionService: recommandations V2', () => {
     expect(rec.recentSimilarReinforce).toBe(false);
     expect(rec.suggestedAmount).toBe(2000);
   });
+
+  it('contexte portefeuille réel : enrichit la justification sans changer le montant suggéré', () => {
+    const s = makeSettings();
+    const snap = makeSnapshot({ drawdownPercent: -5 });
+    const base = computeRecommendation(s, snap, []);
+    const enriched = computeRecommendation(s, snap, [], {
+      portfolio: {
+        hasOpenPositions: true,
+        portfolioValueTotal: 10000,
+        principalWeightPercent: 42.5,
+      },
+    });
+    expect(enriched.suggestedAmount).toBe(base.suggestedAmount);
+    expect(enriched.reason).toContain('42.5 %');
+    expect(enriched.reason).toContain('Portefeuille suivi');
+  });
 });

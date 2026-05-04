@@ -27,6 +27,16 @@ import {
 import { shouldSuppressSuggestion } from '@/features/market/services/marketSuggestionPolicy';
 import type { AthPeriod, InvestmentRecommendation, InvestmentSettings, MarketSnapshot } from '@/features/market/types';
 import { toast } from 'sonner';
+import { usePortfolioTracker } from '@/features/market/hooks/usePortfolioTracker';
+import {
+  buildJournalMarketContext,
+  canValidateLocalBuyOrder,
+  computeBuyQuantity,
+  mapDecisionTypeToRecommendationKind,
+  pickDefaultPortfolioAccount,
+  resolveUnitPriceForValidation,
+} from '@/features/market/services/marketValidateOrderFlow';
+import { MarketOrderValidationError } from '@/features/market/services/marketValidationErrors';
 
 interface UpdateSettingsInput extends Partial<InvestmentSettings> {}
 export const MARKET_PRESET_TTL_HOURS = 12;
@@ -172,10 +182,12 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     return () => window.removeEventListener('market:refresh', onMarket);
   }, [load, organizationId]);
 
+  const portfolio = usePortfolioTracker(organizationId, settings);
+
   const recommendation = useMemo(() => {
     if (!settings || !snapshot) return null;
-    return computeRecommendation(settings, snapshot, history);
-  }, [settings, snapshot, history]);
+    return computeRecommendation(settings, snapshot, history, { portfolio: portfolio.principalOverlay });
+  }, [settings, snapshot, history, portfolio.principalOverlay]);
 
   const refreshRadar = useCallback(
     async (options?: {
@@ -506,16 +518,43 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
       validatedAmount: number,
       reason?: string,
       note?: string,
-      options?: { voluntaryAdditionalInvestment?: boolean }
+      options?: {
+        voluntaryAdditionalInvestment?: boolean;
+        accountId?: string | null;
+        unitPriceOverride?: number | null;
+      }
     ) => {
       if (!organizationId || !settings || !snapshot || !recommendation) return;
+      const voluntary = Boolean(options?.voluntaryAdditionalInvestment);
       const cashBefore = settings.availableCash;
       const amount = Math.max(0, Math.min(validatedAmount, cashBefore));
+      const resolvedAccountId =
+        (options?.accountId && options.accountId.trim() !== ''
+          ? options.accountId
+          : pickDefaultPortfolioAccount(portfolio.accounts, settings.envelope)) ?? null;
+      const unitPrice = resolveUnitPriceForValidation(snapshot, options?.unitPriceOverride ?? undefined);
+      const gate = canValidateLocalBuyOrder({
+        amountEuro: amount,
+        unitPrice,
+        accountId: resolvedAccountId,
+      });
+      if (!gate.ok) {
+        const messages: Record<typeof gate.reason, string> = {
+          missing_price:
+            'Prix indisponible — actualisez les données marché ou saisissez un prix manuellement.',
+          zero_amount: 'Montant invalide ou nul.',
+          no_account: 'Aucun compte portefeuille — créez un compte dans l’onglet Portefeuille réel.',
+          invalid_amount: 'Montant invalide.',
+        };
+        throw new MarketOrderValidationError(gate.reason, messages[gate.reason]);
+      }
+
+      const price = unitPrice as number;
       const cashAfter = cashBefore - amount;
       const thresholdKey = recommendation.thresholdKey;
       const resolvedReason = (reason?.trim() || recommendation.reason).slice(0, 220);
 
-      const resolvedType = options?.voluntaryAdditionalInvestment
+      const resolvedType = voluntary
         ? 'MANUAL'
         : amount !== recommendation.suggestedAmount
           ? 'MANUAL'
@@ -523,8 +562,41 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
             ? 'DCA'
             : recommendation.actionType;
 
-      const nextSettings = { ...settings, availableCash: cashAfter, updatedAt: new Date().toISOString() };
+      const recommendationKind = voluntary
+        ? ('NONE' as const)
+        : mapDecisionTypeToRecommendationKind(recommendation.decisionType);
+
+      const mc = buildJournalMarketContext(snapshot, settings);
+      const sym = normalizeMarketStorageSymbol(snapshot.symbol);
+      const qty = computeBuyQuantity(amount, price);
+      const orderId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const nextSettings = { ...settings, availableCash: cashAfter, updatedAt: now };
+
       await marketInvestmentStorage.saveSettings(nextSettings);
+      try {
+        await portfolio.saveOrder({
+          id: orderId,
+          organizationId,
+          accountId: resolvedAccountId as string,
+          assetSymbol: sym,
+          type: 'BUY',
+          date: now,
+          quantity: qty,
+          unitPrice: price,
+          grossAmount: amount,
+          fees: 0,
+          taxes: 0,
+          currency: settings.currency,
+          note: note?.trim() ? note.trim() : null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } catch (err) {
+        await marketInvestmentStorage.saveSettings({ ...settings, updatedAt: new Date().toISOString() });
+        throw err;
+      }
+
       await marketInvestmentStorage.addActionLog(
         marketInvestmentStorage.buildActionLog({
           organizationId,
@@ -545,17 +617,28 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
           marketLevelKey: recommendation.status,
           drawdownPercentAtAction: snapshot.drawdownPercent,
           note,
+          portfolioOrderId: orderId,
+          portfolioAccountId: resolvedAccountId,
+          validatedQuantity: qty,
+          validatedUnitPrice: price,
+          recommendationKind,
+          journalSource: voluntary ? 'user' : 'assistant',
+          journalEntryType: voluntary ? 'MANUAL_DECISION' : 'RECOMMENDATION',
+          marketContextSnapshot: mc,
+          validatedAt: now,
         })
       );
 
       setSettings(nextSettings);
       setHistory(await marketInvestmentStorage.listActionLogs(organizationId, 24));
+      await portfolio.reload();
     },
-    [organizationId, recommendation, settings, snapshot]
+    [organizationId, portfolio, recommendation, settings, snapshot]
   );
 
   const ignoreDecision = useCallback(async () => {
     if (!organizationId || !settings || !snapshot || !recommendation) return;
+    const ignoredAt = new Date().toISOString();
     await marketInvestmentStorage.addActionLog(
       marketInvestmentStorage.buildActionLog({
         organizationId,
@@ -575,10 +658,23 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
         thresholdKey: recommendation.thresholdKey,
         marketLevelKey: recommendation.status,
         drawdownPercentAtAction: snapshot.drawdownPercent,
+        ignoredAt,
       })
     );
     setHistory(await marketInvestmentStorage.listActionLogs(organizationId, 24));
   }, [organizationId, recommendation, settings, snapshot]);
+
+  const restoreIgnoredDecision = useCallback(
+    async (logId: string): Promise<'ok' | 'not_found' | 'invalid_status' | 'failed'> => {
+      if (!organizationId) return 'not_found';
+      const outcome = await marketInvestmentStorage.deleteIgnoredDecision(organizationId, logId);
+      if (outcome === 'ok') {
+        setHistory(await marketInvestmentStorage.listActionLogs(organizationId, 24));
+      }
+      return outcome;
+    },
+    [organizationId]
+  );
 
   useEffect(() => {
     if (!organizationId || !settings || !recommendation?.thresholdKey) {
@@ -769,10 +865,12 @@ export function useMarketInvestment(organizationId?: string, options?: UseMarket
     updateSettings,
     validateDecision,
     ignoreDecision,
+    restoreIgnoredDecision,
     requestManualAnalysis,
     updateHistoryDecision,
     deleteHistoryDecision,
     reload: load,
+    portfolio,
   };
 }
 

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import {
+  computeTransactionKpiTotals,
+  resolveTransactionKind,
+  type NatureFlowMap,
+  type TransactionLike,
+} from '@/features/transactions/lib/transactionAggregation';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
@@ -9,50 +15,62 @@ export async function GET(request: NextRequest) {
   try {
     const user = await requireAuth();
     const organizationId = user.organizationId;
-    
+
     const searchParams = request.nextUrl.searchParams;
-    
-    // Récupérer les paramètres de filtre
-    const periodStart = searchParams.get('periodStart'); // Format: YYYY-MM
-    const periodEnd = searchParams.get('periodEnd'); // Format: YYYY-MM
-    const natureFilter = searchParams.get('natureFilter');
+
+    const periodStart = searchParams.get('periodStart');
+    const periodEnd = searchParams.get('periodEnd');
     const statusFilter = searchParams.get('statusFilter');
     const propertyId = searchParams.get('propertyId');
     const tenantId = searchParams.get('tenantId');
     const categoryId = searchParams.get('categoryId');
 
-    // Construire les filtres Prisma
-    const where: any = {
-      organizationId, // Filtrer par organisation
+    const where: Record<string, unknown> = {
+      organizationId,
     };
 
-    // Filtre par période comptable
+    const andConditions: unknown[] = [];
+
     if (periodStart && periodEnd) {
-      where.accounting_month = {
-        gte: periodStart,
-        lte: periodEnd,
-      };
+      andConditions.push({
+        OR: [
+          {
+            accounting_month: {
+              gte: periodStart,
+              lte: periodEnd,
+            },
+          },
+          {
+            AND: [
+              { accounting_month: null },
+              {
+                date: {
+                  gte: new Date(`${periodStart}-01`),
+                  lte: new Date(`${periodEnd}-31`),
+                },
+              },
+            ],
+          },
+        ],
+      });
     }
 
-    // Filtre par propriété
     if (propertyId) {
-      where.propertyId = propertyId;
+      andConditions.push({ propertyId });
     }
 
-    // Filtre par locataire
     if (tenantId) {
-      where.tenantId = tenantId;
+      andConditions.push({ tenantId });
     }
 
-    // Filtre par catégorie
     if (categoryId) {
-      where.categoryId = categoryId;
+      andConditions.push({ categoryId });
     }
 
-    // Note: Le filtre par statut de rapprochement sera appliqué après la récupération
-    // car il dépend de la présence de documents liés via DocumentLink
+    if (andConditions.length > 0) {
+      (where as { AND: unknown[] }).AND = andConditions;
+    }
 
-    // Charger toutes les natures pour faire le mapping
     const natures = await prisma.natureEntity.findMany({
       select: {
         code: true,
@@ -60,9 +78,8 @@ export async function GET(request: NextRequest) {
         flow: true,
       },
     });
-    const natureMap = new Map(natures.map(n => [n.code, n]));
+    const natureMap: NatureFlowMap = new Map(natures.map((n) => [n.code, n]));
 
-    // Récupérer toutes les transactions correspondant aux filtres (accounting_month pour le cashflow mensuel)
     const transactions = await prisma.transaction.findMany({
       where,
       select: {
@@ -75,47 +92,44 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Filtrer selon le statut si demandé
     let filteredTransactions = transactions;
     if (statusFilter === 'rapprochee') {
-      filteredTransactions = transactions.filter(t => t.rapprochementStatus === 'rapprochee');
+      filteredTransactions = transactions.filter((t) => t.rapprochementStatus === 'rapprochee');
     } else if (statusFilter === 'nonRapprochee') {
-      filteredTransactions = transactions.filter(t => t.rapprochementStatus === 'non_rapprochee');
+      filteredTransactions = transactions.filter((t) => t.rapprochementStatus === 'non_rapprochee');
     }
 
-    // Calculer les KPI
-    let recettesTotales = 0;
-    let depensesTotales = 0;
-    let nonRapprochees = 0;
+    const rows: TransactionLike[] = filteredTransactions.map((t) => ({
+      id: t.id,
+      amount: t.amount,
+      nature: t.nature,
+      accounting_month: t.accounting_month,
+      date: t.date,
+      rapprochementStatus: t.rapprochementStatus ?? undefined,
+    }));
 
-    for (const transaction of transactions) {
-      const amount = transaction.amount;
-      const natureData = transaction.nature ? natureMap.get(transaction.nature) : null;
+    const { recettesTotales, depensesTotales, soldeNet, nonRapprochees } =
+      computeTransactionKpiTotals(rows, natureMap);
 
-      // Déterminer si c'est une recette ou une dépense selon le flow de la nature
-      if (natureData?.flow === 'INCOME') {
-        recettesTotales += Math.abs(amount);
-      } else if (natureData?.flow === 'EXPENSE') {
-        depensesTotales += -Math.abs(amount); // Négatif pour les dépenses
-      }
-
-      // Compter les transactions non rapprochées
-      if (transaction.rapprochementStatus === 'non_rapprochee') {
-        nonRapprochees++;
-      }
-    }
-
-    const soldeNet = recettesTotales + depensesTotales; // depensesTotales est déjà négatif
-
-    // Cashflow mensuel moyen = même règle que sidebar/page Biens : 12 derniers mois à partir d'aujourd'hui (une seule source de vérité)
     const CASHFLOW_PERIOD_MONTHS = 12;
     const monthlyTotals: Record<string, number> = {};
     for (const t of transactions) {
-      const month = t.accounting_month ?? (t.date ? `${new Date(t.date).getFullYear()}-${String(new Date(t.date).getMonth() + 1).padStart(2, '0')}` : null);
+      const month =
+        t.accounting_month ??
+        (t.date
+          ? `${new Date(t.date).getFullYear()}-${String(new Date(t.date).getMonth() + 1).padStart(2, '0')}`
+          : null);
       if (!month) continue;
-      const amount = t.amount;
-      const nd = t.nature ? natureMap.get(t.nature) : null;
-      const signed = nd?.flow === 'EXPENSE' ? -Math.abs(amount) : Math.abs(amount);
+      const kind = resolveTransactionKind(
+        {
+          id: t.id,
+          amount: t.amount,
+          nature: t.nature,
+        },
+        natureMap
+      );
+      const abs = Math.abs(t.amount);
+      const signed = kind === 'expense' ? -abs : abs;
       monthlyTotals[month] = (monthlyTotals[month] ?? 0) + signed;
     }
     const now = new Date();
@@ -137,11 +151,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('Erreur lors du calcul des KPI:', error);
-    return NextResponse.json(
-      { error: 'Erreur lors du calcul des KPI' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Erreur lors du calcul des KPI' }, { status: 500 });
   }
 }
-
-

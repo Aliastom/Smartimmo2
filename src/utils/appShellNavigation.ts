@@ -3,6 +3,8 @@
  * Gère le nettoyage des paramètres property-scoped lors de la navigation vers des vues globales
  */
 
+import { navAuditLog, navAuditSetSource } from '@/lib/dev/navAudit';
+
 export type ViewType = 
   | 'dashboard' 
   | 'patrimoine'
@@ -95,9 +97,10 @@ export function buildViewPath(view: ViewType, currentUrl?: string): string {
  */
 export function navigateToView(view: ViewType): void {
   if (typeof window === 'undefined') return;
-  
+
   const newUrl = buildViewUrl(view);
-  console.log('[appShellNavigation] 🧭 navigateToView:', view, '→', newUrl);
+  navAuditSetSource('navigateToView(pushState)');
+  navAuditLog('navigateToView', view, '→', newUrl);
   window.history.pushState({ view }, '', newUrl);
 }
 

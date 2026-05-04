@@ -17,7 +17,8 @@ import {
   computePatrimoineDecisionPerformance,
 } from '@/features/patrimoine/services/patrimoineDecisionPerformance';
 
-const MARKET_HISTORY_HREF = '/app?view=market';
+/** Ouvre le module Marché sur l’onglet Journal d’investissement. */
+const MARKET_JOURNAL_HREF = '/app?view=market&marketTab=journal';
 
 export interface PatrimoineDecisionPerformancePanelProps {
   organizationId: string | undefined;
@@ -123,8 +124,8 @@ export function PatrimoineDecisionPerformancePanel({
             <span className="text-slate-500">—</span>
           )}
         </div>
-        <Link href={MARKET_HISTORY_HREF} className="font-medium text-violet-700 underline-offset-2 hover:underline" prefetch={false}>
-          Historique marché
+        <Link href={MARKET_JOURNAL_HREF} className="font-medium text-violet-700 underline-offset-2 hover:underline" prefetch={false}>
+          Journal Marché
         </Link>
       </div>
     );
@@ -144,8 +145,8 @@ export function PatrimoineDecisionPerformancePanel({
           </div>
         </div>
         <Button variant="outline" size="sm" className="shrink-0 gap-1" asChild>
-          <Link href={MARKET_HISTORY_HREF} prefetch={false}>
-            Voir historique marché
+          <Link href={MARKET_JOURNAL_HREF} prefetch={false}>
+            Journal d’investissement (Marché)
           </Link>
         </Button>
       </div>

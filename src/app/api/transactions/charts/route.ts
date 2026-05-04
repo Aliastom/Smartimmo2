@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth/getCurrentUser';
+import {
+  computeTransactionKpiTotals,
+  resolveTransactionKind,
+  type NatureFlowMap,
+  type TransactionLike,
+} from '@/features/transactions/lib/transactionAggregation';
 
 // Force dynamic rendering for Vercel deployment
 export const dynamic = 'force-dynamic';
@@ -81,7 +87,7 @@ export async function GET(request: NextRequest) {
         flow: true,
       },
     });
-    const natureMap = new Map(natures.map(n => [n.code, n]));
+    const natureMap: NatureFlowMap = new Map(natures.map((n) => [n.code, n]));
 
     // Récupérer toutes les transactions
     const transactions = await prisma.transaction.findMany({
@@ -166,33 +172,23 @@ export async function GET(request: NextRequest) {
       if (!month) continue;
 
       const data = monthlyMap.get(month) || { income: 0, expense: 0, net: 0 };
-      const natureData = transaction.nature ? natureMap.get(transaction.nature) : null;
       const amount = transaction.amount;
-      
-      // Logique de comptabilisation :
-      // 1. Si nature avec flow défini → utiliser le flow
-      // 2. Sinon, utiliser le signe du montant (négatif = dépense, positif = recette)
-      
-      if (natureData?.flow === 'INCOME' || (amount > 0 && !natureData)) {
-        // Recette
-        data.income += Math.abs(amount);
-        data.net += Math.abs(amount);
-      } else if (natureData?.flow === 'EXPENSE' || (amount < 0 && !natureData)) {
-        // Dépense
-        data.expense += Math.abs(amount);
-        data.net -= Math.abs(amount);
-      } else if (amount === 0) {
-        // Montant nul, on ignore
-        continue;
+      const kind = resolveTransactionKind(
+        {
+          id: transaction.id,
+          amount,
+          nature: transaction.nature,
+        },
+        natureMap
+      );
+      const abs = Math.abs(amount);
+      if (amount === 0) continue;
+      if (kind === 'income') {
+        data.income += abs;
+        data.net += abs;
       } else {
-        // Fallback : si positif = recette, si négatif = dépense
-        if (amount > 0) {
-          data.income += Math.abs(amount);
-          data.net += Math.abs(amount);
-        } else {
-          data.expense += Math.abs(amount);
-          data.net -= Math.abs(amount);
-        }
+        data.expense += abs;
+        data.net -= abs;
       }
       
       monthlyMap.set(month, data);
@@ -227,26 +223,21 @@ export async function GET(request: NextRequest) {
       .map(([category, amount]) => ({ category, amount }))
       .sort((a, b) => b.amount - a.amount);
 
-    // 3. Calculer Recettes vs Dépenses
-    let income = 0;
-    let expense = 0;
-
-    for (const transaction of filteredTransactions) {
-      const natureData = transaction.nature ? natureMap.get(transaction.nature) : null;
-      
-      if (natureData?.flow === 'INCOME') {
-        income += Math.abs(transaction.amount);
-      } else if (natureData?.flow === 'EXPENSE') {
-        expense += Math.abs(transaction.amount);
-      }
-    }
+    const kpiRows: TransactionLike[] = filteredTransactions.map((t) => ({
+      id: t.id,
+      amount: t.amount,
+      nature: t.nature,
+      accounting_month: t.accounting_month,
+      date: t.date,
+    }));
+    const ie = computeTransactionKpiTotals(kpiRows, natureMap);
 
     return NextResponse.json({
       timeline,
       byCategory,
       incomeExpense: {
-        income,
-        expense: -expense, // Négatif pour l'affichage
+        income: ie.recettesTotales,
+        expense: -ie.depensesTotales,
       },
     });
   } catch (error) {

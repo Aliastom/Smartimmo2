@@ -5,7 +5,7 @@
  * Fonctionne complètement offline sans routing Next.js
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { UI2Provider } from '@/components/ui2/UI2Provider';
 import { SyncStatusIndicator } from '@/components/offline/SyncStatusIndicator';
@@ -48,6 +48,12 @@ import { SelectedPeriodProvider } from '@/contexts/SelectedPeriodContext';
 import { LocalDbUnavailableScreen } from '@/components/offline/LocalDbUnavailableScreen';
 import { notify2 } from '@/lib/notify2';
 import { RELEASES, getReleaseStorageKey } from '@/config/releases';
+import {
+  navAuditInstallFetchHook,
+  navAuditInstallHistoryHook,
+  navAuditLog,
+  navAuditTakeSource,
+} from '@/lib/dev/navAudit';
 
 // ⚠️ GUARD DEV-ONLY : Protection anti-régression pour les onglets property offline
 if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
@@ -58,6 +64,40 @@ if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
   });
 }
 
+type AppSearchParams = ReturnType<typeof useSearchParams>;
+
+/** Query string dérivée (primitives) — ne pas mettre l’objet searchParams dans les deps useMemo. */
+function readAppSearchPrimitives(searchParams: AppSearchParams) {
+  const appQueryKey = searchParams.toString();
+  const viewFromUrl = searchParams.get('view');
+  const propertyIdParam = searchParams.get('propertyId') ?? '';
+  const tabParam = searchParams.get('tab') ?? '';
+  const leaseIdParam = searchParams.get('leaseId') ?? '';
+  return { appQueryKey, viewFromUrl, propertyIdParam, tabParam, leaseIdParam };
+}
+
+const KNOWN_APP_VIEWS = new Set([
+  'dashboard',
+  'patrimoine',
+  'biens',
+  'locataires',
+  'baux',
+  'transactions',
+  'lmnp',
+  'lmnp-activities',
+  'market',
+  'documents',
+  'echeances',
+  'loans',
+  'fiscal',
+  'admin',
+  'parametres',
+  'sync',
+  'property',
+  'profil',
+  'gestion-deleguee',
+  'alertes',
+]);
 
 // Composant interne qui utilise le contexte
 function AppShellClientContent() {
@@ -68,70 +108,61 @@ function AppShellClientContent() {
   // ⚠️ CRITIQUE: Vérifier le statut de la DB et afficher l'écran d'erreur si nécessaire
   const { status: dbStatus, setStatus } = useLocalDbStatus();
   
-  // ✅ CORRECTION: Utiliser useSearchParams() uniquement pour la vue (pas pour les tabs)
   const searchParams = useSearchParams();
-  
-  // Dériver currentView directement depuis searchParams (réactif, pas de polling)
+  const { appQueryKey, viewFromUrl, propertyIdParam, tabParam, leaseIdParam } =
+    readAppSearchPrimitives(searchParams);
+
   const currentView = useMemo<ViewType>(() => {
-    const viewParam = searchParams.get('view');
+    const viewParam = viewFromUrl;
     if (viewParam === 'lmnp') {
       return 'lmnp-activities';
     }
-    if (viewParam && ['dashboard', 'patrimoine', 'biens', 'locataires', 'baux', 'transactions', 'lmnp', 'lmnp-activities', 'market', 'documents', 'echeances', 'loans', 'fiscal', 'admin', 'parametres', 'sync', 'property', 'profil', 'gestion-deleguee', 'alertes'].includes(viewParam)) {
-      console.log('[AppShellClient] 📍 Vue calculée depuis URL:', viewParam, 'URL:', window.location.href);
+    if (viewParam && KNOWN_APP_VIEWS.has(viewParam)) {
       return viewParam as ViewType;
     }
-    console.log('[AppShellClient] 📍 Vue par défaut: dashboard');
     return 'dashboard';
-  }, [searchParams]);
+  }, [viewFromUrl]);
+
+  const lastGoodViewRef = useRef<ViewType>('dashboard');
+  const prevAuditViewRef = useRef<ViewType | null>(null);
+
+  const safeCurrentView = useMemo(() => {
+    if (viewFromUrl === 'property' && !propertyIdParam) {
+      return lastGoodViewRef.current;
+    }
+    return currentView;
+  }, [viewFromUrl, propertyIdParam, currentView]);
 
   useEffect(() => {
-    const viewParam = searchParams.get('view');
-    if (viewParam !== 'lmnp' || typeof window === 'undefined') return;
+    if (viewFromUrl === 'property' && !propertyIdParam) {
+      return;
+    }
+    lastGoodViewRef.current = safeCurrentView;
+  }, [viewFromUrl, propertyIdParam, safeCurrentView]);
+
+  useEffect(() => {
+    if (viewFromUrl !== 'lmnp' || typeof window === 'undefined') return;
     const url = new URL(window.location.href);
     url.searchParams.set('view', 'lmnp-activities');
     window.history.replaceState({ view: 'lmnp-activities' }, '', url.toString());
-  }, [searchParams]);
+  }, [viewFromUrl]);
 
-  // ✅ Ref pour garder la vue précédente (pour safeCurrentView)
-  const prevViewRef = useRef<ViewType>(currentView);
-  
-  // ⚠️ DIAGNOSTIC: Logger chaque changement de vue
   useEffect(() => {
-    if (prevViewRef.current !== currentView) {
-      console.log('[AppShellClient] 🔄 setCurrentView:', prevViewRef.current, '→', currentView, 'URL:', window.location.href);
-      prevViewRef.current = currentView;
+    if (prevAuditViewRef.current !== safeCurrentView) {
+      navAuditLog(
+        'view changed',
+        prevAuditViewRef.current,
+        '→',
+        safeCurrentView,
+        { query: appQueryKey, source: navAuditTakeSource() ?? '(next/router or init)' }
+      );
+      prevAuditViewRef.current = safeCurrentView;
     }
-  }, [currentView]);
-  
-  // ⚠️ DIAGNOSTIC: Logger les changements d'URL (history.pushState/replaceState)
+  }, [safeCurrentView, appQueryKey]);
+
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
-    
-    history.pushState = function(...args) {
-      console.log('[AppShellClient] 🔗 history.pushState:', args[2], 'State:', args[0]);
-      return originalPushState.apply(history, args);
-    };
-    
-    history.replaceState = function(...args) {
-      console.log('[AppShellClient] 🔗 history.replaceState:', args[2], 'State:', args[0]);
-      return originalReplaceState.apply(history, args);
-    };
-    
-    const handlePopState = (e: PopStateEvent) => {
-      console.log('[AppShellClient] 🔙 popstate event:', window.location.href, 'State:', e.state);
-    };
-    
-    window.addEventListener('popstate', handlePopState);
-    
-    return () => {
-      history.pushState = originalPushState;
-      history.replaceState = originalReplaceState;
-      window.removeEventListener('popstate', handlePopState);
-    };
+    navAuditInstallFetchHook();
+    navAuditInstallHistoryHook();
   }, []);
   
   const { organizationId } = useCurrentOrganization();
@@ -311,38 +342,37 @@ function AppShellClientContent() {
     }
   }, [isOnline]);
 
-  const handleNavigation = (view: ViewType) => {
-    // ✅ CORRECTION: Utiliser le helper centralisé pour nettoyer les params property-scoped
+  const handleNavigation = useCallback((view: ViewType) => {
     navigateToView(view);
-  };
+  }, []);
 
-  // ✅ CORRECTION: Utiliser directement searchParams (déjà réactif)
-  // ⚠️ IMPORTANT: urlParams n'est utilisé QUE pour propertyId (pas pour tab)
-  const urlParams = searchParams;
-  
-  // ✅ GUARD: Ne pas changer currentView si l'URL est incomplète pour property
-  // (évite les remounts lors d'états intermédiaires)
-  const safeCurrentView = useMemo(() => {
-    const viewParam = searchParams.get('view');
-    
-    // Si on est en vue property, vérifier que propertyId est présent
-    if (viewParam === 'property') {
-      const propertyId = searchParams.get('propertyId');
-      if (!propertyId) {
-        // URL incomplète : garder la vue précédente ou dashboard
-        console.log('[AppShellClient] ⚠️ URL incomplète pour property (propertyId manquant), garde vue précédente:', prevViewRef.current);
-        // Ne pas changer la vue si l'URL est incomplète
-        return prevViewRef.current || currentView || 'dashboard';
-      }
-    }
-    
-    // Vue valide : mettre à jour prevViewRef
-    if (currentView !== prevViewRef.current) {
-      prevViewRef.current = currentView;
-    }
-    
-    return currentView;
-  }, [currentView, searchParams]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const useUI2 = searchParams.get('ui2') !== 'false';
+
+  const customSidebar = useMemo(
+    () =>
+      useUI2 ? (
+        <UI2Sidebar
+          currentView={currentView}
+          onNavigate={(view) => {
+            handleNavigation(view as ViewType);
+          }}
+          collapsed={sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
+        />
+      ) : (
+        <AppShellSidebar
+          currentView={currentView}
+          onNavigate={(view) => {
+            handleNavigation(view as ViewType);
+          }}
+          collapsed={sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
+        />
+      ),
+    [useUI2, currentView, sidebarCollapsed, handleNavigation]
+  );
 
   // Calculer la pageKey pour les animations (basée sur view/propertyId, SANS tab pour éviter remount)
   // ⚙️ OPTIMISATION: Ne pas inclure tab dans pageKey pour property view
@@ -350,45 +380,13 @@ function AppShellClientContent() {
   // ⚠️ CRITIQUE: Ce hook doit être appelé AVANT le return conditionnel
   const pageKey = useMemo(() => {
     const view = safeCurrentView;
-    const propertyId = searchParams.get('propertyId') || '';
-    
-    // Construire la key unique pour chaque page
-    // ⚠️ IMPORTANT: Ne pas inclure tab dans pageKey pour property view pour éviter remount du header
+    const propertyId = propertyIdParam;
+
     if (view === 'property' && propertyId) {
       return `${view}:${propertyId}`;
     }
     return `${view}:${propertyId || ''}`;
-  }, [safeCurrentView, searchParams]);
-
-  // Créer la sidebar personnalisée pour app-shell
-  // On utilise un état local pour le collapsed, mais AppShell gère l'open/close
-  // ⚠️ CRITIQUE: Ce hook doit être appelé AVANT le return conditionnel
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
-  // UI2 est maintenant activé par défaut
-  // Le flag ui2=false permet de désactiver UI2 si nécessaire
-  const useUI2 = urlParams.get('ui2') !== 'false';
-  
-  // Utiliser UI2Sidebar par défaut (UI2 est maintenant l'interface par défaut)
-  const customSidebar = useUI2 ? (
-    <UI2Sidebar
-      currentView={currentView}
-      onNavigate={(view) => {
-        handleNavigation(view as ViewType);
-      }}
-      collapsed={sidebarCollapsed}
-      onCollapsedChange={setSidebarCollapsed}
-    />
-  ) : (
-    <AppShellSidebar
-      currentView={currentView}
-      onNavigate={(view) => {
-        handleNavigation(view as ViewType);
-      }}
-      collapsed={sidebarCollapsed}
-      onCollapsedChange={setSidebarCollapsed}
-    />
-  );
+  }, [safeCurrentView, propertyIdParam]);
 
   // Rendre la vue active
   // ✅ Utiliser safeCurrentView pour éviter les remounts sur URL incomplète
@@ -500,7 +498,7 @@ function AppShellClientContent() {
           );
         }
         // ⚠️ CRITIQUE: Lire les paramètres de l'URL pour les passer à TransactionsPageCore
-        const transactionPropertyId = urlParams.get('propertyId') || '';
+        const transactionPropertyId = propertyIdParam;
         
         return (
           <TransactionsPageCore
@@ -640,8 +638,8 @@ function AppShellClientContent() {
         }
         
         // ✅ GUARD 2: Lire les paramètres de l'URL pour le propertyId
-        const propertyId = urlParams.get('propertyId') || '';
-        const propertyTab = urlParams.get('tab') || 'transactions';
+        const propertyId = propertyIdParam;
+        const propertyTab = tabParam || 'transactions';
         
         // ✅ GUARD 3: Si propertyId est absent, ne PAS démonter la vue précédente
         // (évite les écrans blancs lors de changements d'URL intermédiaires)
@@ -668,7 +666,7 @@ function AppShellClientContent() {
         const validTab = validTabs.includes(normalizedTab) ? normalizedTab : 'transactions';
         
         // ✅ Key stable pour éviter les remounts inutiles
-        const initialLeaseId = urlParams.get('leaseId') || undefined;
+        const initialLeaseId = leaseIdParam || undefined;
 
         return (
           <PropertyDetailView 
@@ -692,7 +690,7 @@ function AppShellClientContent() {
           </div>
         );
     }
-  }, [safeCurrentView, organizationId, urlParams]);
+  }, [safeCurrentView, organizationId, dbStatus, appQueryKey]);
 
   // ⚠️ CRITIQUE: Le rendu conditionnel se fait APRÈS tous les hooks
   // Si la DB est indisponible, afficher l'écran d'erreur ET ne pas monter les vues data-heavy

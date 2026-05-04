@@ -178,6 +178,9 @@ export function MarketRadarPanel({ entries, currency, lastUpdatedAt = null, athP
                         Stratégie principale recommandée à long terme
                       </p>
                     )}
+                    <p className="mt-1.5 text-[10px] font-medium text-slate-500">
+                      Action proposée, à valider manuellement.
+                    </p>
                   </footer>
                 </>
               )}
@@ -188,7 +191,7 @@ export function MarketRadarPanel({ entries, currency, lastUpdatedAt = null, athP
       <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
         <Info className="h-3.5 w-3.5 shrink-0 text-violet-500" />
         <p>
-          Historique des décisions pris en compte (même logique que l’actif principal). Indicatif — aucun ordre bancaire.
+          Journal des décisions prises en compte (même logique que l’actif principal). Indicatif — aucun ordre bancaire.
         </p>
       </div>
     </div>

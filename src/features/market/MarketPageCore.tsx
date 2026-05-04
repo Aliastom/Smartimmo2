@@ -3,9 +3,11 @@
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Settings } from 'lucide-react';
-import { useState } from 'react';
+import { HelpCircle, Settings } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { MarketInvestmentCard } from '@/features/market/components/MarketInvestmentCard';
+import { MarketModuleHelpModal, readMarketHelpDismissed } from '@/features/market/components/MarketModuleHelpModal';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import { useMarketInvestment } from '@/features/market/hooks/useMarketInvestment';
 
@@ -19,10 +21,18 @@ function formatCurrency(value: number, currency = 'EUR'): string {
 
 /* eslint-disable-next-line @typescript-eslint/naming-convention -- composant React */
 export function MarketPageCore({ mode }: MarketPageCoreProps) {
+  const searchParams = useSearchParams();
+  const marketTabFromUrl = searchParams.get('marketTab');
   const [openSettingsSignal, setOpenSettingsSignal] = useState(0);
+  const [helpOpen, setHelpOpen] = useState(false);
   const { organizationId } = useCurrentOrganization();
   const market = useMarketInvestment(organizationId, { source: 'market' });
   const settings = market?.settings ?? null;
+
+  useEffect(() => {
+    if (readMarketHelpDismissed()) return;
+    setHelpOpen(true);
+  }, []);
 
   return (
     <div className="w-full max-w-full space-y-3">
@@ -36,7 +46,7 @@ export function MarketPageCore({ mode }: MarketPageCoreProps) {
               </div>
               <p className="text-sm font-medium leading-5 text-violet-700">Suivi décisionnel local-first des actifs de marché</p>
               <p className="pt-0.5 text-xs leading-5 text-slate-500">
-                Espace décisionnel dédié: actif principal, radar marché, simulation, historique et bibliothèque.
+                Espace décisionnel dédié : actif principal, radar marché, simulation, journal d’investissement et bibliothèque.
               </p>
               <p className="text-xs leading-5 text-slate-500">
                 Ces paramètres sont déclaratifs, locaux à Smartimmo, et ne déclenchent aucun ordre bancaire.
@@ -46,15 +56,27 @@ export function MarketPageCore({ mode }: MarketPageCoreProps) {
               )}
             </div>
             <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-end sm:text-right">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-fit px-3 text-xs"
-                onClick={() => setOpenSettingsSignal((prev) => prev + 1)}
-              >
-                <Settings className="mr-1.5 h-3.5 w-3.5" />
-                Modifier les paramètres
-              </Button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-xs text-slate-500 hover:text-slate-800"
+                  onClick={() => setHelpOpen(true)}
+                >
+                  <HelpCircle className="mr-1 h-3.5 w-3.5" />
+                  Aide / Comment ça marche ?
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-fit px-3 text-xs"
+                  onClick={() => setOpenSettingsSignal((prev) => prev + 1)}
+                >
+                  <Settings className="mr-1.5 h-3.5 w-3.5" />
+                  Modifier les paramètres
+                </Button>
+              </div>
               {settings && (
                 <>
                   <p className="max-w-full rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-left text-[11px] leading-5 text-amber-800 sm:max-w-sm sm:text-right">
@@ -72,8 +94,14 @@ export function MarketPageCore({ mode }: MarketPageCoreProps) {
         </CardContent>
       </Card>
 
+      <MarketModuleHelpModal open={helpOpen} onOpenChange={setHelpOpen} />
+
       {market ? (
-        <MarketInvestmentCard openSettingsSignal={openSettingsSignal} market={market} />
+        <MarketInvestmentCard
+          openSettingsSignal={openSettingsSignal}
+          market={market}
+          marketTabFromUrl={marketTabFromUrl}
+        />
       ) : (
         <Card className="border-slate-200 bg-white shadow-sm">
           <CardContent className="py-3.5">

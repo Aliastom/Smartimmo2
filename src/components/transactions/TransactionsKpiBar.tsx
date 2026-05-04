@@ -60,7 +60,7 @@ export function TransactionsKpiBar({
     {
       id: 'depenses',
       title: 'Dépenses totales',
-      value: formatCurrency(Math.abs(kpis.depensesTotales)),
+      value: formatCurrency(kpis.depensesTotales),
       iconName: 'TrendingDown',
       color: 'red' as const,
       subtitle: undefined as string | undefined,

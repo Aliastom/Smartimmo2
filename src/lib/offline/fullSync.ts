@@ -168,6 +168,37 @@ const TABLE_CONFIGS: TableSyncConfig[] = [
     }),
   },
   {
+    tableName: 'PortfolioAccount',
+    apiRoute: '/api/market/portfolio/accounts?limit=10000',
+    syncMetaKey: 'PortfolioAccount',
+    transform: (item: any) => ({
+      ...item,
+      createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(),
+      updatedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+    }),
+  },
+  {
+    tableName: 'PortfolioOrder',
+    apiRoute: '/api/market/portfolio/orders?limit=10000',
+    syncMetaKey: 'PortfolioOrder',
+    transform: (item: any) => ({
+      ...item,
+      date: item.date ? new Date(item.date).toISOString() : new Date().toISOString(),
+      createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(),
+      updatedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+    }),
+  },
+  {
+    tableName: 'PortfolioSnapshot',
+    apiRoute: '/api/market/portfolio/snapshots?limit=10000',
+    syncMetaKey: 'PortfolioSnapshot',
+    transform: (item: any) => ({
+      ...item,
+      capturedAt: item.capturedAt ? new Date(item.capturedAt).toISOString() : new Date().toISOString(),
+      createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(),
+    }),
+  },
+  {
     tableName: 'EcheanceRecurrente',
     apiRoute: '/api/echeances?limit=10000',
     syncMetaKey: 'EcheanceRecurrente',

@@ -14,6 +14,13 @@ import type { LocalTransaction, CachedNature, CachedCategory } from '@/lib/offli
 import type { MonthlyData } from '@/components/transactions/TransactionsCumulativeChart';
 import type { CategoryData } from '@/components/transactions/TransactionsByCategoryChart';
 import type { IncomeExpenseData } from '@/components/transactions/TransactionsIncomeExpenseChart';
+import {
+  computeTransactionKpiTotals,
+  filterTransactionsForScope,
+  resolveTransactionKind,
+  type NatureFlowMap,
+  type TransactionLike,
+} from '@/features/transactions/lib/transactionAggregation';
 
 export interface TransactionsChartsData {
   timeline: MonthlyData[];
@@ -128,8 +135,6 @@ export function useTransactionsCharts(options: UseTransactionsChartsOptions) {
           const transRepo = await import('@/lib/offline/repositories/TransactionRepositoryOffline').then(m => m.getTransactionRepositoryOffline());
           transactions = await transRepo.getAll(orgId, {
             ...(propertyId && { propertyId }),
-            ...(periodStart && { dateFrom: `${periodStart}-01` }),
-            ...(periodEnd && { dateTo: `${periodEnd}-31` }),
           });
         }
 
@@ -140,29 +145,26 @@ export function useTransactionsCharts(options: UseTransactionsChartsOptions) {
         ]);
         
         const natureMap = new Map<string, CachedNature>();
-        naturesData.forEach(nature => {
+        naturesData.forEach((nature) => {
           natureMap.set(nature.key, nature);
         });
+        const natureMapAgg = natureMap as unknown as NatureFlowMap;
 
         const categoryMap = new Map<string, CachedCategory>();
         categoriesData.forEach(cat => {
           categoryMap.set(cat.id, cat);
         });
 
-        // Filtrer par période comptable si nécessaire
-        let filteredTransactions = transactions;
-        if (periodStart && periodEnd) {
-          filteredTransactions = transactions.filter(t => {
-            // Utiliser accounting_month ou calculer depuis date si NULL
-            let month = (t as any).accounting_month || (t as any).accountingMonth;
-            if (!month && t.date) {
-              const d = new Date(t.date);
-              month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-            }
-            if (!month) return false;
-            return month >= periodStart && month <= periodEnd;
-          });
-        }
+        const scope = {
+          ...(periodStart && periodEnd ? { periodStart, periodEnd } : {}),
+          ...(propertyId && { propertyId }),
+        };
+
+        const filteredTransactions = filterTransactionsForScope(
+          transactions as unknown as TransactionLike[],
+          scope,
+          natureMapAgg
+        );
 
         // 1. Calculer l'évolution mensuelle cumulée (timeline)
         const monthlyMap = new Map<string, { income: number; expense: number; net: number }>();
@@ -190,7 +192,6 @@ export function useTransactionsCharts(options: UseTransactionsChartsOptions) {
 
         // Remplir les données mensuelles
         for (const transaction of filteredTransactions) {
-          // Utiliser accounting_month ou calculer depuis date si NULL
           let month = (transaction as any).accounting_month || (transaction as any).accountingMonth;
           if (!month && transaction.date) {
             const d = new Date(transaction.date);
@@ -199,41 +200,26 @@ export function useTransactionsCharts(options: UseTransactionsChartsOptions) {
           if (!month) continue;
 
           const data = monthlyMap.get(month) || { income: 0, expense: 0, net: 0 };
-          const natureKey = transaction.nature || '';
-          const natureData = natureKey ? natureMap.get(natureKey) : null;
           const amount = transaction.amount || 0;
-          
-          // Logique de comptabilisation :
-          // 1. Si nature avec flow défini → utiliser le flow
-          // 2. Sinon, utiliser le signe du montant (négatif = dépense, positif = recette)
-          
-          let flow = natureData?.flow?.toUpperCase();
-          if (!flow) {
-            flow = amount > 0 ? 'INCOME' : 'EXPENSE';
-          }
-          
-          if (flow === 'INCOME' || (amount > 0 && !natureData)) {
-            // Recette
-            data.income += Math.abs(amount);
-            data.net += Math.abs(amount);
-          } else if (flow === 'EXPENSE' || (amount < 0 && !natureData)) {
-            // Dépense
-            data.expense += Math.abs(amount);
-            data.net -= Math.abs(amount);
-          } else if (amount === 0) {
-            // Montant nul, on ignore
-            continue;
+          if (amount === 0) continue;
+
+          const kind = resolveTransactionKind(
+            {
+              id: transaction.id,
+              amount,
+              nature: transaction.nature,
+            },
+            natureMapAgg
+          );
+          const abs = Math.abs(amount);
+          if (kind === 'income') {
+            data.income += abs;
+            data.net += abs;
           } else {
-            // Fallback : si positif = recette, si négatif = dépense
-            if (amount > 0) {
-              data.income += Math.abs(amount);
-              data.net += Math.abs(amount);
-            } else {
-              data.expense += Math.abs(amount);
-              data.net -= Math.abs(amount);
-            }
+            data.expense += abs;
+            data.net -= abs;
           }
-          
+
           monthlyMap.set(month, data);
         }
 
@@ -268,34 +254,15 @@ export function useTransactionsCharts(options: UseTransactionsChartsOptions) {
           .map(([category, amount]) => ({ category, amount }))
           .sort((a, b) => b.amount - a.amount);
 
-        // 3. Calculer Recettes vs Dépenses
-        let income = 0;
-        let expense = 0;
-
-        for (const transaction of filteredTransactions) {
-          const natureKey = transaction.nature || '';
-          const natureData = natureKey ? natureMap.get(natureKey) : null;
-          const amount = transaction.amount || 0;
-          
-          let flow = natureData?.flow?.toUpperCase();
-          if (!flow) {
-            flow = amount > 0 ? 'INCOME' : 'EXPENSE';
-          }
-          
-          if (flow === 'INCOME') {
-            income += Math.abs(amount);
-          } else if (flow === 'EXPENSE') {
-            expense += Math.abs(amount);
-          }
-        }
+        const ieTotals = computeTransactionKpiTotals(filteredTransactions as TransactionLike[], natureMapAgg);
 
         if (!cancelled) {
           setData({
             timeline,
             byCategory,
             incomeExpense: {
-              income,
-              expense: -expense, // Négatif pour l'affichage
+              income: ieTotals.recettesTotales,
+              expense: -ieTotals.depensesTotales,
             },
           });
           setIsLoading(false);
@@ -314,7 +281,7 @@ export function useTransactionsCharts(options: UseTransactionsChartsOptions) {
     return () => {
       cancelled = true;
     };
-  }, [mode, organizationId, periodStart, periodEnd, propertyId, propTransactions, appShellContext?.status, appShellContext?.error, appShellContext?.organizationId, normalOrg?.organizationId, normalOrg?.isLoading]);
+  }, [mode, organizationId, periodStart, periodEnd, propertyId, propTransactions, appShellContext?.status, appShellContext?.organizationId, normalOrg?.organizationId, normalOrg?.isLoading]);
   // ⚠️ CRITIQUE: refreshKey retiré des dépendances pour éviter les rechargements complets lors des filtres/tri/cartes
   // refreshKey est uniquement utilisé pour forcer un recalcul après CRUD (géré via événements transactions:refresh)
 

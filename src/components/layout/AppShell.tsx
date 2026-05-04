@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { navAuditLog } from '@/lib/dev/navAudit';
 import { Sidebar } from './Sidebar';
 import { SkipToContent } from '@/components/ui/SkipToContent';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -95,6 +96,11 @@ export function AppShell({
       setSidebarOpen(false);
     }
   }, [pathname, customSidebar, sidebarOpen, setSidebarOpen]);
+
+  useEffect(() => {
+    navAuditLog('AppShell mount');
+    return () => navAuditLog('AppShell unmount');
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">

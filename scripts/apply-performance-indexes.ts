@@ -5,7 +5,7 @@
  *   tsx scripts/apply-performance-indexes.ts
  * 
  * Ou directement via SQL:
- *   psql -d smartimmo -f prisma/migrations/20250116184513_performance_indexes/migration.sql
+ *   psql -d smartimmo -f prisma/migrations/20251114121600_performance_indexes/migration.sql
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -21,7 +21,7 @@ async function applyIndexes() {
     // Lire le fichier de migration
     const migrationPath = join(
       process.cwd(),
-      'prisma/migrations/20250116184513_performance_indexes/migration.sql'
+      'prisma/migrations/20251114121600_performance_indexes/migration.sql'
     );
 
     const sql = readFileSync(migrationPath, 'utf-8');

@@ -331,7 +331,7 @@ export function MarketEtfLibrarySection({
                       </p>
                     ) : (
                       <p className="mt-1.5 text-xs font-medium text-amber-800/90">
-                        Snapshot local absent pour {item.ticker} — actualisez les données marché.
+                        Pas de snapshot local — actualiser les données marché.
                       </p>
                     )}
                     <p className="mt-1 text-sm font-semibold text-violet-700">Score qualité : {quality.score}/100</p>

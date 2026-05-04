@@ -78,7 +78,7 @@ export type InvestmentActionType =
   | 'REINFORCE_30'
   | 'REINFORCE_MAX'
   | 'MANUAL';
-export type InvestmentActionStatus = 'suggested' | 'validated' | 'ignored';
+export type InvestmentActionStatus = 'suggested' | 'validated' | 'ignored' | 'cancelled';
 export type MarketOpportunityStatus = 'NORMAL' | 'OPPORTUNITE' | 'FORTE_OPPORTUNITE';
 
 /** Type de suggestion V2 (moteur décisionnel) */
@@ -88,6 +88,15 @@ export type InvestmentDecisionType = 'DCA_ONLY' | 'LIGHT_REINFORCE' | 'MEDIUM_RE
 export type MarketScoreLabel = 'MARCHÉ HAUT' | 'MARCHÉ NEUTRE' | 'OPPORTUNITÉ';
 
 export type DecisionConfidenceLevel = 'low' | 'medium' | 'high';
+
+/** Contexte marché figé au moment de la validation (journal local). */
+export interface InvestmentMarketContextSnapshot {
+  price: number | null;
+  ath: number | null;
+  drawdownPct: number | null;
+  period: AthPeriod;
+  cashAvailable: number;
+}
 
 export interface InvestmentActionLog {
   id: string;
@@ -112,6 +121,18 @@ export interface InvestmentActionLog {
   drawdownPercentAtAction?: number | null; // compat legacy
   /** Présent si la décision validée a été modifiée après coup (local-first). */
   updatedAt?: string | null;
+  /** Ordre portefeuille local créé lors de la validation (Smartimmo uniquement). */
+  portfolioOrderId?: string | null;
+  portfolioAccountId?: string | null;
+  validatedQuantity?: number | null;
+  validatedUnitPrice?: number | null;
+  recommendationKind?: 'DCA' | 'REINFORCE' | 'HOLD' | 'NONE';
+  journalSource?: 'assistant' | 'user' | 'import';
+  journalEntryType?: 'RECOMMENDATION' | 'ORDER_CREATED' | 'MANUAL_DECISION';
+  marketContextSnapshot?: InvestmentMarketContextSnapshot;
+  assetId?: string | null;
+  validatedAt?: string | null;
+  ignoredAt?: string | null;
 }
 
 export interface InvestmentRecommendation {

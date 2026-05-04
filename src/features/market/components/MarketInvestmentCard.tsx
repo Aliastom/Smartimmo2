@@ -34,6 +34,10 @@ import { MarketStrategySimulationCard } from '@/features/market/components/Marke
 import { MarketTabs } from '@/features/market/components/MarketTabs';
 import { MarketTabPanel } from '@/features/market/components/MarketTabPanel';
 import { MarketEtfLibrarySection } from '@/features/market/components/MarketEtfLibrarySection';
+import { MarketPortfolioPanel } from '@/features/market/components/MarketPortfolioPanel';
+import { investmentActionLogToJournalEntry, journalEntryBadgeLabels } from '@/features/market/services/investmentJournalMapper';
+import { pickDefaultPortfolioAccount } from '@/features/market/services/marketValidateOrderFlow';
+import { MarketOrderValidationError } from '@/features/market/services/marketValidationErrors';
 import type { MarketHistoryPoint } from '@/features/market/services/marketDataService';
 import type { EtfLibraryItem } from '@/features/market/services/etfLibrary';
 import type {
@@ -62,6 +66,7 @@ function formatActionLogStatus(status: string): string {
   if (status === 'validated') return 'validé';
   if (status === 'ignored') return 'ignoré';
   if (status === 'suggested') return 'suggéré';
+  if (status === 'cancelled') return 'annulé';
   return status;
 }
 
@@ -102,20 +107,27 @@ function resolveInitialReinforceMode(settings: InvestmentSettings): 'DYNAMIC' | 
 interface MarketInvestmentCardProps {
   openSettingsSignal?: number;
   market?: MarketInvestmentController | null;
+  /** Paramètre d’URL `marketTab` (App Shell) — l’alias `historique` ouvre le journal. */
+  marketTabFromUrl?: string | null;
 }
 
 const USE_MARKET_SETTINGS_DIALOG_V2 = true;
 const MARKET_TAB_ITEMS = [
   { key: 'synthese', label: 'Synthèse' },
+  { key: 'portefeuille', label: 'Portefeuille réel' },
   { key: 'analyse-prix', label: 'Analyse prix' },
   { key: 'simulation', label: 'Simulation' },
-  { key: 'historique', label: 'Historique' },
+  { key: 'journal', label: 'Journal d’investissement' },
   { key: 'bibliotheque-etf', label: 'Bibliothèque d’actifs' },
   { key: 'parametres', label: 'Paramètres' },
 ] as const;
 type MarketTabKey = (typeof MARKET_TAB_ITEMS)[number]['key'];
 
-export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketInvestmentCardProps) {
+export function MarketInvestmentCard({
+  openSettingsSignal = 0,
+  market,
+  marketTabFromUrl = null,
+}: MarketInvestmentCardProps) {
   const compactSelectClass =
     'h-10 min-h-0 w-full rounded-xl border border-violet-200 bg-violet-50 px-3 py-0 text-sm font-medium leading-tight text-violet-800';
   const freshnessTtlHours = 12;
@@ -146,9 +158,11 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
     updateSettings,
     validateDecision,
     ignoreDecision,
+    restoreIgnoredDecision,
     requestManualAnalysis,
     updateHistoryDecision,
     deleteHistoryDecision,
+    portfolio,
   } = resolvedMarket;
 
   const [editOpen, setEditOpen] = useState(false);
@@ -164,6 +178,15 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
   const [historyDeleteId, setHistoryDeleteId] = useState<string | null>(null);
   const [historyDeleteSaving, setHistoryDeleteSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<MarketTabKey>('synthese');
+
+  useEffect(() => {
+    if (marketTabFromUrl == null || marketTabFromUrl.trim() === '') return;
+    const raw = marketTabFromUrl.trim();
+    const mapped = (raw === 'historique' ? 'journal' : raw) as MarketTabKey;
+    if (MARKET_TAB_ITEMS.some((t) => t.key === mapped)) {
+      setActiveTab(mapped);
+    }
+  }, [marketTabFromUrl]);
   const [recentPrincipalExtras, setRecentPrincipalExtras] = useState<{ symbol: string; label: string }[]>([]);
 
   const compactDialogClassName =
@@ -176,6 +199,8 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
     'flex w-[calc(100vw-24px)] max-h-[calc(100dvh-24px)] max-w-lg flex-col overflow-hidden rounded-3xl p-3 sm:max-h-[85vh] sm:max-w-3xl';
   const [validateAmount, setValidateAmount] = useState('');
   const [validateReason, setValidateReason] = useState('');
+  const [validateAccountId, setValidateAccountId] = useState('');
+  const [validateUnitPrice, setValidateUnitPrice] = useState('');
   const [, setRefreshAgeTick] = useState(0);
   const forceRefreshResetTimerRef = useRef<number | null>(null);
   const lastHandledOpenSettingsSignalRef = useRef(0);
@@ -568,16 +593,16 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
 
   const validationPrimaryLabel =
     recommendation?.decisionType === 'DCA_ONLY'
-      ? 'Valider ce DCA'
+      ? 'Valider et créer l’ordre local'
       : recommendation?.decisionType === 'STRONG_REINFORCE'
-        ? 'Valider le renfort fort'
+        ? 'Valider le renfort (ordre local)'
         : recommendation?.decisionType === 'LIGHT_REINFORCE' || recommendation?.decisionType === 'MEDIUM_REINFORCE'
-          ? 'Valider le renfort'
-          : 'Enregistrer l’action';
+          ? 'Valider le renfort (ordre local)'
+          : 'Valider et créer l’ordre local';
 
   const validationSubmitLabel =
     validationMode === 'voluntary_extra'
-      ? 'Enregistrer l’investissement'
+      ? 'Ajouter cet ordre au portefeuille'
       : validationPrimaryLabel;
   const hasAnyDcaDoneThisMonth = marketModuleDcaBannerInfo.monthlyDcaDone > 0;
   const nextPlannedInvestmentDates = computeNextInvestmentDates(resolveMonthlyInvestmentDay(settings), 3);
@@ -653,10 +678,17 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
   };
 
   const openValidation = (mode: 'standard' | 'voluntary_extra' = 'standard') => {
-    if (!recommendation) return;
+    if (!recommendation || !settings) return;
     setValidationMode(mode);
     setValidateAmount(String(recommendation.suggestedAmount));
     setValidateReason(mode === 'voluntary_extra' ? '' : recommendation.reason);
+    const def = pickDefaultPortfolioAccount(portfolio.accounts, settings.envelope);
+    setValidateAccountId(def ?? '');
+    setValidateUnitPrice(
+      snapshot?.currentPrice != null && Number.isFinite(snapshot.currentPrice) && snapshot.currentPrice > 0
+        ? String(snapshot.currentPrice)
+        : ''
+    );
     setValidateOpen(true);
   };
 
@@ -758,21 +790,27 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
   };
 
   const submitValidation = async () => {
-    const wasDcaOnly = recommendation?.decisionType === 'DCA_ONLY';
     const voluntary = validationMode === 'voluntary_extra';
     const amount = Number(validateAmount);
+    const unitOverrideRaw = validateUnitPrice.trim().replace(',', '.');
+    const unitOverride = unitOverrideRaw === '' ? null : Number(unitOverrideRaw);
     try {
       await validateDecision(amount, validateReason, undefined, {
         voluntaryAdditionalInvestment: voluntary,
+        accountId: validateAccountId || null,
+        unitPriceOverride:
+          unitOverride != null && Number.isFinite(unitOverride) && unitOverride > 0 ? unitOverride : null,
       });
       setValidateOpen(false);
       setValidationMode('standard');
-      if (voluntary && Number.isFinite(amount) && amount > 0) {
-        toast.success('Investissement enregistré');
-      } else if (wasDcaOnly && !voluntary && Number.isFinite(amount) && amount > 0) {
-        toast.success('DCA enregistré');
+      if (Number.isFinite(amount) && amount > 0) {
+        toast.success('Ordre ajouté au portefeuille');
       }
-    } catch {
+    } catch (e) {
+      if (e instanceof MarketOrderValidationError) {
+        toast.error(e.message);
+        return;
+      }
       toast.error('Enregistrement impossible');
     }
   };
@@ -1322,6 +1360,33 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
             </div>
           </CardContent>
         </Card>
+
+        {portfolio.positions.length > 0 && (
+          <Card className="w-full border-slate-200 bg-white shadow-sm" padding="none">
+            <CardContent className="space-y-1 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Conseil basé sur portefeuille réel</p>
+              <p className="text-sm leading-relaxed text-slate-800">
+                Valeur estimée des positions ouvertes :{' '}
+                <span className="font-semibold tabular-nums">
+                  {formatCurrency(portfolio.totals.totalMarketValue, settings.currency)}
+                </span>
+                . Pondération de l’actif principal ({settings.referenceSymbol}) :{' '}
+                {portfolio.principalOverlay?.principalWeightPercent != null
+                  ? `${portfolio.principalOverlay.principalWeightPercent.toFixed(1)} %`
+                  : 'non valorisable (prix ou ligne manquante)'}
+                . Le cash disponible pour les suggestions reste celui déclaré dans les paramètres.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </MarketTabPanel>
+
+      <MarketTabPanel activeTab={activeTab} tabKey="portefeuille">
+        <MarketPortfolioPanel
+          portfolio={portfolio}
+          defaultCurrency={settings.currency}
+          organizationId={organizationId ?? ''}
+        />
       </MarketTabPanel>
 
       <MarketTabPanel activeTab={activeTab} tabKey="analyse-prix">
@@ -1477,6 +1542,24 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
       </MarketTabPanel>
 
       <MarketTabPanel activeTab={activeTab} tabKey="synthese">
+        {portfolio.positions.length > 0 && (
+          <Card className="mb-3 w-full border-slate-200 bg-white shadow-sm" padding="none">
+            <CardContent className="space-y-1 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Conseil basé sur portefeuille réel</p>
+              <p className="text-sm leading-relaxed text-slate-800">
+                Valeur estimée des positions ouvertes :{' '}
+                <span className="font-semibold tabular-nums">
+                  {formatCurrency(portfolio.totals.totalMarketValue, settings.currency)}
+                </span>
+                . Pondération de l’actif principal ({settings.referenceSymbol}) :{' '}
+                {portfolio.principalOverlay?.principalWeightPercent != null
+                  ? `${portfolio.principalOverlay.principalWeightPercent.toFixed(1)} %`
+                  : 'non valorisable (prix ou ligne manquante)'}
+                . Le cash disponible pour les suggestions reste celui déclaré dans les paramètres.
+              </p>
+            </CardContent>
+          </Card>
+        )}
         {snapshot && recommendation && decisionMessage && (
         <Card className="border border-slate-200 bg-white shadow-sm">
           <CardContent className="p-4">
@@ -1567,6 +1650,9 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
                   <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={requestManualAnalysis}>
                     Nouvelle analyse
                   </Button>
+                  <p className="w-full text-[11px] leading-snug text-slate-500">
+                    Aucun ordre bancaire ne sera passé — seul un ordre local Smartimmo est créé.
+                  </p>
                   {recommendation.cashLimited && <Badge size="sm" variant="warning">Plafonné au cash</Badge>}
                   {suppressedSuggestion && recommendation.thresholdKey && (
                     <Badge size="sm" variant="secondary">Palier déjà traité récemment</Badge>
@@ -1581,31 +1667,43 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
         <MarketStrategySimulationCard settings={settings} snapshot={snapshot} />
       </MarketTabPanel>
 
-      <MarketTabPanel activeTab={activeTab} tabKey="historique">
+      <MarketTabPanel activeTab={activeTab} tabKey="journal">
         <Card className="border-slate-200 bg-white shadow-sm">
         <CardContent className="space-y-6 py-4">
           <div className="rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Historique</p>
-            <p className="mb-2 text-sm font-medium text-slate-900">Mes décisions récentes</p>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Journal d’investissement</p>
+            <p className="mb-1 text-sm font-medium text-slate-900">Mes entrées récentes</p>
+            <p className="mb-2 text-xs leading-relaxed text-slate-500">
+              Journal local — recommandations, validations et ordres Smartimmo. La référence financière reste le portefeuille (ordres).
+            </p>
             <div className="space-y-1.5">
               {history.length === 0 && (
                 <p className="text-sm leading-relaxed text-slate-500">
-                  Aucune décision enregistrée.
+                  Aucune entrée pour l’instant.
                   <br />
-                  Les actions validées apparaîtront ici.
+                  Les validations depuis l’assistant apparaîtront ici avec le lien vers l’ordre créé.
                 </p>
               )}
-              {history.map((item) => (
+              {history.map((item) => {
+                const journalView = investmentActionLogToJournalEntry(item);
+                const badge = journalEntryBadgeLabels(journalView);
+                return (
                 <div key={item.id} className="rounded-lg border border-slate-200 px-2.5 py-2 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm font-medium leading-5 text-slate-900">{new Date(item.date).toLocaleDateString('fr-FR')}</span>
-                    <span className="text-sm leading-5 text-slate-700">{formatCurrency(item.validatedAmount, settings.currency)}</span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge size="sm" variant={badge.variant}>
+                        {badge.primary}
+                      </Badge>
+                      <span className="text-sm leading-5 text-slate-700">{formatCurrency(item.validatedAmount, settings.currency)}</span>
+                    </div>
                   </div>
                   {item.updatedAt && (
                     <p className="mt-0.5 text-[11px] text-slate-400">Modifié le {new Date(item.updatedAt).toLocaleString('fr-FR')}</p>
                   )}
                   <p className="text-xs leading-5 text-slate-500">
                     {item.type === 'DCA' ? 'DCA' : item.type === 'MANUAL' ? 'Montant manuel' : 'Renfort'} • {formatActionLogStatus(item.status)} • {item.symbolAtDecision}
+                    {item.portfolioOrderId ? ` • ordre ${item.portfolioOrderId.slice(0, 8)}…` : ''}
                   </p>
                   <p className="text-xs leading-5 text-slate-500">
                     ATH {item.athPriceAtDecision?.toFixed(2) ?? '-'} • Prix {item.currentPriceAtDecision?.toFixed(2) ?? '-'}
@@ -1624,19 +1722,60 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
                       >
                         Modifier
                       </Button>
+                      {item.portfolioOrderId ? (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-[11px] font-medium text-slate-600"
+                            onClick={() => setActiveTab('portefeuille')}
+                          >
+                            Voir ordre
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-[11px] font-medium text-rose-700"
+                            onClick={() => setHistoryDeleteId(item.id)}
+                          >
+                            Annuler l’ordre
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-[11px] font-medium text-slate-600"
+                          onClick={() => setHistoryDeleteId(item.id)}
+                        >
+                          Retirer du journal
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  {item.status === 'ignored' && (
+                    <div className="mt-2 flex flex-wrap justify-end gap-1">
                       <Button
                         type="button"
                         size="sm"
                         variant="ghost"
                         className="h-7 px-2 text-[11px] font-medium text-slate-600"
-                        onClick={() => setHistoryDeleteId(item.id)}
+                        onClick={() =>
+                          restoreIgnoredDecision(item.id).then((r) => {
+                            if (r === 'ok') toast.success('Suggestion réactivée');
+                            else toast.error('Action impossible');
+                          })
+                        }
                       >
-                        Supprimer
+                        Restaurer
                       </Button>
                     </div>
                   )}
                 </div>
-              ))}
+              );})}
             </div>
           </div>
 
@@ -1716,15 +1855,17 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
       >
         <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-20px)] flex-col overflow-hidden p-3 sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Valider une décision d'investissement</DialogTitle>
-            <DialogDescription>
-              Cette action ne passe aucun ordre bancaire. Elle enregistre uniquement une décision dans Smartimmo.
+            <DialogTitle>Créer un ordre local dans le portefeuille</DialogTitle>
+            <DialogDescription className="space-y-2">
+              <span className="block">
+                Aucun ordre bancaire n’est exécuté. Smartimmo enregistre uniquement un ordre d’achat local dans votre portefeuille (positions, KPI, instantanés).
+              </span>
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1 pb-2">
             {validationMode === 'voluntary_extra' && (
               <div className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-2 text-xs leading-relaxed text-sky-950">
-                Cette action est un investissement supplémentaire. Elle ne modifie pas votre DCA mensuel.
+                Cette action est un investissement supplémentaire. Elle ne modifie pas votre DCA mensuel paramétré.
               </div>
             )}
             {recommendation && decisionMessage && (
@@ -1735,7 +1876,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
             </p>
             <div className="space-y-1">
               <label htmlFor="validate-amount" className="text-xs font-medium text-slate-700">
-                Montant à enregistrer pour cette décision
+                Montant de l’ordre (€)
               </label>
               <Input
                 id="validate-amount"
@@ -1746,8 +1887,44 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
                 onChange={(e) => setValidateAmount(e.target.value)}
               />
               <p className="text-xs text-slate-500">
-                Ce montant concerne uniquement cette décision. Votre DCA mensuel reste inchangé.
+                Le cash disponible de la stratégie sera réduit de ce montant (déclaratif). L’ordre alimente le portefeuille suivi.
               </p>
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="validate-account" className="text-xs font-medium text-slate-700">
+                Compte portefeuille
+              </label>
+              <select
+                id="validate-account"
+                className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
+                value={validateAccountId}
+                onChange={(e) => setValidateAccountId(e.target.value)}
+              >
+                <option value="">— Choisir —</option>
+                {portfolio.accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.kind})
+                  </option>
+                ))}
+              </select>
+              {portfolio.accounts.length === 0 && (
+                <p className="text-xs text-rose-700">
+                  Aucun compte — ouvrez l’onglet « Portefeuille réel » pour en créer un avant de valider.
+                </p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="validate-price" className="text-xs font-medium text-slate-700">
+                Prix unitaire (€, dernier cours connu ou saisie manuelle)
+              </label>
+              <Input
+                id="validate-price"
+                type="number"
+                inputMode="decimal"
+                step="0.0001"
+                value={validateUnitPrice}
+                onChange={(e) => setValidateUnitPrice(e.target.value)}
+              />
             </div>
             <p className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-700">
               DCA mensuel paramétré : {formatCurrency(settings.monthlyDcaAmount, settings.currency)}
@@ -1766,6 +1943,9 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
                 placeholder="Raison de la décision"
               />
             </div>
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              Aucun ordre bancaire ne sera passé chez un courtier.
+            </p>
           </div>
           <DialogFooter className="sticky bottom-0 z-10 border-t border-slate-200 bg-white pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
             <Button className="w-full sm:w-auto" variant="outline" onClick={() => setValidateOpen(false)}>Annuler</Button>
@@ -1844,8 +2024,16 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
       <Dialog open={historyDeleteId !== null} onOpenChange={(open) => { if (!open) setHistoryDeleteId(null); }}>
         <DialogContent className={compactDialogClassName}>
           <DialogHeader className={compactDialogHeaderClassName}>
-            <DialogTitle>Supprimer cette décision ?</DialogTitle>
-            <DialogDescription>Le cash restant sera recalculé.</DialogDescription>
+            <DialogTitle>
+              {history.find((h) => h.id === historyDeleteId)?.portfolioOrderId
+                ? 'Annuler l’ordre local ?'
+                : 'Retirer cette entrée du journal ?'}
+            </DialogTitle>
+            <DialogDescription>
+              {history.find((h) => h.id === historyDeleteId)?.portfolioOrderId
+                ? 'L’ordre sera supprimé du portefeuille Smartimmo et le cash stratégique sera rétabli.'
+                : 'Le cash disponible de la stratégie sera rétabli.'}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter className={compactDialogFooterClassName}>
             <Button
@@ -1854,7 +2042,7 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
               onClick={() => setHistoryDeleteId(null)}
               disabled={historyDeleteSaving}
             >
-              Annuler
+              Fermer
             </Button>
             <Button
               className="order-1 w-full sm:order-none sm:w-auto"
@@ -1862,7 +2050,11 @@ export function MarketInvestmentCard({ openSettingsSignal = 0, market }: MarketI
               onClick={() => confirmHistoryDelete().catch(() => undefined)}
               disabled={historyDeleteSaving}
             >
-              {historyDeleteSaving ? 'Suppression...' : 'Supprimer'}
+              {historyDeleteSaving
+                ? 'Traitement...'
+                : history.find((h) => h.id === historyDeleteId)?.portfolioOrderId
+                  ? 'Annuler l’ordre'
+                  : 'Retirer'}
             </Button>
           </DialogFooter>
         </DialogContent>

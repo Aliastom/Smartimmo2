@@ -10,6 +10,7 @@ import type {
   MarketScoreLabel,
 } from '@/features/market/types';
 import type { PatrimoineObjective } from '@/features/patrimoine/store/patrimoineSettings';
+import type { EmergencyFundStatus } from '@/features/patrimoine/services/emergencyFundService';
 
 export type PatrimoinePrimaryAction = 'DCA' | 'REINFORCE' | 'WAIT';
 
@@ -34,6 +35,8 @@ export interface PatrimoineDecisionInput {
   insufficientMarketData: boolean;
   isNearAthMarket: boolean;
   objective: PatrimoineObjective;
+  /** Couverture épargne sécurité — si critique, pas de renfort patrimoine avant constitution des réserves */
+  emergencyFundStatus?: EmergencyFundStatus | 'INDISPONIBLE';
 }
 
 export interface PatrimoineRecommendationResult {
@@ -62,7 +65,15 @@ function reinforceFraction(objective: PatrimoineObjective): number {
   return 0.3;
 }
 
+function roundEuro(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 export function computePatrimoineRecommendation(input: PatrimoineDecisionInput): PatrimoineRecommendationResult {
+  const ef = input.emergencyFundStatus ?? 'CONFORTABLE';
+  const critiqueReserve = ef === 'CRITIQUE';
+  const renforcerReserve = ef === 'A_RENFORCER';
+
   const dd = input.drawdownPercent;
   const investable = Math.max(0, input.investableCash);
   const dcaFromMarket = Math.max(0, input.marketMonthlyDcaPortion);
@@ -71,6 +82,7 @@ export function computePatrimoineRecommendation(input: PatrimoineDecisionInput):
   const frac = reinforceFraction(input.objective);
 
   const reinforceRule =
+    !critiqueReserve &&
     Number.isFinite(dd as number) &&
     (dd as number) >= -15 &&
     (dd as number) <= 0 &&
@@ -78,6 +90,7 @@ export function computePatrimoineRecommendation(input: PatrimoineDecisionInput):
     input.objective !== 'securite';
 
   const reinforceRuleSec =
+    !critiqueReserve &&
     input.objective === 'securite' &&
     Number.isFinite(dd as number) &&
     (dd as number) >= -15 &&
@@ -85,7 +98,8 @@ export function computePatrimoineRecommendation(input: PatrimoineDecisionInput):
     investable > thr;
 
   if (reinforceRule || reinforceRuleSec) {
-    const reinforceAmount = Math.round(investable * frac * 100) / 100;
+    let reinforceAmount = Math.round(investable * frac * 100) / 100;
+    if (renforcerReserve) reinforceAmount = roundEuro(reinforceAmount * 0.5);
     return {
       primaryAction: 'REINFORCE',
       dcaAmount: dcaFromMarket,
@@ -125,11 +139,18 @@ export function computePatrimoineRecommendation(input: PatrimoineDecisionInput):
   const reinforceMarketAmount =
     input.objective === 'securite' ? reinforceFromMarket * 0.65 : reinforceFromMarket;
 
-  if (opportunityMarket && reinforceMarketAmount > 0 && input.objective !== 'securite') {
+  if (
+    !critiqueReserve &&
+    opportunityMarket &&
+    reinforceMarketAmount > 0 &&
+    input.objective !== 'securite'
+  ) {
+    let reinforceAmount = Math.round(reinforceMarketAmount * 100) / 100;
+    if (renforcerReserve) reinforceAmount = roundEuro(reinforceAmount * 0.5);
     return {
       primaryAction: 'REINFORCE',
       dcaAmount: dcaFromMarket,
-      reinforceAmount: Math.round(reinforceMarketAmount * 100) / 100,
+      reinforceAmount,
       message: 'Le marché offre une fenêtre — renfort aligné sur la suggestion marché.',
       level: 'OPPORTUNITY',
     };
@@ -194,6 +215,7 @@ export function buildPatrimoineDecisionInput(params: {
   marketReinforcePortion: number;
   marketSuggestedTotal: number;
   objective: PatrimoineObjective;
+  emergencyFundStatus?: EmergencyFundStatus | 'INDISPONIBLE';
 }): PatrimoineDecisionInput {
   const rec = params.marketRecommendation;
   return {
@@ -215,6 +237,7 @@ export function buildPatrimoineDecisionInput(params: {
     insufficientMarketData: Boolean(rec?.insufficientMarketData),
     isNearAthMarket: Boolean(rec && rec.decisionType === 'DCA_ONLY' && !rec.insufficientMarketData),
     objective: params.objective,
+    emergencyFundStatus: params.emergencyFundStatus,
   };
 }
 
@@ -238,10 +261,6 @@ export interface PriorityActionsInput {
   fiscalEffortMensuel: number | null;
   cashExcess: number;
   cashSecurite: number;
-}
-
-function roundEuro(n: number): number {
-  return Math.round(n * 100) / 100;
 }
 
 export function computePriorityActions(input: PriorityActionsInput): PriorityActionItem[] {

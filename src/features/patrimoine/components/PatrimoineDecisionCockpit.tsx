@@ -4,6 +4,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { PatrimoineApplyDcaButton } from '@/features/patrimoine/components/PatrimoineApplyDcaButton';
+import { PatrimoineEmergencyFundCard } from '@/features/patrimoine/components/PatrimoineEmergencyFundCard';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { formatCurrencyEUR } from '@/utils/format';
 import { cn } from '@/utils/cn';
@@ -168,6 +169,8 @@ export function PatrimoineV4OverviewMain({
           tone="emerald"
         />
       </div>
+
+      <PatrimoineEmergencyFundCard fund={snapshot.emergencyFund} />
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:items-stretch lg:gap-3">
         <section className="flex min-h-0 max-w-full flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white p-2.5 shadow-sm sm:p-3">

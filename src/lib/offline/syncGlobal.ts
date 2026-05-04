@@ -504,6 +504,65 @@ const ENTITY_CONFIGS: EntitySyncConfig[] = [
       };
     },
   },
+  {
+    entity: 'portfolioAccount',
+    tableName: 'PortfolioAccount',
+    apiRoute: '/api/market/portfolio/accounts',
+    apiRouteById: '/api/market/portfolio/accounts/:id',
+    transformToLocal: (item: any) => ({
+      ...item,
+      createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(),
+      updatedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+      _syncedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+    }),
+    transformToRemote: (item: any) => {
+      const { _localUpdatedAt, _syncedAt, organizationId, ...rest } = item;
+      return {
+        ...rest,
+        updatedAt: rest.updatedAt ? new Date(rest.updatedAt).toISOString() : new Date().toISOString(),
+      };
+    },
+  },
+  {
+    entity: 'portfolioOrder',
+    tableName: 'PortfolioOrder',
+    apiRoute: '/api/market/portfolio/orders',
+    apiRouteById: '/api/market/portfolio/orders/:id',
+    transformToLocal: (item: any) => ({
+      ...item,
+      date: item.date ? new Date(item.date).toISOString() : new Date().toISOString(),
+      createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(),
+      updatedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+      _syncedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+    }),
+    transformToRemote: (item: any) => {
+      const { _localUpdatedAt, _syncedAt, organizationId, ...rest } = item;
+      return {
+        ...rest,
+        date: rest.date ? new Date(rest.date).toISOString() : new Date().toISOString(),
+        updatedAt: rest.updatedAt ? new Date(rest.updatedAt).toISOString() : new Date().toISOString(),
+      };
+    },
+  },
+  {
+    entity: 'portfolioSnapshot',
+    tableName: 'PortfolioSnapshot',
+    apiRoute: '/api/market/portfolio/snapshots',
+    transformToLocal: (item: any) => ({
+      ...item,
+      capturedAt: item.capturedAt ? new Date(item.capturedAt).toISOString() : new Date().toISOString(),
+      createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(),
+      _syncedAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(),
+    }),
+    transformToRemote: (item: any) => {
+      const { _localUpdatedAt, _syncedAt, organizationId, ...rest } = item;
+      return {
+        ...rest,
+        capturedAt: rest.capturedAt ? new Date(rest.capturedAt).toISOString() : new Date().toISOString(),
+        createdAt: rest.createdAt ? new Date(rest.createdAt).toISOString() : new Date().toISOString(),
+      };
+    },
+  },
   // Payment table removed - replaced by Transaction table
   // {
   //   entity: 'payment',
@@ -1077,6 +1136,27 @@ export class GlobalSyncService {
       const row = await db.InvestmentActionLog.get(entityId);
       if (!row || row.organizationId !== organizationId) return;
       await db.InvestmentActionLog.put({ ...row, _syncedAt: syncedAt });
+      return;
+    }
+
+    if (config.entity === 'portfolioAccount') {
+      const row = await db.PortfolioAccount.get([organizationId, entityId]);
+      if (!row || row.organizationId !== organizationId) return;
+      await db.PortfolioAccount.put({ ...row, _syncedAt: syncedAt });
+      return;
+    }
+
+    if (config.entity === 'portfolioOrder') {
+      const row = await db.PortfolioOrder.get(entityId);
+      if (!row || row.organizationId !== organizationId) return;
+      await db.PortfolioOrder.put({ ...row, _syncedAt: syncedAt });
+      return;
+    }
+
+    if (config.entity === 'portfolioSnapshot') {
+      const row = await db.PortfolioSnapshot.get([organizationId, entityId]);
+      if (!row || row.organizationId !== organizationId) return;
+      await db.PortfolioSnapshot.put({ ...row, _syncedAt: syncedAt });
     }
   }
 
@@ -1980,6 +2060,9 @@ export class GlobalSyncService {
       'loan',
       'marketInvestmentSettings',
       'marketInvestmentActionLog',
+      'portfolioAccount',
+      'portfolioOrder',
+      'portfolioSnapshot',
       'transaction',
       'echeanceRecurrente',
       'document',
@@ -2010,6 +2093,9 @@ export class GlobalSyncService {
       'loan',
       'marketInvestmentSettings',
       'marketInvestmentActionLog',
+      'portfolioAccount',
+      'portfolioOrder',
+      'portfolioSnapshot',
       'transaction',
       'echeanceRecurrente',
       'document',
@@ -2495,7 +2581,13 @@ export class GlobalSyncService {
         }
 
         if (success) {
-          if (config.entity === 'marketInvestmentSettings' || config.entity === 'marketInvestmentActionLog') {
+          if (
+            config.entity === 'marketInvestmentSettings' ||
+            config.entity === 'marketInvestmentActionLog' ||
+            config.entity === 'portfolioAccount' ||
+            config.entity === 'portfolioOrder' ||
+            config.entity === 'portfolioSnapshot'
+          ) {
             await this.markMarketEntitySyncedLocally(config, organizationId, op.entityId);
           }
           // Suppression immédiate : push silencieux, aucune trace "synchronisé" sur la page Sync
@@ -2816,7 +2908,11 @@ export class GlobalSyncService {
         : payload;
       // Certaines entités (ex. marché) utilisent un id client stable envoyé dès la création.
       const keepClientIdOnCreate =
-        config.entity === 'marketInvestmentSettings' || config.entity === 'marketInvestmentActionLog';
+        config.entity === 'marketInvestmentSettings' ||
+        config.entity === 'marketInvestmentActionLog' ||
+        config.entity === 'portfolioAccount' ||
+        config.entity === 'portfolioOrder' ||
+        config.entity === 'portfolioSnapshot';
       const { id, ...dataWithoutId } = transformed;
       apiRoute = config.apiRoute;
       requestBody = keepClientIdOnCreate ? transformed : dataWithoutId;

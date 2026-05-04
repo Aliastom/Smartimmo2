@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { AppVersionPayload } from '@/lib/pwa/appVersionTypes';
 import { getBootAppVersion, hasCommitMismatch } from '@/lib/pwa/bootAppVersion';
+import { shouldPollDeployVersion } from '@/lib/pwa/deployVersionPoll';
+import { fetchDeployVersionJson, tryStartVersionJsonPollLoop } from '@/lib/pwa/versionJsonPoll';
 import { purgeSwCaches } from '@/lib/pwa/purgeSwCaches';
 import { pwaDevLog, pwaDebugLog } from '@/lib/pwa/pwaDevLog';
 
@@ -30,21 +32,6 @@ function hardReload(): void {
   window.location.replace(url.toString());
 }
 
-async function fetchRemoteVersion(): Promise<AppVersionPayload | null> {
-  try {
-    const r = await fetch('/version.json', {
-      cache: 'no-store',
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-    });
-    if (!r.ok) return null;
-    const data = (await r.json()) as AppVersionPayload;
-    return data;
-  } catch {
-    return null;
-  }
-}
-
 export function useAppUpdate(): AppUpdateState {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const [versionMismatch, setVersionMismatch] = useState(false);
@@ -52,7 +39,7 @@ export function useAppUpdate(): AppUpdateState {
   const [dismissedMismatchCommit, setDismissedMismatchCommit] = useState<string | null>(null);
   const [swDismissed, setSwDismissed] = useState(false);
 
-  const bootVersion = getBootAppVersion();
+  const bootVersion = useMemo(() => getBootAppVersion(), []);
   const reloadScheduled = useRef(false);
 
   const updateReason: AppUpdateReason | null = waitingWorker
@@ -68,53 +55,42 @@ export function useAppUpdate(): AppUpdateState {
     (waitingWorker !== null && !swDismissed) ||
     (versionMismatch && !!remoteVersion && !dismissedRemoteEqualsCurrent);
 
-  const checkVersionJson = useCallback(async () => {
-    if (typeof window === 'undefined' || process.env.NODE_ENV !== 'production') {
-      return;
-    }
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      return;
-    }
+  /**
+   * Polling /version.json : module `versionJsonPoll` (singleton + throttle 60s + seul fetch autorisé).
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
 
-    const remote = await fetchRemoteVersion();
-    setRemoteVersion(remote);
-    if (!remote) return;
+    const boot = getBootAppVersion();
 
-    const mismatch = hasCommitMismatch(remote, bootVersion);
-    setVersionMismatch(mismatch);
-    if (mismatch) {
-      pwaDebugLog('version.json: commit distant ≠ bundle', {
-        remote: remote.commit,
-        boot: bootVersion.commit,
-      });
-    }
-  }, [bootVersion]);
+    const tick = async () => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return;
+      }
+      const remote = await fetchDeployVersionJson();
+      if (!remote) return;
+
+      setRemoteVersion(remote);
+      const mismatch = hasCommitMismatch(remote, boot);
+      setVersionMismatch(mismatch);
+      if (mismatch) {
+        pwaDebugLog('version.json: commit distant ≠ bundle', {
+          remote: remote.commit,
+          boot: boot.commit,
+        });
+      }
+    };
+
+    const loop = tryStartVersionJsonPollLoop({
+      onTick: tick,
+      intervalMs: VERSION_POLL_MS,
+    });
+    if (!loop) return;
+    return () => loop.teardown();
+  }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || process.env.NODE_ENV !== 'production') {
-      return;
-    }
-
-    checkVersionJson();
-    const vInterval = window.setInterval(checkVersionJson, VERSION_POLL_MS);
-
-    const onVis = () => {
-      if (document.visibilityState === 'visible') checkVersionJson();
-    };
-    const onOnline = () => checkVersionJson();
-
-    document.addEventListener('visibilitychange', onVis);
-    window.addEventListener('online', onOnline);
-
-    return () => {
-      window.clearInterval(vInterval);
-      document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('online', onOnline);
-    };
-  }, [checkVersionJson]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || process.env.NODE_ENV !== 'production') {
+    if (typeof window === 'undefined' || !shouldPollDeployVersion(window)) {
       return;
     }
     if (!('serviceWorker' in navigator)) return;
@@ -175,7 +151,7 @@ export function useAppUpdate(): AppUpdateState {
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || process.env.NODE_ENV !== 'production') return;
+    if (typeof window === 'undefined') return;
 
     const isChunkLoadError = (error: unknown): boolean => {
       const text = String(error || '');

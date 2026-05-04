@@ -19,6 +19,8 @@ import {
   resolveSuggestionSuppressDays,
 } from '@/features/market/services/marketGuardrails';
 import { normalizeMarketStorageSymbol } from '@/features/market/marketSymbolAliases';
+import { portfolioStorage } from '@/features/market/portfolio/portfolioStorage';
+import { dispatchPortfolioCashMutated } from '@/features/market/portfolio/portfolioSnapshotTriggers';
 
 export const DEFAULT_MARKET_INVESTMENT_SETTINGS_ID = 'default';
 const SETTINGS_ID = DEFAULT_MARKET_INVESTMENT_SETTINGS_ID;
@@ -223,6 +225,10 @@ export class MarketInvestmentStorage {
   async saveSettings(settings: InvestmentSettings): Promise<void> {
     const db = await getLocalDB();
     const existing = await db.InvestmentSettings.get([settings.organizationId, settings.id]);
+    const previousAvailableCash =
+      existing && typeof (existing as InvestmentSettings).availableCash === 'number'
+        ? (existing as InvestmentSettings).availableCash
+        : null;
     const baseStrategy = settings.investmentStrategy ?? defaultInvestmentStrategyConfig(settings.monthlyDcaAmount);
     const draft: InvestmentSettings = {
       ...settings,
@@ -257,6 +263,12 @@ export class MarketInvestmentStorage {
       payload: normalized as unknown as Record<string, unknown>,
       organizationId: normalized.organizationId,
     });
+    if (
+      previousAvailableCash !== null &&
+      Math.abs(normalized.availableCash - previousAvailableCash) > 1e-6
+    ) {
+      dispatchPortfolioCashMutated(normalized.organizationId);
+    }
   }
 
   /** Tous les profils marché normalisés (tri updatedAt desc) — sélection cockpit Patrimoine. */
@@ -437,7 +449,7 @@ export class MarketInvestmentStorage {
     return 'ok';
   }
 
-  /** Supprime une décision validée et restitue le montant au cash disponible. */
+  /** Supprime une décision validée et restitue le montant au cash disponible. Si un ordre portefeuille était lié, il est supprimé localement. */
   async deleteValidatedDecision(organizationId: string, logId: string): Promise<'ok' | 'not_found' | 'invalid_status' | 'failed'> {
     const log = await this.getActionLogById(organizationId, logId);
     if (!log) return 'not_found';
@@ -448,6 +460,9 @@ export class MarketInvestmentStorage {
     const restored = Math.round((previousCash + Math.max(0, log.validatedAmount)) * 100) / 100;
 
     try {
+      if (log.portfolioOrderId) {
+        await portfolioStorage.deleteOrder(organizationId, log.portfolioOrderId);
+      }
       await this.saveSettings({
         ...settings,
         availableCash: restored,
@@ -548,6 +563,17 @@ export class MarketInvestmentStorage {
     marketLevelKey?: string | null;
     drawdownPercentAtAction?: number; // compat legacy
     note?: string;
+    portfolioOrderId?: string | null;
+    portfolioAccountId?: string | null;
+    validatedQuantity?: number | null;
+    validatedUnitPrice?: number | null;
+    recommendationKind?: InvestmentActionLog['recommendationKind'];
+    journalSource?: InvestmentActionLog['journalSource'];
+    journalEntryType?: InvestmentActionLog['journalEntryType'];
+    marketContextSnapshot?: InvestmentActionLog['marketContextSnapshot'];
+    assetId?: string | null;
+    validatedAt?: string | null;
+    ignoredAt?: string | null;
   }): InvestmentActionLog {
     return {
       id: crypto.randomUUID(),
@@ -570,7 +596,39 @@ export class MarketInvestmentStorage {
       marketLevelKey: input.marketLevelKey ?? null,
       drawdownPercentAtAction: input.drawdownPercentAtAction ?? null,
       note: input.note ?? null,
+      ...(input.portfolioOrderId != null ? { portfolioOrderId: input.portfolioOrderId } : {}),
+      ...(input.portfolioAccountId != null ? { portfolioAccountId: input.portfolioAccountId } : {}),
+      ...(input.validatedQuantity != null ? { validatedQuantity: input.validatedQuantity } : {}),
+      ...(input.validatedUnitPrice != null ? { validatedUnitPrice: input.validatedUnitPrice } : {}),
+      ...(input.recommendationKind != null ? { recommendationKind: input.recommendationKind } : {}),
+      ...(input.journalSource != null ? { journalSource: input.journalSource } : {}),
+      ...(input.journalEntryType != null ? { journalEntryType: input.journalEntryType } : {}),
+      ...(input.marketContextSnapshot != null ? { marketContextSnapshot: input.marketContextSnapshot } : {}),
+      ...(input.assetId != null ? { assetId: input.assetId } : {}),
+      ...(input.validatedAt != null ? { validatedAt: input.validatedAt } : {}),
+      ...(input.ignoredAt != null ? { ignoredAt: input.ignoredAt } : {}),
     };
+  }
+
+  /** Supprime une ligne « ignorée » (réactiver la suggestion de palier). */
+  async deleteIgnoredDecision(organizationId: string, logId: string): Promise<'ok' | 'not_found' | 'invalid_status' | 'failed'> {
+    const log = await this.getActionLogById(organizationId, logId);
+    if (!log) return 'not_found';
+    if (log.status !== 'ignored') return 'invalid_status';
+    try {
+      const db = await getLocalDB();
+      await db.InvestmentActionLog.delete(logId);
+      await this.enqueueMarketPendingOperation({
+        entity: 'marketInvestmentActionLog',
+        entityId: logId,
+        operation: 'delete',
+        payload: {},
+        organizationId,
+      });
+    } catch {
+      return 'failed';
+    }
+    return 'ok';
   }
 }
 

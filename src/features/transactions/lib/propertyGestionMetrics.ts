@@ -1,4 +1,11 @@
 import type { Transaction } from '@/features/transactions/hooks/useTransactionsData';
+import {
+  computeTransactionKpiTotals,
+  filterTransactionsForScope,
+  resolveTransactionKind,
+  type NatureFlowMap,
+  type TransactionLike,
+} from '@/features/transactions/lib/transactionAggregation';
 
 /** Clé nature pour lookup dans la map (compatible API `key` et enrichissement local `id`). */
 export function transactionNatureKey(t: Transaction): string {
@@ -37,26 +44,17 @@ export type PropertyGestionMetrics = {
   soldeNet: number;
 };
 
-/** Mois comptable dans [periodStart, periodEnd] (même règle que les KPI). */
+/** Mois comptable dans [periodStart, periodEnd] (même règle que les KPI / agrégation centrale). */
 export function filterTransactionsByAccountingPeriod(
   sortedTransactions: Transaction[],
   periodStart: string,
   periodEnd: string
 ): Transaction[] {
-  return sortedTransactions.filter((t) => {
-    const accountingMonth =
-      (t as { accounting_month?: string; accountingMonth?: string }).accounting_month ??
-      (t as { accountingMonth?: string }).accountingMonth;
-    if (accountingMonth) {
-      return accountingMonth >= periodStart && accountingMonth <= periodEnd;
-    }
-    if (t.date) {
-      const d = new Date(t.date);
-      const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      return month >= periodStart && month <= periodEnd;
-    }
-    return false;
-  });
+  return filterTransactionsForScope(
+    sortedTransactions as unknown as TransactionLike[],
+    { periodStart, periodEnd },
+    new Map()
+  ) as unknown as Transaction[];
 }
 
 /**
@@ -68,42 +66,29 @@ export function computePropertyGestionMetrics(
   periodStart: string,
   periodEnd: string
 ): PropertyGestionMetrics {
-  const rows = filterTransactionsByAccountingPeriod(sortedTransactions, periodStart, periodEnd);
+  const natureMapAgg = naturesMap as unknown as NatureFlowMap;
+  const rows = filterTransactionsForScope(
+    sortedTransactions as unknown as TransactionLike[],
+    { periodStart, periodEnd },
+    natureMapAgg
+  ) as unknown as Transaction[];
 
   let recettesCount = 0;
   let depensesCount = 0;
-  let totalRecettes = 0;
-  let depensesTotalesNeg = 0;
-
   for (const t of rows) {
-    const amount = t.amount || 0;
-    const natureKey = transactionNatureKey(t);
-    const natureData = naturesMap.get(natureKey);
-    let flow = natureData?.flow?.toUpperCase() || '';
-    if (!flow) {
-      const nt = (t.nature as { type?: string } | undefined)?.type?.toUpperCase() || '';
-      if (nt === 'RECETTE') flow = 'INCOME';
-      else if (nt === 'DEPENSE') flow = 'EXPENSE';
-    }
-    if (!flow) {
-      flow = amount > 0 ? 'INCOME' : 'EXPENSE';
-    }
-    const isIncome = flow === 'RECETTE' || flow === 'INCOME';
-    if (isIncome) {
-      recettesCount += 1;
-      totalRecettes += Math.abs(amount);
-    } else {
-      depensesCount += 1;
-      depensesTotalesNeg += -Math.abs(amount);
-    }
+    const kind = resolveTransactionKind(t as unknown as TransactionLike, natureMapAgg);
+    if (kind === 'income') recettesCount += 1;
+    else depensesCount += 1;
   }
+
+  const totals = computeTransactionKpiTotals(rows as unknown as TransactionLike[], natureMapAgg);
 
   return {
     transactionCount: rows.length,
     recettesCount,
     depensesCount,
-    totalRecettes,
-    totalDepensesAbs: Math.abs(depensesTotalesNeg),
-    soldeNet: totalRecettes + depensesTotalesNeg,
+    totalRecettes: totals.recettesTotales,
+    totalDepensesAbs: totals.depensesTotales,
+    soldeNet: totals.soldeNet,
   };
 }

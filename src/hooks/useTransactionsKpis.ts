@@ -11,6 +11,16 @@ import { getLocalDB } from '@/lib/offline/db';
 import { useAppShellContextOptional } from '@/contexts/AppShellContextResolver';
 import { useCurrentOrganization } from '@/hooks/offline/useCurrentOrganization';
 import type { LocalTransaction, CachedNature } from '@/lib/offline/db';
+import {
+  computeTransactionKpiTotals,
+  debugTransactionAggregation,
+  filterTransactionsForScope,
+  getEffectiveAccountingMonth,
+  isTransactionAggregationDebugEnabled,
+  resolveTransactionKind,
+  type NatureFlowMap,
+  type TransactionLike,
+} from '@/features/transactions/lib/transactionAggregation';
 
 export interface TransactionKpis {
   recettesTotales: number;
@@ -44,17 +54,6 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
   const organizationId = mode === 'app-shell' && appShellContext?.status === 'ready'
     ? appShellContext.organizationId
     : normalOrg?.organizationId;
-  
-  // Log de diagnostic en mode app-shell
-  if (mode === 'app-shell') {
-    console.log('[useTransactionsKpis] 🔍 État contexte:', {
-      hasContext: !!appShellContext,
-      contextStatus: appShellContext?.status,
-      contextOrgId: appShellContext?.organizationId,
-      normalOrgId: normalOrg?.organizationId,
-      finalOrgId: organizationId
-    });
-  }
   
   const [kpis, setKpis] = useState<TransactionKpis>({
     recettesTotales: 0,
@@ -92,8 +91,6 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
 
   // Mode app-shell : calculer localement
   useEffect(() => {
-    console.log('[useTransactionsKpis] 🎯 useEffect déclenché:', { mode, organizationId, hasContext: !!appShellContext });
-    
     if (mode !== 'app-shell') {
       return;
     }
@@ -102,7 +99,6 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
     // MAIS si normalOrg a déjà un organizationId, on peut l'utiliser comme fallback
     if (appShellContext && appShellContext.status === 'resolving' && !normalOrg?.organizationId) {
       setIsLoading(true);
-      console.log('[useTransactionsKpis] ⏳ Contexte en cours de résolution, attente...');
       return;
     }
     
@@ -142,13 +138,15 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
         setIsLoading(true);
         setError(null);
 
-        console.log('[useTransactionsKpis] 🔄 Début calcul KPIs app-shell:', {
-          orgId,
-          propertyId,
-          periodStart,
-          periodEnd,
-          hasPropTransactions: !!propTransactions?.length
-        });
+        if (isTransactionAggregationDebugEnabled()) {
+          console.log('[useTransactionsKpis] 🔄 Début calcul KPIs app-shell:', {
+            orgId,
+            propertyId,
+            periodStart,
+            periodEnd,
+            hasPropTransactions: !!propTransactions?.length,
+          });
+        }
 
         const db = await getLocalDB();
         
@@ -156,90 +154,54 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
         let transactions: LocalTransaction[] = [];
         
         if (propTransactions && propTransactions.length > 0) {
-          // Utiliser les transactions passées en props
           transactions = propTransactions;
-          console.log('[useTransactionsKpis] 📦 Utilisation transactions props:', transactions.length);
         } else {
-          // Charger depuis IndexedDB
           const transRepo = await import('@/lib/offline/repositories/TransactionRepositoryOffline').then(m => m.getTransactionRepositoryOffline());
           transactions = await transRepo.getAll(orgId, {
             ...(propertyId && { propertyId }),
-            ...(periodStart && { dateFrom: `${periodStart}-01` }),
-            ...(periodEnd && { dateTo: `${periodEnd}-31` }),
           });
-          console.log('[useTransactionsKpis] 📦 Transactions chargées depuis IndexedDB:', transactions.length);
         }
 
-        // Charger les natures depuis IndexedDB
         const naturesData = await db.NatureEntity.toArray();
         const natureMap = new Map<string, CachedNature>();
         naturesData.forEach((nature: CachedNature) => {
           natureMap.set(nature.key, nature);
         });
+        const natureMapAgg = natureMap as unknown as NatureFlowMap;
 
-        // Filtrer par période comptable si nécessaire
-        let filteredTransactions = transactions;
-        if (periodStart && periodEnd) {
-          filteredTransactions = transactions.filter(t => {
-            // Utiliser accounting_month (nom dans IndexedDB) ou accountingMonth (compatibilité)
-            const accountingMonth = (t as any).accounting_month || (t as any).accountingMonth;
-            if (!accountingMonth) {
-              // Si pas de mois comptable, calculer depuis la date
-              if (t.date) {
-                const d = new Date(t.date);
-                const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                return month >= periodStart && month <= periodEnd;
-              }
-              return false;
-            }
-            return accountingMonth >= periodStart && accountingMonth <= periodEnd;
-          });
-        }
+        const rowsForKpi: TransactionLike[] = transactions.map((t) => ({
+          id: t.id,
+          amount: t.amount,
+          nature: t.nature,
+          accounting_month: (t as any).accounting_month,
+          accountingMonth: (t as any).accountingMonth,
+          date: t.date,
+          propertyId: t.propertyId,
+          rapprochementStatus: t.rapprochementStatus,
+        }));
 
-        // Calculer les KPIs
-        let recettesTotales = 0;
-        let depensesTotales = 0;
-        let nonRapprochees = 0;
+        const scope = {
+          ...(periodStart && periodEnd ? { periodStart, periodEnd } : {}),
+          ...(propertyId && { propertyId }),
+        };
 
-        for (const transaction of filteredTransactions) {
-          const amount = transaction.amount || 0;
-          const natureKey = transaction.nature || '';
-          const natureData = natureKey ? natureMap.get(natureKey) : null;
+        const filteredForKpi = filterTransactionsForScope(rowsForKpi, scope, natureMapAgg);
+        debugTransactionAggregation('useTransactionsKpis(app-shell)', filteredForKpi, natureMapAgg);
 
-          // Déterminer si c'est une recette ou une dépense selon le flow de la nature
-          let flow = natureData?.flow?.toUpperCase();
-          
-          // Fallback si la nature n'est pas trouvée ou n'a pas de flow
-          if (!flow) {
-            flow = amount > 0 ? 'INCOME' : 'EXPENSE';
-          }
+        const { recettesTotales, depensesTotales, soldeNet, nonRapprochees } = computeTransactionKpiTotals(
+          filteredForKpi,
+          natureMapAgg
+        );
 
-          if (flow === 'INCOME') {
-            recettesTotales += Math.abs(amount);
-          } else if (flow === 'EXPENSE') {
-            depensesTotales += -Math.abs(amount); // Négatif pour les dépenses
-          }
-
-          // Compter les transactions non rapprochées
-          if (transaction.rapprochementStatus === 'non_rapprochee') {
-            nonRapprochees++;
-          }
-        }
-
-        const soldeNet = recettesTotales + depensesTotales; // depensesTotales est déjà négatif
-
-        // Cashflow mensuel moyen = même règle que sidebar/page Biens : 12 derniers mois à partir d'aujourd'hui (une seule source de vérité)
         const CASHFLOW_PERIOD_MONTHS = 12;
         const monthlyTotals: Record<string, number> = {};
-        for (const t of filteredTransactions) {
-          const acc = (t as any).accounting_month ?? (t as any).accountingMonth;
-          const month = acc ?? (t.date ? `${new Date(t.date).getFullYear()}-${String(new Date(t.date).getMonth() + 1).padStart(2, '0')}` : null);
+        for (const t of filteredForKpi) {
+          const month = getEffectiveAccountingMonth(t);
           if (!month) continue;
-          const amount = t.amount || 0;
-          const natureKey = t.nature || '';
-          const natureData = natureKey ? natureMap.get(natureKey) : null;
-          const flow = natureData?.flow?.toUpperCase() || (amount > 0 ? 'INCOME' : 'EXPENSE');
-          const signed = flow === 'EXPENSE' ? -Math.abs(amount) : Math.abs(amount);
+          const amount = Number(t.amount) || 0;
+          const kind = resolveTransactionKind(t, natureMapAgg);
+          const abs = Math.abs(amount);
+          const signed = kind === 'expense' ? -abs : abs;
           monthlyTotals[month] = (monthlyTotals[month] ?? 0) + signed;
         }
         const now = new Date();
@@ -252,16 +214,18 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
         const cashflowMensuelMoyen = cashflowTotal / CASHFLOW_PERIOD_MONTHS;
         const cashflowMoisCount = CASHFLOW_PERIOD_MONTHS;
 
-        console.log('[useTransactionsKpis] ✅ KPIs calculés:', {
-          recettesTotales,
-          depensesTotales,
-          soldeNet,
-          nonRapprochees,
-          cashflowMensuelMoyen,
-          cashflowMoisCount,
-          transactionsCount: filteredTransactions.length,
-          totalTransactions: transactions.length
-        });
+        if (isTransactionAggregationDebugEnabled()) {
+          console.log('[useTransactionsKpis] ✅ KPIs calculés:', {
+            recettesTotales,
+            depensesTotales,
+            soldeNet,
+            nonRapprochees,
+            cashflowMensuelMoyen,
+            cashflowMoisCount,
+            transactionsCountScoped: filteredForKpi.length,
+            totalTransactionsLoaded: transactions.length,
+          });
+        }
 
         if (!cancelled) {
           setKpis({
@@ -288,7 +252,7 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
     return () => {
       cancelled = true;
     };
-  }, [mode, organizationId, periodStart, periodEnd, propertyId, propTransactions, appShellContext?.status, appShellContext?.error, appShellContext?.organizationId, normalOrg?.organizationId, normalOrg?.isLoading]);
+  }, [mode, organizationId, periodStart, periodEnd, propertyId, propTransactions, appShellContext?.status, appShellContext?.organizationId, normalOrg?.organizationId, normalOrg?.isLoading]);
   // ⚠️ CRITIQUE: refreshKey retiré des dépendances pour éviter les rechargements complets lors des filtres/tri/cartes
   // refreshKey est uniquement utilisé pour forcer un recalcul après CRUD (géré via événements transactions:refresh)
 
@@ -338,74 +302,56 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
       try {
         const db = await getLocalDB();
         const transRepo = await import('@/lib/offline/repositories/TransactionRepositoryOffline').then(m => m.getTransactionRepositoryOffline());
-        
-        // Recharger les transactions avec les mêmes filtres
-        const transactions = await transRepo.getAll(organizationId, {
-          ...(propertyId && { propertyId }),
-          ...(periodStart && { dateFrom: `${periodStart}-01` }),
-          ...(periodEnd && { dateTo: `${periodEnd}-31` }),
-        });
 
-        // Recalculer les KPIs (même logique que dans calculateKpis)
+        let transactions: LocalTransaction[] = [];
+        if (propTransactions && propTransactions.length > 0) {
+          transactions = propTransactions;
+        } else {
+          transactions = await transRepo.getAll(organizationId, {
+            ...(propertyId && { propertyId }),
+          });
+        }
+
         const naturesData = await db.NatureEntity.toArray();
         const natureMap = new Map<string, CachedNature>();
         naturesData.forEach((nature: CachedNature) => {
           natureMap.set(nature.key, nature);
         });
+        const natureMapAgg = natureMap as unknown as NatureFlowMap;
 
-        let filteredTransactions = transactions;
-        if (periodStart && periodEnd) {
-          filteredTransactions = transactions.filter(t => {
-            const accountingMonth = (t as any).accounting_month || (t as any).accountingMonth;
-            if (!accountingMonth) {
-              if (t.date) {
-                const d = new Date(t.date);
-                const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                return month >= periodStart && month <= periodEnd;
-              }
-              return false;
-            }
-            return accountingMonth >= periodStart && accountingMonth <= periodEnd;
-          });
-        }
+        const rowsForKpi: TransactionLike[] = transactions.map((t) => ({
+          id: t.id,
+          amount: t.amount,
+          nature: t.nature,
+          accounting_month: (t as any).accounting_month,
+          accountingMonth: (t as any).accountingMonth,
+          date: t.date,
+          propertyId: t.propertyId,
+          rapprochementStatus: t.rapprochementStatus,
+        }));
 
-        let recettesTotales = 0;
-        let depensesTotales = 0;
-        let nonRapprochees = 0;
+        const scope = {
+          ...(periodStart && periodEnd ? { periodStart, periodEnd } : {}),
+          ...(propertyId && { propertyId }),
+        };
 
-        for (const transaction of filteredTransactions) {
-          const amount = transaction.amount || 0;
-          const natureKey = transaction.nature || '';
-          const natureData = natureKey ? natureMap.get(natureKey) : null;
-          let flow = natureData?.flow?.toUpperCase();
-          if (!flow) {
-            flow = amount > 0 ? 'INCOME' : 'EXPENSE';
-          }
+        const filteredForKpi = filterTransactionsForScope(rowsForKpi, scope, natureMapAgg);
+        debugTransactionAggregation('useTransactionsKpis(refresh)', filteredForKpi, natureMapAgg);
 
-          if (flow === 'INCOME') {
-            recettesTotales += Math.abs(amount);
-          } else if (flow === 'EXPENSE') {
-            depensesTotales += -Math.abs(amount);
-          }
-
-          if (transaction.rapprochementStatus === 'non_rapprochee') {
-            nonRapprochees++;
-          }
-        }
-
-        const soldeNet = recettesTotales + depensesTotales;
+        const { recettesTotales, depensesTotales, soldeNet, nonRapprochees } = computeTransactionKpiTotals(
+          filteredForKpi,
+          natureMapAgg
+        );
 
         const CASHFLOW_PERIOD_MONTHS = 12;
         const monthlyTotals: Record<string, number> = {};
-        for (const t of filteredTransactions) {
-          const acc = (t as any).accounting_month ?? (t as any).accountingMonth;
-          const month = acc ?? (t.date ? `${new Date(t.date).getFullYear()}-${String(new Date(t.date).getMonth() + 1).padStart(2, '0')}` : null);
+        for (const t of filteredForKpi) {
+          const month = getEffectiveAccountingMonth(t);
           if (!month) continue;
-          const amount = t.amount || 0;
-          const natureKey = t.nature || '';
-          const natureData = natureKey ? natureMap.get(natureKey) : null;
-          const flow = natureData?.flow?.toUpperCase() || (amount > 0 ? 'INCOME' : 'EXPENSE');
-          const signed = flow === 'EXPENSE' ? -Math.abs(amount) : Math.abs(amount);
+          const amount = Number(t.amount) || 0;
+          const kind = resolveTransactionKind(t, natureMapAgg);
+          const abs = Math.abs(amount);
+          const signed = kind === 'expense' ? -abs : abs;
           monthlyTotals[month] = (monthlyTotals[month] ?? 0) + signed;
         }
         const now = new Date();
@@ -439,7 +385,7 @@ export function useTransactionsKpis(options: UseTransactionsKpisOptions) {
       cancelled = true;
       window.removeEventListener('transactions:refresh', handleRefresh);
     };
-  }, [mode, organizationId, periodStart, periodEnd, propertyId, appShellContext?.organizationId, normalOrg?.organizationId]);
+  }, [mode, organizationId, periodStart, periodEnd, propertyId, propTransactions, appShellContext?.organizationId, normalOrg?.organizationId]);
 
   // Retourner les données selon le mode
   if (mode === 'normal') {

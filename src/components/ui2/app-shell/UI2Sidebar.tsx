@@ -30,6 +30,7 @@ import { useSidebarOptional } from '@/contexts/SidebarContext';
 import { buildViewPath, type ViewType } from '@/utils/appShellNavigation';
 import { useAppSession } from '@/features/auth/useAppSession';
 import { AppVersionBadge } from '@/components/layout/AppVersionBadge';
+import { navAuditLog, navAuditSetSource } from '@/lib/dev/navAudit';
 
 // Composant Property Context (identique à UnifiedSidebar, juste le style change)
 function UI2PropertyContextSection({ searchParams }: { searchParams: URLSearchParams | null }) {
@@ -139,6 +140,7 @@ export function UI2Sidebar({
   const handleNavClick = (view: ViewType, e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     const path = buildViewPath(view);
+    navAuditSetSource('sidebar:router.push');
     router.push(path, { scroll: false });
     const sectionId = getSectionForView(view);
     openOnlySection(sectionId);
@@ -157,6 +159,11 @@ export function UI2Sidebar({
   };
 
   const sections = getSidebarItemsBySection(role || 'USER', true, true);
+
+  useEffect(() => {
+    navAuditLog('Sidebar (UI2) mount');
+    return () => navAuditLog('Sidebar (UI2) unmount');
+  }, []);
 
   const isItemActive = (item: SidebarItemConfig): boolean => {
     return currentView === item.appView;

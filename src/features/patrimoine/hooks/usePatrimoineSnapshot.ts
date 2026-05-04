@@ -51,6 +51,11 @@ import {
   computeCashflowProjection,
   type PatrimoineProjectionTrend,
 } from '@/features/patrimoine/services/patrimoineProjectionService';
+import {
+  adjustInvestmentRecommendationForEmergencyFund,
+  computeEmergencyFund,
+  type EmergencyFundResult,
+} from '@/features/patrimoine/services/emergencyFundService';
 
 export const DEFAULT_ETF_ANNUAL_YIELD = 0.07;
 
@@ -80,6 +85,8 @@ export interface PatrimoineSnapshotResult {
   cashSecurite: number;
   patrimoineNetGlobal: number;
   revenuGlobalEstime: number;
+  /** Épargne de sécurité (3–6 mois de revenu net) — même base revenu que le KPI annuel */
+  emergencyFund: EmergencyFundResult;
   marketRecommendation: InvestmentRecommendation | null;
   dcaRecommended: number;
   reinforceRecommended: number;
@@ -326,18 +333,6 @@ async function loadPatrimoineSnapshotCore(
   const availableMarketInvestments = buildAvailableMarketInvestmentsForPatrimoine(marketResolved.availableInvestments);
   const marketSettings = marketResolved.selectedInvestment;
 
-  let marketSnap: MarketSnapshot | null = null;
-  let history: InvestmentActionLog[] = [];
-  let marketRecommendation: InvestmentRecommendation | null = null;
-  if (marketSettings) {
-    const sym = normalizeMarketStorageSymbol(marketSettings.referenceSymbol);
-    marketSnap = await marketInvestmentStorage.getSnapshot(organizationId, sym, marketSettings.athPeriod);
-    history = await marketInvestmentStorage.listActionLogs(organizationId, 48);
-    if (marketSnap) {
-      marketRecommendation = computeInvestmentRecommendation(marketSettings, marketSnap, history);
-    }
-  }
-
   const hasMarketProfile = marketSettings != null;
   const cashFromPatrimoine = Math.max(0, userSettings.cashDisponible);
   const cashFromMarket = marketSettings ? Math.max(0, marketSettings.availableCash ?? 0) : 0;
@@ -352,6 +347,26 @@ async function loadPatrimoineSnapshotCore(
 
   const patrimoineNetGlobal = immobilierNet + peaEtfValue + cashDisponible;
   const revenuGlobalEstime = revenuLocatifNet + revenuEtfEstime;
+
+  const emergencyFund = computeEmergencyFund({
+    currentCash: cashDisponible,
+    revenuGlobalEstime,
+    revenuLocatifNetAnnual: revenuLocatifNet,
+    hasFiscalSimulation,
+  });
+
+  let marketSnap: MarketSnapshot | null = null;
+  let history: InvestmentActionLog[] = [];
+  let marketRecommendation: InvestmentRecommendation | null = null;
+  if (marketSettings) {
+    const sym = normalizeMarketStorageSymbol(marketSettings.referenceSymbol);
+    marketSnap = await marketInvestmentStorage.getSnapshot(organizationId, sym, marketSettings.athPeriod);
+    history = await marketInvestmentStorage.listActionLogs(organizationId, 48);
+    if (marketSnap) {
+      const rawReco = computeInvestmentRecommendation(marketSettings, marketSnap, history);
+      marketRecommendation = adjustInvestmentRecommendationForEmergencyFund(rawReco, emergencyFund);
+    }
+  }
 
   const totalAlloc = patrimoineNetGlobal > 0 ? patrimoineNetGlobal : 1;
   const allocationEtf = patrimoineNetGlobal > 0 ? peaEtfValue / totalAlloc : 0;
@@ -417,6 +432,7 @@ async function loadPatrimoineSnapshotCore(
     marketReinforcePortion: marketRecommendation?.reinforcePortion ?? 0,
     marketSuggestedTotal: marketRecommendation?.suggestedAmount ?? 0,
     objective,
+    emergencyFundStatus: emergencyFund.status,
   });
 
   const patrimoineReco = computePatrimoineRecommendation(decisionInput);
@@ -493,6 +509,7 @@ async function loadPatrimoineSnapshotCore(
     cashSecurite,
     patrimoineNetGlobal,
     revenuGlobalEstime,
+    emergencyFund,
     marketRecommendation,
     dcaRecommended,
     reinforceRecommended,
@@ -665,6 +682,16 @@ export function usePatrimoineSnapshot(options: UsePatrimoineSnapshotOptions): Pa
       cashSecurite: userSettings.cashSecurite,
       patrimoineNetGlobal: 0,
       revenuGlobalEstime: 0,
+      emergencyFund: {
+        monthlyNetIncome: null,
+        annualNetIncome: null,
+        incomeSource: 'INDISPONIBLE',
+        emergencyFundMin: null,
+        emergencyFundTarget: null,
+        currentCash: 0,
+        coverageMonths: null,
+        status: 'INDISPONIBLE',
+      },
       marketRecommendation: null,
       dcaRecommended: 0,
       reinforceRecommended: 0,

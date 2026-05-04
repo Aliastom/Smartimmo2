@@ -79,6 +79,21 @@ describe('computePatrimoineRecommendation', () => {
     expect(r.reinforceAmount).toBeGreaterThan(0);
   });
 
+  it('épargne sécurité CRITIQUE : bloque le renfort opportuniste', () => {
+    const input = baseDecisionInput({
+      insufficientMarketData: false,
+      drawdownPercent: -15,
+      investableCash: 10_000,
+      objective: 'croissance',
+      marketMonthlyDcaPortion: 500,
+      marketReinforcePortion: 400,
+      emergencyFundStatus: 'CRITIQUE',
+    });
+    const r = computePatrimoineRecommendation(input);
+    expect(r.primaryAction).not.toBe('REINFORCE');
+    expect(r.reinforceAmount).toBe(0);
+  });
+
   it('objectif sécurité : seuil renfort 5000 € — pas de renfort à 4500 € alors que croissance renforce', () => {
     const common = {
       insufficientMarketData: false,

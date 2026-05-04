@@ -1,4 +1,8 @@
 -- Scope LMNP par activité (SIRET), additif et rétro-compatible.
+-- Colonne schema Property.rentalMode (absente de la création initiale) : requise par le SQL ci-dessous.
+-- Intégré ici (et non en migration séparée) car Prisma peut ne pas rejouer une migration insérée
+-- « entre » des migrations déjà appliquées sur la shadow DB.
+ALTER TABLE "Property" ADD COLUMN IF NOT EXISTS "rentalMode" TEXT NOT NULL DEFAULT 'LONG_TERM';
 
 CREATE TABLE "LmnpActivity" (
     "id" TEXT NOT NULL,

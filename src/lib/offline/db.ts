@@ -552,12 +552,29 @@ export interface InvestmentActionLog {
   symbolAtDecision: string;
   marketStatusAtDecision: 'NORMAL' | 'OPPORTUNITE' | 'FORTE_OPPORTUNITE';
   athPeriodAtDecision: '5Y' | '10Y' | 'MAX';
-  status: 'suggested' | 'validated' | 'ignored';
+  status: 'suggested' | 'validated' | 'ignored' | 'cancelled';
   note?: string | null;
   thresholdKey?: string | null;
   marketLevelKey?: string | null;
   drawdownPercentAtAction?: number | null;
   updatedAt?: string | null;
+  portfolioOrderId?: string | null;
+  portfolioAccountId?: string | null;
+  validatedQuantity?: number | null;
+  validatedUnitPrice?: number | null;
+  recommendationKind?: 'DCA' | 'REINFORCE' | 'HOLD' | 'NONE';
+  journalSource?: 'assistant' | 'user' | 'import';
+  journalEntryType?: 'RECOMMENDATION' | 'ORDER_CREATED' | 'MANUAL_DECISION';
+  marketContextSnapshot?: {
+    price: number | null;
+    ath: number | null;
+    drawdownPct: number | null;
+    period: '5Y' | '10Y' | 'MAX';
+    cashAvailable: number;
+  };
+  assetId?: string | null;
+  validatedAt?: string | null;
+  ignoredAt?: string | null;
 }
 
 export interface MarketAlert {
@@ -569,6 +586,59 @@ export interface MarketAlert {
   drawdownPercent: number;
   createdAt: string;
   readAt?: string | null;
+}
+
+/** Compte portefeuille marché (PEA, CTO, etc.) — aligné Prisma `PortfolioAccount`. */
+export interface LocalPortfolioAccount {
+  id: string;
+  organizationId: string;
+  name: string;
+  kind: string;
+  currency: string;
+  inflationAnnualRate?: number | null;
+  fiscalProfileId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  _syncedAt?: string;
+}
+
+/** Ordre portefeuille — aligné Prisma `PortfolioOrder`. */
+export interface LocalPortfolioOrder {
+  id: string;
+  organizationId: string;
+  accountId: string;
+  assetSymbol: string;
+  assetIsin?: string | null;
+  type: string;
+  date: string;
+  quantity: number;
+  unitPrice: number | null;
+  grossAmount: number | null;
+  fees: number;
+  taxes: number;
+  currency: string;
+  note?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  _syncedAt?: string;
+}
+
+/** Instantané historique — aligné Prisma `PortfolioSnapshot`. */
+export interface LocalPortfolioSnapshot {
+  id: string;
+  organizationId: string;
+  capturedAt: string;
+  totalMarketValue: number;
+  totalRemainingCostBasis: number;
+  totalUnrealizedPnL: number;
+  totalRealizedPnL: number;
+  totalDividendsNet: number;
+  grossPerformanceEuro: number;
+  netPerformanceAfterTaxEuro: number;
+  surplusInflationEuro: number;
+  valuationIncomplete: boolean;
+  createdAt: string;
+  _syncedAt?: string;
 }
 
 // Type pour Table (sera importé dynamiquement avec Dexie)
@@ -977,6 +1047,9 @@ export async function getLocalDB(): Promise<any> {
   MarketSnapshot!: Table<MarketSnapshot, [string, string]>;
   InvestmentActionLog!: Table<InvestmentActionLog, string>;
   MarketAlert!: Table<MarketAlert, string>;
+  PortfolioAccount!: Table<LocalPortfolioAccount, [string, string]>;
+  PortfolioOrder!: Table<LocalPortfolioOrder, string>;
+  PortfolioSnapshot!: Table<LocalPortfolioSnapshot, [string, string]>;
 
   constructor() {
           // ⚠️ CRITIQUE: Passer explicitement indexedDB et IDBKeyRange au constructeur Dexie
@@ -1568,6 +1641,24 @@ export async function getLocalDB(): Promise<any> {
         });
       }
       console.log('[Migration v21] MarketSnapshot scopé par athPeriod');
+    });
+
+    this.version(22).stores({
+      PortfolioAccount: '[organizationId+id], organizationId, kind, currency, updatedAt',
+      PortfolioOrder:
+        'id, organizationId, accountId, date, assetSymbol, type, currency, [organizationId+accountId], [organizationId+date]',
+    }).upgrade(async () => {
+      console.log('[Migration v22] Portfolio marché (comptes + ordres)');
+    });
+
+    this.version(23).stores({
+      PortfolioAccount: '[organizationId+id], organizationId, kind, currency, updatedAt',
+      PortfolioOrder:
+        'id, organizationId, accountId, date, assetSymbol, type, currency, [organizationId+accountId], [organizationId+date]',
+      PortfolioSnapshot:
+        '[organizationId+id], organizationId, capturedAt, createdAt, [organizationId+capturedAt]',
+    }).upgrade(async () => {
+      console.log('[Migration v23] PortfolioSnapshot historique');
     });
   }
       };

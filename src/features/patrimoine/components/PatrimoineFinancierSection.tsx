@@ -104,6 +104,17 @@ export function PatrimoineFinancierSection({ mode, organizationId, snapshot, cla
         {snapshot.marketScoreLabel && (
           <p className="mt-1 text-[10px] text-slate-600">Score : {snapshot.marketScoreLabel}</p>
         )}
+        {snapshot.emergencyFund.status === 'CRITIQUE' && (
+          <p className="mt-2 rounded-md border border-amber-200/90 bg-amber-50/90 px-2 py-1.5 text-[10px] font-medium text-amber-950 sm:text-[11px]">
+            Priorité à l’épargne de sécurité : suggestions opportunistes réduites ou désactivées tant que le cash couvre
+            moins de 3 mois de revenu net.
+          </p>
+        )}
+        {snapshot.emergencyFund.status === 'A_RENFORCER' && (
+          <p className="mt-2 text-[10px] text-slate-600 sm:text-[11px]">
+            Couverture entre 3 et 6 mois : DCA habituel possible ; renforts opportunistes atténués.
+          </p>
+        )}
       </div>
 
       <PatrimoineDecisionPerformancePanel organizationId={organizationId} snapshot={snapshot} />

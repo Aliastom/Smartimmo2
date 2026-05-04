@@ -135,11 +135,19 @@ function confidenceFrom(
   return 'high';
 }
 
+/** Contexte optionnel issu du portefeuille réel saisi (Smartimmo). */
+export interface PortfolioAdviceOverlay {
+  hasOpenPositions: boolean;
+  portfolioValueTotal: number;
+  /** Pondération de l’actif principal (réglages marché) dans la valeur des positions ouvertes (%) */
+  principalWeightPercent: number | null;
+}
+
 export function computeInvestmentRecommendation(
   settings: InvestmentSettings,
   snapshot: MarketSnapshot,
   history: InvestmentActionLog[],
-  options?: { nowMs?: number }
+  options?: { nowMs?: number; portfolio?: PortfolioAdviceOverlay | null }
 ): InvestmentRecommendation {
   const nowMs = options?.nowMs ?? Date.now();
   const strategy = getEffectiveInvestmentStrategy(settings);
@@ -238,6 +246,11 @@ export function computeInvestmentRecommendation(
   }
   if (prudenceMode) reasonParts.push('Mode prudence : cash restant faible vs référence initiale');
   if (recentSimilar) reasonParts.push('Renfort similaire récemment enregistré : renfort divisé par 2');
+  if (options?.portfolio?.hasOpenPositions && options.portfolio.principalWeightPercent != null) {
+    reasonParts.push(
+      `Portefeuille suivi : l’actif principal représente environ ${options.portfolio.principalWeightPercent.toFixed(1)} % de la valeur des positions ouvertes (hors cash déclaratif).`
+    );
+  }
 
   const message =
     decisionType === 'DCA_ONLY'

@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { navAuditLog } from '@/lib/dev/navAudit';
 
 interface AppShellContentProps {
   children: React.ReactNode;
@@ -13,6 +14,11 @@ interface AppShellContentProps {
  * Fournit des transitions douces type Ulys lors des changements de pages internes
  */
 export function AppShellContent({ children, pageKey }: AppShellContentProps) {
+  useEffect(() => {
+    navAuditLog('page content mount', pageKey);
+    return () => navAuditLog('page content unmount', pageKey);
+  }, [pageKey]);
+
   return (
     <AnimatePresence mode="wait" initial={false}>
       <motion.div

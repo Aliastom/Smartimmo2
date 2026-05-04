@@ -181,6 +181,44 @@ const DATASET_DEFINITIONS: readonly DatasetDefinition[] = [
       ),
   },
   {
+    dataset: 'portfolio_accounts',
+    group: 'business',
+    restoreOrder: 125,
+    fetchRows: async () => sortRows(toSerializableRows(await prisma.portfolioAccount.findMany())),
+    purgeRows: async () => (await prisma.portfolioAccount.deleteMany()).count,
+    restoreRows: async (rows) =>
+      createManyCount(
+        (data) =>
+          prisma.portfolioAccount.createMany({ data: data as unknown as Prisma.PortfolioAccountCreateManyInput[] }),
+        rows
+      ),
+  },
+  {
+    dataset: 'portfolio_orders',
+    group: 'business',
+    restoreOrder: 126,
+    fetchRows: async () => sortRows(toSerializableRows(await prisma.portfolioOrder.findMany())),
+    purgeRows: async () => (await prisma.portfolioOrder.deleteMany()).count,
+    restoreRows: async (rows) =>
+      createManyCount(
+        (data) => prisma.portfolioOrder.createMany({ data: data as unknown as Prisma.PortfolioOrderCreateManyInput[] }),
+        rows
+      ),
+  },
+  {
+    dataset: 'portfolio_snapshots',
+    group: 'business',
+    restoreOrder: 127,
+    fetchRows: async () => sortRows(toSerializableRows(await prisma.portfolioSnapshot.findMany())),
+    purgeRows: async () => (await prisma.portfolioSnapshot.deleteMany()).count,
+    restoreRows: async (rows) =>
+      createManyCount(
+        (data) =>
+          prisma.portfolioSnapshot.createMany({ data: data as unknown as Prisma.PortfolioSnapshotCreateManyInput[] }),
+        rows
+      ),
+  },
+  {
     dataset: 'echeances',
     group: 'business',
     restoreOrder: 130,
